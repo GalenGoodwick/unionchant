@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Union Chant - Democracy at Scale</title>
+    <link rel="stylesheet" href="style-v2.css">
+</head>
+<body>
+    <div class="container">
+
+        <!-- Live Activity Feed (Sidebar) -->
+        <aside class="activity-feed" id="activity-feed">
+            <h3>🔴 LIVE ACTIVITY</h3>
+            <div id="activities-list"></div>
+            <div class="stats-summary">
+                <div id="live-stats"></div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header>
+                <h1>🗳️ Union Chant</h1>
+                <p class="subtitle">Democracy at Scale</p>
+            </header>
+
+            <!-- STEP 1: Initialize Decision -->
+            <section id="init-section" class="section active">
+                <h2>Start a New Decision</h2>
+                <div class="card">
+                    <label for="prompt-input">What should people decide?</label>
+                    <input
+                        type="text"
+                        id="prompt-input"
+                        placeholder="e.g., How should we spend $100,000 on improving our neighborhood?"
+                        value="How should we spend $100,000 on improving our neighborhood?"
+                    >
+                    <button onclick="initializeDecision()" class="btn-primary">
+                        Start Decision
+                    </button>
+                </div>
+            </section>
+
+            <!-- STEP 2: Configure Simulation -->
+            <section id="submit-section" class="section">
+                <h2>Configure Your Simulation</h2>
+                <p class="prompt-display" id="prompt-display"></p>
+
+                <div class="card">
+                    <p style="color: #667eea; font-weight: 600; margin-bottom: 20px;">
+                        Set up a live simulation where AI participants submit ideas and vote alongside you!
+                    </p>
+
+                    <div style="background: #f0f4ff; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <label for="your-name" style="font-weight: 600;">Your Name (optional):</label>
+                        <input type="text" id="your-name" placeholder="Leave blank to just vote">
+
+                        <label for="your-idea" style="font-weight: 600;">Your Idea (optional):</label>
+                        <textarea id="your-idea" placeholder="Leave blank to just vote, or enter your idea to compete..." rows="2"></textarea>
+                        <p style="color: #666; font-size: 0.9em; margin-top: 5px;">
+                            If you submit an idea, you'll vote alongside AI participants. Your idea will compete with AI ideas!
+                        </p>
+                    </div>
+
+                    <label for="num-participants">Total Participants (including you):</label>
+                    <input type="number" id="num-participants" value="15" min="10" max="500" placeholder="e.g., 15, 25, 50">
+
+                    <label for="join-rate">Participants Join Every (seconds):</label>
+                    <input type="number" id="join-rate" value="1" min="1" max="30" placeholder="e.g., 1, 3, 5">
+
+                    <label for="tier1-deadline">Tier 1 Deadline (minutes):</label>
+                    <input type="number" id="tier1-deadline" value="1" min="1" max="60" placeholder="e.g., 1, 2, 5">
+
+                    <label for="other-tier-deadline">Other Tiers Deadline (minutes):</label>
+                    <input type="number" id="other-tier-deadline" value="1" min="1" max="30" placeholder="e.g., 1, 2, 3">
+
+                    <button onclick="startSimulation()" class="btn-cta" id="ai-gen-btn">
+                        🚀 Start Live Simulation
+                    </button>
+                </div>
+            </section>
+
+            <!-- STEP 3: Tier Dashboard -->
+            <section id="tier-section" class="section">
+                <div class="tier-header">
+                    <h2>Tier <span id="current-tier">1</span></h2>
+                    <div class="reservation-timer" id="tier-deadline" style="display:none; background: #ffe6e6; border-color: #ff4444;">
+                        ⏰ Tier deadline: <span id="tier-time-remaining"></span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="tier-progress-fill"></div>
+                    </div>
+                    <p class="progress-text" id="progress-text"></p>
+                </div>
+
+                <div class="tier-info" id="tier-info">
+                    <p>🔍 Finding you a cell...</p>
+                </div>
+
+                <!-- User Stats Card -->
+                <div class="card stats-card" id="stats-card" style="display:none;">
+                    <h3>📊 Your Progress</h3>
+                    <div id="user-stats"></div>
+                </div>
+            </section>
+
+            <!-- STEP 4: Voting Screen -->
+            <section id="voting-section" class="section">
+                <div class="voting-header">
+                    <h2>Cell #<span id="voting-cell-number"></span></h2>
+                    <div class="reservation-timer" id="reservation-timer">
+                        ⏳ Spot reserved for <span id="timer-seconds"></span>
+                    </div>
+                    <p class="voting-status" id="voting-status"></p>
+                </div>
+
+                <div class="voting-instructions">
+                    <p>Pick your favorite idea and tell us why:</p>
+                </div>
+
+                <div id="voting-options" class="voting-options"></div>
+
+                <button onclick="submitVote()" class="btn-primary btn-submit-vote" id="submit-vote-btn" disabled>
+                    Submit Vote
+                </button>
+            </section>
+
+            <!-- STEP 5: Cell Results -->
+            <section id="results-section" class="section">
+                <div class="results-header">
+                    <h2>Cell Results</h2>
+                </div>
+
+                <div id="results-content"></div>
+
+                <div class="results-actions">
+                    <button onclick="continueToNextTier()" class="btn-primary" id="next-tier-btn">
+                        Vote in Next Tier →
+                    </button>
+                </div>
+            </section>
+
+            <!-- STEP 6: Final Winner -->
+            <section id="winner-section" class="section">
+                <div class="winner-announcement">
+                    <h2>🏆 Final Winner</h2>
+                    <div id="winner-content"></div>
+                </div>
+
+                <button onclick="resetDemo()" class="btn-secondary">
+                    Start New Decision
+                </button>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="script-v2.js"></script>
+</body>
+</html>

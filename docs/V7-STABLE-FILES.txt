@@ -1,0 +1,49 @@
+UNION CHANT v7 - STABLE VERSION
+================================
+
+Core Files:
+-----------
+✅ server-v7-stable.js         - Server (port 3008)
+✅ index-v7-stable.html        - UI interface
+
+Documentation:
+--------------
+✅ V7-STABLE-README.md         - Complete documentation
+✅ QUICKSTART-V7-STABLE.md     - Quick start guide
+✅ CONSTRAINT-ENFORCEMENT.md   - Constraint implementation details
+✅ V7-SCALABLE-SUMMARY.md      - Original design summary
+
+Test Files:
+-----------
+✅ test-v7-scalable.js         - 100 participant multi-tier test
+✅ test-constraints.js         - Constraint enforcement test
+✅ test-multi-tier.js          - Tier progression test
+
+Key Features:
+-------------
+✅ Everyone votes in every tier (no delegation)
+✅ Natural reduction (only top vote-getter(s) advance)
+✅ Automatic tie-breaking (runoffs)
+✅ Constraint enforcement (max 7 ideas, ideas ≤ participants)
+✅ Multi-tier progression (3, 4, 5+ tiers as needed)
+✅ No single-idea voting rounds
+✅ Scalable to 100,290+ participants
+
+How to Run:
+-----------
+1. node server-v7-stable.js
+2. Open http://localhost:3008
+3. Add participants, start voting, complete tiers
+
+Test Commands:
+--------------
+node test-v7-scalable.js
+node test-constraints.js
+node test-multi-tier.js
+
+Version Info:
+-------------
+Version: v7-STABLE
+Port: 3008
+Date: 2026-01-24
+Status: Production ready

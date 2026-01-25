@@ -1,0 +1,23 @@
+{
+  "name": "union-chant",
+  "version": "1.0.0",
+  "description": "**Breakthrough democratic voting system:** Universal participation + meaningful deliberation + fast convergence (O(log n) tiers)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  }
+}
