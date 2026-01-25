@@ -9,7 +9,7 @@ class UnionChantEngine {
     this.cells = []
     this.votes = []
     this.comments = []  // NEW: For deliberation
-    this.phase = 'submission'  // 'submission', 'voting', 'completed'
+    this.phase = 'submission'  // 'submission', 'voting', 'completed', 'accumulating'
     this.currentTier = 1
     this.CELL_SIZE = 5  // Target cell size
     this.MAX_IDEAS_PER_CELL = 7
@@ -17,6 +17,17 @@ class UnionChantEngine {
     // Timer and quorum settings
     this.votingTimeoutMs = config.votingTimeoutMs || 60000  // Default 1 minute
     this.quorumPercent = config.quorumPercent || 0.5  // 50% quorum
+
+    // Rolling mode state
+    this.champion = null  // Current winning idea
+    this.championRun = null  // Metadata about the run that produced champion { ideaCount, tierReached }
+    this.recyclableIdeas = []  // Runner-ups from previous run
+    this.accumulatedIdeas = []  // New ideas during accumulation
+    this.accumulationTimerMs = config.accumulationTimerMs || 300000  // Default 5 minutes
+    this.accumulationStartedAt = null
+    this.accumulationDeadline = null
+    this.secondVoteAllowed = false  // Flag for allowing 2nd votes after timeout
+    this.votersWhoVotedTwice = []  // Track who has used their 2nd vote
   }
 
   // === CORE ALGORITHM (Preserved from v7-STABLE) ===
@@ -59,8 +70,39 @@ class UnionChantEngine {
 
   /**
    * Reset system to initial state
+   * @param {boolean} preserveChampion - If true, keeps champion for rolling mode
    */
-  reset() {
+  reset(preserveChampion = false) {
+    if (preserveChampion && this.champion) {
+      // Rolling mode reset - keep champion, clear everything else
+      const savedChampion = { ...this.champion }
+      const savedChampionRun = { ...this.championRun }
+      const savedRecyclable = [...this.recyclableIdeas]
+
+      this.participants = []
+      this.ideas = []
+      this.cells = []
+      this.votes = []
+      this.comments = []
+      this.phase = 'accumulating'
+      this.currentTier = 1
+      this.accumulatedIdeas = []
+      this.secondVoteAllowed = false
+      this.votersWhoVotedTwice = []
+
+      // Restore rolling mode state
+      this.champion = savedChampion
+      this.championRun = savedChampionRun
+      this.recyclableIdeas = savedRecyclable
+
+      // Start accumulation timer
+      this.accumulationStartedAt = Date.now()
+      this.accumulationDeadline = Date.now() + this.accumulationTimerMs
+
+      return { success: true, mode: 'rolling', champion: this.champion }
+    }
+
+    // Full reset
     this.participants = []
     this.ideas = []
     this.cells = []
@@ -69,7 +111,17 @@ class UnionChantEngine {
     this.phase = 'submission'
     this.currentTier = 1
 
-    return { success: true }
+    // Clear rolling mode state
+    this.champion = null
+    this.championRun = null
+    this.recyclableIdeas = []
+    this.accumulatedIdeas = []
+    this.accumulationStartedAt = null
+    this.accumulationDeadline = null
+    this.secondVoteAllowed = false
+    this.votersWhoVotedTwice = []
+
+    return { success: true, mode: 'fresh' }
   }
 
   /**
@@ -486,10 +538,12 @@ class UnionChantEngine {
 
       if (advancingIdeas.length === 1) {
         advancingIdeas[0].status = 'winner'
-        this.phase = 'completed'
+        // Enter accumulation mode for rolling democracy
+        this.enterAccumulationMode(advancingIdeas[0])
         return {
           winner: advancingIdeas[0],
-          message: 'Winner declared!'
+          message: 'Winner declared! Entering accumulation mode.',
+          rollingMode: true
         }
       }
 
@@ -548,10 +602,12 @@ class UnionChantEngine {
             }
           })
 
-          this.phase = 'completed'
+          // Enter accumulation mode for rolling democracy
+          this.enterAccumulationMode(winner)
           return {
             winner: { ...winner, totalVotes: crossCellTally[winnerId] },
-            message: 'Winner declared!'
+            message: 'Winner declared! Entering accumulation mode.',
+            rollingMode: true
           }
         }
       }
@@ -598,10 +654,13 @@ class UnionChantEngine {
 
       // If only 1 winner, declare victory
       if (batchWinners.length === 1) {
-        this.phase = 'completed'
+        batchWinners[0].status = 'winner'
+        // Enter accumulation mode for rolling democracy
+        this.enterAccumulationMode(batchWinners[0])
         return {
           winner: batchWinners[0],
-          message: 'Winner declared!'
+          message: 'Winner declared! Entering accumulation mode.',
+          rollingMode: true
         }
       }
 
@@ -667,13 +726,277 @@ class UnionChantEngine {
     ).filter(Boolean)
   }
 
+  // === ROLLING MODE METHODS ===
+
+  /**
+   * Enter accumulation mode after a winner is declared
+   * Stores runner-ups for potential recycling
+   */
+  enterAccumulationMode(winner) {
+    this.champion = winner
+    this.championRun = {
+      ideaCount: this.ideas.length,
+      tierReached: this.currentTier,
+      completedAt: Date.now()
+    }
+
+    // Store runner-ups (cell-winners that didn't become the final winner)
+    this.recyclableIdeas = this.ideas.filter(i =>
+      i.status === 'cell-winner' || (i.status === 'eliminated' && i.tier > 1)
+    ).map(i => ({
+      ...i,
+      recycledFrom: this.championRun.completedAt
+    }))
+
+    this.phase = 'accumulating'
+    this.accumulatedIdeas = []
+    this.accumulationStartedAt = Date.now()
+    this.accumulationDeadline = Date.now() + this.accumulationTimerMs
+
+    return {
+      success: true,
+      champion: this.champion,
+      recyclableCount: this.recyclableIdeas.length,
+      threshold: this.getChallengeThreshold()
+    }
+  }
+
+  /**
+   * Get the number of ideas needed to trigger a challenge (50% of champion run)
+   */
+  getChallengeThreshold() {
+    if (!this.championRun) return 5  // Default minimum
+    return Math.max(5, Math.ceil(this.championRun.ideaCount * 0.5))
+  }
+
+  /**
+   * Submit a new idea during accumulation phase
+   */
+  submitAccumulatedIdea(ideaData) {
+    if (this.phase !== 'accumulating') {
+      throw new Error('Not in accumulation phase')
+    }
+
+    const idea = {
+      id: ideaData.id || `idea-acc-${this.accumulatedIdeas.length + 1}`,
+      text: ideaData.text,
+      author: ideaData.author,
+      authorId: ideaData.authorId,
+      tier: 0,  // Not yet in any tier
+      status: 'accumulated',
+      createdAt: Date.now(),
+      isNew: true  // Flag to distinguish from recycled ideas
+    }
+
+    this.accumulatedIdeas.push(idea)
+
+    // Check if we've hit the threshold
+    const threshold = this.getChallengeThreshold()
+    const canChallenge = this.accumulatedIdeas.length >= threshold
+
+    return {
+      idea,
+      accumulatedCount: this.accumulatedIdeas.length,
+      threshold,
+      canChallenge
+    }
+  }
+
+  /**
+   * Add a participant during accumulation phase
+   */
+  addAccumulatingParticipant(participantData) {
+    if (this.phase !== 'accumulating') {
+      throw new Error('Not in accumulation phase')
+    }
+
+    const participant = {
+      id: participantData.id || `p-acc-${this.participants.length + 1}`,
+      name: participantData.name,
+      type: participantData.type || 'human',
+      personality: participantData.personality,
+      joinedAt: Date.now()
+    }
+
+    this.participants.push(participant)
+    return participant
+  }
+
+  /**
+   * Check if accumulation timer has expired
+   * If expired, resets timer but keeps accumulated ideas
+   */
+  checkAccumulationTimeout() {
+    if (this.phase !== 'accumulating') return { expired: false }
+
+    const now = Date.now()
+    if (this.accumulationDeadline && now >= this.accumulationDeadline) {
+      // Timer expired - reset it but keep ideas
+      this.accumulationStartedAt = Date.now()
+      this.accumulationDeadline = Date.now() + this.accumulationTimerMs
+
+      return {
+        expired: true,
+        accumulatedCount: this.accumulatedIdeas.length,
+        threshold: this.getChallengeThreshold(),
+        message: 'Timer reset. Ideas preserved. Waiting for more participation.'
+      }
+    }
+
+    return {
+      expired: false,
+      timeRemaining: this.accumulationDeadline - now,
+      accumulatedCount: this.accumulatedIdeas.length,
+      threshold: this.getChallengeThreshold()
+    }
+  }
+
+  /**
+   * Trigger a challenge - merge accumulated ideas with recycled ones
+   * Champion will compete against the new contenders
+   */
+  triggerChallenge() {
+    if (this.phase !== 'accumulating') {
+      throw new Error('Not in accumulation phase')
+    }
+
+    const threshold = this.getChallengeThreshold()
+    const newIdeasCount = this.accumulatedIdeas.length
+
+    // Determine how many ideas we need total
+    // We want enough to run through tiers and reach a final showdown
+    const targetIdeas = threshold
+
+    // If we don't have enough new ideas, recycle runner-ups
+    let ideasForChallenge = [...this.accumulatedIdeas]
+
+    if (newIdeasCount < targetIdeas && this.recyclableIdeas.length > 0) {
+      const neededFromRecycle = targetIdeas - newIdeasCount
+      const recycled = this.recyclableIdeas.slice(0, neededFromRecycle)
+
+      // Mark recycled ideas
+      recycled.forEach(idea => {
+        idea.status = 'recycled'
+        idea.tier = 0
+        idea.isNew = false
+      })
+
+      ideasForChallenge = [...ideasForChallenge, ...recycled]
+    }
+
+    // Add the champion as a competitor (it defends its title)
+    const championIdea = {
+      ...this.champion,
+      id: `idea-champ-${Date.now()}`,
+      status: 'defending',
+      tier: 0,
+      isChampion: true
+    }
+    ideasForChallenge.push(championIdea)
+
+    // Reset for the challenge run
+    this.ideas = ideasForChallenge
+    this.cells = []
+    this.votes = []
+    this.comments = []
+    this.currentTier = 1
+    this.phase = 'submission'  // Will transition to voting
+    this.secondVoteAllowed = false
+    this.votersWhoVotedTwice = []
+
+    // Clear accumulated (they're now in ideas)
+    this.accumulatedIdeas = []
+
+    return {
+      success: true,
+      totalIdeas: ideasForChallenge.length,
+      newIdeas: newIdeasCount,
+      recycledIdeas: ideasForChallenge.length - newIdeasCount - 1,  // -1 for champion
+      championDefending: championIdea.text
+    }
+  }
+
+  /**
+   * Enable second votes for participants who already voted
+   * Called when participation drops and timeout occurs
+   */
+  enableSecondVotes() {
+    this.secondVoteAllowed = true
+    return {
+      success: true,
+      message: 'Second votes now allowed for existing voters'
+    }
+  }
+
+  /**
+   * Cast a second vote (only allowed after enableSecondVotes)
+   */
+  castSecondVote(cellId, participantId, ideaId) {
+    if (!this.secondVoteAllowed) {
+      throw new Error('Second votes not yet allowed')
+    }
+
+    if (this.votersWhoVotedTwice.includes(participantId)) {
+      throw new Error('Already used second vote')
+    }
+
+    const cell = this.cells.find(c => c.id === cellId)
+    if (!cell) {
+      throw new Error('Cell not found')
+    }
+
+    // Must have already voted once
+    const hasVotedOnce = this.votes.some(v => v.cellId === cellId && v.participantId === participantId)
+    if (!hasVotedOnce) {
+      throw new Error('Must vote once before casting second vote')
+    }
+
+    const vote = {
+      id: `vote-2nd-${this.votes.length + 1}`,
+      cellId,
+      participantId,
+      ideaId,
+      votedAt: Date.now(),
+      isSecondVote: true
+    }
+
+    this.votes.push(vote)
+    this.votersWhoVotedTwice.push(participantId)
+
+    return { success: true, vote }
+  }
+
+  /**
+   * Get accumulation status
+   */
+  getAccumulationStatus() {
+    if (this.phase !== 'accumulating') {
+      return { active: false }
+    }
+
+    const now = Date.now()
+    const threshold = this.getChallengeThreshold()
+
+    return {
+      active: true,
+      champion: this.champion,
+      accumulatedCount: this.accumulatedIdeas.length,
+      threshold,
+      progress: this.accumulatedIdeas.length / threshold,
+      canChallenge: this.accumulatedIdeas.length >= threshold,
+      recyclableCount: this.recyclableIdeas.length,
+      timeRemaining: this.accumulationDeadline ? Math.max(0, this.accumulationDeadline - now) : null,
+      participantCount: this.participants.length
+    }
+  }
+
   // === STATE GETTERS ===
 
   /**
    * Get complete system state
    */
   getState() {
-    return {
+    const state = {
       phase: this.phase,
       totalParticipants: this.participants.length,
       currentTier: this.currentTier,
@@ -684,7 +1007,9 @@ class UnionChantEngine {
         author: i.author,
         authorId: i.authorId,
         tier: i.tier,
-        status: i.status
+        status: i.status,
+        isNew: i.isNew,
+        isChampion: i.isChampion
       })),
       cells: this.cells.map(c => {
         const votesCast = this.votes.filter(v => v.cellId === c.id).length
@@ -715,8 +1040,17 @@ class UnionChantEngine {
       }),
       comments: this.comments,
       votingTimeoutMs: this.votingTimeoutMs,
-      quorumPercent: this.quorumPercent
+      quorumPercent: this.quorumPercent,
+
+      // Rolling mode state
+      champion: this.champion,
+      championRun: this.championRun,
+      accumulatedIdeas: this.accumulatedIdeas,
+      accumulationStatus: this.getAccumulationStatus(),
+      secondVoteAllowed: this.secondVoteAllowed
     }
+
+    return state
   }
 
   /**

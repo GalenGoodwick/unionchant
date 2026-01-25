@@ -61,14 +61,24 @@ app.post('/api/stop', (req, res) => {
 // Reset system
 app.post('/api/reset', (req, res) => {
   aborted = true  // Stop any running processes first
-  const { votingTimeoutMs = 60000 } = req.body || {}
+  const { votingTimeoutMs = 60000, preserveChampion = false } = req.body || {}
   engineConfig = { votingTimeoutMs }
-  engine = new UnionChantEngine({ votingTimeoutMs })
-  agentManager = new AgentManager(engine)
-  // Clear abort flag after reset so new processes can run
-  setTimeout(() => { aborted = false }, 100)
-  broadcastState()
-  res.json({ success: true, votingTimeoutMs })
+
+  if (preserveChampion && engine.champion) {
+    // Rolling mode reset - keep champion
+    const result = engine.reset(true)
+    agentManager = new AgentManager(engine)
+    setTimeout(() => { aborted = false }, 100)
+    broadcastState()
+    res.json({ ...result, votingTimeoutMs })
+  } else {
+    // Full reset
+    engine = new UnionChantEngine({ votingTimeoutMs })
+    agentManager = new AgentManager(engine)
+    setTimeout(() => { aborted = false }, 100)
+    broadcastState()
+    res.json({ success: true, votingTimeoutMs, mode: 'fresh' })
+  }
 })
 
 // Spawn AI agents
@@ -267,6 +277,131 @@ app.post('/api/tiers/:tier/complete', (req, res) => {
   }
 })
 
+// === ROLLING MODE ENDPOINTS ===
+
+// Get accumulation status
+app.get('/api/accumulation/status', (req, res) => {
+  res.json(engine.getAccumulationStatus())
+})
+
+// Submit idea during accumulation
+app.post('/api/accumulation/submit-idea', async (req, res) => {
+  const { text, author, authorId } = req.body
+
+  try {
+    const result = engine.submitAccumulatedIdea({ text, author, authorId })
+    io.emit('idea-accumulated', result)
+    broadcastState()
+    res.json(result)
+  } catch (error) {
+    res.status(400).json({ error: error.message })
+  }
+})
+
+// Add participant during accumulation
+app.post('/api/accumulation/join', (req, res) => {
+  const { name, type, personality } = req.body
+
+  try {
+    const participant = engine.addAccumulatingParticipant({ name, type, personality })
+    io.emit('participant-joined', participant)
+    broadcastState()
+    res.json({ success: true, participant })
+  } catch (error) {
+    res.status(400).json({ error: error.message })
+  }
+})
+
+// Trigger challenge (start new voting round against champion)
+app.post('/api/accumulation/trigger-challenge', (req, res) => {
+  try {
+    const result = engine.triggerChallenge()
+    io.emit('challenge-triggered', result)
+    broadcastState()
+    res.json(result)
+  } catch (error) {
+    res.status(400).json({ error: error.message })
+  }
+})
+
+// Check accumulation timeout (resets timer if expired)
+app.post('/api/accumulation/check-timeout', (req, res) => {
+  const result = engine.checkAccumulationTimeout()
+  if (result.expired) {
+    io.emit('accumulation-timer-reset', result)
+  }
+  broadcastState()
+  res.json(result)
+})
+
+// Enable second votes (for low participation situations)
+app.post('/api/voting/enable-second-votes', (req, res) => {
+  try {
+    const result = engine.enableSecondVotes()
+    io.emit('second-votes-enabled', result)
+    broadcastState()
+    res.json(result)
+  } catch (error) {
+    res.status(400).json({ error: error.message })
+  }
+})
+
+// Spawn agents during accumulation (for AI demo)
+app.post('/api/accumulation/spawn-agents', async (req, res) => {
+  const { count = 10, topic } = req.body
+
+  try {
+    // Use the topic from the request or default
+    const deliberationTopic = topic || 'challenging the current champion idea'
+
+    for (let i = 0; i < count; i++) {
+      if (aborted) break
+
+      // Create agent
+      const personalities = ['progressive', 'conservative', 'balanced', 'pragmatic', 'idealistic']
+      const personality = personalities[Math.floor(Math.random() * personalities.length)]
+
+      const agent = agentManager.createAgent(personality)
+
+      // Add as accumulating participant
+      engine.addAccumulatingParticipant({
+        id: agent.id,
+        name: agent.name,
+        type: 'ai-agent',
+        personality: agent.personality
+      })
+
+      // Generate and submit idea
+      const ideaText = await agent.generateIdea(deliberationTopic)
+      if (aborted) break
+
+      engine.submitAccumulatedIdea({
+        text: ideaText,
+        author: agent.name,
+        authorId: agent.id
+      })
+
+      io.emit('agent-spawned-accumulation', {
+        agent: { id: agent.id, name: agent.name, personality: agent.personality },
+        accumulatedCount: engine.accumulatedIdeas.length
+      })
+
+      await sleep(300)
+    }
+
+    broadcastState()
+    res.json({
+      success: true,
+      agentsSpawned: count,
+      accumulatedIdeas: engine.accumulatedIdeas.length,
+      threshold: engine.getChallengeThreshold(),
+      canChallenge: engine.accumulatedIdeas.length >= engine.getChallengeThreshold()
+    })
+  } catch (error) {
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // Get current state
 app.get('/api/state', (req, res) => {
   res.json(engine.getState())
@@ -300,7 +435,7 @@ function sleep(ms) {
 const PORT = 3009
 server.listen(PORT, () => {
   console.log('\n' + '='.repeat(60))
-  console.log('🚀 Union Chant v8 (Deliberative) Server')
+  console.log('🚀 Union Chant - Rolling Mode Server')
   console.log('='.repeat(60))
   console.log(`\nServer: http://localhost:${PORT}`)
   console.log('WebSocket: Ready for real-time updates')
@@ -309,14 +444,21 @@ server.listen(PORT, () => {
   console.log('  ✅ Cell-based deliberation')
   console.log('  ✅ Real-time WebSocket updates')
   console.log('  ✅ Multi-tier progression')
-  console.log('\nAPI Endpoints:')
+  console.log('  ✅ Rolling Mode (champion + accumulation)')
+  console.log('\nStandard Endpoints:')
   console.log('  POST /api/reset')
   console.log('  POST /api/agents/spawn')
   console.log('  POST /api/start-voting')
-  console.log('  POST /api/cells/:cellId/deliberate')
-  console.log('  POST /api/cells/:cellId/vote')
   console.log('  POST /api/tiers/:tier/run')
   console.log('  POST /api/tiers/:tier/complete')
   console.log('  GET  /api/state')
+  console.log('\nRolling Mode Endpoints:')
+  console.log('  GET  /api/accumulation/status')
+  console.log('  POST /api/accumulation/submit-idea')
+  console.log('  POST /api/accumulation/join')
+  console.log('  POST /api/accumulation/spawn-agents')
+  console.log('  POST /api/accumulation/trigger-challenge')
+  console.log('  POST /api/accumulation/check-timeout')
+  console.log('  POST /api/voting/enable-second-votes')
   console.log('\n' + '='.repeat(60) + '\n')
 })

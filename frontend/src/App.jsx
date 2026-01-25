@@ -19,6 +19,10 @@ function App() {
   const [abortController, setAbortController] = useState(null)
   const [winner, setWinner] = useState(null)
 
+  // Rolling mode state
+  const [challengeAgentCount, setChallengeAgentCount] = useState(10)
+  const [challengeRunning, setChallengeRunning] = useState(false)
+
   // WebSocket listeners
   useEffect(() => {
     socket.on('state-update', (newState) => {
@@ -57,11 +61,31 @@ function App() {
 
     socket.on('tier-completed', (result) => {
       if (result.winner) {
-        setCurrentActivity(`🏆 WINNER: ${result.winner.text}`)
+        setCurrentActivity(`🏆 CHAMPION: ${result.winner.text}`)
         setWinner(result.winner)
+        if (result.rollingMode) {
+          setCurrentActivity(`🏆 CHAMPION DECLARED! Now in accumulation mode. Submit new ideas to challenge.`)
+        }
       } else {
         setCurrentActivity(`➡️ ${result.advancingIdeas} ideas advance to Tier ${result.nextTier}`)
       }
+    })
+
+    // Rolling mode events
+    socket.on('idea-accumulated', (result) => {
+      setCurrentActivity(`💡 New idea accumulated (${result.accumulatedCount}/${result.threshold})`)
+    })
+
+    socket.on('challenge-triggered', (result) => {
+      setCurrentActivity(`⚔️ Challenge triggered! ${result.totalIdeas} ideas competing (${result.newIdeas} new, ${result.recycledIdeas} recycled)`)
+    })
+
+    socket.on('agent-spawned-accumulation', (data) => {
+      setCurrentActivity(`🤖 ${data.agent.name} joined with idea (${data.accumulatedCount} accumulated)`)
+    })
+
+    socket.on('accumulation-timer-reset', (result) => {
+      setCurrentActivity(`⏱️ Timer reset. ${result.accumulatedCount}/${result.threshold} ideas. Keep going!`)
     })
 
     return () => {
@@ -74,6 +98,10 @@ function App() {
       socket.off('voting-completed')
       socket.off('tier-started')
       socket.off('tier-completed')
+      socket.off('idea-accumulated')
+      socket.off('challenge-triggered')
+      socket.off('agent-spawned-accumulation')
+      socket.off('accumulation-timer-reset')
     }
   }, [])
 
@@ -205,6 +233,108 @@ function App() {
 
   const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
+  // Spawn challengers during accumulation
+  const spawnChallengers = async () => {
+    if (challengeAgentCount < 1) {
+      setCurrentActivity('❌ Need at least 1 challenger')
+      return
+    }
+
+    setChallengeRunning(true)
+    setCurrentActivity(`🤖 Spawning ${challengeAgentCount} challengers...`)
+
+    try {
+      await fetch(`${API_URL}/api/accumulation/spawn-agents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          count: challengeAgentCount,
+          topic: topic
+        })
+      })
+    } catch (error) {
+      setCurrentActivity(`❌ Error: ${error.message}`)
+    }
+
+    setChallengeRunning(false)
+  }
+
+  // Trigger challenge against champion
+  const triggerChallenge = async () => {
+    setLoading(true)
+    setDemoRunning(true)
+    setComments([])
+    setVotes([])
+
+    const controller = new AbortController()
+    setAbortController(controller)
+
+    try {
+      // Trigger the challenge
+      setCurrentActivity('⚔️ Triggering challenge...')
+      const challengeResult = await fetch(`${API_URL}/api/accumulation/trigger-challenge`, {
+        method: 'POST'
+      })
+      const challengeData = await challengeResult.json()
+
+      if (challengeData.error) {
+        setCurrentActivity(`❌ ${challengeData.error}`)
+        setDemoRunning(false)
+        setLoading(false)
+        return
+      }
+
+      await sleep(500)
+
+      // Start voting
+      setCurrentActivity('📊 Forming cells for challenge...')
+      await fetch(`${API_URL}/api/start-voting`, { method: 'POST' })
+
+      await sleep(500)
+
+      // Run tiers until winner
+      let currentTier = 1
+      let newWinner = null
+      const maxTiers = 10
+
+      while (!newWinner && currentTier <= maxTiers) {
+        setCurrentActivity(`📊 Tier ${currentTier} in progress...`)
+        await fetch(`${API_URL}/api/tiers/${currentTier}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sequential: false })
+        })
+
+        await sleep(15000)
+
+        const tierResult = await fetch(`${API_URL}/api/tiers/${currentTier}/complete`, { method: 'POST' })
+        const tierData = await tierResult.json()
+
+        if (tierData.winner) {
+          newWinner = tierData.winner
+          const isDefender = tierData.winner.isChampion
+          setCurrentActivity(isDefender
+            ? `👑 CHAMPION DEFENDED: ${tierData.winner.text}`
+            : `🎉 NEW CHAMPION: ${tierData.winner.text}`)
+          setWinner(tierData.winner)
+          break
+        }
+
+        currentTier++
+        setCurrentActivity(`➡️ ${tierData.advancingIdeas} ideas advance to Tier ${currentTier}`)
+        await sleep(1500)
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        setCurrentActivity(`❌ Error: ${error.message}`)
+      }
+    }
+
+    setDemoRunning(false)
+    setLoading(false)
+    setAbortController(null)
+  }
+
   if (!state) {
     return (
       <div className="app">
@@ -216,8 +346,8 @@ function App() {
   return (
     <div className="app">
       <header>
-        <h1>🗳️ Union Chant v8 - AI Deliberation Demo</h1>
-        <p>Watch AI agents deliberate and vote in real-time</p>
+        <h1>🔄 Union Chant - Rolling Democracy</h1>
+        <p>Continuous deliberation with champion defense</p>
       </header>
 
       <div className="controls">
@@ -304,13 +434,82 @@ function App() {
 
       <ProcessVisualization state={state} winner={winner} />
 
+      {/* Champion & Accumulation Panel */}
+      {state.champion && (
+        <div className="panel champion-panel">
+          <h2>👑 Current Champion</h2>
+          <div className="champion-display">
+            <div className="champion-text">{state.champion.text}</div>
+            <div className="champion-meta">
+              Won with {state.championRun?.ideaCount || '?'} ideas competing
+            </div>
+          </div>
+
+          {state.phase === 'accumulating' && (
+            <div className="accumulation-section">
+              <h3>⚔️ Challenge the Champion</h3>
+              <div className="accumulation-progress">
+                <div className="progress-bar">
+                  <div
+                    className="progress-fill"
+                    style={{ width: `${Math.min(100, (state.accumulationStatus?.progress || 0) * 100)}%` }}
+                  />
+                </div>
+                <div className="progress-text">
+                  {state.accumulatedIdeas?.length || 0} / {state.accumulationStatus?.threshold || '?'} ideas
+                  {state.accumulationStatus?.canChallenge && ' ✓ Ready to challenge!'}
+                </div>
+              </div>
+
+              <div className="challenge-controls">
+                <div className="agent-count-control">
+                  <label>Challengers:</label>
+                  <input
+                    type="number"
+                    value={challengeAgentCount}
+                    onChange={(e) => setChallengeAgentCount(parseInt(e.target.value) || 1)}
+                    disabled={challengeRunning || demoRunning}
+                    className="agent-input"
+                    min="1"
+                  />
+                </div>
+
+                <button
+                  onClick={spawnChallengers}
+                  disabled={challengeRunning || demoRunning}
+                  className="btn-secondary"
+                >
+                  {challengeRunning ? '🤖 Spawning...' : '🤖 Add Challengers'}
+                </button>
+
+                <button
+                  onClick={triggerChallenge}
+                  disabled={!state.accumulationStatus?.canChallenge || demoRunning}
+                  className="btn-challenge"
+                >
+                  ⚔️ Trigger Challenge
+                </button>
+              </div>
+
+              {state.recyclableIdeas?.length > 0 && (
+                <div className="recyclable-info">
+                  {state.recyclableIdeas.length} runner-ups available for recycling if needed
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid">
         <div className="panel">
           <h2>📊 Current State</h2>
           <div className="stats">
             <div className="stat">
               <label>Phase:</label>
-              <span className={`phase-${state.phase}`}>{state.phase}</span>
+              <span className={`phase-${state.phase}`}>
+                {state.phase === 'accumulating' ? '🔄 Accumulating' : state.phase}
+              </span>
             </div>
             <div className="stat">
               <label>Participants:</label>
@@ -470,6 +669,27 @@ function App() {
         </div>
       )}
 
+      {/* Accumulated Ideas (during accumulation phase) */}
+      {state.accumulatedIdeas?.length > 0 && (
+        <div className="panel">
+          <h2>📥 Accumulated Ideas ({state.accumulatedIdeas.length})</h2>
+          <div className="ideas">
+            {state.accumulatedIdeas.map((idea, idx) => (
+              <div key={idx} className="idea idea-accumulated">
+                <div className="idea-header">
+                  <span className="idea-id">{idea.id}</span>
+                  <span className="idea-status status-accumulated">📥 Waiting</span>
+                </div>
+                <div className="idea-text">{idea.text}</div>
+                <div className="idea-meta">
+                  <span className="idea-author">{idea.author}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {state.ideas.length > 0 && (
         <div className="panel">
           <h2>💡 Ideas ({state.ideas.length} total)</h2>
@@ -486,8 +706,13 @@ function App() {
                     {idea.status === 'in-voting' && '🗳️ Voting'}
                     {idea.status === 'cell-winner' && '🏆 Advancing'}
                     {idea.status === 'eliminated' && '❌ Eliminated'}
-                    {idea.status === 'winner' && '👑 WINNER'}
+                    {idea.status === 'winner' && '👑 CHAMPION'}
+                    {idea.status === 'accumulated' && '📥 Accumulated'}
+                    {idea.status === 'defending' && '🛡️ Defending'}
+                    {idea.status === 'recycled' && '♻️ Recycled'}
                   </span>
+                  {idea.isChampion && <span className="idea-badge champion-badge">DEFENDER</span>}
+                  {idea.isNew && <span className="idea-badge new-badge">NEW</span>}
                 </div>
                 <div className="idea-text">{idea.text}</div>
                 <div className="idea-meta">

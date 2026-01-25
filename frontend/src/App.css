@@ -705,3 +705,178 @@ header p {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
 }
+
+/* Rolling Mode Styles */
+.champion-panel {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%);
+  border: 2px solid #fbbf24;
+  margin-bottom: 1.5rem;
+}
+
+.champion-display {
+  background: rgba(251, 191, 36, 0.15);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.champion-text {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #fef3c7;
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+}
+
+.champion-meta {
+  font-size: 0.9rem;
+  color: #fcd34d;
+}
+
+.accumulation-section {
+  border-top: 1px solid #475569;
+  padding-top: 1.5rem;
+}
+
+.accumulation-section h3 {
+  margin: 0 0 1rem 0;
+  color: #f1f5f9;
+}
+
+.accumulation-progress {
+  margin-bottom: 1.5rem;
+}
+
+.progress-bar {
+  height: 24px;
+  background: #1e293b;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  transition: width 0.5s ease;
+}
+
+.progress-text {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.challenge-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #475569 0%, #334155 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(71, 85, 105, 0.4);
+}
+
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-challenge {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-challenge:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.4);
+}
+
+.btn-challenge:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.recyclable-info {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.idea-badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-weight: 700;
+  margin-left: 0.5rem;
+}
+
+.champion-badge {
+  background: rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+}
+
+.new-badge {
+  background: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.status-accumulated {
+  background: rgba(102, 126, 234, 0.2);
+  color: #818cf8;
+}
+
+.status-defending {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+}
+
+.status-recycled {
+  background: rgba(148, 163, 184, 0.2);
+  color: #94a3b8;
+}
+
+.phase-accumulating {
+  color: #f59e0b;
+}
+
+.idea-defending {
+  border-left-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.idea-accumulated {
+  border-left-color: #818cf8;
+  background: rgba(129, 140, 248, 0.05);
+}
+
+.idea-recycled {
+  border-left-color: #94a3b8;
+  background: rgba(148, 163, 184, 0.05);
+}
