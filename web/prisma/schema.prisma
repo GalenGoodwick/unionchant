@@ -81,6 +81,10 @@ model Deliberation {
   // Content
   question    String
   description String?
+  tags        String[]  @default([])
+
+  // Invite
+  inviteCode  String?  @unique
 
   // Settings
   submissionDurationMs  Int      @default(86400000)  // 24 hours
@@ -95,12 +99,14 @@ model Deliberation {
   currentTier         Int      @default(1)
   championId          String?  // ID of winning idea
   championEnteredTier Int?     // Tier champion enters in challenge
+  challengeRound      Int      @default(0)  // Current challenge round number
 
   // Timestamps
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  submissionEndsAt  DateTime?
-  completedAt       DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  submissionEndsAt    DateTime?
+  completedAt         DateTime?
+  accumulationEndsAt  DateTime? // When the accumulation period ends
 
   // Relations
   members    DeliberationMember[]
@@ -158,6 +164,7 @@ model Idea {
   tier            Int        @default(0)
   isChampion      Boolean    @default(false)
   isNew           Boolean    @default(false)  // Submitted during accumulation
+  tier1Losses     Int        @default(0)      // Track losses in tier 1 for retirement logic
 
   // Vote tracking
   totalVotes      Int        @default(0)
@@ -181,6 +188,8 @@ enum IdeaStatus {
   ELIMINATED
   WINNER
   DEFENDING     // Champion in challenge
+  BENCHED       // Has 2 losses but protected by minimum pool
+  RETIRED       // Permanently eliminated
 }
 
 // ============ CELLS ============
@@ -312,9 +321,9 @@ model PushSubscription {
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  endpoint        String   @unique
-  p256dh          String   // Public key
-  auth            String   // Auth secret
+  endpoint        String   @unique @db.Text  // Push endpoints can be very long
+  p256dh          String   @db.Text          // Public key (base64)
+  auth            String   @db.Text          // Auth secret (base64)
 
   createdAt       DateTime @default(now())
   lastUsedAt      DateTime @default(now())

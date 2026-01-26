@@ -4,10 +4,16 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 // GET /api/deliberations - List all public deliberations
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url)
+    const tag = searchParams.get('tag')
+
     const deliberations = await prisma.deliberation.findMany({
-      where: { isPublic: true },
+      where: {
+        isPublic: true,
+        ...(tag ? { tags: { has: tag } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         creator: {
@@ -44,18 +50,47 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { question, description, isPublic = true } = body
+    const {
+      question,
+      description,
+      isPublic = true,
+      tags = [],
+      submissionDurationMs,
+      votingTimeoutMs,
+      accumulationEnabled,
+      accumulationTimeoutMs,
+    } = body
 
     if (!question?.trim()) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
     }
+
+    // Clean and validate tags
+    const cleanTags = Array.isArray(tags)
+      ? tags.map((t: string) => t.trim().toLowerCase()).filter((t: string) => t.length > 0).slice(0, 5)
+      : []
+
+    // Generate a short, readable invite code
+    const inviteCode = Math.random().toString(36).substring(2, 10)
+
+    // Calculate submission end time if duration provided
+    const submissionEndsAt = submissionDurationMs
+      ? new Date(Date.now() + submissionDurationMs)
+      : null
 
     const deliberation = await prisma.deliberation.create({
       data: {
         question: question.trim(),
         description: description?.trim() || null,
         isPublic,
+        inviteCode,
+        tags: cleanTags,
         creatorId: user.id,
+        submissionEndsAt,
+        ...(submissionDurationMs && { submissionDurationMs }),
+        ...(votingTimeoutMs && { votingTimeoutMs }),
+        ...(accumulationEnabled !== undefined && { accumulationEnabled }),
+        ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         members: {
           create: {
             userId: user.id,

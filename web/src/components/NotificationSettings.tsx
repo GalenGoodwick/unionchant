@@ -57,12 +57,41 @@ export function NotificationSettings() {
 
 export function NotificationBanner() {
   const { data: session } = useSession()
-  const { isSupported, isSubscribed, isLoading, permission, subscribe } =
+  const { isSupported, isSubscribed, isLoading, permission, subscribe, unsubscribe } =
     usePushNotifications()
 
-  // Don't show banner if not logged in, not supported, already subscribed, or denied
-  if (!session || !isSupported || isSubscribed || permission === 'denied') {
+  // Don't show if not logged in or not supported
+  if (!session || !isSupported) {
     return null
+  }
+
+  if (permission === 'denied') {
+    return (
+      <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 mb-6">
+        <p className="text-sm text-red-300">
+          Notifications blocked. Enable in browser settings to receive voting alerts.
+        </p>
+      </div>
+    )
+  }
+
+  if (isSubscribed) {
+    return (
+      <div className="bg-green-900/50 border border-green-700 rounded-lg p-4 mb-6">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-green-300">
+            Notifications enabled - you&apos;ll be alerted when it&apos;s time to vote
+          </p>
+          <button
+            onClick={unsubscribe}
+            disabled={isLoading}
+            className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors disabled:opacity-50"
+          >
+            Disable
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

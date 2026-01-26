@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
 
 // GET /api/deliberations/[id] - Get a single deliberation
 export async function GET(
@@ -11,6 +12,9 @@ export async function GET(
   try {
     const { id } = await params
     const session = await getServerSession(authOptions)
+
+    // Lazy evaluation: check for any pending timer transitions
+    await checkAndTransitionDeliberation(id)
 
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },
@@ -55,7 +59,14 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ ...deliberation, isMember })
+    // Only include inviteCode for members or creator
+    const response = {
+      ...deliberation,
+      isMember,
+      inviteCode: isMember ? deliberation.inviteCode : undefined,
+    }
+
+    return NextResponse.json(response)
   } catch (error) {
     console.error('Error fetching deliberation:', error)
     return NextResponse.json({ error: 'Failed to fetch deliberation' }, { status: 500 })

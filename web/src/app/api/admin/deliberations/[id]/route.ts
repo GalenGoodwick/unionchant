@@ -1,0 +1,80 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+
+// DELETE /api/admin/deliberations/[id] - Delete a deliberation
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const deliberation = await prisma.deliberation.findUnique({
+      where: { id },
+      include: { creator: true },
+    })
+
+    if (!deliberation) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
+
+    // Check if user is the creator (for now, only creators can delete)
+    // TODO: Add admin role check
+    if (deliberation.creator.email !== session.user.email) {
+      return NextResponse.json({ error: 'Only the creator can delete this deliberation' }, { status: 403 })
+    }
+
+    // Delete in order due to foreign key constraints
+    // Delete votes
+    await prisma.vote.deleteMany({
+      where: { cell: { deliberationId: id } },
+    })
+
+    // Delete comments
+    await prisma.comment.deleteMany({
+      where: { cell: { deliberationId: id } },
+    })
+
+    // Delete cell ideas
+    await prisma.cellIdea.deleteMany({
+      where: { cell: { deliberationId: id } },
+    })
+
+    // Delete cell participations
+    await prisma.cellParticipation.deleteMany({
+      where: { cell: { deliberationId: id } },
+    })
+
+    // Delete cells
+    await prisma.cell.deleteMany({
+      where: { deliberationId: id },
+    })
+
+    // Delete ideas
+    await prisma.idea.deleteMany({
+      where: { deliberationId: id },
+    })
+
+    // Delete memberships
+    await prisma.deliberationMember.deleteMany({
+      where: { deliberationId: id },
+    })
+
+    // Delete the deliberation
+    await prisma.deliberation.delete({
+      where: { id },
+    })
+
+    return NextResponse.json({ success: true, deleted: id })
+  } catch (error) {
+    console.error('Error deleting deliberation:', error)
+    return NextResponse.json({ error: 'Failed to delete deliberation' }, { status: 500 })
+  }
+}

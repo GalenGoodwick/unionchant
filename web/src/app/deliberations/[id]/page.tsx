@@ -4,13 +4,15 @@ import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { NotificationBanner } from '@/components/NotificationSettings'
+import CountdownTimer from '@/components/CountdownTimer'
 
 type Idea = {
   id: string
   text: string
   status: string
   totalVotes: number
+  tier1Losses: number
+  isNew: boolean
   author: { name: string | null }
 }
 
@@ -42,6 +44,7 @@ type Cell = {
   id: string
   tier: number
   status: string
+  votingDeadline: string | null
   ideas: CellIdea[]
   participants: Participant[]
   votes: Vote[]
@@ -56,10 +59,16 @@ type Deliberation = {
   isPublic: boolean
   creatorId: string
   createdAt: string
+  submissionEndsAt: string | null
+  accumulationEndsAt: string | null
+  challengeRound: number
+  accumulationEnabled: boolean
+  championId: string | null
   creator: { id: string; name: string | null }
   ideas: Idea[]
   _count: { members: number }
   isMember?: boolean
+  inviteCode?: string
 }
 
 // Discussion component for a cell
@@ -337,11 +346,6 @@ export default function DeliberationPage() {
           &larr; Back to deliberations
         </Link>
 
-        {/* Notification prompt for members in voting phase */}
-        {deliberation.isMember && deliberation.phase === 'VOTING' && (
-          <NotificationBanner />
-        )}
-
         {/* Header */}
         <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
           <div className="flex justify-between items-start mb-4">
@@ -361,8 +365,38 @@ export default function DeliberationPage() {
             <span>Tier {deliberation.currentTier}</span>
           </div>
 
+          {/* Submission deadline countdown */}
+          {deliberation.phase === 'SUBMISSION' && deliberation.submissionEndsAt && (
+            <div className="bg-blue-600/20 border border-blue-500 rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-between">
+                <div className="text-blue-400 font-semibold">Submission Period</div>
+                <CountdownTimer
+                  deadline={deliberation.submissionEndsAt}
+                  onExpire={fetchDeliberation}
+                  compact
+                  className="text-sm"
+                />
+              </div>
+              <p className="text-slate-400 text-sm mt-1">
+                Submit your ideas before the deadline
+              </p>
+            </div>
+          )}
+
+          {/* Challenge round indicator */}
+          {deliberation.challengeRound > 0 && deliberation.phase === 'VOTING' && (
+            <div className="bg-orange-600/20 border border-orange-500 rounded-lg p-4 mb-4">
+              <div className="text-orange-400 font-semibold">
+                Challenge Round {deliberation.challengeRound}
+              </div>
+              <p className="text-slate-400 text-sm mt-1">
+                Challengers are competing to dethrone the champion
+              </p>
+            </div>
+          )}
+
           {/* Winner banner */}
-          {winner && (
+          {winner && deliberation.phase !== 'ACCUMULATING' && (
             <div className="bg-green-600/20 border border-green-500 rounded-lg p-4 mb-4">
               <div className="text-green-400 font-semibold mb-1">Champion Idea</div>
               <div className="text-white text-lg">{winner.text}</div>
@@ -370,8 +404,51 @@ export default function DeliberationPage() {
             </div>
           )}
 
+          {/* Accumulation phase banner */}
+          {deliberation.phase === 'ACCUMULATING' && (
+            <div className="bg-purple-600/20 border border-purple-500 rounded-lg p-4 mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-purple-400 font-semibold text-lg">
+                  Champion Crowned - Accepting Challengers
+                </div>
+                {deliberation.accumulationEndsAt && (
+                  <CountdownTimer
+                    deadline={deliberation.accumulationEndsAt}
+                    label="Next round:"
+                    onExpire={fetchDeliberation}
+                    compact
+                    className="text-sm"
+                  />
+                )}
+              </div>
+              {winner && (
+                <div className="bg-purple-900/50 rounded-lg p-3 mb-3">
+                  <div className="text-purple-300 text-sm mb-1">Current Champion</div>
+                  <div className="text-white">{winner.text}</div>
+                  <div className="text-purple-400/70 text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
+                </div>
+              )}
+              <div className="flex gap-4 text-sm">
+                <div className="text-slate-400">
+                  Accumulated challengers:{' '}
+                  <span className="text-purple-400 font-medium">
+                    {deliberation.ideas.filter(i => i.status === 'PENDING' && i.isNew).length}
+                  </span>
+                </div>
+                {deliberation.ideas.filter(i => i.status === 'BENCHED').length > 0 && (
+                  <div className="text-slate-400">
+                    Benched:{' '}
+                    <span className="text-yellow-400 font-medium">
+                      {deliberation.ideas.filter(i => i.status === 'BENCHED').length}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Action buttons */}
-          <div className="flex gap-3">
+          <div className="flex gap-3 flex-wrap">
             {session && !deliberation.isMember && deliberation.phase === 'SUBMISSION' && (
               <button
                 onClick={handleJoin}
@@ -392,6 +469,22 @@ export default function DeliberationPage() {
               </button>
             )}
 
+            {deliberation.isMember && deliberation.inviteCode && (
+              <button
+                onClick={() => {
+                  const url = `${window.location.origin}/invite/${deliberation.inviteCode}`
+                  navigator.clipboard.writeText(url)
+                  alert('Invite link copied!')
+                }}
+                className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
+                </svg>
+                Copy Invite Link
+              </button>
+            )}
+
             {!session && (
               <Link
                 href="/auth/signin"
@@ -403,7 +496,7 @@ export default function DeliberationPage() {
           </div>
         </div>
 
-        {/* Submit Idea Form */}
+        {/* Submit Idea Form - Submission Phase */}
         {deliberation.isMember && deliberation.phase === 'SUBMISSION' && (
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
             <h2 className="text-lg font-semibold text-white mb-4">Submit an Idea</h2>
@@ -426,6 +519,36 @@ export default function DeliberationPage() {
           </div>
         )}
 
+        {/* Accumulation Form - During Voting or Accumulating Phase */}
+        {deliberation.isMember && (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') && (
+          <div className="bg-purple-900/30 rounded-lg p-6 border border-purple-700 mb-6">
+            <h2 className="text-lg font-semibold text-white mb-2">
+              {deliberation.phase === 'ACCUMULATING' ? 'Challenge the Champion' : 'Submit for Next Round'}
+            </h2>
+            <p className="text-purple-300 text-sm mb-4">
+              {deliberation.phase === 'ACCUMULATING'
+                ? 'Submit ideas to challenge the current champion in the next round.'
+                : 'Voting is in progress. Your idea will be saved for the next challenge round.'}
+            </p>
+            <form onSubmit={handleSubmitIdea} className="flex gap-3">
+              <input
+                type="text"
+                placeholder="Your challenger idea..."
+                value={newIdea}
+                onChange={(e) => setNewIdea(e.target.value)}
+                className="flex-1 bg-slate-700 border border-purple-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+              />
+              <button
+                type="submit"
+                disabled={submitting || !newIdea.trim()}
+                className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors"
+              >
+                {submitting ? '...' : 'Submit'}
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* Voting Cells */}
         {(deliberation.phase === 'VOTING' || deliberation.phase === 'COMPLETED') && cells.length > 0 && (
           <div className="space-y-6 mb-6">
@@ -439,13 +562,26 @@ export default function DeliberationPage() {
                 <div key={cell.id} className="bg-slate-800 rounded-lg p-6 border border-slate-700">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-medium text-white">Tier {cell.tier} Cell</h3>
-                    <span className={`text-sm px-2 py-1 rounded ${
-                      cell.status === 'COMPLETED' ? 'bg-green-500/20 text-green-400' :
-                      cell.status === 'VOTING' ? 'bg-yellow-500/20 text-yellow-400' :
-                      'bg-slate-600 text-slate-400'
-                    }`}>
-                      {cell.status}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      {cell.status === 'VOTING' && cell.votingDeadline && (
+                        <CountdownTimer
+                          deadline={cell.votingDeadline}
+                          onExpire={() => {
+                            fetchCells()
+                            fetchDeliberation()
+                          }}
+                          compact
+                          className="text-sm"
+                        />
+                      )}
+                      <span className={`text-sm px-2 py-1 rounded ${
+                        cell.status === 'COMPLETED' ? 'bg-green-500/20 text-green-400' :
+                        cell.status === 'VOTING' ? 'bg-yellow-500/20 text-yellow-400' :
+                        'bg-slate-600 text-slate-400'
+                      }`}>
+                        {cell.status}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mb-4">

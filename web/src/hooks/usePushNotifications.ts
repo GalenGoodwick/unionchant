@@ -65,7 +65,16 @@ export function usePushNotifications() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to save subscription')
+        const text = await response.text()
+        console.error('Subscribe error - Status:', response.status, 'Body:', text)
+        let errorMsg = `Status ${response.status}`
+        try {
+          const data = JSON.parse(text)
+          errorMsg = data.details || data.error || errorMsg
+        } catch {
+          errorMsg = text.slice(0, 200) || errorMsg
+        }
+        throw new Error(errorMsg)
       }
 
       setIsSubscribed(true)

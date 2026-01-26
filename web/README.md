@@ -178,12 +178,16 @@ web/
 - [x] Homepage with call-to-action
 - [x] PWA support (installable, offline-capable)
 - [x] Push notifications when voting starts
+- [x] Invite links for sharing deliberations
+- [x] Settings page (profile, notification toggle)
+- [x] Tags/categories for deliberations with filtering
+- [x] Idea accumulation during voting (submit for next round)
+- [x] Donate page (placeholder)
 
 ## What's Left to Build
 
 ### High Priority
 - [ ] Email notifications (fallback for users without push)
-- [ ] Invite links for private deliberations
 - [ ] Mobile responsive design improvements
 - [ ] Voting timeouts/deadlines with spot reservation
 - [ ] Real-time updates (WebSocket or polling)
@@ -195,6 +199,7 @@ web/
 - [ ] Idea editing/deletion
 - [ ] User profiles
 - [ ] Deliberation search and filters
+- [ ] Limit ideas per user (1 idea per person, configurable)
 
 ### Monetization
 - [ ] Stripe integration for payments
@@ -203,20 +208,114 @@ web/
 - [ ] Feature gating by tier
 
 ### Advanced Features
-- [ ] Rolling/challenge mode (ongoing deliberations)
+- [ ] Rolling/challenge mode (ongoing deliberations) - see design notes below
 - [ ] Export results
 - [ ] Analytics dashboard
 - [ ] API for integrations
 - [ ] Multi-language support
 
-## Pricing Tiers (Planned)
+---
 
-| Tier | Price | Participants | Features |
-|------|-------|--------------|----------|
-| Free | $0 | Up to 25 | Basic deliberations, public only |
-| Pro | $29/mo | Up to 500 | Private deliberations, custom branding |
-| Organization | $99/mo | Up to 5,000 | API access, analytics, priority support |
-| Enterprise | $499+/mo | Unlimited | Custom deployment, SLA, dedicated support |
+## Rolling/Challenge Mode (Design Notes)
+
+**Overview:** Allows deliberations to run continuously. After a champion is declared, new ideas accumulate and periodically challenge the champion.
+
+**Flow:**
+```
+Submission Phase (configurable, e.g. 24hrs)
+       ↓ [automatic]
+Voting Tiers (configurable per-cell timeout, e.g. 1hr)
+       ↓ [automatic]
+Champion Declared
+       ↓ [automatic]
+Accumulation Phase (configurable, e.g. 7 days)
+  - New ideas submitted during this time
+  - Champion holds position
+       ↓ [automatic when enough ideas OR time elapsed]
+Challenge Round
+  - New ideas compete against champion
+  - Champion enters at higher tier (advantage)
+       ↓ [repeat]
+```
+
+**User-configurable settings:**
+- `submissionDurationMs` - How long to collect initial ideas
+- `votingTimeoutMs` - How long each cell has to vote
+- `accumulationTimeoutMs` - How long between challenge rounds
+- `accumulationEnabled` - Toggle rolling mode on/off
+
+**Core files:**
+- `prisma/schema.prisma` - Deliberation model already has timer fields (`submissionDurationMs`, `votingTimeoutMs`, `accumulationTimeoutMs`, `submissionEndsAt`)
+- `src/app/api/deliberations/[id]/start-voting/route.ts` - Current voting logic to extend
+
+**Technical approach:**
+1. Store deadlines as timestamps in database (already have fields)
+2. Check deadlines on every API request ("lazy evaluation")
+3. Optional: Vercel Cron or external cron hits `/api/cron/process-timers` every minute as backup
+4. Process any expired phases automatically
+
+**Implementation steps:**
+1. Create `/api/cron/process-timers` endpoint
+2. Add deadline checking to deliberation API calls
+3. Implement `processExpiredSubmission()` - auto-start voting
+4. Implement `processExpiredCells()` - auto-complete cells, advance tiers
+5. Implement `processExpiredAccumulation()` - start challenge round
+6. Update deliberation creation UI with timer settings
+7. Add visual countdown timers to UI
+
+**Accumulation rules:**
+- "Submit for Next Round" only appears for users NOT participating in the current voting session
+- Users who ARE in the current session can submit new ideas during the regular accumulation window after a champion is declared
+- Stalled voting: Need a timer that allows second/additional votes when cell voting progress stalls (e.g., waiting too long for remaining voters)
+
+**Stalled voting timer:**
+- If a cell has partial votes and remaining voters haven't acted within timeout
+- Options: (a) auto-advance with current votes, (b) allow voted members to vote again, (c) replace inactive voters
+- Needs further design discussion
+
+**Active user tracking:**
+- Track number of active users in a deliberation
+- Track push notification status (counting down until someone responds to vote)
+- Use this data to decide:
+  - Backfill with new joiner if a slot opens (voter inactive/unresponsive)
+  - Tell new joiners "no slots available" if all participants are active
+- Could use: last activity timestamp, notification sent timestamp, notification acknowledged flag
+
+**Stalled deliberation handling:**
+- Auto-inactivate deliberations if participation stalls so badly it can't reach a champion (or new champion in rolling mode)
+- Criteria: No votes cast within X days, insufficient active users to form cells
+- Mark as `STALLED` or `INACTIVE` status (distinct from `COMPLETED`)
+- Potential monetization: Sell "boosts" to keep stalled deliberations active or revive them
+
+**Idea elimination tracking:**
+- Track how many times an idea loses in Tier 1
+- After 2 losses at Tier 1, idea is permanently eliminated (`status: 'RETIRED'`)
+- Prevents weak ideas from cycling forever
+- Need `tier1Losses` counter on Idea model
+
+**Insufficient challengers problem:**
+- Solution: Only retire as many ideas as the system can afford
+- Calculate minimum ideas needed to reach champion's tier (e.g., Tier 2 needs 5+ ideas)
+- After Tier 1 voting, sort losers by `tier1Losses` count
+- Retire only those with 2+ losses AND only if it won't drop below minimum threshold
+- Ideas with 2 losses but "protected" by threshold stay in pool with `status: 'BENCHED'`
+- This ensures there are always enough challengers to reach the champion
+- Natural pressure: as new ideas accumulate, benched ideas with 2 losses get retired first
+
+---
+
+## Monetization (Planned)
+
+**Model:** Public good with optional paid privacy
+
+| Tier | Price | Features |
+|------|-------|----------|
+| **Free** | $0 | Public deliberations (visible to all, anyone can join) |
+| **Pro** | TBD/mo | Private deliberations (invite-link only, for institutions/corps) |
+
+**Donations:** Separate page for supporters who believe in the mission (not tied to features)
+
+**Philosophy:** Collective decision-making should be free and accessible. Privacy is the premium feature for organizations.
 
 ## Key Technical Decisions
 

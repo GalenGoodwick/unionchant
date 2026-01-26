@@ -47,8 +47,9 @@ export async function POST(
     }
 
     // Check if deliberation is accepting submissions
-    if (deliberation.phase !== 'SUBMISSION' && deliberation.phase !== 'ACCUMULATING') {
-      return NextResponse.json({ error: 'Deliberation is not accepting new ideas' }, { status: 400 })
+    // Allow during SUBMISSION, VOTING (for accumulation), or ACCUMULATING phase
+    if (deliberation.phase === 'COMPLETED') {
+      return NextResponse.json({ error: 'Deliberation has ended' }, { status: 400 })
     }
 
     const body = await req.json()
@@ -58,12 +59,16 @@ export async function POST(
       return NextResponse.json({ error: 'Idea text is required' }, { status: 400 })
     }
 
+    // Ideas submitted during VOTING or ACCUMULATING are marked for next round
+    const isAccumulated = deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING'
+
     const idea = await prisma.idea.create({
       data: {
         deliberationId: id,
         authorId: user.id,
         text: text.trim(),
-        isNew: deliberation.phase === 'ACCUMULATING',
+        isNew: isAccumulated,
+        status: isAccumulated ? 'PENDING' : 'SUBMITTED',
       },
     })
 

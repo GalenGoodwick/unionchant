@@ -172,4 +172,25 @@ export const notifications = {
     url: `/deliberations/${deliberationId}`,
     tag: `champion-${deliberationId}`,
   }),
+
+  accumulationStarted: (deliberationQuestion: string, deliberationId: string) => ({
+    title: 'Champion Crowned - Submit Challengers!',
+    body: `A champion has emerged for "${deliberationQuestion.slice(0, 35)}...". Submit ideas to challenge!`,
+    url: `/deliberations/${deliberationId}`,
+    tag: `accumulation-${deliberationId}`,
+  }),
+
+  challengeRoundStarting: (deliberationQuestion: string, deliberationId: string, round: number) => ({
+    title: `Challenge Round ${round} Starting!`,
+    body: `New challengers are competing in "${deliberationQuestion.slice(0, 35)}..."`,
+    url: `/deliberations/${deliberationId}`,
+    tag: `challenge-${deliberationId}-${round}`,
+  }),
+
+  votingExpiring: (minutesLeft: number, deliberationId: string, cellId: string) => ({
+    title: `${minutesLeft} Minutes to Vote!`,
+    body: 'Your cell voting deadline is approaching. Cast your vote now!',
+    url: `/deliberations/${deliberationId}`,
+    tag: `vote-expiring-${cellId}`,
+  }),
 }

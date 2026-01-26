@@ -38,6 +38,12 @@ export default function Home() {
             >
               Whitepaper
             </Link>
+            <Link
+              href="/admin"
+              className="bg-slate-600 hover:bg-slate-500 text-white px-8 py-3 rounded-lg font-semibold transition-colors"
+            >
+              Admin
+            </Link>
           </div>
         </div>
 
@@ -72,12 +78,19 @@ export default function Home() {
             Scale is not achieved by enlarging a conversation.
             It is achieved by multiplying conversations.
           </p>
-          <div className="flex gap-4 justify-center">
+          <div className="flex gap-4 justify-center flex-wrap">
             <Link
               href="/whitepaper"
               className="text-slate-400 hover:text-slate-300 font-medium"
             >
               Read the Whitepaper
+            </Link>
+            <span className="text-slate-600">|</span>
+            <Link
+              href="/donate"
+              className="text-slate-400 hover:text-slate-300 font-medium"
+            >
+              Support Us
             </Link>
             <span className="text-slate-600">|</span>
             <Link
