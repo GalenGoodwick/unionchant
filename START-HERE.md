@@ -1,6 +1,14 @@
-# Union Chant v8 - Complete System Documentation
+# Union Chant - System Documentation
 
 **For Claude (or any AI) picking up this project in a new session**
+
+> **IMPORTANT:** This documentation covers the original demo app.
+> For the current **production web app**, see **[CLAUDE.md](./CLAUDE.md)** instead.
+>
+> **Current Status (v1.0.0-stable):**
+> - Production app: https://unionchant.vercel.app
+> - Stack: Next.js 15 + Prisma + Supabase + Vercel
+> - Full voting + accumulation (rolling mode) working
 
 ---
 
@@ -181,7 +189,9 @@ When 4 or fewer ideas remain, **ALL cells vote on ALL ideas**. Cross-cell tally 
 
 ---
 
-## Rolling Mode (Future Design)
+## Rolling Mode (IMPLEMENTED)
+
+> **Status:** Implemented in the web app (v1.0.0-stable). See [CLAUDE.md](./CLAUDE.md) for details.
 
 Instead of one-shot decisions, Union Chant can run as a **continuous democracy** where the current consensus can always be challenged by new ideas.
 
@@ -246,15 +256,18 @@ Instead of one-shot decisions, Union Chant can run as a **continuous democracy**
 
 ### Implementation Status
 
-**Not yet implemented.** This is the design spec for future development.
+**IMPLEMENTED** in the web app (`web/` directory). Key files:
+- `web/src/lib/voting.ts` - Core voting + accumulation transitions
+- `web/src/lib/challenge.ts` - Challenge round logic
 
-Required additions:
-- `champion` state tracking current winner
-- `recyclableIdeas` pool from previous runs
-- `accumulatedIdeas` for new submissions
-- `challengeThreshold` calculation (50% of champion run)
-- Timer logic for accumulation phase
-- 2nd vote allowance after timeout
+Features implemented:
+- ✅ Champion state tracking (`championId`, `isChampion`)
+- ✅ Accumulated ideas (status: `PENDING` with `isNew: true`)
+- ✅ Benched ideas (status: `BENCHED`)
+- ✅ Retirement logic (2+ `tier1Losses`)
+- ✅ Champion defense at higher tier (`championEnteredTier`)
+- ✅ Challenge round counter (`challengeRound`)
+- ⏳ Timer-based challenge trigger (manual trigger works)
 
 ---
 
@@ -458,10 +471,16 @@ node test-100-participants.js # Scale test
 ```
 ✅ v7-STABLE: Auto-vote, all algorithms working
 ✅ Phase 1: Core extracted to module
-✅ Phase 2: AI agents + WebSocket server + React frontend
-🔜 Phase 3: Polish, visualizations, export
-📅 Phase 4: Email verification, real users
-📅 Phase 5: Multi-tenancy, production deployment
+✅ Phase 2: AI agents + WebSocket server + React frontend (demo app)
+✅ Phase 3: Next.js web app with real users
+✅ Phase 4: Google OAuth + Supabase database
+✅ Phase 5: Vercel deployment (https://unionchant.vercel.app)
+✅ Phase 6: Rolling mode (accumulation + challenge rounds)
+✅ v1.0.0-stable: Full voting + accumulation working
+
+📅 Next: Timer-based challenge triggers
+📅 Next: Email notifications
+📅 Next: Public launch
 ```
 
 ---

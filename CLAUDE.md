@@ -1,0 +1,298 @@
+# Union Chant - Claude Session Context
+
+**For Claude (or any AI) picking up this project in a new session**
+
+---
+
+## Quick Status
+
+**Current Version:** v1.0.0-stable (tagged)
+**Deployed:** https://unionchant.vercel.app
+**Status:** Full voting + accumulation (rolling mode) working
+
+---
+
+## What Is This?
+
+**Union Chant** is a scalable direct democracy voting system. The core innovation:
+
+1. **Tiered voting** - Ideas compete in small cells (5 people, 5 ideas)
+2. **Winners advance** - Each tier reduces ideas by ~5:1
+3. **Final showdown** - When ≤4 ideas remain, ALL participants vote
+4. **Rolling mode** - Champion can be challenged by new ideas continuously
+
+**Scale:** 1,000,000 participants → ~9 tiers → days/weeks to consensus
+
+---
+
+## Project Structure
+
+```
+Union-Rolling/
+├── web/                          # MAIN APP - Next.js 15 + Prisma + Supabase
+│   ├── src/
+│   │   ├── app/                  # Next.js app router
+│   │   │   ├── api/              # API routes
+│   │   │   │   ├── deliberations/
+│   │   │   │   │   └── [id]/
+│   │   │   │   │       ├── route.ts        # GET/DELETE deliberation
+│   │   │   │   │       ├── cells/route.ts  # GET user's cells
+│   │   │   │   │       ├── history/route.ts # GET voting history
+│   │   │   │   │       ├── ideas/route.ts  # POST new idea
+│   │   │   │   │       └── start-voting/   # POST start voting
+│   │   │   │   ├── cells/[cellId]/
+│   │   │   │   │   ├── vote/route.ts       # POST cast vote
+│   │   │   │   │   └── comments/route.ts   # GET/POST cell comments
+│   │   │   │   └── admin/test/             # Test automation endpoints
+│   │   │   ├── deliberations/
+│   │   │   │   ├── [id]/page.tsx  # Deliberation detail + voting UI
+│   │   │   │   └── new/page.tsx   # Create deliberation form
+│   │   │   └── admin/test/page.tsx # Admin test page
+│   │   ├── lib/
+│   │   │   ├── voting.ts          # Core voting logic (KEY FILE)
+│   │   │   ├── challenge.ts       # Challenge round logic
+│   │   │   ├── prisma.ts          # Database client
+│   │   │   └── auth.ts            # NextAuth config
+│   │   └── components/
+│   └── prisma/
+│       └── schema.prisma          # Database schema
+│
+├── core/                          # Original demo engine (reference only)
+│   └── union-chant-engine.js      # Stable algorithm reference
+│
+└── START-HERE.md                  # Original documentation (outdated)
+```
+
+---
+
+## Key Files to Understand
+
+### 1. Voting Logic: `web/src/lib/voting.ts`
+
+The heart of the system. Key functions:
+
+```typescript
+// Start voting phase - creates Tier 1 cells
+startVotingPhase(deliberationId)
+
+// Process cell results - handles winners/losers
+processCellResults(cellId, isTimeout)
+
+// Check tier completion - creates next tier or declares winner
+checkTierCompletion(deliberationId, tier)
+```
+
+**Critical concepts:**
+- **Final showdown**: When ≤4 ideas, ALL participants vote on ALL ideas
+- **Cross-cell tallying**: In final showdown, votes counted across all cells
+- **Accumulation transition**: Winner goes to ACCUMULATING phase if enabled
+
+### 2. Challenge Logic: `web/src/lib/challenge.ts`
+
+Handles rolling mode challenges:
+
+```typescript
+// Start a challenge round
+startChallengeRound(deliberationId)
+```
+
+**Key concepts:**
+- **Champion defense**: Champion enters at higher tier (skips Tier 1)
+- **Retirement logic**: Ideas with 2+ tier1Losses can be retired
+- **Benching**: Ideas not competing but not retired
+
+### 3. Database Schema: `web/prisma/schema.prisma`
+
+Key models:
+- `Deliberation` - The question being deliberated
+- `Idea` - Submitted ideas (status: PENDING, IN_VOTING, ADVANCING, WINNER, etc.)
+- `Cell` - Voting cell (5 participants, 5 ideas)
+- `Vote` - Individual votes
+- `CellIdea` - Junction table for ideas in cells
+- `CellParticipant` - Junction table for participants in cells
+
+### 4. Main UI: `web/src/app/deliberations/[id]/page.tsx`
+
+Shows:
+- Deliberation header with phase
+- Voting progress (competing/advancing/eliminated counts)
+- Challenge round indicator with defending champion
+- Active voting cells with vote buttons
+- Voting history (collapsible)
+- All ideas list with status colors
+
+---
+
+## Idea Status Flow
+
+```
+PENDING (new submission)
+    ↓
+IN_VOTING (in active cell)
+    ↓
+ADVANCING (won cell, moving to next tier)
+    ↓
+WINNER (final winner) → isChampion = true
+
+ELIMINATED (lost in cell)
+RETIRED (2+ tier1Losses, removed from pool)
+BENCHED (waiting for next challenge)
+DEFENDING (champion during challenge round)
+```
+
+---
+
+## Phases
+
+```
+SUBMISSION → VOTING → COMPLETED
+                ↓
+        (if accumulationEnabled)
+                ↓
+          ACCUMULATING ←──┐
+                ↓         │
+        (challenge round) │
+                ↓         │
+            VOTING ───────┘
+```
+
+---
+
+## Testing the System
+
+### Admin Test Page: `/admin/test`
+
+1. **Sign in** with Google OAuth
+2. **Run Automated Test**:
+   - Creates 40 test users
+   - Submits 40 ideas
+   - Starts voting
+   - Simulates votes through tiers
+   - Crowns champion
+3. **Run Challenge Test** (after champion exists):
+   - Submits challenger ideas
+   - Triggers challenge round
+   - Simulates challenge voting
+
+### Test Endpoints
+
+```
+POST /api/admin/test/populate         # Create test users + ideas
+POST /api/admin/test/simulate-voting  # Simulate votes through tiers
+POST /api/admin/test/simulate-accumulation  # Test challenge flow
+POST /api/admin/test/cleanup          # Delete test data
+```
+
+---
+
+## Environment Setup
+
+### Required Environment Variables (web/.env.local)
+
+```bash
+# Database (Supabase)
+DATABASE_URL="postgresql://...?pgbouncer=true"
+
+# Auth (NextAuth + Google OAuth)
+NEXTAUTH_SECRET="..."
+NEXTAUTH_URL="http://localhost:3000"
+GOOGLE_CLIENT_ID="..."
+GOOGLE_CLIENT_SECRET="..."
+
+# Push notifications (optional)
+VAPID_PUBLIC_KEY="..."
+VAPID_PRIVATE_KEY="..."
+```
+
+### Google OAuth Setup
+
+Authorized redirect URIs:
+- `http://localhost:3000/api/auth/callback/google` (dev)
+- `https://unionchant.vercel.app/api/auth/callback/google` (prod)
+
+---
+
+## Running Locally
+
+```bash
+cd web
+npm install
+npm run dev
+# Opens http://localhost:3000
+```
+
+### Database Commands
+
+```bash
+npx prisma generate    # Generate client
+npx prisma db push     # Push schema changes
+npx prisma studio      # Open database browser
+```
+
+---
+
+## Deployment
+
+- **Host:** Vercel (auto-deploys from main branch)
+- **Database:** Supabase PostgreSQL
+- **URL:** https://unionchant.vercel.app
+
+```bash
+git push origin main   # Triggers Vercel deployment
+```
+
+---
+
+## Common Tasks
+
+### Add a new API endpoint
+
+1. Create file in `web/src/app/api/[path]/route.ts`
+2. Export async functions: `GET`, `POST`, `PUT`, `DELETE`
+3. Use `getServerSession(authOptions)` for auth
+4. Use `prisma` for database access
+
+### Modify voting logic
+
+1. Edit `web/src/lib/voting.ts`
+2. Key functions: `processCellResults`, `checkTierCompletion`
+3. Test with admin page automated tests
+
+### Debug voting issues
+
+1. Check deliberation phase in database
+2. Check idea statuses (IN_VOTING, ADVANCING, etc.)
+3. Check cell statuses (VOTING, COMPLETED)
+4. Use voting history API: `GET /api/deliberations/[id]/history`
+
+---
+
+## Known Issues / TODOs
+
+1. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
+2. **Accumulation timer**: Timer-based challenge triggering not fully implemented (manual trigger works)
+3. **Push notifications**: Configured but not fully tested in production
+
+---
+
+## Architecture Decisions
+
+1. **Why Next.js?** - Full-stack React with API routes, easy Vercel deploy
+2. **Why Prisma?** - Type-safe database access, easy schema migrations
+3. **Why Supabase?** - Free PostgreSQL with good connection pooling
+4. **Why 5-person cells?** - Balance between deliberation quality and scale
+5. **Why cross-cell tallying?** - Prevents small-group capture, statistical robustness
+
+---
+
+## Working With the User
+
+- Direct communication style
+- Prefers working code over long explanations
+- Test frequently, prove it works
+- Budget-conscious (free tiers where possible)
+- Values democratic legitimacy
+
+---
+
+**You now have everything needed to continue development.**
