@@ -1,0 +1,75 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+
+// POST /api/deliberations/[id]/ideas - Submit a new idea
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    const deliberation = await prisma.deliberation.findUnique({
+      where: { id },
+    })
+
+    if (!deliberation) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
+
+    // Check if user is a member
+    const membership = await prisma.deliberationMember.findUnique({
+      where: {
+        deliberationId_userId: {
+          deliberationId: id,
+          userId: user.id,
+        },
+      },
+    })
+
+    if (!membership) {
+      return NextResponse.json({ error: 'Must be a member to submit ideas' }, { status: 403 })
+    }
+
+    // Check if deliberation is accepting submissions
+    if (deliberation.phase !== 'SUBMISSION' && deliberation.phase !== 'ACCUMULATING') {
+      return NextResponse.json({ error: 'Deliberation is not accepting new ideas' }, { status: 400 })
+    }
+
+    const body = await req.json()
+    const { text } = body
+
+    if (!text?.trim()) {
+      return NextResponse.json({ error: 'Idea text is required' }, { status: 400 })
+    }
+
+    const idea = await prisma.idea.create({
+      data: {
+        deliberationId: id,
+        authorId: user.id,
+        text: text.trim(),
+        isNew: deliberation.phase === 'ACCUMULATING',
+      },
+    })
+
+    return NextResponse.json(idea, { status: 201 })
+  } catch (error) {
+    console.error('Error submitting idea:', error)
+    return NextResponse.json({ error: 'Failed to submit idea' }, { status: 500 })
+  }
+}

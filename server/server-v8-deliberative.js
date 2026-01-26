@@ -349,19 +349,24 @@ app.post('/api/voting/enable-second-votes', (req, res) => {
 // Spawn agents during accumulation (for AI demo)
 app.post('/api/accumulation/spawn-agents', async (req, res) => {
   const { count = 10, topic } = req.body
+  const { AIAgent } = require('../core/ai-agent')
 
   try {
     // Use the topic from the request or default
     const deliberationTopic = topic || 'challenging the current champion idea'
+    const personalities = ['progressive', 'conservative', 'balanced', 'pragmatic', 'idealistic']
+    let spawned = 0
 
     for (let i = 0; i < count; i++) {
       if (aborted) break
 
       // Create agent
-      const personalities = ['progressive', 'conservative', 'balanced', 'pragmatic', 'idealistic']
       const personality = personalities[Math.floor(Math.random() * personalities.length)]
+      const agentId = `agent-acc-${Date.now()}-${i}`
+      const agent = new AIAgent(agentId, `Challenger ${i + 1}`, personality)
 
-      const agent = agentManager.createAgent(personality)
+      // Add to agent manager's list
+      agentManager.agents.push(agent)
 
       // Add as accumulating participant
       engine.addAccumulatingParticipant({
@@ -372,6 +377,7 @@ app.post('/api/accumulation/spawn-agents', async (req, res) => {
       })
 
       // Generate and submit idea
+      console.log(`🤖 ${agent.name} (${personality}) generating challenge idea...`)
       const ideaText = await agent.generateIdea(deliberationTopic)
       if (aborted) break
 
@@ -381,23 +387,28 @@ app.post('/api/accumulation/spawn-agents', async (req, res) => {
         authorId: agent.id
       })
 
+      console.log(`   💡 "${ideaText}"`)
+      spawned++
+
       io.emit('agent-spawned-accumulation', {
         agent: { id: agent.id, name: agent.name, personality: agent.personality },
-        accumulatedCount: engine.accumulatedIdeas.length
+        totalIdeas: engine.ideas.length
       })
 
+      broadcastState()
       await sleep(300)
     }
 
-    broadcastState()
+    const minimum = engine.getMinimumIdeasForChallenge()
     res.json({
       success: true,
-      agentsSpawned: count,
-      accumulatedIdeas: engine.accumulatedIdeas.length,
-      threshold: engine.getChallengeThreshold(),
-      canChallenge: engine.accumulatedIdeas.length >= engine.getChallengeThreshold()
+      agentsSpawned: spawned,
+      totalIdeas: engine.ideas.length,
+      minimum,
+      canChallenge: engine.ideas.length >= minimum
     })
   } catch (error) {
+    console.error('Spawn error:', error)
     res.status(500).json({ error: error.message })
   }
 })

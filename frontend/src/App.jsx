@@ -73,19 +73,19 @@ function App() {
 
     // Rolling mode events
     socket.on('idea-accumulated', (result) => {
-      setCurrentActivity(`💡 New idea accumulated (${result.accumulatedCount}/${result.threshold})`)
+      setCurrentActivity(`💡 New idea added to pool (${result.totalIdeas} total)`)
     })
 
     socket.on('challenge-triggered', (result) => {
-      setCurrentActivity(`⚔️ Challenge triggered! ${result.totalIdeas} ideas competing (${result.newIdeas} new, ${result.recycledIdeas} recycled)`)
+      setCurrentActivity(`⚔️ Challenge triggered! ${result.totalIdeas} ideas competing`)
     })
 
     socket.on('agent-spawned-accumulation', (data) => {
-      setCurrentActivity(`🤖 ${data.agent.name} joined with idea (${data.accumulatedCount} accumulated)`)
+      setCurrentActivity(`🤖 ${data.agent.name} joined with new idea`)
     })
 
     socket.on('accumulation-timer-reset', (result) => {
-      setCurrentActivity(`⏱️ Timer reset. ${result.accumulatedCount}/${result.threshold} ideas. Keep going!`)
+      setCurrentActivity(`⏱️ Timer reset. ${result.totalIdeas} ideas in pool. Keep going!`)
     })
 
     return () => {
@@ -364,66 +364,151 @@ function App() {
           />
         </div>
 
-        <div className="control-row">
-          <div className="demo-settings">
-            <div className="agent-count-control">
-              <label htmlFor="agentCount">Agents:</label>
-              <input
-                id="agentCount"
-                type="number"
-                value={agentCount}
-                onChange={(e) => {
-                  const val = e.target.value
-                  if (val === '') {
-                    setAgentCount('')
-                  } else {
-                    setAgentCount(parseInt(val) || '')
-                  }
-                }}
-                disabled={demoRunning}
-                className="agent-input"
-              />
+        {/* Show Run Demo controls when no champion, Challenge controls when champion exists */}
+        {!state.champion ? (
+          // INITIAL MODE: Run Demo
+          <div className="control-row">
+            <div className="demo-settings">
+              <div className="agent-count-control">
+                <label htmlFor="agentCount">Agents:</label>
+                <input
+                  id="agentCount"
+                  type="number"
+                  value={agentCount}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === '') {
+                      setAgentCount('')
+                    } else {
+                      setAgentCount(parseInt(val) || '')
+                    }
+                  }}
+                  disabled={demoRunning}
+                  className="agent-input"
+                />
+              </div>
+
+              <div className="agent-count-control">
+                <label htmlFor="votingTimeout">Vote Timer (sec):</label>
+                <input
+                  id="votingTimeout"
+                  type="number"
+                  value={votingTimeoutSec}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    if (val === '') {
+                      setVotingTimeoutSec('')
+                    } else {
+                      setVotingTimeoutSec(parseInt(val) || '')
+                    }
+                  }}
+                  disabled={demoRunning}
+                  className="agent-input"
+                />
+              </div>
             </div>
 
-            <div className="agent-count-control">
-              <label htmlFor="votingTimeout">Vote Timer (sec):</label>
-              <input
-                id="votingTimeout"
-                type="number"
-                value={votingTimeoutSec}
-                onChange={(e) => {
-                  const val = e.target.value
-                  if (val === '') {
-                    setVotingTimeoutSec('')
-                  } else {
-                    setVotingTimeoutSec(parseInt(val) || '')
-                  }
-                }}
-                disabled={demoRunning}
-                className="agent-input"
-              />
+            <div className="button-group">
+              <button
+                onClick={runQuickDemo}
+                disabled={loading || demoRunning}
+                className="btn-primary"
+              >
+                {demoRunning ? '⏳ Demo Running...' : `▶️  Run Demo (${agentCount} Agents)`}
+              </button>
+
+              {demoRunning && (
+                <button
+                  onClick={stopDemo}
+                  className="btn-stop"
+                >
+                  🛑 Stop Demo
+                </button>
+              )}
             </div>
           </div>
+        ) : (
+          // CHAMPION MODE: Challenge Controls
+          <div className="champion-controls">
+            <div className="champion-display-inline">
+              <span className="champion-label">👑 Champion:</span>
+              <span className="champion-text-inline">"{state.champion.text}"</span>
+              <span className="champion-meta-inline">
+                (Won against {state.championRun?.ideaCount || '?'} ideas)
+              </span>
+            </div>
 
-          <div className="button-group">
-            <button
-              onClick={runQuickDemo}
-              disabled={loading || demoRunning}
-              className="btn-primary"
-            >
-              {demoRunning ? '⏳ Demo Running...' : `▶️  Run Demo (${agentCount} Agents)`}
-            </button>
+            {state.phase === 'accumulating' && (
+              <div className="challenge-row">
+                <div className="accumulation-progress-inline">
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${Math.min(100, (state.accumulationStatus?.progress || 0) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="progress-text-inline">
+                    {state.accumulationStatus?.pendingIdeas || 0} / {state.accumulationStatus?.minimum || 5} challengers
+                    {state.accumulationStatus?.canChallenge && ' ✓'}
+                  </span>
+                </div>
 
-            {demoRunning && (
-              <button
-                onClick={stopDemo}
-                className="btn-stop"
-              >
-                🛑 Stop Demo
-              </button>
+                <div className="challenge-controls-inline">
+                  <div className="agent-count-control">
+                    <label>Add:</label>
+                    <input
+                      type="number"
+                      value={challengeAgentCount}
+                      onChange={(e) => setChallengeAgentCount(parseInt(e.target.value) || 1)}
+                      disabled={challengeRunning || demoRunning}
+                      className="agent-input"
+                      min="1"
+                    />
+                  </div>
+
+                  <button
+                    onClick={spawnChallengers}
+                    disabled={challengeRunning || demoRunning}
+                    className="btn-secondary"
+                  >
+                    {challengeRunning ? '🤖 Adding...' : '🤖 Add Challengers'}
+                  </button>
+
+                  <button
+                    onClick={triggerChallenge}
+                    disabled={!state.accumulationStatus?.canChallenge || demoRunning}
+                    className="btn-challenge"
+                  >
+                    ⚔️ Challenge!
+                  </button>
+
+                  {demoRunning && (
+                    <button
+                      onClick={stopDemo}
+                      className="btn-stop"
+                    >
+                      🛑 Stop
+                    </button>
+                  )}
+
+                  <button
+                    onClick={async () => {
+                      await fetch(`${API_URL}/api/reset`, { method: 'POST' })
+                      setWinner(null)
+                      setComments([])
+                      setVotes([])
+                      setCurrentActivity('🔄 Reset complete')
+                    }}
+                    disabled={demoRunning}
+                    className="btn-reset"
+                  >
+                    🔄 New Topic
+                  </button>
+                </div>
+              </div>
             )}
           </div>
-        </div>
+        )}
 
         {currentActivity && (
           <div className={`activity ${currentActivity.startsWith('❌') ? 'activity-error' : ''}`}>
@@ -433,73 +518,6 @@ function App() {
       </div>
 
       <ProcessVisualization state={state} winner={winner} />
-
-      {/* Champion & Accumulation Panel */}
-      {state.champion && (
-        <div className="panel champion-panel">
-          <h2>👑 Current Champion</h2>
-          <div className="champion-display">
-            <div className="champion-text">{state.champion.text}</div>
-            <div className="champion-meta">
-              Won with {state.championRun?.ideaCount || '?'} ideas competing
-            </div>
-          </div>
-
-          {state.phase === 'accumulating' && (
-            <div className="accumulation-section">
-              <h3>⚔️ Challenge the Champion</h3>
-              <div className="accumulation-progress">
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${Math.min(100, (state.accumulationStatus?.progress || 0) * 100)}%` }}
-                  />
-                </div>
-                <div className="progress-text">
-                  {state.accumulatedIdeas?.length || 0} / {state.accumulationStatus?.threshold || '?'} ideas
-                  {state.accumulationStatus?.canChallenge && ' ✓ Ready to challenge!'}
-                </div>
-              </div>
-
-              <div className="challenge-controls">
-                <div className="agent-count-control">
-                  <label>Challengers:</label>
-                  <input
-                    type="number"
-                    value={challengeAgentCount}
-                    onChange={(e) => setChallengeAgentCount(parseInt(e.target.value) || 1)}
-                    disabled={challengeRunning || demoRunning}
-                    className="agent-input"
-                    min="1"
-                  />
-                </div>
-
-                <button
-                  onClick={spawnChallengers}
-                  disabled={challengeRunning || demoRunning}
-                  className="btn-secondary"
-                >
-                  {challengeRunning ? '🤖 Spawning...' : '🤖 Add Challengers'}
-                </button>
-
-                <button
-                  onClick={triggerChallenge}
-                  disabled={!state.accumulationStatus?.canChallenge || demoRunning}
-                  className="btn-challenge"
-                >
-                  ⚔️ Trigger Challenge
-                </button>
-              </div>
-
-              {state.recyclableIdeas?.length > 0 && (
-                <div className="recyclable-info">
-                  {state.recyclableIdeas.length} runner-ups available for recycling if needed
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="grid">
         <div className="panel">
@@ -665,27 +683,6 @@ function App() {
                   </div>
                 )
               })}
-          </div>
-        </div>
-      )}
-
-      {/* Accumulated Ideas (during accumulation phase) */}
-      {state.accumulatedIdeas?.length > 0 && (
-        <div className="panel">
-          <h2>📥 Accumulated Ideas ({state.accumulatedIdeas.length})</h2>
-          <div className="ideas">
-            {state.accumulatedIdeas.map((idea, idx) => (
-              <div key={idx} className="idea idea-accumulated">
-                <div className="idea-header">
-                  <span className="idea-id">{idea.id}</span>
-                  <span className="idea-status status-accumulated">📥 Waiting</span>
-                </div>
-                <div className="idea-text">{idea.text}</div>
-                <div className="idea-meta">
-                  <span className="idea-author">{idea.author}</span>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}

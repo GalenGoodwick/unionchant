@@ -1,0 +1,323 @@
+// Union Chant Database Schema
+// Based on SPEC.md
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============ USERS ============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Auth relations
+  accounts      Account[]
+  sessions      Session[]
+
+  // App relations
+  deliberationsCreated Deliberation[]     @relation("Creator")
+  memberships          DeliberationMember[]
+  ideas                Idea[]
+  cellParticipations   CellParticipation[]
+  votes                Vote[]
+  comments             Comment[]
+  pushSubscriptions    PushSubscription[]
+}
+
+// ============ NEXT-AUTH MODELS ============
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ============ DELIBERATION (ROOM) ============
+
+model Deliberation {
+  id          String   @id @default(cuid())
+  creatorId   String
+  creator     User     @relation("Creator", fields: [creatorId], references: [id])
+
+  // Content
+  question    String
+  description String?
+
+  // Settings
+  submissionDurationMs  Int      @default(86400000)  // 24 hours
+  votingTimeoutMs       Int      @default(3600000)   // 1 hour
+  secondVoteTimeoutMs   Int      @default(900000)    // 15 minutes
+  accumulationEnabled   Boolean  @default(true)
+  accumulationTimeoutMs Int      @default(86400000)  // 24 hours
+  isPublic              Boolean  @default(true)
+
+  // State
+  phase               Phase    @default(SUBMISSION)
+  currentTier         Int      @default(1)
+  championId          String?  // ID of winning idea
+  championEnteredTier Int?     // Tier champion enters in challenge
+
+  // Timestamps
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  submissionEndsAt  DateTime?
+  completedAt       DateTime?
+
+  // Relations
+  members    DeliberationMember[]
+  ideas      Idea[]
+  cells      Cell[]
+
+  @@index([creatorId])
+  @@index([isPublic, phase])
+}
+
+enum Phase {
+  SUBMISSION
+  VOTING
+  COMPLETED
+  ACCUMULATING
+}
+
+// ============ DELIBERATION MEMBERSHIP ============
+
+model DeliberationMember {
+  id              String   @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role            MemberRole @default(PARTICIPANT)
+  joinedAt        DateTime   @default(now())
+  lastActiveAt    DateTime   @default(now())
+
+  @@unique([deliberationId, userId])
+  @@index([deliberationId])
+  @@index([userId])
+}
+
+enum MemberRole {
+  CREATOR
+  PARTICIPANT
+  SPECTATOR
+}
+
+// ============ IDEAS ============
+
+model Idea {
+  id              String   @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  authorId        String
+  author          User     @relation(fields: [authorId], references: [id])
+
+  text            String
+
+  // State
+  status          IdeaStatus @default(SUBMITTED)
+  tier            Int        @default(0)
+  isChampion      Boolean    @default(false)
+  isNew           Boolean    @default(false)  // Submitted during accumulation
+
+  // Vote tracking
+  totalVotes      Int        @default(0)
+
+  createdAt       DateTime   @default(now())
+
+  // Relations
+  votes           Vote[]
+  cellIdeas       CellIdea[]
+
+  @@index([deliberationId])
+  @@index([authorId])
+  @@index([deliberationId, status])
+}
+
+enum IdeaStatus {
+  SUBMITTED
+  PENDING       // Ready to compete
+  IN_VOTING
+  ADVANCING
+  ELIMINATED
+  WINNER
+  DEFENDING     // Champion in challenge
+}
+
+// ============ CELLS ============
+
+model Cell {
+  id              String   @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+
+  tier            Int
+  batch           Int?     // For Tier 2+ batching
+
+  // State
+  status          CellStatus @default(DELIBERATING)
+  secondVotesEnabled Boolean @default(false)
+
+  // Timing
+  votingStartedAt   DateTime?
+  votingDeadline    DateTime?
+  secondVoteDeadline DateTime?
+  completedAt       DateTime?
+  completedByTimeout Boolean @default(false)
+
+  createdAt       DateTime @default(now())
+
+  // Relations
+  participants    CellParticipation[]
+  ideas           CellIdea[]
+  votes           Vote[]
+  comments        Comment[]
+
+  @@index([deliberationId, tier])
+  @@index([deliberationId, status])
+}
+
+enum CellStatus {
+  DELIBERATING
+  VOTING
+  COMPLETED
+}
+
+// Junction table for Cell <-> Idea (many-to-many)
+model CellIdea {
+  id       String @id @default(cuid())
+  cellId   String
+  cell     Cell   @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  ideaId   String
+  idea     Idea   @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@unique([cellId, ideaId])
+  @@index([cellId])
+  @@index([ideaId])
+}
+
+// ============ CELL PARTICIPATION ============
+
+model CellParticipation {
+  id              String   @id @default(cuid())
+  cellId          String
+  cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  status          ParticipantStatus @default(ACTIVE)
+  replacedById    String?  // If replaced, who took their spot
+
+  joinedAt        DateTime @default(now())
+  lastSeenAt      DateTime @default(now())
+  votedAt         DateTime?
+  droppedAt       DateTime?
+
+  @@unique([cellId, userId])
+  @@index([cellId])
+  @@index([userId])
+  @@index([cellId, status])
+}
+
+enum ParticipantStatus {
+  ACTIVE
+  VOTED
+  IDLE
+  DROPPED
+  REPLACED
+}
+
+// ============ VOTES ============
+
+model Vote {
+  id              String   @id @default(cuid())
+  cellId          String
+  cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  ideaId          String
+  idea            Idea     @relation(fields: [ideaId], references: [id])
+
+  isSecondVote    Boolean  @default(false)
+  votedAt         DateTime @default(now())
+
+  @@unique([cellId, userId, isSecondVote])
+  @@index([cellId])
+  @@index([ideaId])
+}
+
+// ============ COMMENTS ============
+
+model Comment {
+  id              String   @id @default(cuid())
+  cellId          String
+  cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+
+  text            String
+  replyToId       String?  // For threading
+  replyTo         Comment? @relation("Replies", fields: [replyToId], references: [id])
+  replies         Comment[] @relation("Replies")
+
+  createdAt       DateTime @default(now())
+
+  @@index([cellId])
+  @@index([userId])
+}
+
+// ============ PUSH SUBSCRIPTIONS ============
+
+model PushSubscription {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  endpoint        String   @unique
+  p256dh          String   // Public key
+  auth            String   // Auth secret
+
+  createdAt       DateTime @default(now())
+  lastUsedAt      DateTime @default(now())
+
+  @@index([userId])
+}

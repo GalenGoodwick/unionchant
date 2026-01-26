@@ -21,13 +21,12 @@ class UnionChantEngine {
     // Rolling mode state
     this.champion = null  // Current winning idea
     this.championRun = null  // Metadata about the run that produced champion { ideaCount, tierReached }
-    this.recyclableIdeas = []  // Runner-ups from previous run
-    this.accumulatedIdeas = []  // New ideas during accumulation
     this.accumulationTimerMs = config.accumulationTimerMs || 300000  // Default 5 minutes
     this.accumulationStartedAt = null
     this.accumulationDeadline = null
     this.secondVoteAllowed = false  // Flag for allowing 2nd votes after timeout
     this.votersWhoVotedTwice = []  // Track who has used their 2nd vote
+    this.defendingChampion = null  // Champion waiting to enter at higher tier during challenge
   }
 
   // === CORE ALGORITHM (Preserved from v7-STABLE) ===
@@ -74,26 +73,24 @@ class UnionChantEngine {
    */
   reset(preserveChampion = false) {
     if (preserveChampion && this.champion) {
-      // Rolling mode reset - keep champion, clear everything else
+      // Rolling mode reset - keep champion and ideas, clear voting state
       const savedChampion = { ...this.champion }
       const savedChampionRun = { ...this.championRun }
-      const savedRecyclable = [...this.recyclableIdeas]
+      const savedIdeas = [...this.ideas]
 
       this.participants = []
-      this.ideas = []
       this.cells = []
       this.votes = []
       this.comments = []
       this.phase = 'accumulating'
       this.currentTier = 1
-      this.accumulatedIdeas = []
       this.secondVoteAllowed = false
       this.votersWhoVotedTwice = []
 
       // Restore rolling mode state
       this.champion = savedChampion
       this.championRun = savedChampionRun
-      this.recyclableIdeas = savedRecyclable
+      this.ideas = savedIdeas
 
       // Start accumulation timer
       this.accumulationStartedAt = Date.now()
@@ -114,12 +111,11 @@ class UnionChantEngine {
     // Clear rolling mode state
     this.champion = null
     this.championRun = null
-    this.recyclableIdeas = []
-    this.accumulatedIdeas = []
     this.accumulationStartedAt = null
     this.accumulationDeadline = null
     this.secondVoteAllowed = false
     this.votersWhoVotedTwice = []
+    this.defendingChampion = null
 
     return { success: true, mode: 'fresh' }
   }
@@ -429,7 +425,10 @@ class UnionChantEngine {
   }
 
   /**
-   * Check if a cell has timed out and has quorum - if so, force complete it
+   * Check if a cell has timed out - if so, force complete it
+   * Cells complete on timeout regardless of vote count:
+   * - 0 votes: all ideas advance (handled by getCellWinners)
+   * - 1+ votes: those votes decide winner
    * Returns true if cell was force-completed
    */
   checkCellTimeout(cellId) {
@@ -439,14 +438,20 @@ class UnionChantEngine {
     }
 
     const now = Date.now()
-    const voteCount = this.votes.filter(v => v.cellId === cellId).length
-    const hasQuorum = voteCount >= cell.quorumNeeded
     const hasTimedOut = cell.votingDeadline && now >= cell.votingDeadline
 
-    // Complete if timed out AND has quorum (or all voted)
-    if (hasTimedOut && hasQuorum) {
+    // Complete on timeout regardless of vote count
+    if (hasTimedOut) {
+      const voteCount = this.votes.filter(v => v.cellId === cellId).length
       cell.status = 'completed'
       cell.completedByTimeout = true
+      cell.finalVoteCount = voteCount
+
+      if (voteCount === 0) {
+        console.log(`⏱️ Cell ${cellId} timed out with 0 votes - all ideas will advance`)
+      } else if (voteCount < cell.quorumNeeded) {
+        console.log(`⏱️ Cell ${cellId} timed out with partial votes (${voteCount}/${cell.votesNeeded})`)
+      }
       return true
     }
 
@@ -454,7 +459,7 @@ class UnionChantEngine {
   }
 
   /**
-   * Force complete all timed-out cells in a tier that have quorum
+   * Force complete all timed-out cells in a tier
    * Returns list of cells that were force-completed
    */
   forceCompleteTierTimeouts(tier) {
@@ -471,14 +476,21 @@ class UnionChantEngine {
   }
 
   /**
-   * Get cell winners, handling ties (all tied ideas advance)
+   * Get cell winners, handling ties and abandoned cells
+   * - 0 votes: all ideas advance (not rejected, just abandoned)
+   * - 1+ votes: votes decide winner(s), ties all advance
    */
   getCellWinners(cellId) {
     const cell = this.cells.find(c => c.id === cellId)
     if (!cell) return []
 
     const cellVotes = this.votes.filter(v => v.cellId === cellId)
-    if (cellVotes.length === 0) return []
+
+    // If no votes cast, all ideas advance (cell was abandoned)
+    if (cellVotes.length === 0) {
+      console.log(`⚠️ Cell ${cellId} had no votes - all ideas advance`)
+      return cell.ideaIds
+    }
 
     const tally = {}
     cellVotes.forEach(v => {
@@ -490,6 +502,11 @@ class UnionChantEngine {
 
     // Return ALL ideas with the max vote count (handles ties)
     const winners = Object.keys(tally).filter(ideaId => tally[ideaId] === maxVotes)
+
+    // Log if partial participation
+    if (cellVotes.length < cell.votesNeeded) {
+      console.log(`⚠️ Cell ${cellId} had partial votes (${cellVotes.length}/${cell.votesNeeded}) - winner determined by available votes`)
+    }
 
     return winners
   }
@@ -554,6 +571,13 @@ class UnionChantEngine {
         }
       }
 
+      // Check if defending champion should enter at Tier 2
+      if (this.defendingChampion && this.defendingChampion.entersAtTier === 2) {
+        advancingIdeas.push(this.defendingChampion)
+        this.ideas.push(this.defendingChampion)
+        console.log(`👑 Champion enters at Tier 2: "${this.defendingChampion.text}"`)
+      }
+
       // Advance to Tier 2
       this.formNextTierCells(advancingIdeas, 2)
       this.currentTier = 2
@@ -561,7 +585,8 @@ class UnionChantEngine {
       return {
         success: true,
         nextTier: 2,
-        advancingIdeas: advancingIdeas.length
+        advancingIdeas: advancingIdeas.length,
+        championEntered: this.defendingChampion?.entersAtTier === 2
       }
     } else {
       // Tier 2+: Check if this is a final showdown (all cells voting on same small set of ideas)
@@ -664,14 +689,25 @@ class UnionChantEngine {
         }
       }
 
+      // Check if defending champion should enter at next tier
+      const nextTier = tier + 1
+      let championEntered = false
+      if (this.defendingChampion && this.defendingChampion.entersAtTier === nextTier) {
+        batchWinners.push(this.defendingChampion)
+        this.ideas.push(this.defendingChampion)
+        championEntered = true
+        console.log(`👑 Champion enters at Tier ${nextTier}: "${this.defendingChampion.text}"`)
+      }
+
       // Multiple winners - advance to next tier
-      this.formNextTierCells(batchWinners, tier + 1)
-      this.currentTier++
+      this.formNextTierCells(batchWinners, nextTier)
+      this.currentTier = nextTier
 
       return {
         success: true,
         nextTier: this.currentTier,
-        advancingIdeas: batchWinners.length
+        advancingIdeas: batchWinners.length,
+        championEntered
       }
     }
   }
@@ -740,37 +776,38 @@ class UnionChantEngine {
       completedAt: Date.now()
     }
 
-    // Store runner-ups (cell-winners that didn't become the final winner)
-    this.recyclableIdeas = this.ideas.filter(i =>
-      i.status === 'cell-winner' || (i.status === 'eliminated' && i.tier > 1)
-    ).map(i => ({
-      ...i,
-      recycledFrom: this.championRun.completedAt
-    }))
+    // Keep all ideas in the pool (they can compete again)
+    // Just reset their status
+    this.ideas.forEach(idea => {
+      if (idea.id !== winner.id) {
+        idea.status = 'pending'
+        idea.tier = 0
+      }
+    })
 
     this.phase = 'accumulating'
-    this.accumulatedIdeas = []
     this.accumulationStartedAt = Date.now()
     this.accumulationDeadline = Date.now() + this.accumulationTimerMs
+    this.defendingChampion = null  // Clear any previous defending champion
 
     return {
       success: true,
       champion: this.champion,
-      recyclableCount: this.recyclableIdeas.length,
-      threshold: this.getChallengeThreshold()
+      totalIdeas: this.ideas.length,
+      minimum: this.getMinimumIdeasForChallenge()
     }
   }
 
   /**
-   * Get the number of ideas needed to trigger a challenge (50% of champion run)
+   * Get minimum ideas needed to run a challenge (simple minimum)
    */
-  getChallengeThreshold() {
-    if (!this.championRun) return 5  // Default minimum
-    return Math.max(5, Math.ceil(this.championRun.ideaCount * 0.5))
+  getMinimumIdeasForChallenge() {
+    return 5  // Need at least 5 ideas to form cells
   }
 
   /**
    * Submit a new idea during accumulation phase
+   * Ideas go directly into the main pool
    */
   submitAccumulatedIdea(ideaData) {
     if (this.phase !== 'accumulating') {
@@ -778,26 +815,26 @@ class UnionChantEngine {
     }
 
     const idea = {
-      id: ideaData.id || `idea-acc-${this.accumulatedIdeas.length + 1}`,
+      id: ideaData.id || `idea-new-${this.ideas.length + 1}`,
       text: ideaData.text,
       author: ideaData.author,
       authorId: ideaData.authorId,
-      tier: 0,  // Not yet in any tier
-      status: 'accumulated',
+      tier: 0,
+      status: 'pending',  // Waiting to compete
       createdAt: Date.now(),
-      isNew: true  // Flag to distinguish from recycled ideas
+      isNew: true
     }
 
-    this.accumulatedIdeas.push(idea)
+    // Add directly to main idea pool
+    this.ideas.push(idea)
 
-    // Check if we've hit the threshold
-    const threshold = this.getChallengeThreshold()
-    const canChallenge = this.accumulatedIdeas.length >= threshold
+    const minimum = this.getMinimumIdeasForChallenge()
+    const canChallenge = this.ideas.length >= minimum
 
     return {
       idea,
-      accumulatedCount: this.accumulatedIdeas.length,
-      threshold,
+      totalIdeas: this.ideas.length,
+      minimum,
       canChallenge
     }
   }
@@ -824,12 +861,15 @@ class UnionChantEngine {
 
   /**
    * Check if accumulation timer has expired
-   * If expired, resets timer but keeps accumulated ideas
+   * If expired, resets timer but keeps ideas
    */
   checkAccumulationTimeout() {
     if (this.phase !== 'accumulating') return { expired: false }
 
     const now = Date.now()
+    const minimum = this.getMinimumIdeasForChallenge()
+    const pendingIdeas = this.ideas.filter(i => i.status === 'pending').length
+
     if (this.accumulationDeadline && now >= this.accumulationDeadline) {
       // Timer expired - reset it but keep ideas
       this.accumulationStartedAt = Date.now()
@@ -837,8 +877,9 @@ class UnionChantEngine {
 
       return {
         expired: true,
-        accumulatedCount: this.accumulatedIdeas.length,
-        threshold: this.getChallengeThreshold(),
+        totalIdeas: this.ideas.length,
+        pendingIdeas,
+        minimum,
         message: 'Timer reset. Ideas preserved. Waiting for more participation.'
       }
     }
@@ -846,56 +887,46 @@ class UnionChantEngine {
     return {
       expired: false,
       timeRemaining: this.accumulationDeadline - now,
-      accumulatedCount: this.accumulatedIdeas.length,
-      threshold: this.getChallengeThreshold()
+      totalIdeas: this.ideas.length,
+      pendingIdeas,
+      minimum
     }
   }
 
   /**
-   * Trigger a challenge - merge accumulated ideas with recycled ones
-   * Champion will compete against the new contenders
+   * Trigger a challenge - run full vote with all ideas in the pool
+   * Champion enters at tier N+1 (one higher than where it won)
    */
   triggerChallenge() {
     if (this.phase !== 'accumulating') {
       throw new Error('Not in accumulation phase')
     }
 
-    const threshold = this.getChallengeThreshold()
-    const newIdeasCount = this.accumulatedIdeas.length
-
-    // Determine how many ideas we need total
-    // We want enough to run through tiers and reach a final showdown
-    const targetIdeas = threshold
-
-    // If we don't have enough new ideas, recycle runner-ups
-    let ideasForChallenge = [...this.accumulatedIdeas]
-
-    if (newIdeasCount < targetIdeas && this.recyclableIdeas.length > 0) {
-      const neededFromRecycle = targetIdeas - newIdeasCount
-      const recycled = this.recyclableIdeas.slice(0, neededFromRecycle)
-
-      // Mark recycled ideas
-      recycled.forEach(idea => {
-        idea.status = 'recycled'
-        idea.tier = 0
-        idea.isNew = false
-      })
-
-      ideasForChallenge = [...ideasForChallenge, ...recycled]
-    }
-
-    // Add the champion as a competitor (it defends its title)
-    const championIdea = {
+    // Champion enters at tier AFTER it originally won
+    this.defendingChampion = {
       ...this.champion,
       id: `idea-champ-${Date.now()}`,
       status: 'defending',
       tier: 0,
-      isChampion: true
+      isChampion: true,
+      entersAtTier: (this.championRun?.tierReached || 1) + 1
     }
-    ideasForChallenge.push(championIdea)
+
+    // REMOVE the champion from the idea pool - it will enter at a higher tier
+    this.ideas = this.ideas.filter(idea => idea.id !== this.champion.id)
+
+    const minimum = this.getMinimumIdeasForChallenge()
+    if (this.ideas.length < minimum) {
+      throw new Error(`Need at least ${minimum} challenger ideas to run a challenge (have ${this.ideas.length})`)
+    }
+
+    // Reset all remaining ideas to pending status for fresh competition
+    this.ideas.forEach(idea => {
+      idea.status = 'pending'
+      idea.tier = 0
+    })
 
     // Reset for the challenge run
-    this.ideas = ideasForChallenge
     this.cells = []
     this.votes = []
     this.comments = []
@@ -904,15 +935,13 @@ class UnionChantEngine {
     this.secondVoteAllowed = false
     this.votersWhoVotedTwice = []
 
-    // Clear accumulated (they're now in ideas)
-    this.accumulatedIdeas = []
+    console.log(`⚔️ Challenge triggered: ${this.ideas.length} challengers vs champion (enters at Tier ${this.defendingChampion.entersAtTier})`)
 
     return {
       success: true,
-      totalIdeas: ideasForChallenge.length,
-      newIdeas: newIdeasCount,
-      recycledIdeas: ideasForChallenge.length - newIdeasCount - 1,  // -1 for champion
-      championDefending: championIdea.text
+      totalIdeas: this.ideas.length,
+      championDefending: this.defendingChampion.text,
+      championEntersAtTier: this.defendingChampion.entersAtTier
     }
   }
 
@@ -975,16 +1004,18 @@ class UnionChantEngine {
     }
 
     const now = Date.now()
-    const threshold = this.getChallengeThreshold()
+    const minimum = this.getMinimumIdeasForChallenge()
+    // Count only pending ideas (not the champion)
+    const pendingIdeas = this.ideas.filter(i => i.status === 'pending').length
 
     return {
       active: true,
       champion: this.champion,
-      accumulatedCount: this.accumulatedIdeas.length,
-      threshold,
-      progress: this.accumulatedIdeas.length / threshold,
-      canChallenge: this.accumulatedIdeas.length >= threshold,
-      recyclableCount: this.recyclableIdeas.length,
+      totalIdeas: this.ideas.length,
+      pendingIdeas,
+      minimum,
+      progress: Math.min(1, pendingIdeas / minimum),
+      canChallenge: pendingIdeas >= minimum,
       timeRemaining: this.accumulationDeadline ? Math.max(0, this.accumulationDeadline - now) : null,
       participantCount: this.participants.length
     }
@@ -1045,9 +1076,9 @@ class UnionChantEngine {
       // Rolling mode state
       champion: this.champion,
       championRun: this.championRun,
-      accumulatedIdeas: this.accumulatedIdeas,
       accumulationStatus: this.getAccumulationStatus(),
-      secondVoteAllowed: this.secondVoteAllowed
+      secondVoteAllowed: this.secondVoteAllowed,
+      defendingChampion: this.defendingChampion
     }
 
     return state
