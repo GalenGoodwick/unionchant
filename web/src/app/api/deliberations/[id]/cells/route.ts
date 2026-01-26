@@ -47,14 +47,37 @@ export async function GET(
             user: { select: { id: true, name: true, image: true } },
           },
         },
-        votes: {
-          where: { userId: user.id },
-        },
+        votes: true, // Include ALL votes to count them
       },
       orderBy: { tier: 'asc' },
     })
 
-    return NextResponse.json(cells)
+    // Transform to include vote counts per idea and user's vote
+    const cellsWithVoteCounts = cells.map(cell => {
+      // Count votes per idea
+      const voteCounts: Record<string, number> = {}
+      cell.votes.forEach(vote => {
+        voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
+      })
+
+      // Get user's vote
+      const userVote = cell.votes.find(v => v.userId === user.id)
+
+      return {
+        ...cell,
+        ideas: cell.ideas.map(ci => ({
+          ...ci,
+          idea: {
+            ...ci.idea,
+            totalVotes: voteCounts[ci.ideaId] || 0,
+          },
+        })),
+        userVote: userVote || null,
+        votes: userVote ? [userVote] : [], // Keep user's vote for hasVoted check
+      }
+    })
+
+    return NextResponse.json(cellsWithVoteCounts)
   } catch (error) {
     console.error('Error fetching cells:', error)
     return NextResponse.json({ error: 'Failed to fetch cells' }, { status: 500 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
 interface TestResult {
@@ -117,7 +117,7 @@ export default function AdminTestPage() {
 
         if (!simulateRes.ok) {
           const error = await simulateRes.json()
-          throw new Error(`Failed to simulate voting: ${error.error}`)
+          throw new Error(`Failed to simulate voting: ${error.error}${error.details ? ' - ' + error.details : ''}`)
         }
 
         const simData = await simulateRes.json()
@@ -288,7 +288,196 @@ export default function AdminTestPage() {
             </button>
           </div>
         </div>
+
+        {/* Test Accumulation / Challenge Flow */}
+        <AccumulationTestSection addLog={addLog} />
+
+        {/* Delete Stuck Deliberations */}
+        <DeleteDeliberationsSection addLog={addLog} />
       </div>
+    </div>
+  )
+}
+
+function AccumulationTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
+  const [accumulatingDeliberations, setAccumulatingDeliberations] = useState<Array<{ id: string; question: string; championId: string | null }>>([])
+  const [loading, setLoading] = useState(true)
+  const [testing, setTesting] = useState<string | null>(null)
+  const [challengerCount, setChallengerCount] = useState(10)
+
+  const fetchAccumulating = async () => {
+    try {
+      const res = await fetch('/api/deliberations')
+      if (res.ok) {
+        const data = await res.json()
+        setAccumulatingDeliberations(data.filter((d: { phase: string }) => d.phase === 'ACCUMULATING'))
+      }
+    } catch (err) {
+      console.error('Failed to fetch:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchAccumulating()
+  }, [])
+
+  const runAccumulationTest = async (deliberationId: string) => {
+    setTesting(deliberationId)
+    addLog('info', `Starting accumulation test for ${deliberationId}...`)
+
+    try {
+      const res = await fetch('/api/admin/test/simulate-accumulation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliberationId,
+          challengerCount,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.logs) {
+        data.logs.forEach((log: string) => addLog('info', log))
+      }
+
+      if (data.success) {
+        addLog('success', `Accumulation test complete! Challenge round ${data.challengeRound}, ${data.votesCreated} votes, ${data.tiersProcessed} tiers`)
+        addLog('success', `Final phase: ${data.finalPhase}, New champion: ${data.newChampionId}`)
+      } else {
+        addLog('error', data.error || 'Unknown error')
+      }
+
+      // Refresh the list
+      fetchAccumulating()
+    } catch (err) {
+      addLog('error', err instanceof Error ? err.message : 'Failed to run accumulation test')
+    } finally {
+      setTesting(null)
+    }
+  }
+
+  return (
+    <div className="mt-6 bg-slate-800 rounded-lg p-6">
+      <h2 className="text-lg font-semibold text-white mb-4">Accumulation / Challenge Test</h2>
+      <p className="text-slate-400 text-sm mb-4">
+        Test the challenge flow: submit challengers, run voting, verify champion cycles.
+      </p>
+
+      <div className="mb-4">
+        <label className="block text-sm text-slate-400 mb-1">Number of Challenger Ideas</label>
+        <input
+          type="number"
+          value={challengerCount}
+          onChange={(e) => setChallengerCount(parseInt(e.target.value) || 5)}
+          className="w-32 bg-slate-700 text-white rounded px-3 py-2"
+          min={3}
+          max={50}
+        />
+      </div>
+
+      {loading ? (
+        <p className="text-slate-400">Loading...</p>
+      ) : accumulatingDeliberations.length === 0 ? (
+        <p className="text-slate-400">No deliberations in ACCUMULATING phase. Run a full test first to get a champion.</p>
+      ) : (
+        <div className="space-y-2">
+          {accumulatingDeliberations.map(d => (
+            <div key={d.id} className="flex justify-between items-center bg-slate-700 rounded p-3">
+              <div>
+                <span className="text-white">{d.question}</span>
+                <span className="ml-2 text-xs px-2 py-0.5 rounded bg-purple-600">ACCUMULATING</span>
+              </div>
+              <button
+                onClick={() => runAccumulationTest(d.id)}
+                disabled={testing === d.id}
+                className={`px-3 py-1 text-white text-sm rounded ${
+                  testing === d.id
+                    ? 'bg-slate-600 cursor-not-allowed'
+                    : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}
+              >
+                {testing === d.id ? 'Testing...' : 'Run Challenge Test'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DeleteDeliberationsSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
+  const [deliberations, setDeliberations] = useState<Array<{ id: string; question: string; phase: string }>>([])
+  const [loading, setLoading] = useState(true)
+
+  const fetchDeliberations = async () => {
+    try {
+      const res = await fetch('/api/deliberations')
+      if (res.ok) {
+        const data = await res.json()
+        setDeliberations(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch deliberations:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchDeliberations()
+  }, [])
+
+  const handleDelete = async (id: string, question: string) => {
+    if (!confirm(`Delete "${question}"? This cannot be undone.`)) return
+
+    try {
+      const res = await fetch(`/api/admin/deliberations/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        addLog('success', `Deleted "${question}"`)
+        fetchDeliberations()
+      } else {
+        const data = await res.json()
+        addLog('error', `Failed to delete: ${data.error}`)
+      }
+    } catch (err) {
+      addLog('error', 'Failed to delete deliberation')
+    }
+  }
+
+  return (
+    <div className="mt-6 bg-slate-800 rounded-lg p-6">
+      <h2 className="text-lg font-semibold text-white mb-4">Your Deliberations</h2>
+      {loading ? (
+        <p className="text-slate-400">Loading...</p>
+      ) : deliberations.length === 0 ? (
+        <p className="text-slate-400">No deliberations found.</p>
+      ) : (
+        <div className="space-y-2">
+          {deliberations.map(d => (
+            <div key={d.id} className="flex justify-between items-center bg-slate-700 rounded p-3">
+              <div>
+                <span className="text-white">{d.question}</span>
+                <span className={`ml-2 text-xs px-2 py-0.5 rounded ${
+                  d.phase === 'COMPLETED' ? 'bg-green-600' :
+                  d.phase === 'VOTING' ? 'bg-yellow-600' :
+                  d.phase === 'ACCUMULATING' ? 'bg-purple-600' :
+                  'bg-blue-600'
+                }`}>{d.phase}</span>
+              </div>
+              <button
+                onClick={() => handleDelete(d.id, d.question)}
+                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
