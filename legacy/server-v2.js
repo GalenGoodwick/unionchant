@@ -2,7 +2,7 @@
 const http = require('http');
 const https = require('https');
 
-const API_KEY = 'REMOVED_SECRET';
+const API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // Settings
 const IDEAL_CELL_SIZE = 5; // Target size
