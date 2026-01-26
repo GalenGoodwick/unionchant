@@ -46,7 +46,7 @@ export async function POST(
     }
 
     // Check user is a participant
-    const isParticipant = cell.participants.some(p => p.userId === user.id)
+    const isParticipant = cell.participants.some((p: { userId: string }) => p.userId === user.id)
     if (!isParticipant) {
       return NextResponse.json({ error: 'Not a participant in this cell' }, { status: 403 })
     }
@@ -64,14 +64,14 @@ export async function POST(
     }
 
     // Check idea is in this cell
-    const ideaInCell = cell.ideas.some(ci => ci.ideaId === ideaId)
+    const ideaInCell = cell.ideas.some((ci: { ideaId: string }) => ci.ideaId === ideaId)
     if (!ideaInCell) {
       return NextResponse.json({ error: 'Idea is not in this cell' }, { status: 400 })
     }
 
     // Check if already voted (for this vote type)
     const existingVote = cell.votes.find(
-      v => v.userId === user.id && v.isSecondVote === isSecondVote
+      (v: { userId: string; isSecondVote: boolean }) => v.userId === user.id && v.isSecondVote === isSecondVote
     )
     if (existingVote) {
       return NextResponse.json({ error: 'Already voted' }, { status: 400 })
@@ -108,8 +108,8 @@ export async function POST(
       },
     })
 
-    const allVoted = updatedCell!.participants.every(p =>
-      updatedCell!.votes.some(v => v.userId === p.userId)
+    const allVoted = updatedCell!.participants.every((p: { userId: string }) =>
+      updatedCell!.votes.some((v: { userId: string }) => v.userId === p.userId)
     )
 
     // If all voted, process cell results

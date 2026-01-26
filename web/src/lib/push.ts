@@ -1,13 +1,18 @@
 import webpush from 'web-push'
 import { prisma } from './prisma'
 
-// Configure web-push with VAPID keys
-if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:hello@unionchant.com',
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY
-  )
+// Lazy configure web-push with VAPID keys (only at runtime, not build time)
+let vapidConfigured = false
+function ensureVapidConfigured() {
+  if (vapidConfigured) return
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    webpush.setVapidDetails(
+      process.env.VAPID_SUBJECT || 'mailto:hello@unionchant.com',
+      process.env.VAPID_PUBLIC_KEY,
+      process.env.VAPID_PRIVATE_KEY
+    )
+    vapidConfigured = true
+  }
 }
 
 interface PushPayload {
@@ -113,6 +118,8 @@ async function sendPush(
   subscription: { endpoint: string; p256dh: string; auth: string; id: string },
   payload: PushPayload
 ) {
+  ensureVapidConfigured()
+
   const pushSubscription = {
     endpoint: subscription.endpoint,
     keys: {

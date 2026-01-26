@@ -59,7 +59,7 @@ export async function POST(
     }
 
     // Check user is a participant in this cell
-    const isParticipant = cell.participants.some(p => p.userId === user.id)
+    const isParticipant = cell.participants.some((p: { userId: string }) => p.userId === user.id)
     if (!isParticipant) {
       return NextResponse.json({ error: 'Not a participant in this cell' }, { status: 403 })
     }

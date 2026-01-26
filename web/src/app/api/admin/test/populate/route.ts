@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     // Create test users
     const timestamp = Date.now()
-    const users = []
+    const users: { id: string; email: string; name: string | null }[] = []
 
     for (let i = 1; i <= userCount; i++) {
       const user = await prisma.user.create({

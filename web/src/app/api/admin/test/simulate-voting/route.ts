@@ -74,11 +74,11 @@ export async function POST(req: NextRequest) {
       }
 
       const currentTier = incompleteCells[0].tier
-      const cellsAtTier = incompleteCells.filter(c => c.tier === currentTier)
+      const cellsAtTier = incompleteCells.filter((c: typeof incompleteCells[number]) => c.tier === currentTier)
 
       for (const cell of cellsAtTier) {
-        const votedUserIds = new Set(cell.votes.map(v => v.userId))
-        const unvotedParticipants = cell.participants.filter(p => !votedUserIds.has(p.userId))
+        const votedUserIds = new Set(cell.votes.map((v: { userId: string }) => v.userId))
+        const unvotedParticipants = cell.participants.filter((p: { userId: string }) => !votedUserIds.has(p.userId))
 
         // Check if this is the final cell and we should leave a vote
         const isFinalCell = cellsAtTier.length === 1 && incompleteCells.length === 1
@@ -202,7 +202,7 @@ async function checkTierAdvancement(deliberationId: string, currentTier: number)
     where: { deliberationId, tier: currentTier },
   })
 
-  const allComplete = cellsAtTier.every(c => c.status === 'COMPLETED')
+  const allComplete = cellsAtTier.every((c: { status: string }) => c.status === 'COMPLETED')
   if (!allComplete) return
 
   // Get advancing ideas from this tier

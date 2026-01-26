@@ -98,12 +98,12 @@ export async function startChallengeRound(deliberationId: string) {
 
   // Get accumulated ideas (new submissions during accumulation)
   const pendingIdeas = deliberation.ideas.filter(
-    i => i.status === 'PENDING' && i.isNew
+    (i: { status: string; isNew: boolean }) => i.status === 'PENDING' && i.isNew
   )
 
   // Get benched ideas (previous losers that can re-enter)
   const benchedIdeas = deliberation.ideas.filter(
-    i => i.status === 'BENCHED'
+    (i: { status: string }) => i.status === 'BENCHED'
   )
 
   // Calculate minimum pool size based on champion's tier

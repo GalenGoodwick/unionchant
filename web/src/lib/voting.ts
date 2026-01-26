@@ -41,7 +41,7 @@ export async function startVotingPhase(deliberationId: string) {
   const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
 
   // Create cells
-  const cells = []
+  const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
   for (let i = 0; i < numCells; i++) {
     const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
     const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
@@ -73,7 +73,7 @@ export async function startVotingPhase(deliberationId: string) {
 
     // Update idea statuses
     await prisma.idea.updateMany({
-      where: { id: { in: cellIdeas.map(i => i.id) } },
+      where: { id: { in: cellIdeas.map((i: { id: string }) => i.id) } },
       data: { status: 'IN_VOTING', tier: 1 },
     })
   }
@@ -125,15 +125,15 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   if (maxVotes === 0) {
     // No votes cast - all ideas advance
-    winnerIds = cell.ideas.map(ci => ci.ideaId)
+    winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
   } else {
     winnerIds = Object.entries(voteCounts)
       .filter(([, count]) => count === maxVotes)
       .map(([id]) => id)
 
     loserIds = cell.ideas
-      .map(ci => ci.ideaId)
-      .filter(id => !winnerIds.includes(id))
+      .map((ci: { ideaId: string }) => ci.ideaId)
+      .filter((id: string) => !winnerIds.includes(id))
   }
 
   // Mark winners as advancing
@@ -185,7 +185,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     where: { deliberationId, tier },
   })
 
-  const allComplete = cells.every(c => c.status === 'COMPLETED')
+  const allComplete = cells.every((c: { status: string }) => c.status === 'COMPLETED')
 
   if (!allComplete) return
 
@@ -279,7 +279,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     // Reset advancing ideas status
     await prisma.idea.updateMany({
-      where: { id: { in: advancingIdeas.map(i => i.id) } },
+      where: { id: { in: advancingIdeas.map((i: { id: string }) => i.id) } },
       data: { status: 'IN_VOTING', tier: nextTier },
     })
 
