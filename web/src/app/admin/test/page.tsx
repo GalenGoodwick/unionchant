@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession, signIn, signOut } from 'next-auth/react'
 import Link from 'next/link'
 
 interface TestResult {
@@ -16,6 +17,7 @@ interface LogEntry {
 }
 
 export default function AdminTestPage() {
+  const { data: session, status } = useSession()
   const [isRunning, setIsRunning] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [testConfig, setTestConfig] = useState({
@@ -25,8 +27,10 @@ export default function AdminTestPage() {
     simulateVoting: true,
     voteThroughTiers: true,
     leaveFinaVote: true, // Leave one vote in final cell for manual testing
+    accumulationEnabled: true, // Enable rolling mode
   })
   const [createdDeliberation, setCreatedDeliberation] = useState<{ id: string; inviteCode: string } | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const addLog = (type: LogEntry['type'], message: string) => {
     setLogs(prev => [...prev, {
@@ -56,6 +60,7 @@ export default function AdminTestPage() {
           description: testConfig.description,
           isPublic: false,
           tags: ['test', 'automated'],
+          accumulationEnabled: testConfig.accumulationEnabled,
         }),
       })
 
@@ -133,6 +138,7 @@ export default function AdminTestPage() {
       }
 
       addLog('success', 'Test completed successfully!')
+      setRefreshKey(k => k + 1) // Trigger refresh of accumulation section
 
     } catch (error) {
       addLog('error', error instanceof Error ? error.message : 'Unknown error')
@@ -149,7 +155,40 @@ export default function AdminTestPage() {
         </Link>
 
         <h1 className="text-3xl font-bold text-white mb-2">Admin Test Page</h1>
-        <p className="text-slate-400 mb-8">Automated testing for deliberation flows. Not for public use.</p>
+        <p className="text-slate-400 mb-4">Automated testing for deliberation flows. Not for public use.</p>
+
+        {/* Auth Status */}
+        <div className="bg-slate-800 rounded-lg p-4 mb-6 flex items-center justify-between">
+          {status === 'loading' ? (
+            <span className="text-slate-400">Loading...</span>
+          ) : session ? (
+            <>
+              <span className="text-green-400">Signed in as {session.user?.email}</span>
+              <button
+                onClick={() => signOut()}
+                className="px-4 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-sm"
+              >
+                Sign Out
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="text-yellow-400">Not signed in - tests require authentication</span>
+              <button
+                onClick={() => signIn('google')}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded"
+              >
+                Sign in with Google
+              </button>
+            </>
+          )}
+        </div>
+
+        {!session && status !== 'loading' && (
+          <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-4 mb-6">
+            <p className="text-yellow-300">Please sign in to run tests. The test automation requires authentication to create deliberations and simulate voting.</p>
+          </div>
+        )}
 
         {/* Configuration */}
         <div className="bg-slate-800 rounded-lg p-6 mb-6">
@@ -196,6 +235,15 @@ export default function AdminTestPage() {
                 className="rounded"
               />
               Leave final vote for manual testing
+            </label>
+            <label className="flex items-center gap-2 text-slate-300">
+              <input
+                type="checkbox"
+                checked={testConfig.accumulationEnabled}
+                onChange={(e) => setTestConfig(prev => ({ ...prev, accumulationEnabled: e.target.checked }))}
+                className="rounded"
+              />
+              Enable accumulation (rolling mode)
             </label>
           </div>
 
@@ -290,7 +338,7 @@ export default function AdminTestPage() {
         </div>
 
         {/* Test Accumulation / Challenge Flow */}
-        <AccumulationTestSection addLog={addLog} />
+        <AccumulationTestSection addLog={addLog} refreshKey={refreshKey} />
 
         {/* Delete Stuck Deliberations */}
         <DeleteDeliberationsSection addLog={addLog} />
@@ -299,15 +347,16 @@ export default function AdminTestPage() {
   )
 }
 
-function AccumulationTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
+function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void; refreshKey: number }) {
   const [accumulatingDeliberations, setAccumulatingDeliberations] = useState<Array<{ id: string; question: string; championId: string | null }>>([])
   const [loading, setLoading] = useState(true)
   const [testing, setTesting] = useState<string | null>(null)
   const [challengerCount, setChallengerCount] = useState(10)
 
   const fetchAccumulating = async () => {
+    setLoading(true)
     try {
-      const res = await fetch('/api/deliberations')
+      const res = await fetch('/api/admin/deliberations')
       if (res.ok) {
         const data = await res.json()
         setAccumulatingDeliberations(data.filter((d: { phase: string }) => d.phase === 'ACCUMULATING'))
@@ -321,7 +370,7 @@ function AccumulationTestSection({ addLog }: { addLog: (type: 'info' | 'success'
 
   useEffect(() => {
     fetchAccumulating()
-  }, [])
+  }, [refreshKey])
 
   const runAccumulationTest = async (deliberationId: string) => {
     setTesting(deliberationId)
@@ -361,7 +410,15 @@ function AccumulationTestSection({ addLog }: { addLog: (type: 'info' | 'success'
 
   return (
     <div className="mt-6 bg-slate-800 rounded-lg p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">Accumulation / Challenge Test</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold text-white">Accumulation / Challenge Test</h2>
+        <button
+          onClick={fetchAccumulating}
+          className="text-sm text-slate-400 hover:text-slate-300"
+        >
+          Refresh
+        </button>
+      </div>
       <p className="text-slate-400 text-sm mb-4">
         Test the challenge flow: submit challengers, run voting, verify champion cycles.
       </p>
@@ -415,7 +472,7 @@ function DeleteDeliberationsSection({ addLog }: { addLog: (type: 'info' | 'succe
 
   const fetchDeliberations = async () => {
     try {
-      const res = await fetch('/api/deliberations')
+      const res = await fetch('/api/admin/deliberations')
       if (res.ok) {
         const data = await res.json()
         setDeliberations(data)

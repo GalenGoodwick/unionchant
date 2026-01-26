@@ -71,6 +71,136 @@ type Deliberation = {
   inviteCode?: string
 }
 
+// History types
+type HistoryIdea = {
+  id: string
+  text: string
+  author: string
+  votes: number
+  isWinner: boolean
+  status: string
+}
+
+type HistoryCell = {
+  id: string
+  tier: number
+  completedAt: string
+  ideas: HistoryIdea[]
+  totalVotes: number
+}
+
+type VotingHistory = {
+  challengeRound: number
+  currentChampion: { id: string; text: string; author: { name: string } } | null
+  tiers: Record<number, HistoryCell[]>
+  totalCells: number
+}
+
+// History component
+function VotingHistorySection({ deliberationId }: { deliberationId: string }) {
+  const [history, setHistory] = useState<VotingHistory | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [expanded, setExpanded] = useState(false)
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`/api/deliberations/${deliberationId}/history`)
+        if (res.ok) {
+          const data = await res.json()
+          setHistory(data)
+        }
+      } catch (err) {
+        console.error('Failed to fetch history:', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchHistory()
+  }, [deliberationId])
+
+  if (loading) {
+    return (
+      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+        <p className="text-slate-400">Loading history...</p>
+      </div>
+    )
+  }
+
+  if (!history || history.totalCells === 0) {
+    return null
+  }
+
+  const tierNumbers = Object.keys(history.tiers).map(Number).sort((a, b) => a - b)
+
+  return (
+    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex justify-between items-center"
+      >
+        <h2 className="text-lg font-semibold text-white">
+          Voting History
+          {history.challengeRound > 0 && (
+            <span className="text-slate-400 font-normal text-sm ml-2">
+              (Challenge Round {history.challengeRound})
+            </span>
+          )}
+        </h2>
+        <div className="flex items-center gap-3">
+          <span className="text-slate-400 text-sm">{history.totalCells} cells completed</span>
+          <svg
+            className={`w-5 h-5 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="mt-4 space-y-4">
+          {tierNumbers.map(tier => (
+            <div key={tier} className="border-l-2 border-slate-600 pl-4">
+              <h3 className="text-md font-medium text-slate-300 mb-2">Tier {tier}</h3>
+              <div className="space-y-3">
+                {history.tiers[tier].map(cell => (
+                  <div key={cell.id} className="bg-slate-700/50 rounded-lg p-3">
+                    <div className="text-xs text-slate-500 mb-2">
+                      Cell completed • {cell.totalVotes} votes cast
+                    </div>
+                    <div className="space-y-1">
+                      {cell.ideas
+                        .sort((a, b) => b.votes - a.votes)
+                        .map(idea => (
+                          <div
+                            key={idea.id}
+                            className={`flex justify-between items-center text-sm p-2 rounded ${
+                              idea.isWinner
+                                ? 'bg-green-600/20 text-green-300'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            <span className="truncate flex-1">{idea.text}</span>
+                            <span className="ml-2 font-medium">
+                              {idea.votes} {idea.isWinner && '✓'}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Discussion component for a cell
 function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipant: boolean }) {
   const [comments, setComments] = useState<Comment[]>([])
@@ -241,6 +371,17 @@ export default function DeliberationPage() {
     fetchDeliberation()
   }, [id])
 
+  // Poll for updates during VOTING phase
+  useEffect(() => {
+    if (deliberation?.phase === 'VOTING') {
+      const interval = setInterval(() => {
+        fetchDeliberation()
+        fetchCells()
+      }, 5000) // Poll every 5 seconds
+      return () => clearInterval(interval)
+    }
+  }, [deliberation?.phase])
+
   useEffect(() => {
     if (deliberation?.phase === 'VOTING' || deliberation?.phase === 'COMPLETED') {
       fetchCells()
@@ -386,12 +527,29 @@ export default function DeliberationPage() {
           {/* Challenge round indicator */}
           {deliberation.challengeRound > 0 && deliberation.phase === 'VOTING' && (
             <div className="bg-orange-600/20 border border-orange-500 rounded-lg p-4 mb-4">
-              <div className="text-orange-400 font-semibold">
-                Challenge Round {deliberation.challengeRound}
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-orange-400 font-semibold">
+                    Challenge Round {deliberation.challengeRound}
+                  </div>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Challengers are competing to dethrone the champion
+                  </p>
+                </div>
               </div>
-              <p className="text-slate-400 text-sm mt-1">
-                Challengers are competing to dethrone the champion
-              </p>
+              {/* Show defending champion */}
+              {(() => {
+                const defender = deliberation.ideas.find(i => i.status === 'DEFENDING')
+                if (defender) {
+                  return (
+                    <div className="mt-3 bg-orange-900/30 rounded-lg p-3">
+                      <div className="text-orange-300 text-xs mb-1">Defending Champion</div>
+                      <div className="text-white text-sm">{defender.text}</div>
+                    </div>
+                  )
+                }
+                return null
+              })()}
             </div>
           )}
 
@@ -549,6 +707,46 @@ export default function DeliberationPage() {
           </div>
         )}
 
+        {/* Voting Progress - during voting phase */}
+        {deliberation.phase === 'VOTING' && (
+          <div className="bg-yellow-900/30 rounded-lg p-6 border border-yellow-700 mb-6">
+            <h2 className="text-lg font-semibold text-yellow-400 mb-3">
+              Tier {deliberation.currentTier} Voting {cells.length === 0 ? '- Watching' : ''}
+            </h2>
+
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-blue-400">
+                  {deliberation.ideas.filter(i => i.status === 'IN_VOTING').length}
+                </div>
+                <div className="text-xs text-slate-400">Competing</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-green-400">
+                  {deliberation.ideas.filter(i => i.status === 'ADVANCING').length}
+                </div>
+                <div className="text-xs text-slate-400">Advancing</div>
+              </div>
+              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-red-400">
+                  {deliberation.ideas.filter(i => i.status === 'ELIMINATED').length}
+                </div>
+                <div className="text-xs text-slate-400">Eliminated</div>
+              </div>
+            </div>
+
+            {cells.length === 0 ? (
+              <p className="text-slate-400 text-sm">
+                You&apos;re not assigned to vote in this tier. You may vote in a later tier or the final showdown.
+              </p>
+            ) : (
+              <p className="text-slate-300 text-sm">
+                You have {cells.filter(c => c.status === 'VOTING').length} active cell(s) to vote in below.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Voting Cells */}
         {(deliberation.phase === 'VOTING' || deliberation.phase === 'COMPLETED') && cells.length > 0 && (
           <div className="space-y-6 mb-6">
@@ -654,6 +852,9 @@ export default function DeliberationPage() {
           </div>
         )}
 
+        {/* Voting History */}
+        <VotingHistorySection deliberationId={id} key={`history-${deliberation.phase}-${deliberation.challengeRound}`} />
+
         {/* All Ideas List */}
         <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
           <h2 className="text-lg font-semibold text-white mb-4">
@@ -669,13 +870,16 @@ export default function DeliberationPage() {
                   key={idea.id}
                   className={`rounded-lg p-4 flex justify-between items-center ${
                     idea.status === 'WINNER' ? 'bg-green-600/20 border border-green-500' :
+                    idea.status === 'DEFENDING' ? 'bg-orange-600/20 border border-orange-500' :
                     idea.status === 'ADVANCING' ? 'bg-blue-600/20 border border-blue-500' :
-                    idea.status === 'ELIMINATED' ? 'bg-slate-700/50' :
+                    idea.status === 'IN_VOTING' ? 'bg-yellow-600/10 border border-yellow-500/30' :
+                    idea.status === 'BENCHED' ? 'bg-slate-600/50 border border-slate-500' :
+                    idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'bg-slate-700/50' :
                     'bg-slate-700'
                   }`}
                 >
                   <div>
-                    <p className={`${idea.status === 'ELIMINATED' ? 'text-slate-500' : 'text-white'}`}>
+                    <p className={`${idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'text-slate-500' : 'text-white'}`}>
                       {idea.text}
                     </p>
                     <p className="text-sm text-slate-500">by {idea.author.name || 'Anonymous'}</p>
@@ -683,14 +887,21 @@ export default function DeliberationPage() {
                   <div className="text-right">
                     <span className={`text-sm ${
                       idea.status === 'WINNER' ? 'text-green-400 font-medium' :
+                      idea.status === 'DEFENDING' ? 'text-orange-400 font-medium' :
                       idea.status === 'ADVANCING' ? 'text-blue-400' :
+                      idea.status === 'IN_VOTING' ? 'text-yellow-400' :
+                      idea.status === 'BENCHED' ? 'text-slate-400' :
                       idea.status === 'ELIMINATED' ? 'text-red-400/70' :
+                      idea.status === 'RETIRED' ? 'text-slate-500' :
                       'text-slate-400'
                     }`}>
                       {idea.status}
                     </span>
                     {idea.totalVotes > 0 && (
                       <p className="text-slate-400 text-sm">{idea.totalVotes} votes</p>
+                    )}
+                    {idea.tier1Losses > 0 && (
+                      <p className="text-slate-500 text-xs">{idea.tier1Losses} tier-1 loss{idea.tier1Losses > 1 ? 'es' : ''}</p>
                     )}
                   </div>
                 </div>
