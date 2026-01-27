@@ -49,25 +49,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Rate limit: 1 deliberation per user per day
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
-    const recentDeliberation = await prisma.deliberation.findFirst({
-      where: {
-        creatorId: user.id,
-        createdAt: { gte: oneDayAgo },
-      },
-      select: { createdAt: true },
-    })
-
-    if (recentDeliberation) {
-      const nextAllowedTime = new Date(recentDeliberation.createdAt.getTime() + 24 * 60 * 60 * 1000)
-      const hoursRemaining = Math.ceil((nextAllowedTime.getTime() - Date.now()) / (60 * 60 * 1000))
-      return NextResponse.json(
-        { error: `You can only create one deliberation per day. Try again in ${hoursRemaining} hour${hoursRemaining === 1 ? '' : 's'}.` },
-        { status: 429 }
-      )
-    }
-
     const body = await req.json()
     const {
       question,
