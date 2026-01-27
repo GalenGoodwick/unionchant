@@ -716,7 +716,7 @@ export default function DemoPage() {
               )}
 
               {/* Key Insight Box */}
-              {phase !== 'setup' && !champion && (
+              {!champion && (
                 <div className="bg-purple-bg border border-purple rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <div className="text-purple text-xl">💡</div>
