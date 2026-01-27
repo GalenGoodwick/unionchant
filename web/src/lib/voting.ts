@@ -6,6 +6,114 @@ const CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
 
 /**
+ * Resolve predictions when a cell completes
+ * Updates wonImmediate for cell predictions
+ */
+async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
+  // Get all predictions for this cell
+  const predictions = await prisma.prediction.findMany({
+    where: { cellId },
+  })
+
+  for (const prediction of predictions) {
+    const won = winnerIds.includes(prediction.predictedIdeaId)
+
+    await prisma.prediction.update({
+      where: { id: prediction.id },
+      data: {
+        wonImmediate: won,
+        resolvedAt: new Date(),
+      },
+    })
+
+    // Update user streak
+    const user = await prisma.user.findUnique({
+      where: { id: prediction.userId },
+    })
+
+    if (user) {
+      if (won) {
+        await prisma.user.update({
+          where: { id: prediction.userId },
+          data: {
+            correctPredictions: { increment: 1 },
+            currentStreak: { increment: 1 },
+            bestStreak: Math.max(user.bestStreak, user.currentStreak + 1),
+          },
+        })
+      } else {
+        // Reset streak on loss
+        await prisma.user.update({
+          where: { id: prediction.userId },
+          data: {
+            currentStreak: 0,
+          },
+        })
+      }
+    }
+  }
+}
+
+/**
+ * Resolve all predictions when a champion is declared
+ * Updates ideaBecameChampion and ideaFinalTier for all predictions on that idea
+ */
+async function resolveChampionPredictions(deliberationId: string, championId: string) {
+  // Get the champion idea to know its final tier
+  const champion = await prisma.idea.findUnique({
+    where: { id: championId },
+  })
+
+  if (!champion) return
+
+  // Update all predictions for this champion idea
+  const championPredictions = await prisma.prediction.findMany({
+    where: {
+      deliberationId,
+      predictedIdeaId: championId,
+    },
+  })
+
+  for (const prediction of championPredictions) {
+    await prisma.prediction.update({
+      where: { id: prediction.id },
+      data: {
+        ideaBecameChampion: true,
+        ideaFinalTier: champion.tier,
+      },
+    })
+
+    // Update user's champion picks count
+    await prisma.user.update({
+      where: { id: prediction.userId },
+      data: {
+        championPicks: { increment: 1 },
+      },
+    })
+  }
+
+  // Update non-champion predictions with final tier info
+  const allIdeas = await prisma.idea.findMany({
+    where: { deliberationId },
+  })
+
+  for (const idea of allIdeas) {
+    if (idea.id === championId) continue
+
+    await prisma.prediction.updateMany({
+      where: {
+        deliberationId,
+        predictedIdeaId: idea.id,
+      },
+      data: {
+        ideaBecameChampion: false,
+        ideaFinalTier: idea.tier,
+      },
+    })
+  }
+}
+
+/**
  * Start voting phase for a deliberation
  * Extracted from start-voting route for reuse in timer processing
  */
@@ -26,8 +134,68 @@ export async function startVotingPhase(deliberationId: string) {
     throw new Error('Deliberation is not in submission phase')
   }
 
-  if (deliberation.ideas.length < 2) {
-    throw new Error('Need at least 2 ideas to start voting')
+  // Edge case: No ideas submitted
+  if (deliberation.ideas.length === 0) {
+    await prisma.deliberation.update({
+      where: { id: deliberationId },
+      data: {
+        phase: 'COMPLETED',
+        completedAt: new Date(),
+      },
+    })
+    return {
+      success: false,
+      reason: 'NO_IDEAS',
+      message: 'No ideas were submitted'
+    }
+  }
+
+  // Edge case: Only 1 idea - it wins by default
+  if (deliberation.ideas.length === 1) {
+    const winningIdea = deliberation.ideas[0]
+    await prisma.$transaction([
+      prisma.idea.update({
+        where: { id: winningIdea.id },
+        data: { status: 'WINNER', isChampion: true },
+      }),
+      prisma.deliberation.update({
+        where: { id: deliberationId },
+        data: {
+          phase: deliberation.accumulationEnabled ? 'ACCUMULATING' : 'COMPLETED',
+          championId: winningIdea.id,
+          completedAt: deliberation.accumulationEnabled ? null : new Date(),
+          accumulationEndsAt: deliberation.accumulationEnabled
+            ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
+            : null,
+        },
+      }),
+    ])
+
+    // Resolve predictions for champion
+    await resolveChampionPredictions(deliberationId, winningIdea.id)
+
+    return {
+      success: true,
+      reason: 'SINGLE_IDEA',
+      message: 'Single idea wins by default',
+      championId: winningIdea.id
+    }
+  }
+
+  // Edge case: Not enough participants
+  if (deliberation.members.length < 3) {
+    await prisma.deliberation.update({
+      where: { id: deliberationId },
+      data: {
+        phase: 'COMPLETED',
+        completedAt: new Date(),
+      },
+    })
+    return {
+      success: false,
+      reason: 'INSUFFICIENT_PARTICIPANTS',
+      message: 'Need at least 3 participants to start voting'
+    }
   }
 
   // Create cells for Tier 1
@@ -93,6 +261,8 @@ export async function startVotingPhase(deliberationId: string) {
   ).catch(err => console.error('Failed to send push notifications:', err))
 
   return {
+    success: true,
+    reason: 'VOTING_STARTED',
     message: 'Voting started',
     cellsCreated: cells.length,
     tier: 1
@@ -113,6 +283,12 @@ export async function processCellResults(cellId: string, isTimeout = false) {
   })
 
   if (!cell) return null
+
+  // Guard: Don't process if cell is already completed (prevents race condition)
+  if (cell.status === 'COMPLETED') {
+    console.log(`Cell ${cellId} already completed, skipping processCellResults`)
+    return null
+  }
 
   // Check if this is a final showdown cell (all cells in tier have same ideas, ≤4 ideas)
   const allCellsInTier = await prisma.cell.findMany({
@@ -155,30 +331,49 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         .filter((id: string) => !winnerIds.includes(id))
     }
 
-    // Mark winners as advancing
+    // Mark winners as advancing and update their tier
     await prisma.idea.updateMany({
       where: { id: { in: winnerIds } },
-      data: { status: 'ADVANCING' },
+      data: { status: 'ADVANCING', tier: cell.tier },
     })
 
-    // Mark losers and track tier1 losses
+    // Two-strike elimination: first loss → POOLED, second loss → ELIMINATED
     if (loserIds.length > 0) {
-      // For Tier 1 losers, increment tier1Losses
-      if (cell.tier === 1) {
+      // Get current loss counts for losers
+      const loserIdeas = await prisma.idea.findMany({
+        where: { id: { in: loserIds } },
+        select: { id: true, losses: true },
+      })
+
+      const firstTimeLosers = loserIdeas.filter(i => i.losses === 0).map(i => i.id)
+      const secondTimeLosers = loserIdeas.filter(i => i.losses >= 1).map(i => i.id)
+
+      // First loss: back to pool for another chance
+      if (firstTimeLosers.length > 0) {
         await prisma.idea.updateMany({
-          where: { id: { in: loserIds } },
+          where: { id: { in: firstTimeLosers } },
           data: {
-            status: 'ELIMINATED',
-            tier1Losses: { increment: 1 }
+            status: 'POOLED',
+            losses: { increment: 1 },
+            tier: 0, // Reset tier for re-entry
           },
         })
-      } else {
+      }
+
+      // Second loss: eliminated for good
+      if (secondTimeLosers.length > 0) {
         await prisma.idea.updateMany({
-          where: { id: { in: loserIds } },
-          data: { status: 'ELIMINATED' },
+          where: { id: { in: secondTimeLosers } },
+          data: {
+            status: 'ELIMINATED',
+            losses: { increment: 1 },
+          },
         })
       }
     }
+
+    // Resolve predictions for this cell
+    await resolveCellPredictions(cellId, winnerIds)
   }
 
   // Mark cell as completed
@@ -302,6 +497,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         }
       }
 
+      // Resolve predictions for champion
+      await resolveChampionPredictions(deliberationId, winnerId)
+
       return // Final showdown complete
     }
   }
@@ -391,6 +589,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           .catch(err => console.error('Failed to handle meta champion:', err))
       }
     }
+
+    // Resolve predictions for champion
+    await resolveChampionPredictions(deliberationId, winnerId)
   } else {
     // Need another tier - create new cells with advancing ideas
     const nextTier = tier + 1

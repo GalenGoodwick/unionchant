@@ -50,6 +50,14 @@ model User {
   comments             Comment[]
   pushSubscriptions    PushSubscription[]
   watches              Watch[]
+  predictions          Prediction[]
+
+  // Prediction stats (denormalized for fast leaderboard queries)
+  totalPredictions     Int @default(0)
+  correctPredictions   Int @default(0)
+  championPicks        Int @default(0)  // Predicted idea that became champion
+  currentStreak        Int @default(0)
+  bestStreak           Int @default(0)
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -143,10 +151,11 @@ model Deliberation {
   accumulationEndsAt  DateTime? // When the accumulation period ends
 
   // Relations
-  members    DeliberationMember[]
-  ideas      Idea[]
-  cells      Cell[]
-  watchers   Watch[]
+  members     DeliberationMember[]
+  ideas       Idea[]
+  cells       Cell[]
+  watchers    Watch[]
+  predictions Prediction[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -206,7 +215,7 @@ model Idea {
   tier            Int        @default(0)
   isChampion      Boolean    @default(false)
   isNew           Boolean    @default(false)  // Submitted during accumulation
-  tier1Losses     Int        @default(0)      // Track losses in tier 1 for retirement logic
+  losses          Int        @default(0)      // Track total losses (2 = eliminated)
 
   // Vote tracking
   totalVotes      Int        @default(0)
@@ -216,6 +225,7 @@ model Idea {
   // Relations
   votes           Vote[]
   cellIdeas       CellIdea[]
+  predictions     Prediction[]
 
   @@index([deliberationId])
   @@index([authorId])
@@ -225,9 +235,10 @@ model Idea {
 enum IdeaStatus {
   SUBMITTED
   PENDING       // Ready to compete
+  POOLED        // Lost once, back in pool for second chance
   IN_VOTING
   ADVANCING
-  ELIMINATED
+  ELIMINATED    // Lost twice, out for good
   WINNER
   DEFENDING     // Champion in challenge
   BENCHED       // Has 2 losses but protected by minimum pool
@@ -262,6 +273,7 @@ model Cell {
   ideas           CellIdea[]
   votes           Vote[]
   comments        Comment[]
+  predictions     Prediction[]
 
   @@index([deliberationId, tier])
   @@index([deliberationId, status])
@@ -386,4 +398,38 @@ model PushSubscription {
   lastUsedAt      DateTime @default(now())
 
   @@index([userId])
+}
+
+// ============ PREDICTIONS ============
+
+model Prediction {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+
+  // What they predicted
+  cellId          String?  // For Tier 1 cell-level predictions (null for batch predictions)
+  cell            Cell?    @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  tierPredictedAt Int      // Which tier they made this prediction
+  predictedIdeaId String   // The idea they think will win
+  predictedIdea   Idea     @relation(fields: [predictedIdeaId], references: [id], onDelete: Cascade)
+
+  // Outcome - tracks the idea's full journey
+  wonImmediate    Boolean? // Did idea win this cell/batch? (null until resolved)
+  ideaFinalTier   Int?     // Highest tier the idea reached
+  ideaBecameChampion Boolean? // Did this idea become THE champion?
+  resolvedAt      DateTime?
+
+  // Engagement
+  enteredForVoting Boolean @default(false)  // Did they jump in to vote after predicting?
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, cellId])  // One prediction per cell (Tier 1)
+  @@unique([userId, deliberationId, tierPredictedAt], map: "unique_batch_prediction")  // One per batch (Tier 2+)
+  @@index([deliberationId, tierPredictedAt])
+  @@index([userId])
+  @@index([predictedIdeaId])  // For updating when idea status changes
 }

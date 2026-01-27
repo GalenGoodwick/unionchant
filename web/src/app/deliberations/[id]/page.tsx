@@ -15,7 +15,7 @@ type Idea = {
   text: string
   status: string
   totalVotes: number
-  tier1Losses: number
+  losses: number
   isNew: boolean
   author: { name: string | null; status?: UserStatus }
 }
@@ -1087,8 +1087,8 @@ export default function DeliberationPage() {
                     {idea.totalVotes > 0 && (
                       <p className="text-muted-light text-sm font-mono">{idea.totalVotes} votes</p>
                     )}
-                    {idea.tier1Losses > 0 && (
-                      <p className="text-muted-light text-xs font-mono">{idea.tier1Losses} tier-1 loss{idea.tier1Losses > 1 ? 'es' : ''}</p>
+                    {idea.losses > 0 && (
+                      <p className="text-muted-light text-xs font-mono">{idea.losses} tier-1 loss{idea.losses > 1 ? 'es' : ''}</p>
                     )}
                   </div>
                 </div>

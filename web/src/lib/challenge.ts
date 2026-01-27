@@ -15,11 +15,11 @@ function getMinPoolSize(championTier: number): number {
 
 /**
  * Apply retirement logic to challengers
- * Ideas with 2+ tier1Losses are retired if we have enough challengers
+ * Ideas with 2+ losses are retired if we have enough challengers
  */
 function applyRetirementLogic(
-  pendingIdeas: { id: string; tier1Losses: number }[],
-  benchedIdeas: { id: string; tier1Losses: number }[],
+  pendingIdeas: { id: string; losses: number }[],
+  benchedIdeas: { id: string; losses: number }[],
   minNeeded: number
 ): { toRetire: string[]; toCompete: string[]; toBench: string[] } {
   // Combine pending and benched ideas
@@ -35,8 +35,8 @@ function applyRetirementLogic(
     }
   }
 
-  // Sort by tier1Losses (highest first) for retirement priority
-  const sorted = [...allIdeas].sort((a, b) => b.tier1Losses - a.tier1Losses)
+  // Sort by losses (highest first) for retirement priority
+  const sorted = [...allIdeas].sort((a, b) => b.losses - a.losses)
 
   // How many can we retire while maintaining minimum pool?
   const canRetire = total - minNeeded
@@ -46,10 +46,10 @@ function applyRetirementLogic(
   const toBench: string[] = []
 
   for (const idea of sorted) {
-    if (idea.tier1Losses >= 2 && toRetire.length < canRetire) {
+    if (idea.losses >= 2 && toRetire.length < canRetire) {
       // Retire this idea - it has 2+ losses and we have room
       toRetire.push(idea.id)
-    } else if (idea.tier1Losses >= 2) {
+    } else if (idea.losses >= 2) {
       // Can't retire but has losses - bench it
       toBench.push(idea.id)
     } else {
@@ -124,8 +124,8 @@ export async function startChallengeRound(deliberationId: string) {
 
   // Apply retirement logic
   const { toRetire, toCompete, toBench } = applyRetirementLogic(
-    pendingIdeas.map(i => ({ id: i.id, tier1Losses: i.tier1Losses })),
-    benchedIdeas.map(i => ({ id: i.id, tier1Losses: i.tier1Losses })),
+    pendingIdeas.map(i => ({ id: i.id, losses: i.losses })),
+    benchedIdeas.map(i => ({ id: i.id, losses: i.losses })),
     minNeeded
   )
 

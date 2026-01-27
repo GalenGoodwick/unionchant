@@ -130,7 +130,7 @@ export async function GET(
         author: idea.author.name || 'Anonymous',
         status: idea.status,
         totalVotes: idea.totalVotes,
-        tier1Losses: idea.tier1Losses,
+        losses: idea.losses,
         submittedAt: idea.createdAt,
       })),
       votingHistory: deliberation.cells.map(cell => ({
@@ -171,7 +171,7 @@ export async function GET(
             `"${idea.author}"`,
             idea.status,
             idea.totalVotes,
-            idea.tier1Losses,
+            idea.losses,
             idea.submittedAt,
           ].join(',')
         ),
