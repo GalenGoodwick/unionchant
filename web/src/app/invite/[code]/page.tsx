@@ -4,6 +4,9 @@ import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
+import { getDisplayName } from '@/lib/user'
+
+type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
 type Deliberation = {
   id: string
@@ -11,7 +14,7 @@ type Deliberation = {
   description: string | null
   phase: string
   isPublic: boolean
-  creator: { name: string | null }
+  creator: { name: string | null; status?: UserStatus }
   _count: { members: number; ideas: number }
 }
 
@@ -133,7 +136,7 @@ export default function InvitePage() {
           </div>
 
           <div className="text-muted-light text-sm mb-6">
-            Created by {deliberation.creator.name || 'Anonymous'}
+            Created by {getDisplayName(deliberation.creator)}
           </div>
 
           {status === 'loading' ? (

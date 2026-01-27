@@ -5,6 +5,9 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import CountdownTimer from '@/components/CountdownTimer'
+import { getDisplayName } from '@/lib/user'
+
+type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
 type Idea = {
   id: string
@@ -13,7 +16,7 @@ type Idea = {
   totalVotes: number
   tier1Losses: number
   isNew: boolean
-  author: { name: string | null }
+  author: { name: string | null; status?: UserStatus }
 }
 
 type CellIdea = {
@@ -24,7 +27,7 @@ type CellIdea = {
 type Participant = {
   userId: string
   status: string
-  user: { id: string; name: string | null; image: string | null }
+  user: { id: string; name: string | null; image: string | null; status?: UserStatus }
 }
 
 type Vote = {
@@ -37,7 +40,7 @@ type Comment = {
   id: string
   text: string
   createdAt: string
-  user: { id: string; name: string | null; image: string | null }
+  user: { id: string; name: string | null; image: string | null; status?: UserStatus }
 }
 
 type Cell = {
@@ -64,7 +67,7 @@ type Deliberation = {
   challengeRound: number
   accumulationEnabled: boolean
   championId: string | null
-  creator: { id: string; name: string | null }
+  creator: { id: string; name: string | null; status?: UserStatus }
   ideas: Idea[]
   _count: { members: number }
   isMember?: boolean
@@ -285,7 +288,7 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
                 <div key={comment.id} className="bg-surface p-3">
                   <div className="flex justify-between items-start mb-1">
                     <span className="text-sm font-medium text-foreground">
-                      {comment.user.name || 'Anonymous'}
+                      {getDisplayName(comment.user)}
                     </span>
                     <span className="text-xs text-muted-light font-mono">{formatTime(comment.createdAt)}</span>
                   </div>
@@ -605,7 +608,7 @@ export default function DeliberationPage() {
           )}
 
           <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-muted-light font-mono mb-4">
-            <span>Created by {deliberation.creator.name || 'Anonymous'}</span>
+            <span>Created by {getDisplayName(deliberation.creator)}</span>
             <span>{deliberation._count.members} participants</span>
             <span>Tier {deliberation.currentTier}</span>
           </div>
@@ -662,7 +665,7 @@ export default function DeliberationPage() {
             <div className="bg-success-bg rounded-lg border border-success-border p-4 mb-4">
               <div className="text-success font-semibold mb-1">Champion Idea</div>
               <div className="text-foreground text-lg">{winner.text}</div>
-              <div className="text-success text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
+              <div className="text-success text-sm mt-1">by {getDisplayName(winner.author)}</div>
             </div>
           )}
 
@@ -687,7 +690,7 @@ export default function DeliberationPage() {
                 <div className="bg-purple-light p-3 mb-3">
                   <div className="text-purple text-sm mb-1">Current Champion</div>
                   <div className="text-foreground">{winner.text}</div>
-                  <div className="text-purple text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
+                  <div className="text-purple text-sm mt-1">by {getDisplayName(winner.author)}</div>
                 </div>
               )}
               <div className="flex gap-4 text-sm">
@@ -892,7 +895,7 @@ export default function DeliberationPage() {
                         <span key={p.userId} className={`text-sm px-2 py-1 ${
                           p.status === 'VOTED' ? 'bg-success-bg text-success border border-success-border' : 'bg-surface text-muted border border-border'
                         }`}>
-                          {p.user.name || 'Anonymous'}
+                          {getDisplayName(p.user)}
                         </span>
                       ))}
                     </div>
@@ -916,7 +919,7 @@ export default function DeliberationPage() {
                         >
                           <div className="flex-1">
                             <p className={`${isEliminated ? 'text-muted-light' : 'text-foreground'}`}>{idea.text}</p>
-                            <p className="text-sm text-muted-light">by {idea.author.name || 'Anonymous'}</p>
+                            <p className="text-sm text-muted-light">by {getDisplayName(idea.author)}</p>
                           </div>
 
                           <div className="flex items-center gap-3">
@@ -985,7 +988,7 @@ export default function DeliberationPage() {
                     <p className={`${idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'text-muted-light' : 'text-foreground'}`}>
                       {idea.text}
                     </p>
-                    <p className="text-sm text-muted-light">by {idea.author.name || 'Anonymous'}</p>
+                    <p className="text-sm text-muted-light">by {getDisplayName(idea.author)}</p>
                   </div>
                   <div className="text-right">
                     <span className={`text-sm font-medium ${

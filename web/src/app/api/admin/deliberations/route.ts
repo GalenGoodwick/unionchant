@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
           select: {
             name: true,
             email: true,
+            status: true,
           },
         },
         _count: {

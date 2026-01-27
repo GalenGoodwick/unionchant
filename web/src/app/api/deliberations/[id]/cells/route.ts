@@ -37,14 +37,14 @@ export async function GET(
           include: {
             idea: {
               include: {
-                author: { select: { name: true } },
+                author: { select: { name: true, status: true } },
               },
             },
           },
         },
         participants: {
           include: {
-            user: { select: { id: true, name: true, image: true } },
+            user: { select: { id: true, name: true, image: true, status: true } },
           },
         },
         votes: true, // Include ALL votes to count them

@@ -38,6 +38,24 @@ export const authOptions: NextAuthOptions = {
     strategy: 'jwt',
   },
   callbacks: {
+    async signIn({ user }) {
+      // Check if user is banned or deleted
+      try {
+        if (user?.email) {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: user.email },
+            select: { status: true },
+          })
+          if (dbUser?.status === 'BANNED' || dbUser?.status === 'DELETED') {
+            return false // Prevent sign in
+          }
+        }
+      } catch (error) {
+        // Don't block sign in if database check fails
+        console.error('Error checking user status:', error)
+      }
+      return true
+    },
     async session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub

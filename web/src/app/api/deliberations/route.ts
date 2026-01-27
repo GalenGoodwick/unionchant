@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
       include: {
         creator: {
-          select: { name: true },
+          select: { name: true, status: true },
         },
         _count: {
           select: { members: true, ideas: true },

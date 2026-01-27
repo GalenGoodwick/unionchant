@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import { getDisplayName } from '@/lib/user'
+
+type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
 interface Deliberation {
   id: string
@@ -15,6 +18,7 @@ interface Deliberation {
   creator: {
     name: string | null
     email: string
+    status?: UserStatus
   }
   _count: {
     members: number
@@ -37,10 +41,14 @@ export default function AdminPage() {
       const res = await fetch('/api/admin/deliberations')
       if (res.ok) {
         const data = await res.json()
-        setDeliberations(data)
+        // Ensure we have an array
+        setDeliberations(Array.isArray(data) ? data : [])
+      } else {
+        setDeliberations([])
       }
     } catch (error) {
       console.error('Failed to fetch deliberations:', error)
+      setDeliberations([])
     } finally {
       setLoading(false)
     }
@@ -277,7 +285,7 @@ export default function AdminPage() {
                     <td className="p-4 text-muted font-mono">{d._count.members}</td>
                     <td className="p-4 text-muted font-mono">{d._count.ideas}</td>
                     <td className="p-4 text-muted-light text-sm">
-                      {d.creator.name || d.creator.email.split('@')[0]}
+                      {getDisplayName(d.creator, d.creator.email.split('@')[0])}
                     </td>
                     <td className="p-4 text-muted-light text-sm font-mono">
                       {new Date(d.createdAt).toLocaleDateString()}

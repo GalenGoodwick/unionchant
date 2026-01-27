@@ -4,6 +4,10 @@ import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { getDisplayName } from '@/lib/user'
+import { useAdmin } from '@/hooks/useAdmin'
+
+type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
 type Deliberation = {
   id: string
@@ -14,6 +18,7 @@ type Deliberation = {
   createdAt: string
   creator: {
     name: string | null
+    status?: UserStatus
   }
   _count: {
     members: number
@@ -40,16 +45,24 @@ function DeliberationsList() {
   useEffect(() => {
     const url = activeTag ? `/api/deliberations?tag=${encodeURIComponent(activeTag)}` : '/api/deliberations'
     fetch(url)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch')
+        return res.json()
+      })
       .then(data => {
-        setDeliberations(data)
+        // Ensure we have an array
+        const items = Array.isArray(data) ? data : []
+        setDeliberations(items)
         // Collect all unique tags
         const tags = new Set<string>()
-        data.forEach((d: Deliberation) => d.tags?.forEach((t: string) => tags.add(t)))
+        items.forEach((d: Deliberation) => d.tags?.forEach((t: string) => tags.add(t)))
         setAllTags(Array.from(tags).sort())
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch(() => {
+        setDeliberations([])
+        setLoading(false)
+      })
   }, [activeTag])
 
   const handleTagClick = (tag: string) => {
@@ -201,7 +214,7 @@ function DeliberationsList() {
                       <td className="p-4 text-muted font-mono">{d._count.members}</td>
                       <td className="p-4 text-muted font-mono">{d._count.ideas}</td>
                       <td className="p-4 text-muted-light text-sm">
-                        {d.creator.name || 'Anonymous'}
+                        {getDisplayName(d.creator)}
                       </td>
                     </tr>
                   ))}
@@ -227,7 +240,7 @@ function DeliberationsList() {
                   <div className="flex gap-3 text-xs text-muted">
                     <span className="font-mono">{d._count.members} members</span>
                     <span className="font-mono">{d._count.ideas} ideas</span>
-                    <span>{d.creator.name || 'Anonymous'}</span>
+                    <span>{getDisplayName(d.creator)}</span>
                   </div>
                   {d.tags && d.tags.length > 0 && (
                     <div className="flex gap-1 mt-2">
@@ -250,6 +263,7 @@ function DeliberationsList() {
 
 export default function DeliberationsPage() {
   const { data: session } = useSession()
+  const { isAdmin } = useAdmin()
 
   return (
     <div className="min-h-screen bg-surface">
@@ -260,6 +274,11 @@ export default function DeliberationsPage() {
             Union Chant
           </Link>
           <nav className="flex gap-4 text-sm">
+            {isAdmin && (
+              <Link href="/admin" className="text-orange-300 hover:text-orange-200 transition-colors">
+                Admin
+              </Link>
+            )}
             {session && (
               <Link href="/settings" className="hover:text-accent-light transition-colors">
                 Settings

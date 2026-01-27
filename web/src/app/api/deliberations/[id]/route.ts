@@ -20,13 +20,13 @@ export async function GET(
       where: { id },
       include: {
         creator: {
-          select: { id: true, name: true },
+          select: { id: true, name: true, status: true },
         },
         ideas: {
           orderBy: { createdAt: 'desc' },
           include: {
             author: {
-              select: { name: true },
+              select: { name: true, status: true },
             },
           },
         },

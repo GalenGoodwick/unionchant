@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useEffect, useRef } from 'react'
+import Header from '@/components/Header'
 
 type Idea = {
   id: string
@@ -412,22 +413,7 @@ export default function DemoPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-            <Link href="/whitepaper" className="hover:text-accent-light transition-colors">
-              Whitepaper
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Title */}

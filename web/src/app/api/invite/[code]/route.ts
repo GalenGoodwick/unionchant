@@ -13,7 +13,7 @@ export async function GET(
       where: { inviteCode: code },
       include: {
         creator: {
-          select: { name: true },
+          select: { name: true, status: true },
         },
         _count: {
           select: { members: true, ideas: true },

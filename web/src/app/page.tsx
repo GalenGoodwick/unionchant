@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Metadata } from 'next'
+import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Union Chant - Collective Decision Making',
@@ -9,20 +10,7 @@ export const metadata: Metadata = {
 export default function Home() {
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-semibold font-serif">Union Chant</h1>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-            <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
-              Sign In
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Hero */}
