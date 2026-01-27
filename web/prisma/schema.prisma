@@ -32,6 +32,7 @@ model User {
   votes                Vote[]
   comments             Comment[]
   pushSubscriptions    PushSubscription[]
+  watches              Watch[]
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -112,6 +113,7 @@ model Deliberation {
   members    DeliberationMember[]
   ideas      Idea[]
   cells      Cell[]
+  watchers   Watch[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -312,6 +314,21 @@ model Comment {
 
   @@index([cellId])
   @@index([userId])
+}
+
+// ============ WATCHERS ============
+
+model Watch {
+  id              String       @id @default(cuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime     @default(now())
+
+  @@unique([userId, deliberationId])
+  @@index([deliberationId])
 }
 
 // ============ PUSH SUBSCRIPTIONS ============
