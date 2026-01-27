@@ -24,11 +24,12 @@ export async function GET(req: NextRequest) {
 
     const isAdmin = isAdminEmail(session.user.email)
 
-    // Admins see all deliberations, others see only their own
+    // Only admins can access this endpoint
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const deliberations = await prisma.deliberation.findMany({
-      where: isAdmin ? {} : {
-        creatorId: user.id,
-      },
       include: {
         creator: {
           select: {

@@ -122,8 +122,20 @@ export default function AdminPage() {
     )
   }
 
-  // Not admin - show access to own deliberations only (non-admin view)
-  // The API already filters to show only user's own deliberations if not admin
+  // Block non-admin users
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-foreground mb-4">Access Denied</h1>
+          <p className="text-muted mb-6">You don&apos;t have permission to access this page.</p>
+          <Link href="/" className="text-accent hover:text-accent-hover">
+            Go to homepage
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-surface">
