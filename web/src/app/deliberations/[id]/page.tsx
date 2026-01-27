@@ -75,6 +75,243 @@ type Deliberation = {
   inviteCode?: string
 }
 
+// Prediction types
+type Prediction = {
+  id: string
+  tierPredictedAt: number
+  predictedIdeaId: string
+  predictedIdea: { id: string; text: string }
+  wonImmediate: boolean | null
+  ideaBecameChampion: boolean | null
+  enteredForVoting: boolean
+  resolvedAt: string | null
+  createdAt: string
+}
+
+type TierInfo = {
+  tier: number
+  isBatch: boolean
+  isComplete: boolean
+  stats: {
+    totalCells: number
+    completedCells: number
+    totalParticipants: number
+    totalVotesCast: number
+    totalVotesExpected: number
+    votingProgress: number
+  }
+  ideas: { id: string; text: string; status: string; author: { name: string | null } }[]
+  liveTally?: { ideaId: string; text: string; voteCount: number }[]
+  cells: { id: string; status: string; participantCount: number; votedCount: number }[]
+}
+
+// Spectator Predictions Component
+function SpectatorPredictions({ deliberationId, currentTier }: { deliberationId: string; currentTier: number }) {
+  const { data: session } = useSession()
+  const router = useRouter()
+  const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
+  const [predictions, setPredictions] = useState<Prediction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [predicting, setPredicting] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(true)
+
+  const fetchTierInfo = async () => {
+    try {
+      const res = await fetch(`/api/deliberations/${deliberationId}/tiers/${currentTier}`)
+      if (res.ok) {
+        const data = await res.json()
+        setTierInfo(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch tier info:', err)
+    }
+  }
+
+  const fetchPredictions = async () => {
+    if (!session) return
+    try {
+      const res = await fetch(`/api/predictions?deliberationId=${deliberationId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setPredictions(data.predictions || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch predictions:', err)
+    }
+  }
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      await Promise.all([fetchTierInfo(), fetchPredictions()])
+      setLoading(false)
+    }
+    loadData()
+
+    // Poll for updates
+    const interval = setInterval(() => {
+      fetchTierInfo()
+      fetchPredictions()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [deliberationId, currentTier, session])
+
+  const handlePredict = async (ideaId: string) => {
+    if (!session) {
+      router.push('/auth/signin')
+      return
+    }
+    setPredicting(ideaId)
+    try {
+      const res = await fetch('/api/predictions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliberationId,
+          predictedIdeaId: ideaId,
+          tierPredictedAt: currentTier,
+        }),
+      })
+      if (res.ok) {
+        fetchPredictions()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to make prediction')
+      }
+    } finally {
+      setPredicting(null)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="rounded-lg border border-purple-border bg-purple-bg p-6 mb-6">
+        <p className="text-muted">Loading predictions...</p>
+      </div>
+    )
+  }
+
+  if (!tierInfo) return null
+
+  // Check if user already predicted this tier
+  const currentTierPrediction = predictions.find(p => p.tierPredictedAt === currentTier)
+
+  return (
+    <div className="rounded-lg border border-purple-border bg-purple-bg p-6 mb-6">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex justify-between items-center"
+      >
+        <h2 className="text-lg font-semibold text-purple">
+          Predict the Winner
+          {tierInfo.isBatch && <span className="text-sm font-normal ml-2">(Batch - Same ideas across {tierInfo.stats.totalCells} cells)</span>}
+        </h2>
+        <svg
+          className={`w-5 h-5 text-purple transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="mt-4">
+          {/* Voting Progress */}
+          <div className="mb-4 p-3 bg-purple-light rounded-lg">
+            <div className="flex justify-between text-sm mb-1">
+              <span className="text-purple">Voting Progress</span>
+              <span className="text-purple font-mono">{tierInfo.stats.votingProgress}%</span>
+            </div>
+            <div className="w-full bg-background rounded-full h-2">
+              <div
+                className="bg-purple h-2 rounded-full transition-all"
+                style={{ width: `${tierInfo.stats.votingProgress}%` }}
+              />
+            </div>
+            <div className="text-xs text-muted mt-1">
+              {tierInfo.stats.totalVotesCast} / {tierInfo.stats.totalVotesExpected} votes cast
+              ({tierInfo.stats.completedCells} / {tierInfo.stats.totalCells} cells complete)
+            </div>
+          </div>
+
+          {/* Ideas to predict */}
+          <div className="space-y-2">
+            {(tierInfo.liveTally || tierInfo.ideas).map((item) => {
+              const idea = 'voteCount' in item ? { ...item, id: item.ideaId } : item
+              const voteCount = 'voteCount' in item ? item.voteCount : undefined
+              const isPredicted = currentTierPrediction?.predictedIdeaId === idea.id
+
+              return (
+                <div
+                  key={idea.id}
+                  className={`p-4 flex justify-between items-center rounded-lg ${
+                    isPredicted ? 'bg-purple border-2 border-purple-hover' : 'bg-background border border-border'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <p className={isPredicted ? 'text-white font-medium' : 'text-foreground'}>{idea.text}</p>
+                    {voteCount !== undefined && (
+                      <p className={`text-sm font-mono ${isPredicted ? 'text-purple-light' : 'text-muted'}`}>
+                        {voteCount} votes
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isPredicted ? (
+                      <span className="text-white text-sm font-medium px-3 py-1 bg-purple-hover rounded">
+                        Your Pick
+                      </span>
+                    ) : !currentTierPrediction ? (
+                      <button
+                        onClick={() => handlePredict(idea.id)}
+                        disabled={predicting === idea.id}
+                        className="bg-purple hover:bg-purple-hover disabled:bg-muted-light text-white px-4 py-2 text-sm transition-colors rounded"
+                      >
+                        {predicting === idea.id ? '...' : 'Predict'}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* User's predictions history */}
+          {predictions.length > 0 && (
+            <div className="mt-6 pt-4 border-t border-purple-border">
+              <h3 className="text-sm font-medium text-purple mb-2">Your Predictions</h3>
+              <div className="space-y-2">
+                {predictions.map(pred => (
+                  <div key={pred.id} className="flex justify-between items-center text-sm p-2 bg-background rounded">
+                    <div>
+                      <span className="text-foreground">{pred.predictedIdea.text}</span>
+                      <span className="text-muted ml-2">(Tier {pred.tierPredictedAt})</span>
+                    </div>
+                    <div>
+                      {pred.resolvedAt === null ? (
+                        <span className="text-warning">Pending</span>
+                      ) : pred.wonImmediate ? (
+                        <span className="text-success">Won!</span>
+                      ) : pred.ideaBecameChampion ? (
+                        <span className="text-success">Champion Pick!</span>
+                      ) : (
+                        <span className="text-error">Lost</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // History types
 type HistoryIdea = {
   id: string
@@ -865,6 +1102,11 @@ export default function DeliberationPage() {
               </p>
             )}
           </div>
+        )}
+
+        {/* Spectator Predictions - During Voting Phase */}
+        {deliberation.phase === 'VOTING' && session && (
+          <SpectatorPredictions deliberationId={id} currentTier={deliberation.currentTier} />
         )}
 
         {/* Voting Cells */}
