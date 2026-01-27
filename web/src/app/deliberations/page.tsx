@@ -25,9 +25,15 @@ function DeliberationsList() {
   const { data: session } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  const handleRowClick = (id: string) => {
+    router.push(`/deliberations/${id}`)
+  }
   const [deliberations, setDeliberations] = useState<Deliberation[]>([])
   const [allTags, setAllTags] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [phaseFilter, setPhaseFilter] = useState<string>('all')
 
   const activeTag = searchParams.get('tag')
 
@@ -54,15 +60,75 @@ function DeliberationsList() {
     }
   }
 
-  const phaseColors: Record<string, string> = {
-    SUBMISSION: 'bg-blue-500',
-    VOTING: 'bg-yellow-500',
-    COMPLETED: 'bg-green-500',
-    ACCUMULATING: 'bg-purple-500',
+  const phaseStyles: Record<string, string> = {
+    SUBMISSION: 'bg-accent text-white',
+    VOTING: 'bg-warning text-white',
+    COMPLETED: 'bg-success text-white',
+    ACCUMULATING: 'bg-purple text-white',
+  }
+
+  const filteredDeliberations = deliberations.filter(d => {
+    if (phaseFilter !== 'all' && d.phase !== phaseFilter) return false
+    if (search && !d.question.toLowerCase().includes(search.toLowerCase())) return false
+    return true
+  })
+
+  // Stats
+  const stats = {
+    total: deliberations.length,
+    submission: deliberations.filter(d => d.phase === 'SUBMISSION').length,
+    voting: deliberations.filter(d => d.phase === 'VOTING').length,
+    completed: deliberations.filter(d => d.phase === 'COMPLETED').length,
   }
 
   return (
     <>
+      {/* Stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4 mb-6">
+        <div className="bg-background rounded-lg border border-border p-3 sm:p-4">
+          <div className="text-2xl sm:text-3xl font-bold text-foreground font-mono">{stats.total}</div>
+          <div className="text-muted text-xs sm:text-sm">Total</div>
+        </div>
+        <div className="bg-background rounded-lg border border-border p-3 sm:p-4">
+          <div className="text-2xl sm:text-3xl font-bold text-accent font-mono">{stats.submission}</div>
+          <div className="text-muted text-xs sm:text-sm">Submission</div>
+        </div>
+        <div className="bg-background rounded-lg border border-border p-3 sm:p-4">
+          <div className="text-2xl sm:text-3xl font-bold text-warning font-mono">{stats.voting}</div>
+          <div className="text-muted text-xs sm:text-sm">Voting</div>
+        </div>
+        <div className="bg-background rounded-lg border border-border p-3 sm:p-4">
+          <div className="text-2xl sm:text-3xl font-bold text-success font-mono">{stats.completed}</div>
+          <div className="text-muted text-xs sm:text-sm">Completed</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-background rounded-lg border border-border p-3 sm:p-4 mb-6 flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
+        <input
+          type="text"
+          placeholder="Search deliberations..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-0 focus:outline-none focus:border-accent"
+        />
+        <div className="flex gap-1 sm:gap-2 flex-wrap">
+          {['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'].map(phase => (
+            <button
+              key={phase}
+              onClick={() => setPhaseFilter(phase)}
+              className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm transition-colors ${
+                phaseFilter === phase
+                  ? 'bg-header text-white'
+                  : 'bg-surface text-muted border border-border hover:border-border-strong'
+              }`}
+            >
+              {phase === 'all' ? 'All' : phase.charAt(0) + phase.slice(1).toLowerCase()}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Tag filters */}
       {allTags.length > 0 && (
         <div className="mb-6 flex flex-wrap gap-2">
@@ -70,10 +136,10 @@ function DeliberationsList() {
             <button
               key={tag}
               onClick={() => handleTagClick(tag)}
-              className={`px-3 py-1 rounded-full text-sm transition-colors ${
+              className={`px-3 py-1 rounded-lg text-sm transition-colors ${
                 activeTag === tag
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                  ? 'bg-header text-white'
+                  : 'bg-background text-muted border border-border hover:border-border-strong'
               }`}
             >
               {tag}
@@ -82,7 +148,7 @@ function DeliberationsList() {
           {activeTag && (
             <button
               onClick={() => router.push('/deliberations')}
-              className="px-3 py-1 rounded-full text-sm bg-slate-800 text-slate-400 hover:text-slate-300"
+              className="px-3 py-1 text-sm text-muted hover:text-foreground"
             >
               Clear filter
             </button>
@@ -90,65 +156,94 @@ function DeliberationsList() {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-slate-400 text-center py-12">Loading...</div>
-      ) : deliberations.length === 0 ? (
-        <div className="text-center py-12">
-          <p className="text-slate-400 mb-4">No deliberations yet.</p>
-          {session ? (
-            <Link
-              href="/deliberations/new"
-              className="text-blue-400 hover:text-blue-300"
-            >
-              Create the first one
-            </Link>
-          ) : (
-            <Link
-              href="/auth/signin"
-              className="text-blue-400 hover:text-blue-300"
-            >
-              Sign in to create one
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {deliberations.map((d) => (
-            <Link
-              key={d.id}
-              href={`/deliberations/${d.id}`}
-              className="block bg-slate-800 rounded-lg p-6 hover:bg-slate-750 transition-colors border border-slate-700 hover:border-slate-600"
-            >
-              <div className="flex justify-between items-start mb-2">
-                <h2 className="text-xl font-semibold text-white">{d.question}</h2>
-                <span className={`${phaseColors[d.phase] || 'bg-gray-500'} text-white text-xs px-2 py-1 rounded`}>
-                  {d.phase}
-                </span>
-              </div>
-              {d.description && (
-                <p className="text-slate-400 mb-3 line-clamp-2">{d.description}</p>
-              )}
-              {d.tags && d.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-3">
-                  {d.tags.map(tag => (
-                    <span
-                      key={tag}
-                      className="px-2 py-0.5 bg-slate-700 text-slate-300 text-xs rounded"
-                    >
-                      {tag}
-                    </span>
+      {/* Table - Desktop / Card list - Mobile */}
+      <div className="bg-background rounded-lg border border-border overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-muted">Loading...</div>
+        ) : filteredDeliberations.length === 0 ? (
+          <div className="p-8 text-center text-muted">No deliberations found</div>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-surface border-b border-border">
+                  <tr>
+                    <th className="text-left p-4 text-muted font-medium text-sm">Question</th>
+                    <th className="text-left p-4 text-muted font-medium text-sm">Phase</th>
+                    <th className="text-left p-4 text-muted font-medium text-sm">Members</th>
+                    <th className="text-left p-4 text-muted font-medium text-sm">Ideas</th>
+                    <th className="text-left p-4 text-muted font-medium text-sm">Creator</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDeliberations.map((d) => (
+                    <tr key={d.id} onClick={() => handleRowClick(d.id)} className="border-t border-border hover:bg-surface cursor-pointer">
+                      <td className="p-4">
+                        <Link href={`/deliberations/${d.id}`} className="text-foreground hover:text-accent font-medium">
+                          {d.question.length > 60 ? d.question.slice(0, 60) + '...' : d.question}
+                        </Link>
+                        {d.tags && d.tags.length > 0 && (
+                          <div className="flex gap-1 mt-1">
+                            {d.tags.slice(0, 3).map(tag => (
+                              <span key={tag} className="text-xs bg-surface text-muted px-1.5 py-0.5 rounded border border-border">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
+                          {d.phase}
+                        </span>
+                      </td>
+                      <td className="p-4 text-muted font-mono">{d._count.members}</td>
+                      <td className="p-4 text-muted font-mono">{d._count.ideas}</td>
+                      <td className="p-4 text-muted-light text-sm">
+                        {d.creator.name || 'Anonymous'}
+                      </td>
+                    </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Mobile card list */}
+            <div className="md:hidden divide-y divide-border">
+              {filteredDeliberations.map((d) => (
+                <div
+                  key={d.id}
+                  onClick={() => handleRowClick(d.id)}
+                  className="p-4 hover:bg-surface cursor-pointer"
+                >
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <Link href={`/deliberations/${d.id}`} className="text-foreground hover:text-accent font-medium text-sm flex-1">
+                      {d.question.length > 50 ? d.question.slice(0, 50) + '...' : d.question}
+                    </Link>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
+                      {d.phase}
+                    </span>
+                  </div>
+                  <div className="flex gap-3 text-xs text-muted">
+                    <span className="font-mono">{d._count.members} members</span>
+                    <span className="font-mono">{d._count.ideas} ideas</span>
+                    <span>{d.creator.name || 'Anonymous'}</span>
+                  </div>
+                  {d.tags && d.tags.length > 0 && (
+                    <div className="flex gap-1 mt-2">
+                      {d.tags.slice(0, 3).map(tag => (
+                        <span key={tag} className="text-xs bg-surface text-muted px-1.5 py-0.5 rounded border border-border">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-              <div className="flex gap-4 text-sm text-slate-500">
-                <span>by {d.creator.name || 'Anonymous'}</span>
-                <span>{d._count.members} participants</span>
-                <span>{d._count.ideas} ideas</span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </>
   )
 }
@@ -157,38 +252,45 @@ export default function DeliberationsPage() {
   const { data: session } = useSession()
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
+    <div className="min-h-screen bg-surface">
+      {/* Header */}
+      <header className="bg-header text-white">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
+            Union Chant
+          </Link>
+          <nav className="flex gap-4 text-sm">
+            {session && (
+              <Link href="/settings" className="hover:text-accent-light transition-colors">
+                Settings
+              </Link>
+            )}
+            <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
+              {session ? 'Account' : 'Sign In'}
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">
           <div>
-            <Link href="/" className="text-slate-400 hover:text-slate-300 text-sm mb-2 inline-block">
+            <Link href="/" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
               &larr; Back to home
             </Link>
-            <h1 className="text-3xl font-bold text-white">Deliberations</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Deliberations</h1>
           </div>
           {session && (
-            <div className="flex items-center gap-3">
-              <Link
-                href="/settings"
-                className="text-slate-400 hover:text-slate-300 p-2"
-                title="Settings"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                </svg>
-              </Link>
-              <Link
-                href="/deliberations/new"
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                New Deliberation
-              </Link>
-            </div>
+            <Link
+              href="/deliberations/new"
+              className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors"
+            >
+              New Deliberation
+            </Link>
           )}
         </div>
 
-        <Suspense fallback={<div className="text-slate-400 text-center py-12">Loading...</div>}>
+        <Suspense fallback={<div className="text-muted text-center py-12">Loading...</div>}>
           <DeliberationsList />
         </Suspense>
       </div>

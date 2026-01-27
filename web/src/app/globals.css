@@ -1,26 +1,75 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  /* Fonts */
+  --font-sans: var(--font-sans), system-ui, sans-serif;
+  --font-serif: var(--font-serif), Georgia, serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  /* Base colors */
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+  --color-header: #0c4a6e;
+  --color-header-hover: #083654;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  /* Accent */
+  --color-accent: #0891b2;
+  --color-accent-hover: #0e7490;
+  --color-accent-light: #ecfeff;
+
+  /* Surface */
+  --color-surface: #f8fafc;
+  --color-surface-hover: #f1f5f9;
+  --color-surface-alt: #e2e8f0;
+
+  /* Border */
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+
+  /* Text */
+  --color-muted: #64748b;
+  --color-muted-light: #94a3b8;
+  --color-subtle: #475569;
+
+  /* Status: Success */
+  --color-success: #059669;
+  --color-success-hover: #047857;
+  --color-success-bg: #ecfdf5;
+  --color-success-border: #10b981;
+
+  /* Status: Warning */
+  --color-warning: #d97706;
+  --color-warning-hover: #b45309;
+  --color-warning-bg: #fffbeb;
+  --color-warning-border: #f59e0b;
+
+  /* Status: Error */
+  --color-error: #dc2626;
+  --color-error-hover: #b91c1c;
+  --color-error-bg: #fef2f2;
+  --color-error-border: #ef4444;
+
+  /* Status: Purple (Accumulating) */
+  --color-purple: #7c3aed;
+  --color-purple-hover: #6d28d9;
+  --color-purple-bg: #f5f3ff;
+  --color-purple-light: #ede9fe;
+  --color-purple-border: #8b5cf6;
+
+  /* Status: Orange (Challenge rounds) */
+  --color-orange: #f97316;
+  --color-orange-hover: #ea580c;
+  --color-orange-bg: #fff7ed;
+  --color-orange-light: #ffedd5;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
+
+/* Headings use serif font */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-serif);
 }

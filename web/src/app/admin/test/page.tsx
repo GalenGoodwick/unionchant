@@ -148,35 +148,52 @@ export default function AdminTestPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 p-6">
-      <div className="max-w-4xl mx-auto">
-        <Link href="/" className="text-slate-400 hover:text-slate-300 text-sm mb-8 inline-block">
-          &larr; Back to home
+    <div className="min-h-screen bg-surface">
+      {/* Header */}
+      <header className="bg-header text-white">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
+            Union Chant
+          </Link>
+          <nav className="flex gap-4 text-sm">
+            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
+              Deliberations
+            </Link>
+            <Link href="/admin" className="hover:text-accent-light transition-colors">
+              Admin
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <div className="max-w-4xl mx-auto px-6 py-8">
+        <Link href="/admin" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
+          &larr; Back to admin
         </Link>
 
-        <h1 className="text-3xl font-bold text-white mb-2">Admin Test Page</h1>
-        <p className="text-slate-400 mb-4">Automated testing for deliberation flows. Not for public use.</p>
+        <h1 className="text-3xl font-bold text-foreground mb-2">Admin Test Page</h1>
+        <p className="text-muted mb-4">Automated testing for deliberation flows. Not for public use.</p>
 
         {/* Auth Status */}
-        <div className="bg-slate-800 rounded-lg p-4 mb-6 flex items-center justify-between">
+        <div className="bg-background rounded-lg p-4 mb-6 flex items-center justify-between border border-border">
           {status === 'loading' ? (
-            <span className="text-slate-400">Loading...</span>
+            <span className="text-muted">Loading...</span>
           ) : session ? (
             <>
-              <span className="text-green-400">Signed in as {session.user?.email}</span>
+              <span className="text-success">Signed in as {session.user?.email}</span>
               <button
                 onClick={() => signOut()}
-                className="px-4 py-1 bg-slate-600 hover:bg-slate-500 text-white rounded text-sm"
+                className="px-4 py-1 bg-muted hover:bg-subtle text-white rounded-lg text-sm"
               >
                 Sign Out
               </button>
             </>
           ) : (
             <>
-              <span className="text-yellow-400">Not signed in - tests require authentication</span>
+              <span className="text-warning">Not signed in - tests require authentication</span>
               <button
                 onClick={() => signIn('google')}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded"
+                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg"
               >
                 Sign in with Google
               </button>
@@ -185,40 +202,40 @@ export default function AdminTestPage() {
         </div>
 
         {!session && status !== 'loading' && (
-          <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-4 mb-6">
-            <p className="text-yellow-300">Please sign in to run tests. The test automation requires authentication to create deliberations and simulate voting.</p>
+          <div className="bg-warning-bg border border-warning rounded-lg p-4 mb-6">
+            <p className="text-warning-hover">Please sign in to run tests. The test automation requires authentication to create deliberations and simulate voting.</p>
           </div>
         )}
 
         {/* Configuration */}
-        <div className="bg-slate-800 rounded-lg p-6 mb-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Test Configuration</h2>
+        <div className="bg-background rounded-lg p-6 mb-6 border border-border">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Test Configuration</h2>
 
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Number of Users</label>
+              <label className="block text-sm text-muted mb-1">Number of Users</label>
               <input
                 type="number"
                 value={testConfig.userCount}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, userCount: parseInt(e.target.value) || 10 }))}
-                className="w-full bg-slate-700 text-white rounded px-3 py-2"
+                className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
                 min={5}
                 max={200}
               />
             </div>
             <div>
-              <label className="block text-sm text-slate-400 mb-1">Question</label>
+              <label className="block text-sm text-muted mb-1">Question</label>
               <input
                 type="text"
                 value={testConfig.question}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, question: e.target.value }))}
-                className="w-full bg-slate-700 text-white rounded px-3 py-2"
+                className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
               />
             </div>
           </div>
 
           <div className="flex gap-4 mb-4">
-            <label className="flex items-center gap-2 text-slate-300">
+            <label className="flex items-center gap-2 text-subtle">
               <input
                 type="checkbox"
                 checked={testConfig.simulateVoting}
@@ -227,7 +244,7 @@ export default function AdminTestPage() {
               />
               Simulate voting through tiers
             </label>
-            <label className="flex items-center gap-2 text-slate-300">
+            <label className="flex items-center gap-2 text-subtle">
               <input
                 type="checkbox"
                 checked={testConfig.leaveFinaVote}
@@ -236,7 +253,7 @@ export default function AdminTestPage() {
               />
               Leave final vote for manual testing
             </label>
-            <label className="flex items-center gap-2 text-slate-300">
+            <label className="flex items-center gap-2 text-subtle">
               <input
                 type="checkbox"
                 checked={testConfig.accumulationEnabled}
@@ -250,10 +267,10 @@ export default function AdminTestPage() {
           <button
             onClick={runTest}
             disabled={isRunning}
-            className={`px-6 py-2 rounded font-semibold ${
+            className={`px-6 py-2 rounded-lg font-semibold ${
               isRunning
-                ? 'bg-slate-600 text-slate-400 cursor-not-allowed'
-                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                ? 'bg-muted-light text-muted cursor-not-allowed'
+                : 'bg-accent hover:bg-accent-hover text-white'
             }`}
           >
             {isRunning ? 'Running...' : 'Run Automated Test'}
@@ -262,18 +279,18 @@ export default function AdminTestPage() {
 
         {/* Created Deliberation Link */}
         {createdDeliberation && (
-          <div className="bg-green-900/30 border border-green-700 rounded-lg p-4 mb-6">
-            <p className="text-green-300 font-medium mb-2">Test Deliberation Created</p>
+          <div className="bg-success-bg border border-success rounded-lg p-4 mb-6">
+            <p className="text-success font-medium mb-2">Test Deliberation Created</p>
             <div className="flex gap-4">
               <Link
                 href={`/deliberations/${createdDeliberation.id}`}
-                className="text-indigo-400 hover:text-indigo-300 underline"
+                className="text-accent hover:text-accent-hover underline"
               >
                 View Deliberation
               </Link>
               <Link
                 href={`/invite/${createdDeliberation.inviteCode}`}
-                className="text-indigo-400 hover:text-indigo-300 underline"
+                className="text-accent hover:text-accent-hover underline"
               >
                 Invite Link
               </Link>
@@ -282,28 +299,28 @@ export default function AdminTestPage() {
         )}
 
         {/* Logs */}
-        <div className="bg-slate-800 rounded-lg p-6">
+        <div className="bg-background rounded-lg p-6 border border-border">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-white">Logs</h2>
+            <h2 className="text-lg font-semibold text-foreground">Logs</h2>
             <button
               onClick={clearLogs}
-              className="text-sm text-slate-400 hover:text-slate-300"
+              className="text-sm text-muted hover:text-foreground"
             >
               Clear
             </button>
           </div>
 
-          <div className="bg-slate-900 rounded p-4 font-mono text-sm h-80 overflow-y-auto">
+          <div className="bg-surface rounded-lg p-4 font-mono text-sm h-80 overflow-y-auto border border-border">
             {logs.length === 0 ? (
-              <p className="text-slate-500">No logs yet. Run a test to see output.</p>
+              <p className="text-muted-light">No logs yet. Run a test to see output.</p>
             ) : (
               logs.map((log, i) => (
                 <div key={i} className={`mb-1 ${
-                  log.type === 'error' ? 'text-red-400' :
-                  log.type === 'success' ? 'text-green-400' :
-                  'text-slate-300'
+                  log.type === 'error' ? 'text-error' :
+                  log.type === 'success' ? 'text-success' :
+                  'text-subtle'
                 }`}>
-                  <span className="text-slate-500">[{log.timestamp}]</span> {log.message}
+                  <span className="text-muted-light">[{log.timestamp}]</span> {log.message}
                 </div>
               ))
             )}
@@ -311,12 +328,12 @@ export default function AdminTestPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="mt-6 bg-slate-800 rounded-lg p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
+        <div className="mt-6 bg-background rounded-lg p-6 border border-border">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
           <div className="flex gap-4 flex-wrap">
             <Link
               href="/deliberations"
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded"
+              className="px-4 py-2 bg-surface hover:bg-border text-foreground rounded-lg border border-border"
             >
               Browse Deliberations
             </Link>
@@ -330,7 +347,7 @@ export default function AdminTestPage() {
                   addLog('error', 'Cleanup failed')
                 }
               }}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded"
+              className="px-4 py-2 bg-error hover:bg-error-hover text-white rounded-lg"
             >
               Cleanup Test Data
             </button>
@@ -409,51 +426,51 @@ function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info'
   }
 
   return (
-    <div className="mt-6 bg-slate-800 rounded-lg p-6">
+    <div className="mt-6 bg-background rounded-lg p-6 border border-border">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-white">Accumulation / Challenge Test</h2>
+        <h2 className="text-lg font-semibold text-foreground">Accumulation / Challenge Test</h2>
         <button
           onClick={fetchAccumulating}
-          className="text-sm text-slate-400 hover:text-slate-300"
+          className="text-sm text-muted hover:text-foreground"
         >
           Refresh
         </button>
       </div>
-      <p className="text-slate-400 text-sm mb-4">
+      <p className="text-muted text-sm mb-4">
         Test the challenge flow: submit challengers, run voting, verify champion cycles.
       </p>
 
       <div className="mb-4">
-        <label className="block text-sm text-slate-400 mb-1">Number of Challenger Ideas</label>
+        <label className="block text-sm text-muted mb-1">Number of Challenger Ideas</label>
         <input
           type="number"
           value={challengerCount}
           onChange={(e) => setChallengerCount(parseInt(e.target.value) || 5)}
-          className="w-32 bg-slate-700 text-white rounded px-3 py-2"
+          className="w-32 bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
           min={3}
           max={50}
         />
       </div>
 
       {loading ? (
-        <p className="text-slate-400">Loading...</p>
+        <p className="text-muted">Loading...</p>
       ) : accumulatingDeliberations.length === 0 ? (
-        <p className="text-slate-400">No deliberations in ACCUMULATING phase. Run a full test first to get a champion.</p>
+        <p className="text-muted">No deliberations in ACCUMULATING phase. Run a full test first to get a champion.</p>
       ) : (
         <div className="space-y-2">
           {accumulatingDeliberations.map(d => (
-            <div key={d.id} className="flex justify-between items-center bg-slate-700 rounded p-3">
+            <div key={d.id} className="flex justify-between items-center bg-surface rounded-lg p-3 border border-border">
               <div>
-                <span className="text-white">{d.question}</span>
-                <span className="ml-2 text-xs px-2 py-0.5 rounded bg-purple-600">ACCUMULATING</span>
+                <span className="text-foreground">{d.question}</span>
+                <span className="ml-2 text-xs px-2 py-0.5 rounded bg-purple text-white">ACCUMULATING</span>
               </div>
               <button
                 onClick={() => runAccumulationTest(d.id)}
                 disabled={testing === d.id}
-                className={`px-3 py-1 text-white text-sm rounded ${
+                className={`px-3 py-1 text-white text-sm rounded-lg ${
                   testing === d.id
-                    ? 'bg-slate-600 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700'
+                    ? 'bg-muted-light cursor-not-allowed'
+                    : 'bg-accent hover:bg-accent-hover'
                 }`}
               >
                 {testing === d.id ? 'Testing...' : 'Run Challenge Test'}
@@ -505,29 +522,33 @@ function DeleteDeliberationsSection({ addLog }: { addLog: (type: 'info' | 'succe
     }
   }
 
+  const phaseStyles: Record<string, string> = {
+    SUBMISSION: 'bg-[#0891b2]',
+    VOTING: 'bg-[#d97706]',
+    COMPLETED: 'bg-[#059669]',
+    ACCUMULATING: 'bg-purple',
+  }
+
   return (
-    <div className="mt-6 bg-slate-800 rounded-lg p-6">
-      <h2 className="text-lg font-semibold text-white mb-4">Your Deliberations</h2>
+    <div className="mt-6 bg-background rounded-lg p-6 border border-border">
+      <h2 className="text-lg font-semibold text-foreground mb-4">Your Deliberations</h2>
       {loading ? (
-        <p className="text-slate-400">Loading...</p>
+        <p className="text-muted">Loading...</p>
       ) : deliberations.length === 0 ? (
-        <p className="text-slate-400">No deliberations found.</p>
+        <p className="text-muted">No deliberations found.</p>
       ) : (
         <div className="space-y-2">
           {deliberations.map(d => (
-            <div key={d.id} className="flex justify-between items-center bg-slate-700 rounded p-3">
+            <div key={d.id} className="flex justify-between items-center bg-surface rounded-lg p-3 border border-border">
               <div>
-                <span className="text-white">{d.question}</span>
-                <span className={`ml-2 text-xs px-2 py-0.5 rounded ${
-                  d.phase === 'COMPLETED' ? 'bg-green-600' :
-                  d.phase === 'VOTING' ? 'bg-yellow-600' :
-                  d.phase === 'ACCUMULATING' ? 'bg-purple-600' :
-                  'bg-blue-600'
-                }`}>{d.phase}</span>
+                <span className="text-foreground">{d.question}</span>
+                <span className={`ml-2 text-xs px-2 py-0.5 rounded text-white ${phaseStyles[d.phase] || 'bg-[#64748b]'}`}>
+                  {d.phase}
+                </span>
               </div>
               <button
                 onClick={() => handleDelete(d.id, d.question)}
-                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded"
+                className="px-3 py-1 bg-error hover:bg-error-hover text-white text-sm rounded-lg"
               >
                 Delete
               </button>

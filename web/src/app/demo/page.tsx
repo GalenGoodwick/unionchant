@@ -1,21 +1,25 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 type Idea = {
   id: string
   text: string
-  status: 'submitted' | 'in_voting' | 'advancing' | 'eliminated' | 'winner' | 'defending'
+  status: 'submitted' | 'in_voting' | 'advancing' | 'eliminated' | 'winner'
   tier: number
   votes: number
-  isChampion?: boolean
 }
 
 type Participant = {
   id: string
   name: string
-  voted: boolean
+}
+
+type CellConversation = {
+  participantName: string
+  message: string
+  ideaRef?: string
 }
 
 type Cell = {
@@ -23,141 +27,70 @@ type Cell = {
   tier: number
   ideaIds: string[]
   participantIds: string[]
-  votes: Record<string, string> // odvisnost odparticipantId -> ideaId
+  votes: Record<string, string>
   status: 'deliberating' | 'voting' | 'completed'
   winner?: string
+  conversations: CellConversation[]
 }
 
-type LogEntry = {
-  id: string
-  message: string
-  type: 'info' | 'vote' | 'result' | 'winner'
-  tier?: number
+type TierSummary = {
+  tier: number
+  ideasStart: number
+  ideasEnd: number
+  cells: number
+  status: 'pending' | 'active' | 'completed'
 }
 
-const CELL_SIZE = 5
-const IDEAS_PER_CELL = 5
 const AI_NAMES = [
   'Alice', 'Bob', 'Carol', 'David', 'Emma', 'Frank', 'Grace', 'Henry', 'Iris', 'Jack',
   'Kate', 'Leo', 'Maya', 'Noah', 'Olivia', 'Paul', 'Quinn', 'Rose', 'Sam', 'Tara',
   'Uma', 'Victor', 'Wendy', 'Xavier', 'Yara', 'Zoe', 'Adam', 'Beth', 'Chris', 'Diana',
-  'Erik', 'Fiona', 'George', 'Hannah', 'Ivan', 'Julia', 'Kevin', 'Laura', 'Mike', 'Nina',
-  'Oscar', 'Petra', 'Quentin', 'Rachel', 'Steve', 'Tina', 'Ulrich', 'Vera', 'Walter', 'Xena',
-  'Yuri', 'Zelda', 'Andre', 'Bianca', 'Carlos', 'Daphne', 'Eduardo', 'Fatima', 'Gustav', 'Helena',
-  'Igor', 'Jasmine', 'Klaus', 'Lena', 'Marco', 'Nadia', 'Omar', 'Priya', 'Rafael', 'Sofia',
-  'Thomas', 'Ursula', 'Viktor', 'Wanda', 'Xander', 'Yvonne', 'Zach', 'Amelia', 'Brandon', 'Celia',
-  'Derek', 'Elena', 'Felix', 'Gloria', 'Hugo', 'Ingrid', 'Jerome', 'Kira', 'Lorenzo', 'Marta',
-  'Nico', 'Olga', 'Pedro', 'Queenie', 'Ricardo', 'Sonia', 'Tobias', 'Una', 'Vince', 'Whitney',
-  'Xiomara', 'Yolanda', 'Zander', 'Aria', 'Bruno', 'Carmen', 'Dante', 'Esther', 'Finn', 'Greta',
-  'Hector', 'Isla', 'Jonas', 'Kaya', 'Liam', 'Mila', 'Nathan', 'Opal', 'Pascal', 'Quinn',
-  'Roman', 'Stella', 'Theo', 'Unity', 'Violet', 'Wesley'
+  'Erik', 'Fiona', 'George', 'Hannah', 'Ivan', 'Julia', 'Kevin', 'Laura', 'Mike', 'Nina'
 ]
 
-// Idea generation templates
-const IDEA_ACTIONS = [
-  'Implement', 'Introduce', 'Create', 'Establish', 'Launch', 'Offer', 'Provide', 'Start', 'Build', 'Develop'
-]
+const IDEA_ACTIONS = ['Implement', 'Introduce', 'Create', 'Establish', 'Launch', 'Offer', 'Start', 'Build']
 
 const IDEA_SUBJECTS = [
-  'a 4-day work week',
-  'flexible working hours',
-  'unlimited PTO',
-  'remote work options',
-  'hybrid work model',
-  'compressed work weeks',
-  'results-only work environment',
-  'asynchronous communication',
-  'optional meetings policy',
-  'no-meeting Fridays',
-  'meeting-free mornings',
-  'focus time blocks',
-  'weekly team lunches',
-  'monthly team events',
-  'quarterly hackathons',
-  'annual company retreat',
-  'birthday day off',
-  'volunteer time off',
-  'mental health days',
-  'wellness Wednesdays',
-  'a mentorship program',
-  'peer coaching circles',
-  'leadership training',
-  'career development paths',
-  'cross-team rotations',
-  'job shadowing opportunities',
-  'learning stipends',
-  'conference attendance budget',
-  'online course subscriptions',
-  'book allowance',
-  'certification reimbursement',
-  'tuition assistance',
-  'student loan support',
-  'transparent salary bands',
-  'profit sharing',
-  'equity grants for all',
-  'performance bonuses',
-  'spot bonus program',
-  'referral bonuses',
-  'home office stipend',
-  'internet reimbursement',
-  'co-working space access',
-  'ergonomic equipment budget',
-  'standing desk options',
-  'gym membership coverage',
-  'fitness class subsidies',
-  'on-site yoga classes',
-  'meditation app subscriptions',
-  'mental health counseling',
-  'employee assistance program',
-  'health insurance upgrades',
-  'dental and vision coverage',
-  'FSA/HSA contributions',
-  'pet insurance',
-  'pet-friendly office',
-  'on-site childcare',
-  'childcare subsidies',
-  'parental leave expansion',
-  'fertility benefits',
-  'elder care support',
-  'free healthy snacks',
-  'catered meals',
-  'coffee bar upgrade',
-  'nap rooms',
-  'game room',
-  'outdoor workspace',
-  'standing meetings only',
-  'walking meetings',
-  'documentation-first culture',
-  'internal wiki/knowledge base',
-  'open door policy',
-  'skip-level meetings',
-  'anonymous feedback system',
-  'regular town halls',
-  'employee resource groups',
-  'diversity initiatives',
-  'sustainability program',
-  'carbon offset matching',
-  'volunteer matching program',
-  'charitable donation matching',
-  'sabbatical program',
-  'mini-sabbaticals quarterly',
-  'summer Fridays',
-  'winter break shutdown',
-  'birthday celebrations',
-  'work anniversary rewards',
-  'employee recognition program',
-  'peer appreciation system',
-  'innovation time (20%)',
-  'side project support',
-  'internal startup incubator',
-  'failure celebration culture',
-  'blameless postmortems',
-  'continuous feedback loops',
-  '360 review process',
-  'self-directed teams',
-  'flat hierarchy experiment',
-  'transparent decision making',
-  'open book management'
+  'a 4-day work week', 'flexible working hours', 'unlimited PTO', 'remote work options',
+  'hybrid work model', 'no-meeting Fridays', 'weekly team lunches', 'monthly team events',
+  'a mentorship program', 'learning stipends', 'conference attendance budget', 'profit sharing',
+  'equity grants for all', 'home office stipend', 'gym membership coverage', 'mental health days',
+  'wellness Wednesdays', 'free healthy snacks', 'catered meals', 'nap rooms',
+  'game room', 'walking meetings', 'open door policy', 'anonymous feedback system',
+  'employee recognition program', 'innovation time', 'sabbatical program', 'summer Fridays'
+]
+
+const CONVERSATION_TEMPLATES = {
+  support: [
+    "I really like {idea} - it would improve work-life balance significantly.",
+    "As someone who {context}, I think {idea} makes a lot of sense.",
+    "{idea} worked great at my previous company. Highly recommend.",
+    "I've been hoping for something like {idea}. It addresses a real need.",
+  ],
+  question: [
+    "How would {idea} work with our current policies?",
+    "What's the cost estimate for {idea}?",
+    "Has anyone seen {idea} implemented elsewhere?",
+    "Would {idea} apply to all departments equally?",
+  ],
+  concern: [
+    "I like the intent of {idea}, but I worry about implementation.",
+    "{idea} sounds good, but how do we measure success?",
+    "My concern with {idea} is whether it's sustainable long-term.",
+  ],
+  agreement: [
+    "Good point about {idea}. I hadn't considered that angle.",
+    "You've convinced me - changing my vote to {idea}.",
+    "After hearing everyone's perspective, {idea} seems like the best choice.",
+  ],
+}
+
+const CONTEXTS = [
+  "commutes an hour each way",
+  "has young kids at home",
+  "works best in the mornings",
+  "often collaborates with overseas teams",
+  "values focused deep work time",
 ]
 
 function generateIdea(): string {
@@ -168,17 +101,35 @@ function generateIdea(): string {
 
 function generateUniqueIdeas(count: number): string[] {
   const ideas = new Set<string>()
-  let attempts = 0
-  while (ideas.size < count && attempts < count * 3) {
-    ideas.add(generateIdea())
-    attempts++
-  }
-  // Fill remaining with numbered variants if needed
   while (ideas.size < count) {
-    const base = IDEA_SUBJECTS[Math.floor(Math.random() * IDEA_SUBJECTS.length)]
-    ideas.add(`Prioritize ${base} (variant ${ideas.size})`)
+    ideas.add(generateIdea())
   }
   return Array.from(ideas)
+}
+
+function generateConversation(ideaTexts: string[], participantNames: string[]): CellConversation[] {
+  const conversations: CellConversation[] = []
+  const numMessages = 3 + Math.floor(Math.random() * 3) // 3-5 messages
+
+  for (let i = 0; i < numMessages; i++) {
+    const participant = participantNames[Math.floor(Math.random() * participantNames.length)]
+    const idea = ideaTexts[Math.floor(Math.random() * ideaTexts.length)]
+    const shortIdea = idea.length > 30 ? idea.substring(0, 30) + '...' : idea
+
+    let templateType: keyof typeof CONVERSATION_TEMPLATES
+    if (i === 0) templateType = 'support'
+    else if (i === numMessages - 1) templateType = 'agreement'
+    else templateType = ['support', 'question', 'concern'][Math.floor(Math.random() * 3)] as keyof typeof CONVERSATION_TEMPLATES
+
+    const templates = CONVERSATION_TEMPLATES[templateType]
+    let message = templates[Math.floor(Math.random() * templates.length)]
+    message = message.replace('{idea}', `"${shortIdea}"`)
+    message = message.replace('{context}', CONTEXTS[Math.floor(Math.random() * CONTEXTS.length)])
+
+    conversations.push({ participantName: participant, message, ideaRef: idea })
+  }
+
+  return conversations
 }
 
 export default function DemoPage() {
@@ -186,20 +137,25 @@ export default function DemoPage() {
   const [ideas, setIdeas] = useState<Idea[]>([])
   const [participants, setParticipants] = useState<Participant[]>([])
   const [cells, setCells] = useState<Cell[]>([])
-  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [tierSummaries, setTierSummaries] = useState<TierSummary[]>([])
   const [phase, setPhase] = useState<'setup' | 'submission' | 'voting' | 'completed'>('setup')
   const [currentTier, setCurrentTier] = useState(0)
   const [champion, setChampion] = useState<Idea | null>(null)
   const [running, setRunning] = useState(false)
-  const speed = 1000 // ms between actions
-  const participantCount = 125
+  const [activeCell, setActiveCell] = useState<Cell | null>(null)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [speed, setSpeed] = useState(1) // 1 = normal, 2 = fast, 0.5 = slow
+  const [runId, setRunId] = useState(0) // Unique ID for each demo run to prevent key collisions
+  const abortRef = useRef(false)
 
+  const participantCount = 40
+  const CELL_SIZE = 5
+  const IDEAS_PER_CELL = 5
 
-  const addLog = (message: string, type: LogEntry['type'] = 'info', tier?: number) => {
-    setLogs(prev => [...prev, { id: crypto.randomUUID(), message, type, tier }])
-  }
-
-  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  const sleep = (ms: number) => new Promise(resolve => {
+    if (abortRef.current) return
+    setTimeout(resolve, ms / speed)
+  })
 
   const shuffle = <T,>(array: T[]): T[] => {
     const shuffled = [...array]
@@ -210,62 +166,96 @@ export default function DemoPage() {
     return shuffled
   }
 
+  const calculateTierPlan = (ideaCount: number, participantCount: number): TierSummary[] => {
+    const summaries: TierSummary[] = []
+    let remaining = ideaCount
+    let tier = 1
+
+    while (remaining > 1) {
+      const cells = Math.ceil(remaining / IDEAS_PER_CELL)
+      const advancing = cells // One winner per cell
+      summaries.push({
+        tier,
+        ideasStart: remaining,
+        ideasEnd: Math.max(1, advancing),
+        cells,
+        status: 'pending'
+      })
+      remaining = advancing
+      tier++
+      if (tier > 10) break // Safety
+    }
+
+    return summaries
+  }
+
   const startDemo = async () => {
+    abortRef.current = false
     setRunning(true)
-    setLogs([])
     setCells([])
     setChampion(null)
     setCurrentTier(0)
+    setActiveCell(null)
+    setTierSummaries([])
+    const currentRunId = runId + 1
+    setRunId(currentRunId) // Increment run ID to ensure unique keys
 
     // Create participants
+    setStatusMessage('Participants joining the deliberation...')
     const newParticipants: Participant[] = shuffle(AI_NAMES)
       .slice(0, participantCount)
-      .map((name, i) => ({
-        id: `p${i}`,
-        name,
-        voted: false
-      }))
+      .map((name, i) => ({ id: `p${i}`, name }))
     setParticipants(newParticipants)
-    addLog(`${newParticipants.length} participants joined the deliberation`)
+    await sleep(800)
 
-    await sleep(speed)
+    // Show tier plan
+    const plan = calculateTierPlan(participantCount, participantCount)
+    setTierSummaries(plan)
+    setStatusMessage(`${participantCount} participants will submit ideas, then vote through ${plan.length} tiers`)
+    await sleep(1500)
 
-    // Submission phase - each participant submits one idea
+    // Submission phase
     setPhase('submission')
-    const generatedIdeas = generateUniqueIdeas(newParticipants.length)
-    const newIdeas: Idea[] = generatedIdeas.map((text, i) => ({
-      id: `idea${i}`,
-      text,
-      status: 'submitted',
-      tier: 0,
-      votes: 0
-    }))
+    setStatusMessage('Submission phase: Each participant submits one idea...')
+    const generatedIdeas = generateUniqueIdeas(participantCount)
+    const newIdeas: Idea[] = []
 
-    // Add ideas in batches for visual effect
-    const batchSize = 10
-    for (let i = 0; i < newIdeas.length; i += batchSize) {
-      const batch = newIdeas.slice(i, i + batchSize)
-      setIdeas(prev => [...prev, ...batch])
-      addLog(`${batch.length} ideas submitted (${Math.min(i + batchSize, newIdeas.length)}/${newIdeas.length})`)
-      await sleep(200)
+    for (let i = 0; i < generatedIdeas.length; i++) {
+      if (abortRef.current) return
+      newIdeas.push({
+        id: `idea${i}`,
+        text: generatedIdeas[i],
+        status: 'submitted',
+        tier: 0,
+        votes: 0
+      })
+      if (i % 5 === 0 || i === generatedIdeas.length - 1) {
+        setIdeas([...newIdeas])
+        setStatusMessage(`${newIdeas.length} ideas submitted...`)
+        await sleep(100)
+      }
     }
 
-    addLog(`Submission phase complete. ${newIdeas.length} ideas submitted.`)
-    await sleep(speed)
+    setStatusMessage(`All ${newIdeas.length} ideas submitted. Starting voting phase...`)
+    await sleep(1000)
 
     // Start voting
     setPhase('voting')
-    await runVotingTiers(newIdeas, newParticipants)
+    await runVotingTiers(newIdeas, newParticipants, currentRunId)
   }
 
-  const runVotingTiers = async (allIdeas: Idea[], allParticipants: Participant[]) => {
+  const runVotingTiers = async (allIdeas: Idea[], allParticipants: Participant[], demoRunId: number) => {
     let activeIdeas = [...allIdeas]
     let tier = 1
 
-    while (activeIdeas.length > 1) {
+    while (activeIdeas.length > 1 && !abortRef.current) {
       setCurrentTier(tier)
-      addLog(`--- TIER ${tier} ---`, 'info', tier)
-      addLog(`${activeIdeas.length} ideas competing`)
+
+      // Update tier summaries
+      setTierSummaries(prev => prev.map(t => ({
+        ...t,
+        status: t.tier < tier ? 'completed' : t.tier === tier ? 'active' : 'pending'
+      })))
 
       // Update idea statuses
       setIdeas(prev => prev.map(idea =>
@@ -274,9 +264,10 @@ export default function DemoPage() {
           : idea
       ))
 
-      await sleep(speed)
+      setStatusMessage(`Tier ${tier}: ${activeIdeas.length} ideas competing in small groups`)
+      await sleep(1000)
 
-      // Create cells for this tier
+      // Create cells
       const shuffledIdeas = shuffle(activeIdeas)
       const shuffledParticipants = shuffle(allParticipants)
       const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
@@ -286,44 +277,61 @@ export default function DemoPage() {
       for (let i = 0; i < numCells; i++) {
         const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
         const cellParticipants = shuffledParticipants.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
-
-        // If not enough participants, wrap around
-        const actualParticipants = cellParticipants.length >= 3
-          ? cellParticipants
-          : shuffledParticipants.slice(0, CELL_SIZE)
+        const actualParticipants = cellParticipants.length >= 3 ? cellParticipants : shuffledParticipants.slice(0, CELL_SIZE)
 
         const cell: Cell = {
-          id: `t${tier}c${i}`,
+          id: `r${demoRunId}t${tier}c${i}`,
           tier,
           ideaIds: cellIdeas.map(idea => idea.id),
           participantIds: actualParticipants.map(p => p.id),
           votes: {},
-          status: 'voting'
+          status: 'deliberating',
+          conversations: generateConversation(
+            cellIdeas.map(i => i.text),
+            actualParticipants.map(p => p.name)
+          )
         }
         tierCells.push(cell)
       }
 
       setCells(prev => [...prev, ...tierCells])
-      addLog(`Created ${tierCells.length} voting cells`)
+      setStatusMessage(`${tierCells.length} cells created - participants are discussing...`)
+      await sleep(800)
 
-      await sleep(speed)
-
-      // Simulate voting in each cell
+      // Process each cell with conversation display
       const advancingIdeas: string[] = []
 
-      for (const cell of tierCells) {
-        addLog(`Cell ${cell.id}: ${cell.participantIds.length} participants voting on ${cell.ideaIds.length} ideas`)
+      for (let cellIndex = 0; cellIndex < tierCells.length; cellIndex++) {
+        if (abortRef.current) return
 
-        // Each participant votes (faster, less verbose)
-        for (const participantId of cell.participantIds) {
-          // Random vote
-          const votedIdeaId = cell.ideaIds[Math.floor(Math.random() * cell.ideaIds.length)]
-          cell.votes[participantId] = votedIdeaId
-          setCells(prev => prev.map(c => c.id === cell.id ? { ...c, votes: { ...cell.votes } } : c))
-          await sleep(50) // Fast individual votes
+        const cell = tierCells[cellIndex]
+        setActiveCell(cell)
+
+        // Show deliberation
+        cell.status = 'deliberating'
+        setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
+        setStatusMessage(`Cell ${cellIndex + 1}/${tierCells.length}: 5 people discussing 5 ideas...`)
+
+        // Show conversations one by one
+        for (let convIndex = 0; convIndex < cell.conversations.length; convIndex++) {
+          if (abortRef.current) return
+          await sleep(600)
         }
 
-        // Count votes and determine winner
+        // Voting
+        cell.status = 'voting'
+        setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
+        setStatusMessage(`Cell ${cellIndex + 1}: Voting...`)
+
+        for (const participantId of cell.participantIds) {
+          if (abortRef.current) return
+          const votedIdeaId = cell.ideaIds[Math.floor(Math.random() * cell.ideaIds.length)]
+          cell.votes[participantId] = votedIdeaId
+          setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
+          await sleep(150)
+        }
+
+        // Count and determine winner
         const voteCounts: Record<string, number> = {}
         Object.values(cell.votes).forEach(ideaId => {
           voteCounts[ideaId] = (voteCounts[ideaId] || 0) + 1
@@ -334,323 +342,408 @@ export default function DemoPage() {
           .filter(([, count]) => count === maxVotes)
           .map(([id]) => id)
 
-        // All winners advance (handles ties)
         advancingIdeas.push(...winners)
-
         cell.status = 'completed'
         cell.winner = winners[0]
-        setCells(prev => prev.map(c => c.id === cell.id ? { ...c, status: 'completed', winner: winners[0] } : c))
+        setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
 
-        const winnerIdea = allIdeas.find(i => i.id === winners[0])
-        addLog(`Cell ${cell.id} winner: "${winnerIdea?.text.substring(0, 50)}..." (${maxVotes} votes)`, 'result', tier)
-
-        // Update idea vote counts
+        // Update idea statuses
         setIdeas(prev => prev.map(idea => {
-          const voteCount = voteCounts[idea.id] || 0
           if (cell.ideaIds.includes(idea.id)) {
             return {
               ...idea,
-              votes: idea.votes + voteCount,
+              votes: idea.votes + (voteCounts[idea.id] || 0),
               status: winners.includes(idea.id) ? 'advancing' : 'eliminated'
             }
           }
           return idea
         }))
 
-        await sleep(speed / 2)
+        await sleep(400)
       }
 
-      // Dedupe advancing ideas (in case of ties in multiple cells with same idea)
+      setActiveCell(null)
+
+      // Dedupe and update active ideas
       const uniqueAdvancing = [...new Set(advancingIdeas)]
       activeIdeas = allIdeas.filter(idea => uniqueAdvancing.includes(idea.id))
 
-      addLog(`Tier ${tier} complete. ${activeIdeas.length} ideas advancing.`, 'info', tier)
+      setStatusMessage(`Tier ${tier} complete! ${activeIdeas.length} ideas advancing to next round.`)
+
+      // Update tier summary
+      setTierSummaries(prev => prev.map(t =>
+        t.tier === tier ? { ...t, status: 'completed', ideasEnd: activeIdeas.length } : t
+      ))
 
       tier++
-      await sleep(speed * 2)
+      await sleep(1500)
     }
 
-    // We have a champion!
-    if (activeIdeas.length === 1) {
+    // Champion!
+    if (activeIdeas.length === 1 && !abortRef.current) {
       const winner = activeIdeas[0]
       setIdeas(prev => prev.map(idea =>
-        idea.id === winner.id ? { ...idea, status: 'winner', isChampion: true } : idea
+        idea.id === winner.id ? { ...idea, status: 'winner' } : idea
       ))
       setChampion(winner)
       setPhase('completed')
-      addLog(`CHAMPION: "${winner.text}"`, 'winner')
+      setStatusMessage(`Champion determined through ${tier - 1} tiers of deliberation!`)
     }
 
     setRunning(false)
   }
 
   const reset = () => {
+    abortRef.current = true
     setPhase('setup')
     setIdeas([])
     setParticipants([])
     setCells([])
-    setLogs([])
+    setTierSummaries([])
     setChampion(null)
     setCurrentTier(0)
     setRunning(false)
+    setActiveCell(null)
+    setStatusMessage('')
   }
 
-  const phaseColors = {
-    setup: 'bg-slate-500',
-    submission: 'bg-blue-500',
-    voting: 'bg-yellow-500',
-    completed: 'bg-green-500'
-  }
+  const getIdeaText = (ideaId: string) => ideas.find(i => i.id === ideaId)?.text || ''
+  const getParticipantName = (pId: string) => participants.find(p => p.id === pId)?.name || ''
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800">
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <Link href="/" className="text-slate-400 hover:text-slate-300 text-sm mb-2 inline-block">
-              &larr; Back to home
+    <div className="min-h-screen bg-surface">
+      {/* Header */}
+      <header className="bg-header text-white">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
+            Union Chant
+          </Link>
+          <nav className="flex gap-4 text-sm">
+            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
+              Deliberations
             </Link>
-            <h1 className="text-3xl font-bold text-white">Automated Demo</h1>
-            <p className="text-slate-400">Watch Union Chant in action with simulated participants</p>
-          </div>
-          <span className={`${phaseColors[phase]} text-white text-sm px-3 py-1 rounded`}>
-            {phase.toUpperCase()}
-            {currentTier > 0 && ` - Tier ${currentTier}`}
-          </span>
+            <Link href="/whitepaper" className="hover:text-accent-light transition-colors">
+              Whitepaper
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        {/* Title */}
+        <div className="mb-6">
+          <Link href="/" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
+            &larr; Back to home
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">See Union Chant in Action</h1>
+          <p className="text-muted mt-1 text-sm sm:text-base">Watch how {participantCount} people reach consensus through structured small-group deliberation</p>
         </div>
 
         {/* Setup Panel */}
         {phase === 'setup' && (
-          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Demo Question</h2>
-            <p className="text-xl text-white mb-6">{question}</p>
-            <p className="text-slate-400 text-sm mb-4">125 simulated participants will submit ideas and vote through multiple tiers until a champion emerges.</p>
+          <div className="bg-background rounded-lg p-8 border border-border mb-6 max-w-2xl">
+            <h2 className="text-xl font-semibold text-foreground mb-2">Demo Question</h2>
+            <p className="text-2xl text-accent font-medium mb-6">"{question}"</p>
+
+            <div className="bg-surface rounded-lg p-4 mb-6 text-subtle text-sm space-y-2">
+              <p><strong className="text-foreground">How it works:</strong></p>
+              <p>1. {participantCount} participants each submit one idea</p>
+              <p>2. Ideas are grouped into cells of 5 ideas, 5 people each</p>
+              <p>3. Each cell <span className="text-accent">deliberates</span> (discusses trade-offs) then votes</p>
+              <p>4. Winners advance to the next tier, losers are eliminated</p>
+              <p>5. Process repeats until one champion emerges</p>
+            </div>
+
+            <div className="flex items-center gap-4 mb-6">
+              <label className="text-sm text-muted">Speed:</label>
+              <div className="flex gap-2">
+                {[0.5, 1, 2].map(s => (
+                  <button
+                    key={s}
+                    onClick={() => setSpeed(s)}
+                    className={`px-3 py-1 rounded text-sm ${
+                      speed === s
+                        ? 'bg-accent text-white'
+                        : 'bg-surface text-muted border border-border hover:border-accent'
+                    }`}
+                  >
+                    {s === 0.5 ? 'Slow' : s === 1 ? 'Normal' : 'Fast'}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <button
               onClick={startDemo}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg transition-colors"
+              className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-4 rounded-lg transition-colors text-lg"
             >
               Start Demo
             </button>
           </div>
         )}
 
-        {/* Champion Banner */}
-        {champion && (
-          <div className="bg-green-600/20 border-2 border-green-500 rounded-lg p-6 mb-6 text-center">
-            <div className="text-green-400 font-semibold mb-2 text-lg">Champion Idea</div>
-            <div className="text-white text-2xl font-bold">{champion.text}</div>
-            <div className="text-green-400/70 mt-2">
-              Emerged from {ideas.length} ideas through {currentTier} tiers of voting
-            </div>
-          </div>
-        )}
+        {/* Running Demo */}
+        {phase !== 'setup' && (
+          <div className="grid lg:grid-cols-3 gap-6">
+            {/* Left: Tier Progress */}
+            <div className="lg:col-span-1 space-y-4">
+              {/* Status */}
+              <div className="bg-background rounded-lg p-4 border border-border">
+                <div className="text-sm text-muted mb-1">Status</div>
+                <div className="text-foreground font-medium">{statusMessage}</div>
+              </div>
 
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* Ideas Panel */}
-          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-            <h2 className="text-lg font-semibold text-white mb-4">
-              Ideas ({ideas.length})
-            </h2>
-
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {ideas.length === 0 ? (
-                <p className="text-slate-500">Ideas will appear here...</p>
-              ) : (
-                [...ideas].sort((a, b) => {
-                  const order = { winner: 0, advancing: 1, in_voting: 2, submitted: 3, defending: 4, eliminated: 5 }
-                  return (order[a.status] || 3) - (order[b.status] || 3)
-                }).map(idea => (
-                  <div
-                    key={idea.id}
-                    className={`p-3 rounded-lg flex justify-between items-center text-sm ${
-                      idea.status === 'winner' ? 'bg-green-600/30 border border-green-500' :
-                      idea.status === 'advancing' ? 'bg-blue-600/20 border border-blue-500' :
-                      idea.status === 'eliminated' ? 'bg-slate-700/50 opacity-50' :
-                      idea.status === 'in_voting' ? 'bg-yellow-600/20 border border-yellow-500' :
-                      'bg-slate-700'
-                    }`}
-                  >
-                    <span className={idea.status === 'eliminated' ? 'text-slate-500 line-through' : 'text-white'}>
-                      {idea.text}
-                    </span>
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      idea.status === 'winner' ? 'bg-green-500 text-white' :
-                      idea.status === 'advancing' ? 'bg-blue-500 text-white' :
-                      idea.status === 'eliminated' ? 'bg-red-500/50 text-red-200' :
-                      idea.status === 'in_voting' ? 'bg-yellow-500 text-black' :
-                      'bg-slate-600 text-slate-300'
-                    }`}>
-                      {idea.status}
-                    </span>
+              {/* Champion Banner */}
+              {champion && (
+                <div className="bg-success-bg border-2 border-success rounded-lg p-6 text-center animate-pulse">
+                  <div className="text-success text-sm font-medium mb-2">CHAMPION</div>
+                  <div className="text-foreground text-xl font-bold">{champion.text}</div>
+                  <div className="text-success text-sm mt-3">
+                    Selected by {participantCount} people through {currentTier} tiers
                   </div>
-                ))
+                </div>
               )}
-            </div>
-          </div>
 
-          {/* Activity Log */}
-          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-            <h2 className="text-lg font-semibold text-white mb-4">Activity Log</h2>
-
-            <div className="space-y-1 max-h-96 overflow-y-auto font-mono text-sm">
-              {logs.length === 0 ? (
-                <p className="text-slate-500">Activity will appear here...</p>
-              ) : (
-                logs.map(log => (
-                  <div
-                    key={log.id}
-                    className={`py-1 ${
-                      log.type === 'winner' ? 'text-green-400 font-bold text-base' :
-                      log.type === 'result' ? 'text-blue-400' :
-                      log.type === 'vote' ? 'text-slate-500' :
-                      'text-slate-300'
-                    }`}
-                  >
-                    {log.message}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Tournament Bracket Visualization */}
-        {cells.length > 0 && (
-          <div className="mt-6 bg-slate-800 rounded-lg p-6 border border-slate-700">
-            <h2 className="text-lg font-semibold text-white mb-4">
-              Tournament Bracket
-            </h2>
-
-            {/* Tier by tier visualization */}
-            <div className="space-y-8">
-              {Array.from(new Set(cells.map(c => c.tier))).sort((a, b) => a - b).map(tier => {
-                const tierCells = cells.filter(c => c.tier === tier)
-                const isCurrentTier = tier === currentTier
-                const isCompletedTier = tierCells.every(c => c.status === 'completed')
-
-                return (
-                  <div key={tier} className={`${isCurrentTier ? 'opacity-100' : 'opacity-70'}`}>
-                    <div className="flex items-center gap-3 mb-3">
-                      <h3 className={`text-lg font-medium ${isCurrentTier ? 'text-yellow-400' : isCompletedTier ? 'text-green-400' : 'text-slate-400'}`}>
-                        Tier {tier}
-                      </h3>
-                      <span className="text-sm text-slate-500">
-                        {tierCells.length} cells, {tierCells.reduce((sum, c) => sum + c.ideaIds.length, 0)} ideas
-                      </span>
-                      {isCompletedTier && <span className="text-green-400 text-sm">Complete</span>}
-                    </div>
-
-                    {/* Visual representation of cells as circles/nodes */}
-                    <div className="flex flex-wrap gap-3">
-                      {tierCells.map(cell => {
-                        const completedCount = Object.keys(cell.votes).length
-                        const totalParticipants = cell.participantIds.length
-                        const progress = totalParticipants > 0 ? (completedCount / totalParticipants) * 100 : 0
-
-                        return (
-                          <div
-                            key={cell.id}
-                            className={`relative w-16 h-16 rounded-full flex items-center justify-center border-2 transition-all ${
-                              cell.status === 'completed'
-                                ? 'border-green-500 bg-green-500/20'
-                                : cell.status === 'voting'
-                                ? 'border-yellow-500 bg-yellow-500/10'
-                                : 'border-slate-600 bg-slate-700'
-                            }`}
-                            title={`Cell ${cell.id}: ${cell.ideaIds.length} ideas, ${completedCount}/${totalParticipants} voted`}
-                          >
-                            {/* Progress ring */}
-                            {cell.status === 'voting' && (
-                              <svg className="absolute inset-0 w-full h-full -rotate-90">
-                                <circle
-                                  cx="32"
-                                  cy="32"
-                                  r="28"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                  className="text-yellow-500"
-                                  strokeDasharray={`${progress * 1.76} 176`}
-                                />
-                              </svg>
-                            )}
-                            <div className="text-center z-10">
-                              <div className={`text-sm font-bold ${
-                                cell.status === 'completed' ? 'text-green-400' : 'text-white'
-                              }`}>
-                                {cell.ideaIds.length}
-                              </div>
-                              <div className="text-xs text-slate-400">ideas</div>
-                            </div>
-                          </div>
-                        )
-                      })}
-
-                      {/* Arrow to next tier */}
-                      {isCompletedTier && tier < currentTier && (
-                        <div className="flex items-center px-2">
-                          <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                          </svg>
+              {/* Tier Funnel */}
+              <div className="bg-background rounded-lg p-4 border border-border">
+                <h3 className="text-sm font-medium text-muted mb-4">Tournament Progress</h3>
+                <div className="space-y-2">
+                  {tierSummaries.map((t, i) => (
+                    <div key={t.tier} className="relative">
+                      <div className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
+                        t.status === 'active' ? 'bg-warning-bg border border-warning' :
+                        t.status === 'completed' ? 'bg-success-bg border border-success' :
+                        'bg-surface border border-border'
+                      }`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          t.status === 'active' ? 'bg-warning text-white' :
+                          t.status === 'completed' ? 'bg-success text-white' :
+                          'bg-border text-muted'
+                        }`}>
+                          {t.tier}
                         </div>
+                        <div className="flex-1">
+                          <div className="text-sm text-foreground font-medium">
+                            Tier {t.tier}: {t.cells} cells
+                          </div>
+                          <div className="text-xs text-muted">
+                            {t.ideasStart} ideas → {t.status === 'completed' ? t.ideasEnd : '?'} advancing
+                          </div>
+                        </div>
+                        {t.status === 'completed' && (
+                          <svg className="w-5 h-5 text-success" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        {t.status === 'active' && (
+                          <div className="w-5 h-5 border-2 border-warning border-t-transparent rounded-full animate-spin" />
+                        )}
+                      </div>
+                      {i < tierSummaries.length - 1 && (
+                        <div className="absolute left-6 top-full w-0.5 h-2 bg-border" />
                       )}
                     </div>
+                  ))}
+                </div>
+              </div>
 
-                    {/* Winners from this tier */}
-                    {isCompletedTier && (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {tierCells.map(cell => {
-                          const winnerIdea = ideas.find(i => i.id === cell.winner)
-                          if (!winnerIdea) return null
+              {/* Ideas Summary */}
+              <div className="bg-background rounded-lg p-4 border border-border">
+                <h3 className="text-sm font-medium text-muted mb-3">Ideas by Status</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div className="bg-accent-light rounded p-2">
+                    <div className="text-2xl font-bold text-accent font-mono">
+                      {ideas.filter(i => i.status === 'advancing' || i.status === 'in_voting').length}
+                    </div>
+                    <div className="text-accent text-xs">Active</div>
+                  </div>
+                  <div className="bg-success-bg rounded p-2">
+                    <div className="text-2xl font-bold text-success font-mono">
+                      {ideas.filter(i => i.status === 'winner').length}
+                    </div>
+                    <div className="text-success text-xs">Winner</div>
+                  </div>
+                  <div className="bg-surface rounded p-2">
+                    <div className="text-2xl font-bold text-muted font-mono">
+                      {ideas.filter(i => i.status === 'eliminated').length}
+                    </div>
+                    <div className="text-muted text-xs">Eliminated</div>
+                  </div>
+                  <div className="bg-surface rounded p-2">
+                    <div className="text-2xl font-bold text-muted font-mono">{ideas.length}</div>
+                    <div className="text-muted text-xs">Total</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls */}
+              <button
+                onClick={reset}
+                className="w-full bg-muted hover:bg-subtle text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                {running ? 'Stop & Reset' : 'Reset Demo'}
+              </button>
+            </div>
+
+            {/* Middle/Right: Panels */}
+            <div className="lg:col-span-2 space-y-4">
+              {/* All Cells Grid - Always visible during voting */}
+              {cells.length > 0 && phase !== 'completed' && (
+                <div className="bg-background rounded-lg border border-border p-4">
+                  <h3 className="text-sm font-semibold text-foreground mb-3">All Cells - Tier {currentTier}</h3>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-1.5">
+                    {cells.filter(c => c.tier === currentTier).map(cell => (
+                      <div
+                        key={cell.id}
+                        className={`aspect-square rounded flex items-center justify-center text-xs font-mono ${
+                          activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
+                        } ${
+                          cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
+                          cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
+                          cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
+                          'bg-surface border border-border text-muted'
+                        }`}
+                        title={`Cell ${cell.id}: ${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
+                      >
+                        {Object.keys(cell.votes).length}/{cell.participantIds.length}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Active Cell Detail */}
+              {activeCell && (
+                <div className="bg-background rounded-lg border border-border overflow-hidden">
+                  <div className={`p-3 ${
+                    activeCell.status === 'deliberating' ? 'bg-accent-light' :
+                    activeCell.status === 'voting' ? 'bg-warning-bg' :
+                    'bg-success-bg'
+                  }`}>
+                    <div className="flex justify-between items-center">
+                      <h3 className="font-semibold text-foreground text-sm">
+                        Active: Cell {activeCell.id.split('t')[1]} - Tier {activeCell.tier}
+                      </h3>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        activeCell.status === 'deliberating' ? 'bg-accent text-white' :
+                        activeCell.status === 'voting' ? 'bg-warning text-white' :
+                        'bg-success text-white'
+                      }`}>
+                        {activeCell.status === 'deliberating' ? 'Discussing' :
+                         activeCell.status === 'voting' ? 'Voting' : 'Complete'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 grid md:grid-cols-2 gap-4">
+                    {/* Ideas being voted on */}
+                    <div>
+                      <h4 className="text-sm font-medium text-muted mb-2">Ideas in this cell:</h4>
+                      <div className="space-y-1.5">
+                        {activeCell.ideaIds.map(ideaId => {
+                          const voteCount = Object.values(activeCell.votes).filter(v => v === ideaId).length
+                          const isWinner = activeCell.winner === ideaId
                           return (
-                            <div
-                              key={cell.id + '-winner'}
-                              className="text-xs bg-green-600/20 text-green-300 px-2 py-1 rounded border border-green-500/30"
-                            >
-                              {winnerIdea.text.length > 40 ? winnerIdea.text.substring(0, 40) + '...' : winnerIdea.text}
+                            <div key={ideaId} className={`p-2 rounded text-sm flex justify-between items-center ${
+                              isWinner ? 'bg-success-bg border border-success' : 'bg-surface'
+                            }`}>
+                              <span className={`${isWinner ? 'text-success font-medium' : 'text-foreground'} text-xs`}>
+                                {getIdeaText(ideaId)}
+                              </span>
+                              {voteCount > 0 && (
+                                <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
+                                  isWinner ? 'bg-success text-white' : 'bg-border text-muted'
+                                }`}>
+                                  {voteCount}
+                                </span>
+                              )}
                             </div>
                           )
                         })}
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+                    </div>
 
-            {/* Summary stats */}
-            <div className="mt-6 pt-4 border-t border-slate-700 grid grid-cols-4 gap-4 text-center">
-              <div>
-                <div className="text-2xl font-bold text-white">{participants.length}</div>
-                <div className="text-xs text-slate-400">Participants</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-white">{ideas.length}</div>
-                <div className="text-xs text-slate-400">Ideas</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-white">{cells.length}</div>
-                <div className="text-xs text-slate-400">Total Cells</div>
-              </div>
-              <div>
-                <div className="text-2xl font-bold text-yellow-400">{currentTier}</div>
-                <div className="text-xs text-slate-400">Current Tier</div>
-              </div>
+                    {/* Conversation */}
+                    <div>
+                      <h4 className="text-sm font-medium text-muted mb-2">Discussion:</h4>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {activeCell.conversations.map((conv, i) => (
+                          <div key={i} className="bg-surface rounded p-2 text-xs">
+                            <span className="font-medium text-accent">{conv.participantName}:</span>
+                            <span className="text-subtle ml-1">{conv.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Participants */}
+                  <div className="px-4 pb-3">
+                    <div className="flex flex-wrap gap-1.5">
+                      {activeCell.participantIds.map(pId => {
+                        const hasVoted = activeCell.votes[pId]
+                        return (
+                          <span key={pId} className={`text-xs px-2 py-0.5 rounded ${
+                            hasVoted ? 'bg-success text-white' : 'bg-surface text-muted border border-border'
+                          }`}>
+                            {getParticipantName(pId)} {hasVoted ? '✓' : ''}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Completed View */}
+              {phase === 'completed' && (
+                <div className="bg-background rounded-lg border border-border p-8 text-center">
+                  <div className="text-6xl mb-4">🏆</div>
+                  <h3 className="text-2xl font-bold text-foreground mb-2">Deliberation Complete!</h3>
+                  <p className="text-muted mb-6">
+                    From {ideas.length} ideas submitted by {participants.length} participants,
+                    one champion emerged through {currentTier} rounds of small-group deliberation.
+                  </p>
+                  <div className="bg-success-bg border border-success rounded-lg p-4 mb-6">
+                    <div className="text-success text-sm mb-1">Winning Idea:</div>
+                    <div className="text-foreground text-xl font-semibold">{champion?.text}</div>
+                  </div>
+                  <div className="text-sm text-muted">
+                    <p className="mb-2">This is the power of Union Chant:</p>
+                    <p>Not just a vote count, but a decision shaped by real discussion.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Key Insight Box */}
+              {phase !== 'setup' && !champion && (
+                <div className="bg-purple-bg border border-purple rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="text-purple text-xl">💡</div>
+                    <div>
+                      <div className="text-purple font-medium text-sm">Why Small Groups Matter</div>
+                      <div className="text-subtle text-sm mt-1">
+                        In a traditional poll, the loudest voices dominate. In Union Chant, every participant
+                        deliberates in a small group where their voice is heard. Ideas win by surviving
+                        scrutiny across multiple independent groups—not by popularity or timing.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Controls */}
-        {phase !== 'setup' && (
-          <div className="mt-6 flex justify-center">
-            <button
-              onClick={reset}
-              disabled={running}
-              className="bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors"
+        {/* Bottom CTA */}
+        {phase === 'completed' && (
+          <div className="mt-8 text-center">
+            <Link
+              href="/deliberations/new"
+              className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
             >
-              {running ? 'Running...' : 'Reset Demo'}
-            </button>
+              Start Your Own Deliberation
+            </Link>
           </div>
         )}
       </div>

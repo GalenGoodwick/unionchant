@@ -1,0 +1,149 @@
+import Link from 'next/link'
+import { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'Terms of Service',
+  description: 'Terms of Service for Union Chant - the collective decision-making platform.',
+}
+
+export default function TermsPage() {
+  return (
+    <div className="min-h-screen bg-surface">
+      {/* Header */}
+      <header className="bg-header text-white">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
+            Union Chant
+          </Link>
+          <nav className="flex gap-4 text-sm">
+            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
+              Deliberations
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <div className="max-w-3xl mx-auto px-6 py-12">
+        <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
+          &larr; Back to home
+        </Link>
+
+        <article className="bg-background rounded-lg border border-border p-8">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Terms of Service</h1>
+          <p className="text-muted mb-8">Last updated: January 2025</p>
+
+          <div className="prose prose-slate max-w-none">
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">1. Acceptance of Terms</h2>
+              <p className="text-subtle mb-4">
+                By accessing or using Union Chant ("the Service"), you agree to be bound by these Terms of Service.
+                If you do not agree to these terms, please do not use the Service.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">2. Description of Service</h2>
+              <p className="text-subtle mb-4">
+                Union Chant is a collective decision-making platform that enables groups to deliberate and reach
+                consensus through structured small-group discussions and tiered voting.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">3. User Accounts</h2>
+              <p className="text-subtle mb-4">
+                To use certain features of the Service, you must create an account. You are responsible for:
+              </p>
+              <ul className="list-disc pl-6 text-subtle space-y-2">
+                <li>Maintaining the confidentiality of your account credentials</li>
+                <li>All activities that occur under your account</li>
+                <li>Providing accurate and complete information</li>
+                <li>Notifying us immediately of any unauthorized use</li>
+              </ul>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">4. User Conduct</h2>
+              <p className="text-subtle mb-4">
+                When using the Service, you agree not to:
+              </p>
+              <ul className="list-disc pl-6 text-subtle space-y-2">
+                <li>Submit false, misleading, or spam content</li>
+                <li>Harass, abuse, or threaten other users</li>
+                <li>Attempt to manipulate deliberation outcomes through deception</li>
+                <li>Create multiple accounts to gain voting advantage</li>
+                <li>Interfere with the proper functioning of the Service</li>
+                <li>Violate any applicable laws or regulations</li>
+              </ul>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">5. Content Ownership</h2>
+              <p className="text-subtle mb-4">
+                You retain ownership of content you submit to the Service. By submitting content, you grant
+                Union Chant a non-exclusive, worldwide license to use, display, and distribute your content
+                as necessary to provide the Service.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">6. Public Deliberations</h2>
+              <p className="text-subtle mb-4">
+                Ideas and votes submitted to public deliberations are visible to all participants.
+                Consider this before submitting sensitive information.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">7. Termination</h2>
+              <p className="text-subtle mb-4">
+                We reserve the right to suspend or terminate accounts that violate these terms.
+                You may delete your account at any time through your account settings.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">8. Disclaimer of Warranties</h2>
+              <p className="text-subtle mb-4">
+                The Service is provided "as is" without warranties of any kind. We do not guarantee
+                uninterrupted access, freedom from errors, or specific outcomes from deliberations.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">9. Limitation of Liability</h2>
+              <p className="text-subtle mb-4">
+                Union Chant shall not be liable for any indirect, incidental, special, or consequential
+                damages arising from your use of the Service.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">10. Changes to Terms</h2>
+              <p className="text-subtle mb-4">
+                We may update these terms from time to time. Continued use of the Service after changes
+                constitutes acceptance of the new terms.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">11. Contact</h2>
+              <p className="text-subtle">
+                Questions about these terms? Contact us at{' '}
+                <a href="mailto:hello@unionchant.com" className="text-accent hover:text-accent-hover">
+                  hello@unionchant.com
+                </a>
+              </p>
+            </section>
+          </div>
+        </article>
+
+        <div className="mt-8 text-center">
+          <Link href="/privacy" className="text-accent hover:text-accent-hover">
+            View Privacy Policy
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}

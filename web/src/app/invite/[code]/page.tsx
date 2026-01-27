@@ -71,19 +71,19 @@ export default function InvitePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
       </div>
     )
   }
 
   if (error || !deliberation) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
+      <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-white mb-4">Invalid Invite</h1>
-          <p className="text-slate-400 mb-6">{error || 'This invite link is invalid or has expired.'}</p>
-          <Link href="/" className="text-indigo-400 hover:text-indigo-300">
+          <h1 className="text-2xl font-bold text-foreground mb-4">Invalid Invite</h1>
+          <p className="text-muted mb-6">{error || 'This invite link is invalid or has expired.'}</p>
+          <Link href="/" className="text-accent hover:text-accent-hover">
             Go to homepage
           </Link>
         </div>
@@ -98,45 +98,57 @@ export default function InvitePage() {
     ACCUMULATING: 'Accumulating',
   }
 
+  const phaseStyles: Record<string, string> = {
+    SUBMISSION: 'bg-accent text-white',
+    VOTING: 'bg-warning text-white',
+    COMPLETED: 'bg-success text-white',
+    ACCUMULATING: 'bg-purple text-white',
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-surface flex items-center justify-center p-4">
       <div className="max-w-md w-full">
-        <div className="bg-slate-800 rounded-lg p-8 border border-slate-700 text-center">
-          <div className="text-indigo-400 text-sm font-medium mb-2">
+        <div className="bg-background rounded-lg p-8 border border-border text-center">
+          <div className="text-accent text-sm font-medium mb-2">
             You&apos;ve been invited to join
           </div>
 
-          <h1 className="text-2xl font-bold text-white mb-4">
+          <h1 className="text-2xl font-bold text-foreground mb-4">
             {deliberation.question}
           </h1>
 
           {deliberation.description && (
-            <p className="text-slate-400 mb-6">{deliberation.description}</p>
+            <p className="text-muted mb-6">{deliberation.description}</p>
           )}
 
-          <div className="flex justify-center gap-4 text-sm text-slate-500 mb-6">
-            <span>{deliberation._count.members} participants</span>
-            <span>{deliberation._count.ideas} ideas</span>
-            <span>{phaseLabels[deliberation.phase]}</span>
+          <div className="flex justify-center gap-4 text-sm text-muted mb-4">
+            <span className="font-mono">{deliberation._count.members} participants</span>
+            <span className="font-mono">{deliberation._count.ideas} ideas</span>
           </div>
 
-          <div className="text-slate-500 text-sm mb-6">
+          <div className="mb-6">
+            <span className={`px-3 py-1 rounded-lg text-sm font-medium ${phaseStyles[deliberation.phase] || 'bg-surface text-muted'}`}>
+              {phaseLabels[deliberation.phase]}
+            </span>
+          </div>
+
+          <div className="text-muted-light text-sm mb-6">
             Created by {deliberation.creator.name || 'Anonymous'}
           </div>
 
           {status === 'loading' ? (
-            <div className="text-slate-400">Loading...</div>
+            <div className="text-muted">Loading...</div>
           ) : (
             <button
               onClick={handleJoin}
               disabled={joining}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 px-6 rounded-lg font-semibold transition-colors disabled:opacity-50"
+              className="w-full bg-accent hover:bg-accent-hover text-white py-3 px-6 rounded-lg font-semibold transition-colors disabled:opacity-50"
             >
               {joining ? 'Joining...' : session ? 'Join Deliberation' : 'Sign in to Join'}
             </button>
           )}
 
-          <p className="text-slate-500 text-xs mt-4">
+          <p className="text-muted-light text-xs mt-4">
             By joining, you&apos;ll be able to submit ideas and vote
           </p>
         </div>

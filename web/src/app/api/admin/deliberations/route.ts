@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isAdminEmail } from '@/lib/admin'
 
 // GET /api/admin/deliberations - List all deliberations (for admin)
 export async function GET(req: NextRequest) {
@@ -21,10 +22,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // For now, show deliberations the user created
-    // TODO: Add admin role to show all deliberations
+    const isAdmin = isAdminEmail(session.user.email)
+
+    // Admins see all deliberations, others see only their own
     const deliberations = await prisma.deliberation.findMany({
-      where: {
+      where: isAdmin ? {} : {
         creatorId: user.id,
       },
       include: {

@@ -25,8 +25,8 @@ export default function NewDeliberationPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+      <div className="min-h-screen bg-surface flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
       </div>
     )
   }
@@ -77,161 +77,177 @@ export default function NewDeliberationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800">
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <Link href="/deliberations" className="text-slate-400 hover:text-slate-300 text-sm mb-4 inline-block">
+    <div className="min-h-screen bg-surface">
+      {/* Header */}
+      <header className="bg-header text-white">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
+            Union Chant
+          </Link>
+          <nav className="flex gap-4 text-sm">
+            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
+              Deliberations
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
           &larr; Back to deliberations
         </Link>
 
-        <h1 className="text-3xl font-bold text-white mb-8">Start a New Deliberation</h1>
+        <div className="bg-background rounded-lg border border-border p-6">
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-6">Start a New Deliberation</h1>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="question" className="block text-white font-medium mb-2">
-              Question *
-            </label>
-            <input
-              type="text"
-              id="question"
-              required
-              placeholder="What should we decide on?"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              value={formData.question}
-              onChange={(e) => setFormData({ ...formData, question: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="description" className="block text-white font-medium mb-2">
-              Description (optional)
-            </label>
-            <textarea
-              id="description"
-              rows={4}
-              placeholder="Provide more context about this deliberation..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="tags" className="block text-white font-medium mb-2">
-              Tags (optional)
-            </label>
-            <input
-              type="text"
-              id="tags"
-              placeholder="climate, policy, local (comma separated, max 5)"
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              value={formData.tagsInput}
-              onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
-            />
-            <p className="text-slate-500 text-sm mt-1">Help others find your deliberation</p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="isPublic"
-              checked={formData.isPublic}
-              onChange={(e) => setFormData({ ...formData, isPublic: e.target.checked })}
-              className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-blue-600 focus:ring-blue-500"
-            />
-            <label htmlFor="isPublic" className="text-slate-300">
-              Make this deliberation public (anyone can join)
-            </label>
-          </div>
-
-          {/* Timer Settings */}
-          <div className="border-t border-slate-700 pt-6 mt-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Timer Settings</h2>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="submissionHours" className="block text-slate-300 text-sm mb-2">
-                  Submission Period (hours)
-                </label>
-                <input
-                  type="number"
-                  id="submissionHours"
-                  min={1}
-                  max={168}
-                  value={formData.submissionHours}
-                  onChange={(e) => setFormData({ ...formData, submissionHours: parseInt(e.target.value) || 24 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-slate-500 text-xs mt-1">How long to accept new ideas</p>
-              </div>
-
-              <div>
-                <label htmlFor="votingMinutes" className="block text-slate-300 text-sm mb-2">
-                  Voting Timeout (minutes)
-                </label>
-                <input
-                  type="number"
-                  id="votingMinutes"
-                  min={5}
-                  max={1440}
-                  value={formData.votingMinutes}
-                  onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 60 })}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-slate-500 text-xs mt-1">Time limit for each cell vote</p>
-              </div>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="question" className="block text-foreground font-medium mb-2">
+                Question *
+              </label>
+              <input
+                type="text"
+                id="question"
+                required
+                placeholder="What should we decide on?"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.question}
+                onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+              />
             </div>
-          </div>
 
-          {/* Rolling Mode Settings */}
-          <div className="border-t border-slate-700 pt-6 mt-2">
-            <div className="flex items-center gap-3 mb-4">
+            <div>
+              <label htmlFor="description" className="block text-foreground font-medium mb-2">
+                Description (optional)
+              </label>
+              <textarea
+                id="description"
+                rows={4}
+                placeholder="Provide more context about this deliberation..."
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label htmlFor="tags" className="block text-foreground font-medium mb-2">
+                Tags (optional)
+              </label>
+              <input
+                type="text"
+                id="tags"
+                placeholder="climate, policy, local (comma separated, max 5)"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.tagsInput}
+                onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
+              />
+              <p className="text-muted-light text-sm mt-1">Help others find your deliberation</p>
+            </div>
+
+            <div className="flex items-center gap-3">
               <input
                 type="checkbox"
-                id="accumulationEnabled"
-                checked={formData.accumulationEnabled}
-                onChange={(e) => setFormData({ ...formData, accumulationEnabled: e.target.checked })}
-                className="w-4 h-4 rounded border-slate-700 bg-slate-800 text-purple-600 focus:ring-purple-500"
+                id="isPublic"
+                checked={formData.isPublic}
+                onChange={(e) => setFormData({ ...formData, isPublic: e.target.checked })}
+                className="w-4 h-4 rounded border-border-strong bg-background text-accent focus:ring-accent"
               />
-              <label htmlFor="accumulationEnabled" className="text-slate-300">
-                Enable Rolling Mode (continuous challenge rounds)
+              <label htmlFor="isPublic" className="text-muted">
+                Make this deliberation public (anyone can join)
               </label>
             </div>
 
-            {formData.accumulationEnabled && (
-              <div className="ml-7">
-                <label htmlFor="accumulationDays" className="block text-slate-300 text-sm mb-2">
-                  Accumulation Period (days)
-                </label>
+            {/* Timer Settings */}
+            <div className="border-t border-border pt-6 mt-6">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Timer Settings</h2>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="submissionHours" className="block text-muted text-sm mb-2">
+                    Submission Period (hours)
+                  </label>
+                  <input
+                    type="number"
+                    id="submissionHours"
+                    min={1}
+                    max={168}
+                    value={formData.submissionHours}
+                    onChange={(e) => setFormData({ ...formData, submissionHours: parseInt(e.target.value) || 24 })}
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                  />
+                  <p className="text-muted-light text-xs mt-1">How long to accept new ideas</p>
+                </div>
+
+                <div>
+                  <label htmlFor="votingMinutes" className="block text-muted text-sm mb-2">
+                    Voting Timeout (minutes)
+                  </label>
+                  <input
+                    type="number"
+                    id="votingMinutes"
+                    min={5}
+                    max={1440}
+                    value={formData.votingMinutes}
+                    onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 60 })}
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                  />
+                  <p className="text-muted-light text-xs mt-1">Time limit for each cell vote</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Rolling Mode Settings */}
+            <div className="border-t border-border pt-6 mt-2">
+              <div className="flex items-center gap-3 mb-4">
                 <input
-                  type="number"
-                  id="accumulationDays"
-                  min={1}
-                  max={30}
-                  value={formData.accumulationDays}
-                  onChange={(e) => setFormData({ ...formData, accumulationDays: parseInt(e.target.value) || 1 })}
-                  className="w-32 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-purple-500"
+                  type="checkbox"
+                  id="accumulationEnabled"
+                  checked={formData.accumulationEnabled}
+                  onChange={(e) => setFormData({ ...formData, accumulationEnabled: e.target.checked })}
+                  className="w-4 h-4 rounded border-border-strong bg-background text-purple focus:ring-purple"
                 />
-                <p className="text-slate-500 text-xs mt-1">
-                  Time to collect challengers before each challenge round
-                </p>
+                <label htmlFor="accumulationEnabled" className="text-muted">
+                  Enable Rolling Mode (continuous challenge rounds)
+                </label>
+              </div>
+
+              {formData.accumulationEnabled && (
+                <div className="ml-7">
+                  <label htmlFor="accumulationDays" className="block text-muted text-sm mb-2">
+                    Accumulation Period (days)
+                  </label>
+                  <input
+                    type="number"
+                    id="accumulationDays"
+                    min={1}
+                    max={30}
+                    value={formData.accumulationDays}
+                    onChange={(e) => setFormData({ ...formData, accumulationDays: parseInt(e.target.value) || 1 })}
+                    className="w-32 bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-purple font-mono"
+                  />
+                  <p className="text-muted-light text-xs mt-1">
+                    Time to collect challengers before each challenge round
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <div className="bg-error-bg border border-error-border text-error px-4 py-3 rounded-lg">
+                {error}
               </div>
             )}
-          </div>
 
-          {error && (
-            <div className="bg-red-500/20 border border-red-500 text-red-300 px-4 py-3 rounded-lg">
-              {error}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-colors"
-          >
-            {loading ? 'Creating...' : 'Create Deliberation'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-colors"
+            >
+              {loading ? 'Creating...' : 'Create Deliberation'}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   )

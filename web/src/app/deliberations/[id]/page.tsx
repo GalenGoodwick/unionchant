@@ -121,8 +121,8 @@ function VotingHistorySection({ deliberationId }: { deliberationId: string }) {
 
   if (loading) {
     return (
-      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-        <p className="text-slate-400">Loading history...</p>
+      <div className="rounded-lg border border-border p-6 mb-6">
+        <p className="text-muted">Loading history...</p>
       </div>
     )
   }
@@ -134,23 +134,23 @@ function VotingHistorySection({ deliberationId }: { deliberationId: string }) {
   const tierNumbers = Object.keys(history.tiers).map(Number).sort((a, b) => a - b)
 
   return (
-    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
+    <div className="rounded-lg border border-border p-6 mb-6">
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex justify-between items-center"
       >
-        <h2 className="text-lg font-semibold text-white">
+        <h2 className="text-lg font-semibold text-foreground">
           Voting History
           {history.challengeRound > 0 && (
-            <span className="text-slate-400 font-normal text-sm ml-2">
+            <span className="text-muted font-normal text-sm ml-2">
               (Challenge Round {history.challengeRound})
             </span>
           )}
         </h2>
         <div className="flex items-center gap-3">
-          <span className="text-slate-400 text-sm">{history.totalCells} cells completed</span>
+          <span className="text-muted text-sm font-mono">{history.totalCells} cells completed</span>
           <svg
-            className={`w-5 h-5 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -163,13 +163,13 @@ function VotingHistorySection({ deliberationId }: { deliberationId: string }) {
       {expanded && (
         <div className="mt-4 space-y-4">
           {tierNumbers.map(tier => (
-            <div key={tier} className="border-l-2 border-slate-600 pl-4">
-              <h3 className="text-md font-medium text-slate-300 mb-2">Tier {tier}</h3>
+            <div key={tier} className="border-l-2 border-border-strong pl-4">
+              <h3 className="text-md font-medium text-foreground mb-2">Tier {tier}</h3>
               <div className="space-y-3">
                 {history.tiers[tier].map(cell => (
-                  <div key={cell.id} className="bg-slate-700/50 rounded-lg p-3">
-                    <div className="text-xs text-slate-500 mb-2">
-                      Cell completed • {cell.totalVotes} votes cast
+                  <div key={cell.id} className="bg-surface p-3">
+                    <div className="text-xs text-muted-light mb-2 font-mono">
+                      Cell completed - {cell.totalVotes} votes cast
                     </div>
                     <div className="space-y-1">
                       {cell.ideas
@@ -177,14 +177,14 @@ function VotingHistorySection({ deliberationId }: { deliberationId: string }) {
                         .map(idea => (
                           <div
                             key={idea.id}
-                            className={`flex justify-between items-center text-sm p-2 rounded ${
+                            className={`flex justify-between items-center text-sm p-2 ${
                               idea.isWinner
-                                ? 'bg-green-600/20 text-green-300'
-                                : 'text-slate-400'
+                                ? 'bg-success-bg text-success border border-success-border'
+                                : 'text-muted'
                             }`}
                           >
                             <span className="truncate flex-1">{idea.text}</span>
-                            <span className="ml-2 font-medium">
+                            <span className="ml-2 font-mono">
                               {idea.votes} {idea.isWinner && '✓'}
                             </span>
                           </div>
@@ -256,10 +256,10 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
   }
 
   return (
-    <div className="mt-4 border-t border-slate-600 pt-4">
+    <div className="mt-4 border-t border-border pt-4">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-2 text-slate-400 hover:text-slate-300 text-sm mb-3"
+        className="flex items-center gap-2 text-muted hover:text-foreground text-sm mb-3"
       >
         <svg
           className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`}
@@ -277,19 +277,19 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
           {/* Comments list */}
           <div className="space-y-3 max-h-64 overflow-y-auto mb-3">
             {loading ? (
-              <p className="text-slate-500 text-sm">Loading...</p>
+              <p className="text-muted-light text-sm">Loading...</p>
             ) : comments.length === 0 ? (
-              <p className="text-slate-500 text-sm">No messages yet. Start the discussion!</p>
+              <p className="text-muted-light text-sm">No messages yet. Start the discussion!</p>
             ) : (
               comments.map(comment => (
-                <div key={comment.id} className="bg-slate-700/50 rounded-lg p-3">
+                <div key={comment.id} className="bg-surface p-3">
                   <div className="flex justify-between items-start mb-1">
-                    <span className="text-sm font-medium text-slate-300">
+                    <span className="text-sm font-medium text-foreground">
                       {comment.user.name || 'Anonymous'}
                     </span>
-                    <span className="text-xs text-slate-500">{formatTime(comment.createdAt)}</span>
+                    <span className="text-xs text-muted-light font-mono">{formatTime(comment.createdAt)}</span>
                   </div>
-                  <p className="text-sm text-slate-300">{comment.text}</p>
+                  <p className="text-sm text-muted">{comment.text}</p>
                 </div>
               ))
             )}
@@ -303,12 +303,12 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
                 placeholder="Share your thoughts..."
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-background rounded-lg border border-border px-3 py-2 text-sm text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
               />
               <button
                 type="submit"
                 disabled={submitting || !newComment.trim()}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                className="bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white px-4 py-2 text-sm transition-colors"
               >
                 {submitting ? '...' : 'Send'}
               </button>
@@ -460,17 +460,17 @@ export default function DeliberationPage() {
     }
   }
 
-  const phaseColors: Record<string, string> = {
-    SUBMISSION: 'bg-blue-500',
-    VOTING: 'bg-yellow-500',
-    COMPLETED: 'bg-green-500',
-    ACCUMULATING: 'bg-purple-500',
+  const phaseStyles: Record<string, string> = {
+    SUBMISSION: 'bg-accent-light text-accent border border-accent',
+    VOTING: 'bg-warning-bg text-warning border border-warning-border',
+    COMPLETED: 'bg-success-bg text-success border border-success-border',
+    ACCUMULATING: 'bg-purple-bg text-purple border border-purple-border',
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-muted">Loading...</div>
       </div>
     )
   }
@@ -481,26 +481,66 @@ export default function DeliberationPage() {
   const winner = deliberation.ideas.find(i => i.status === 'WINNER')
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-800">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <Link href="/deliberations" className="text-slate-400 hover:text-slate-300 text-sm mb-4 inline-block">
+    <div className="min-h-screen bg-surface">
+      {/* Header */}
+      <header className="bg-header text-white">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
+            Union Chant
+          </Link>
+          <nav className="flex gap-4 text-sm">
+            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
+              Deliberations
+            </Link>
+            <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
+              {session ? 'Account' : 'Sign In'}
+            </Link>
+          </nav>
+        </div>
+      </header>
+
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
           &larr; Back to deliberations
         </Link>
 
-        {/* Header */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-          <div className="flex justify-between items-start mb-4">
-            <h1 className="text-2xl font-bold text-white">{deliberation.question}</h1>
-            <span className={`${phaseColors[deliberation.phase]} text-white text-sm px-3 py-1 rounded`}>
-              {deliberation.phase}
-            </span>
+        {/* Header Card */}
+        <div className="rounded-lg border border-border p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 mb-4">
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">{deliberation.question}</h1>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  const url = window.location.href
+                  if (navigator.share) {
+                    navigator.share({
+                      title: deliberation.question,
+                      text: `Join this deliberation: ${deliberation.question}`,
+                      url,
+                    }).catch(() => {})
+                  } else {
+                    navigator.clipboard.writeText(url)
+                    alert('Link copied to clipboard!')
+                  }
+                }}
+                className="p-2 text-muted hover:text-foreground hover:bg-surface rounded-lg transition-colors"
+                title="Share"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+              </button>
+              <span className={`text-xs px-2 py-1 font-medium ${phaseStyles[deliberation.phase]}`}>
+                {deliberation.phase}
+              </span>
+            </div>
           </div>
 
           {deliberation.description && (
-            <p className="text-slate-400 mb-4">{deliberation.description}</p>
+            <p className="text-muted mb-4">{deliberation.description}</p>
           )}
 
-          <div className="flex gap-4 text-sm text-slate-500 mb-4">
+          <div className="flex flex-wrap gap-2 sm:gap-4 text-xs sm:text-sm text-muted-light font-mono mb-4">
             <span>Created by {deliberation.creator.name || 'Anonymous'}</span>
             <span>{deliberation._count.members} participants</span>
             <span>Tier {deliberation.currentTier}</span>
@@ -508,17 +548,17 @@ export default function DeliberationPage() {
 
           {/* Submission deadline countdown */}
           {deliberation.phase === 'SUBMISSION' && deliberation.submissionEndsAt && (
-            <div className="bg-blue-600/20 border border-blue-500 rounded-lg p-4 mb-4">
+            <div className="bg-accent-light rounded-lg border border-accent p-4 mb-4">
               <div className="flex items-center justify-between">
-                <div className="text-blue-400 font-semibold">Submission Period</div>
+                <div className="text-accent font-semibold">Submission Period</div>
                 <CountdownTimer
                   deadline={deliberation.submissionEndsAt}
                   onExpire={fetchDeliberation}
                   compact
-                  className="text-sm"
+                  className="text-sm font-mono"
                 />
               </div>
-              <p className="text-slate-400 text-sm mt-1">
+              <p className="text-muted text-sm mt-1">
                 Submit your ideas before the deadline
               </p>
             </div>
@@ -526,13 +566,13 @@ export default function DeliberationPage() {
 
           {/* Challenge round indicator */}
           {deliberation.challengeRound > 0 && deliberation.phase === 'VOTING' && (
-            <div className="bg-orange-600/20 border border-orange-500 rounded-lg p-4 mb-4">
+            <div className="bg-orange-bg rounded-lg border border-orange p-4 mb-4">
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="text-orange-400 font-semibold">
+                  <div className="text-orange-hover font-semibold">
                     Challenge Round {deliberation.challengeRound}
                   </div>
-                  <p className="text-slate-400 text-sm mt-1">
+                  <p className="text-muted text-sm mt-1">
                     Challengers are competing to dethrone the champion
                   </p>
                 </div>
@@ -542,9 +582,9 @@ export default function DeliberationPage() {
                 const defender = deliberation.ideas.find(i => i.status === 'DEFENDING')
                 if (defender) {
                   return (
-                    <div className="mt-3 bg-orange-900/30 rounded-lg p-3">
-                      <div className="text-orange-300 text-xs mb-1">Defending Champion</div>
-                      <div className="text-white text-sm">{defender.text}</div>
+                    <div className="mt-3 bg-orange-light p-3">
+                      <div className="text-orange-hover text-xs mb-1 font-medium">Defending Champion</div>
+                      <div className="text-foreground text-sm">{defender.text}</div>
                     </div>
                   )
                 }
@@ -555,18 +595,18 @@ export default function DeliberationPage() {
 
           {/* Winner banner */}
           {winner && deliberation.phase !== 'ACCUMULATING' && (
-            <div className="bg-green-600/20 border border-green-500 rounded-lg p-4 mb-4">
-              <div className="text-green-400 font-semibold mb-1">Champion Idea</div>
-              <div className="text-white text-lg">{winner.text}</div>
-              <div className="text-green-400/70 text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
+            <div className="bg-success-bg rounded-lg border border-success-border p-4 mb-4">
+              <div className="text-success font-semibold mb-1">Champion Idea</div>
+              <div className="text-foreground text-lg">{winner.text}</div>
+              <div className="text-success text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
             </div>
           )}
 
           {/* Accumulation phase banner */}
           {deliberation.phase === 'ACCUMULATING' && (
-            <div className="bg-purple-600/20 border border-purple-500 rounded-lg p-4 mb-4">
+            <div className="bg-purple-bg rounded-lg border border-purple-border p-4 mb-4">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-purple-400 font-semibold text-lg">
+                <div className="text-purple font-semibold text-lg">
                   Champion Crowned - Accepting Challengers
                 </div>
                 {deliberation.accumulationEndsAt && (
@@ -575,28 +615,28 @@ export default function DeliberationPage() {
                     label="Next round:"
                     onExpire={fetchDeliberation}
                     compact
-                    className="text-sm"
+                    className="text-sm font-mono"
                   />
                 )}
               </div>
               {winner && (
-                <div className="bg-purple-900/50 rounded-lg p-3 mb-3">
-                  <div className="text-purple-300 text-sm mb-1">Current Champion</div>
-                  <div className="text-white">{winner.text}</div>
-                  <div className="text-purple-400/70 text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
+                <div className="bg-purple-light p-3 mb-3">
+                  <div className="text-purple text-sm mb-1">Current Champion</div>
+                  <div className="text-foreground">{winner.text}</div>
+                  <div className="text-purple text-sm mt-1">by {winner.author.name || 'Anonymous'}</div>
                 </div>
               )}
               <div className="flex gap-4 text-sm">
-                <div className="text-slate-400">
+                <div className="text-muted">
                   Accumulated challengers:{' '}
-                  <span className="text-purple-400 font-medium">
+                  <span className="text-purple font-medium font-mono">
                     {deliberation.ideas.filter(i => i.status === 'PENDING' && i.isNew).length}
                   </span>
                 </div>
                 {deliberation.ideas.filter(i => i.status === 'BENCHED').length > 0 && (
-                  <div className="text-slate-400">
+                  <div className="text-muted">
                     Benched:{' '}
-                    <span className="text-yellow-400 font-medium">
+                    <span className="text-warning font-medium font-mono">
                       {deliberation.ideas.filter(i => i.status === 'BENCHED').length}
                     </span>
                   </div>
@@ -611,7 +651,7 @@ export default function DeliberationPage() {
               <button
                 onClick={handleJoin}
                 disabled={joining}
-                className="bg-green-600 hover:bg-green-700 disabled:bg-green-800 text-white px-4 py-2 rounded-lg transition-colors"
+                className="bg-success hover:bg-success-hover disabled:bg-muted-light text-white px-4 py-2 transition-colors"
               >
                 {joining ? 'Joining...' : 'Join Deliberation'}
               </button>
@@ -621,7 +661,7 @@ export default function DeliberationPage() {
               <button
                 onClick={handleStartVoting}
                 disabled={startingVote || deliberation.ideas.length < 2}
-                className="bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-800 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg transition-colors"
+                className="bg-warning hover:bg-warning-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white px-4 py-2 transition-colors"
               >
                 {startingVote ? 'Starting...' : 'Start Voting'}
               </button>
@@ -634,7 +674,7 @@ export default function DeliberationPage() {
                   navigator.clipboard.writeText(url)
                   alert('Invite link copied!')
                 }}
-                className="bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                className="rounded-lg border border-border hover:border-muted-light text-foreground px-4 py-2 transition-colors flex items-center gap-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" />
@@ -646,7 +686,7 @@ export default function DeliberationPage() {
             {!session && (
               <Link
                 href="/auth/signin"
-                className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+                className="inline-block bg-accent hover:bg-accent-hover text-white px-4 py-2 transition-colors"
               >
                 Sign in to participate
               </Link>
@@ -656,20 +696,20 @@ export default function DeliberationPage() {
 
         {/* Submit Idea Form - Submission Phase */}
         {deliberation.isMember && deliberation.phase === 'SUBMISSION' && (
-          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 mb-6">
-            <h2 className="text-lg font-semibold text-white mb-4">Submit an Idea</h2>
+          <div className="rounded-lg border border-border p-6 mb-6">
+            <h2 className="text-lg font-semibold text-foreground mb-4">Submit an Idea</h2>
             <form onSubmit={handleSubmitIdea} className="flex gap-3">
               <input
                 type="text"
                 placeholder="Your idea..."
                 value={newIdea}
                 onChange={(e) => setNewIdea(e.target.value)}
-                className="flex-1 bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-background rounded-lg border border-border px-4 py-2 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
               />
               <button
                 type="submit"
                 disabled={submitting || !newIdea.trim()}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors"
+                className="bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white px-6 py-2 transition-colors"
               >
                 {submitting ? '...' : 'Submit'}
               </button>
@@ -679,11 +719,11 @@ export default function DeliberationPage() {
 
         {/* Accumulation Form - During Voting or Accumulating Phase */}
         {deliberation.isMember && (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') && (
-          <div className="bg-purple-900/30 rounded-lg p-6 border border-purple-700 mb-6">
-            <h2 className="text-lg font-semibold text-white mb-2">
+          <div className="bg-purple-bg rounded-lg border border-purple-border p-6 mb-6">
+            <h2 className="text-lg font-semibold text-foreground mb-2">
               {deliberation.phase === 'ACCUMULATING' ? 'Challenge the Champion' : 'Submit for Next Round'}
             </h2>
-            <p className="text-purple-300 text-sm mb-4">
+            <p className="text-purple text-sm mb-4">
               {deliberation.phase === 'ACCUMULATING'
                 ? 'Submit ideas to challenge the current champion in the next round.'
                 : 'Voting is in progress. Your idea will be saved for the next challenge round.'}
@@ -694,12 +734,12 @@ export default function DeliberationPage() {
                 placeholder="Your challenger idea..."
                 value={newIdea}
                 onChange={(e) => setNewIdea(e.target.value)}
-                className="flex-1 bg-slate-700 border border-purple-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-purple-500"
+                className="flex-1 bg-background border border-purple-border px-4 py-2 text-foreground placeholder-muted-light focus:outline-none focus:border-purple"
               />
               <button
                 type="submit"
                 disabled={submitting || !newIdea.trim()}
-                className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-800 disabled:cursor-not-allowed text-white px-6 py-2 rounded-lg transition-colors"
+                className="bg-purple hover:bg-purple-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white px-6 py-2 transition-colors"
               >
                 {submitting ? '...' : 'Submit'}
               </button>
@@ -709,38 +749,38 @@ export default function DeliberationPage() {
 
         {/* Voting Progress - during voting phase */}
         {deliberation.phase === 'VOTING' && (
-          <div className="bg-yellow-900/30 rounded-lg p-6 border border-yellow-700 mb-6">
-            <h2 className="text-lg font-semibold text-yellow-400 mb-3">
+          <div className="bg-warning-bg rounded-lg border border-warning-border p-6 mb-6">
+            <h2 className="text-lg font-semibold text-warning mb-3">
               Tier {deliberation.currentTier} Voting {cells.length === 0 ? '- Watching' : ''}
             </h2>
 
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-blue-400">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4">
+              <div className="bg-background rounded-lg border border-border p-2 sm:p-3 text-center">
+                <div className="text-lg sm:text-2xl font-bold text-accent font-mono">
                   {deliberation.ideas.filter(i => i.status === 'IN_VOTING').length}
                 </div>
-                <div className="text-xs text-slate-400">Competing</div>
+                <div className="text-xs text-muted">Competing</div>
               </div>
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-green-400">
+              <div className="bg-background rounded-lg border border-border p-2 sm:p-3 text-center">
+                <div className="text-lg sm:text-2xl font-bold text-success font-mono">
                   {deliberation.ideas.filter(i => i.status === 'ADVANCING').length}
                 </div>
-                <div className="text-xs text-slate-400">Advancing</div>
+                <div className="text-xs text-muted">Advancing</div>
               </div>
-              <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                <div className="text-2xl font-bold text-red-400">
+              <div className="bg-background rounded-lg border border-border p-2 sm:p-3 text-center">
+                <div className="text-lg sm:text-2xl font-bold text-error font-mono">
                   {deliberation.ideas.filter(i => i.status === 'ELIMINATED').length}
                 </div>
-                <div className="text-xs text-slate-400">Eliminated</div>
+                <div className="text-xs text-muted">Eliminated</div>
               </div>
             </div>
 
             {cells.length === 0 ? (
-              <p className="text-slate-400 text-sm">
+              <p className="text-muted text-sm">
                 You&apos;re not assigned to vote in this tier. You may vote in a later tier or the final showdown.
               </p>
             ) : (
-              <p className="text-slate-300 text-sm">
+              <p className="text-muted text-sm">
                 You have {cells.filter(c => c.status === 'VOTING').length} active cell(s) to vote in below.
               </p>
             )}
@@ -750,16 +790,15 @@ export default function DeliberationPage() {
         {/* Voting Cells */}
         {(deliberation.phase === 'VOTING' || deliberation.phase === 'COMPLETED') && cells.length > 0 && (
           <div className="space-y-6 mb-6">
-            <h2 className="text-xl font-semibold text-white">Your Voting Cells</h2>
+            <h2 className="text-xl font-semibold text-foreground">Your Voting Cells</h2>
             {cells.map(cell => {
               const hasVoted = cell.votes.length > 0
               const votedIdeaId = cell.votes[0]?.ideaId
-              const currentUserId = session?.user?.email
 
               return (
-                <div key={cell.id} className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                <div key={cell.id} className="rounded-lg border border-border p-6">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium text-white">Tier {cell.tier} Cell</h3>
+                    <h3 className="text-lg font-medium text-foreground">Tier {cell.tier} Cell</h3>
                     <div className="flex items-center gap-3">
                       {cell.status === 'VOTING' && cell.votingDeadline && (
                         <CountdownTimer
@@ -769,13 +808,13 @@ export default function DeliberationPage() {
                             fetchDeliberation()
                           }}
                           compact
-                          className="text-sm"
+                          className="text-sm font-mono"
                         />
                       )}
-                      <span className={`text-sm px-2 py-1 rounded ${
-                        cell.status === 'COMPLETED' ? 'bg-green-500/20 text-green-400' :
-                        cell.status === 'VOTING' ? 'bg-yellow-500/20 text-yellow-400' :
-                        'bg-slate-600 text-slate-400'
+                      <span className={`text-sm px-2 py-1 ${
+                        cell.status === 'COMPLETED' ? 'bg-success-bg text-success border border-success-border' :
+                        cell.status === 'VOTING' ? 'bg-warning-bg text-warning border border-warning-border' :
+                        'bg-surface text-muted rounded-lg border border-border'
                       }`}>
                         {cell.status}
                       </span>
@@ -783,11 +822,11 @@ export default function DeliberationPage() {
                   </div>
 
                   <div className="mb-4">
-                    <div className="text-sm text-slate-500 mb-2">Participants:</div>
+                    <div className="text-sm text-muted-light mb-2">Participants:</div>
                     <div className="flex gap-2 flex-wrap">
                       {cell.participants.map(p => (
-                        <span key={p.userId} className={`text-sm px-2 py-1 rounded ${
-                          p.status === 'VOTED' ? 'bg-green-600/30 text-green-400' : 'bg-slate-700 text-slate-300'
+                        <span key={p.userId} className={`text-sm px-2 py-1 ${
+                          p.status === 'VOTED' ? 'bg-success-bg text-success border border-success-border' : 'bg-surface text-muted border border-border'
                         }`}>
                           {p.user.name || 'Anonymous'}
                         </span>
@@ -804,39 +843,39 @@ export default function DeliberationPage() {
                       return (
                         <div
                           key={idea.id}
-                          className={`p-4 rounded-lg flex justify-between items-center ${
-                            isWinner ? 'bg-green-600/20 border border-green-500' :
-                            isEliminated ? 'bg-red-600/10 border border-red-500/30' :
-                            isVoted ? 'bg-blue-600/20 border border-blue-500' :
-                            'bg-slate-700'
+                          className={`p-4 flex justify-between items-center ${
+                            isWinner ? 'bg-success-bg border border-success-border' :
+                            isEliminated ? 'bg-error-bg border border-error-border' :
+                            isVoted ? 'bg-accent-light border border-accent' :
+                            'bg-surface border border-border'
                           }`}
                         >
                           <div className="flex-1">
-                            <p className={`${isEliminated ? 'text-slate-500' : 'text-white'}`}>{idea.text}</p>
-                            <p className="text-sm text-slate-500">by {idea.author.name || 'Anonymous'}</p>
+                            <p className={`${isEliminated ? 'text-muted-light' : 'text-foreground'}`}>{idea.text}</p>
+                            <p className="text-sm text-muted-light">by {idea.author.name || 'Anonymous'}</p>
                           </div>
 
                           <div className="flex items-center gap-3">
                             {cell.status === 'COMPLETED' && (
-                              <span className="text-slate-400 text-sm">{idea.totalVotes} votes</span>
+                              <span className="text-muted text-sm font-mono">{idea.totalVotes} votes</span>
                             )}
 
                             {cell.status === 'VOTING' && !hasVoted && (
                               <button
                                 onClick={() => handleVote(cell.id, idea.id)}
                                 disabled={voting === idea.id}
-                                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+                                className="bg-accent hover:bg-accent-hover disabled:bg-muted-light text-white px-4 py-2 text-sm transition-colors"
                               >
                                 {voting === idea.id ? '...' : 'Vote'}
                               </button>
                             )}
 
                             {isVoted && (
-                              <span className="text-blue-400 text-sm">Your vote</span>
+                              <span className="text-accent text-sm font-medium">Your vote</span>
                             )}
 
                             {isWinner && (
-                              <span className="text-green-400 text-sm font-medium">Advanced</span>
+                              <span className="text-success text-sm font-medium">Advanced</span>
                             )}
                           </div>
                         </div>
@@ -856,52 +895,52 @@ export default function DeliberationPage() {
         <VotingHistorySection deliberationId={id} key={`history-${deliberation.phase}-${deliberation.challengeRound}`} />
 
         {/* All Ideas List */}
-        <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
-          <h2 className="text-lg font-semibold text-white mb-4">
+        <div className="rounded-lg border border-border p-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">
             All Ideas ({deliberation.ideas.length})
           </h2>
 
           {deliberation.ideas.length === 0 ? (
-            <p className="text-slate-400">No ideas submitted yet.</p>
+            <p className="text-muted">No ideas submitted yet.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {deliberation.ideas.map((idea) => (
                 <div
                   key={idea.id}
-                  className={`rounded-lg p-4 flex justify-between items-center ${
-                    idea.status === 'WINNER' ? 'bg-green-600/20 border border-green-500' :
-                    idea.status === 'DEFENDING' ? 'bg-orange-600/20 border border-orange-500' :
-                    idea.status === 'ADVANCING' ? 'bg-blue-600/20 border border-blue-500' :
-                    idea.status === 'IN_VOTING' ? 'bg-yellow-600/10 border border-yellow-500/30' :
-                    idea.status === 'BENCHED' ? 'bg-slate-600/50 border border-slate-500' :
-                    idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'bg-slate-700/50' :
-                    'bg-slate-700'
+                  className={`p-4 flex justify-between items-center ${
+                    idea.status === 'WINNER' ? 'bg-success-bg border border-success-border' :
+                    idea.status === 'DEFENDING' ? 'bg-orange-bg border border-orange' :
+                    idea.status === 'ADVANCING' ? 'bg-accent-light border border-accent' :
+                    idea.status === 'IN_VOTING' ? 'bg-warning-bg border border-warning-border' :
+                    idea.status === 'BENCHED' ? 'bg-surface rounded-lg border border-border' :
+                    idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'bg-surface border border-border' :
+                    'bg-background border border-border'
                   }`}
                 >
                   <div>
-                    <p className={`${idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'text-slate-500' : 'text-white'}`}>
+                    <p className={`${idea.status === 'ELIMINATED' || idea.status === 'RETIRED' ? 'text-muted-light' : 'text-foreground'}`}>
                       {idea.text}
                     </p>
-                    <p className="text-sm text-slate-500">by {idea.author.name || 'Anonymous'}</p>
+                    <p className="text-sm text-muted-light">by {idea.author.name || 'Anonymous'}</p>
                   </div>
                   <div className="text-right">
-                    <span className={`text-sm ${
-                      idea.status === 'WINNER' ? 'text-green-400 font-medium' :
-                      idea.status === 'DEFENDING' ? 'text-orange-400 font-medium' :
-                      idea.status === 'ADVANCING' ? 'text-blue-400' :
-                      idea.status === 'IN_VOTING' ? 'text-yellow-400' :
-                      idea.status === 'BENCHED' ? 'text-slate-400' :
-                      idea.status === 'ELIMINATED' ? 'text-red-400/70' :
-                      idea.status === 'RETIRED' ? 'text-slate-500' :
-                      'text-slate-400'
+                    <span className={`text-sm font-medium ${
+                      idea.status === 'WINNER' ? 'text-success' :
+                      idea.status === 'DEFENDING' ? 'text-orange-hover' :
+                      idea.status === 'ADVANCING' ? 'text-accent' :
+                      idea.status === 'IN_VOTING' ? 'text-warning' :
+                      idea.status === 'BENCHED' ? 'text-muted' :
+                      idea.status === 'ELIMINATED' ? 'text-error' :
+                      idea.status === 'RETIRED' ? 'text-muted-light' :
+                      'text-muted'
                     }`}>
                       {idea.status}
                     </span>
                     {idea.totalVotes > 0 && (
-                      <p className="text-slate-400 text-sm">{idea.totalVotes} votes</p>
+                      <p className="text-muted-light text-sm font-mono">{idea.totalVotes} votes</p>
                     )}
                     {idea.tier1Losses > 0 && (
-                      <p className="text-slate-500 text-xs">{idea.tier1Losses} tier-1 loss{idea.tier1Losses > 1 ? 'es' : ''}</p>
+                      <p className="text-muted-light text-xs font-mono">{idea.tier1Losses} tier-1 loss{idea.tier1Losses > 1 ? 'es' : ''}</p>
                     )}
                   </div>
                 </div>

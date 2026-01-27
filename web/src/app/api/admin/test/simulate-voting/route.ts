@@ -129,9 +129,27 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Check if deliberation completed after processing final showdown cells
+        const checkDeliberation = await prisma.deliberation.findUnique({
+          where: { id: deliberationId },
+          include: {
+            ideas: { where: { status: 'WINNER' } },
+          },
+        })
+
+        if (checkDeliberation?.phase === 'COMPLETED' || checkDeliberation?.phase === 'ACCUMULATING') {
+          if (checkDeliberation.ideas.length > 0) {
+            champion = checkDeliberation.ideas[0].text
+            if (checkDeliberation.phase === 'ACCUMULATING') {
+              champion += ' (now accepting challengers)'
+            }
+          }
+          break // Deliberation complete, exit loop
+        }
+
         finalCellStatus = `Final showdown: waiting for your vote in your cell`
         tiersProcessed++
-        continue // Check if deliberation completed
+        break // Exit loop - waiting for real user vote, don't keep looping
       }
 
       for (const cell of cellsAtTier) {

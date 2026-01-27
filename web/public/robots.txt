@@ -1,0 +1,10 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://unionchant.vercel.app/sitemap.xml
+
+# Disallow admin pages
+Disallow: /admin
+Disallow: /api

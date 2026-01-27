@@ -1,5 +1,5 @@
 // Union Chant Service Worker
-const CACHE_NAME = 'union-chant-v1'
+const CACHE_NAME = 'union-chant-v2'
 
 // Install event - cache essential assets
 self.addEventListener('install', (event) => {
