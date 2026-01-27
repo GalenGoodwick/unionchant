@@ -339,11 +339,15 @@ export default function DemoPage() {
         })
 
         const maxVotes = Math.max(...Object.values(voteCounts))
-        const winners = Object.entries(voteCounts)
+        const tiedWinners = Object.entries(voteCounts)
           .filter(([, count]) => count === maxVotes)
           .map(([id]) => id)
 
-        advancingIdeas.push(...winners)
+        // Pick only ONE winner per cell (random tiebreaker if needed)
+        const winner = tiedWinners[Math.floor(Math.random() * tiedWinners.length)]
+        const winners = [winner]
+
+        advancingIdeas.push(winner)
         cell.status = 'completed'
         cell.winner = winners[0]
         setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))

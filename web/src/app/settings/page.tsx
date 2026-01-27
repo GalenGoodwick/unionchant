@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
+import Header from '@/components/Header'
 
 export default function SettingsPage() {
   const { data: session, status } = useSession()
@@ -82,19 +83,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header showSettings={false} />
 
       <div className="max-w-2xl mx-auto px-6 py-8">
         <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
@@ -186,12 +175,15 @@ export default function SettingsPage() {
         {/* Account Section */}
         <section className="bg-background rounded-lg p-6 border border-border mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Account</h2>
-          <Link
-            href="/api/auth/signout"
-            className="text-error hover:text-error-hover text-sm"
+          <p className="text-muted text-sm mb-4">
+            Signed in as <span className="text-foreground">{session.user?.email}</span>
+          </p>
+          <button
+            onClick={() => signOut({ callbackUrl: '/' })}
+            className="px-4 py-2 border border-border text-foreground rounded-lg hover:bg-surface text-sm transition-colors"
           >
-            Sign out
-          </Link>
+            Sign Out
+          </button>
         </section>
 
         {/* Delete Account Section */}

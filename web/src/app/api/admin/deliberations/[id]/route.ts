@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isAdminEmail } from '@/lib/admin'
 
 // DELETE /api/admin/deliberations/[id] - Delete a deliberation
 export async function DELETE(
@@ -25,10 +26,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
-    // Check if user is the creator (for now, only creators can delete)
-    // TODO: Add admin role check
-    if (deliberation.creator.email !== session.user.email) {
-      return NextResponse.json({ error: 'Only the creator can delete this deliberation' }, { status: 403 })
+    // Check if user is admin or the creator
+    const isAdmin = isAdminEmail(session.user.email)
+    const isCreator = deliberation.creator.email === session.user.email
+
+    if (!isAdmin && !isCreator) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Delete in order due to foreign key constraints

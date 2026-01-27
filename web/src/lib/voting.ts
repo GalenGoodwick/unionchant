@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { sendPushToDeliberation, notifications } from './push'
+import { handleMetaChampion } from './meta-deliberation'
 
 const CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
@@ -46,8 +47,9 @@ export async function startVotingPhase(deliberationId: string) {
     const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
     const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
 
-    // If not enough members, wrap around
-    const actualMembers = cellMembers.length > 0 ? cellMembers : shuffledMembers.slice(0, CELL_SIZE)
+    // Skip creating cells with no unique members - don't wrap around
+    // This prevents users from being in multiple cells per tier
+    if (cellMembers.length === 0) continue
 
     const cell = await prisma.cell.create({
       data: {
@@ -62,7 +64,7 @@ export async function startVotingPhase(deliberationId: string) {
           })),
         },
         participants: {
-          create: actualMembers.map(member => ({
+          create: cellMembers.map(member => ({
             userId: member.userId,
           })),
         },
@@ -282,12 +284,21 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           },
         })
 
-        const deliberation = await prisma.deliberation.findUnique({ where: { id: deliberationId } })
-        if (deliberation) {
+        const completedDeliberation = await prisma.deliberation.findUnique({
+          where: { id: deliberationId },
+          include: { ideas: { where: { id: winnerId } } }
+        })
+        if (completedDeliberation) {
           sendPushToDeliberation(
             deliberationId,
-            notifications.championDeclared(deliberation.question, deliberationId)
+            notifications.championDeclared(completedDeliberation.question, deliberationId)
           ).catch(err => console.error('Failed to send push notifications:', err))
+
+          // Handle META deliberation - spawn new deliberation from champion
+          if (completedDeliberation.type === 'META' && completedDeliberation.ideas[0]) {
+            handleMetaChampion(deliberationId, completedDeliberation.ideas[0])
+              .catch(err => console.error('Failed to handle meta champion:', err))
+          }
         }
       }
 
@@ -372,6 +383,13 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         deliberationId,
         notifications.championDeclared(deliberation.question, deliberationId)
       ).catch(err => console.error('Failed to send push notifications:', err))
+
+      // Handle META deliberation - spawn new deliberation from champion
+      if (deliberation.type === 'META') {
+        const championIdea = advancingIdeas[0]
+        handleMetaChampion(deliberationId, championIdea)
+          .catch(err => console.error('Failed to handle meta champion:', err))
+      }
     }
   } else {
     // Need another tier - create new cells with advancing ideas
@@ -420,7 +438,10 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       for (let i = 0; i < numCells; i++) {
         const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
         const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
-        const actualMembers = cellMembers.length > 0 ? cellMembers : shuffledMembers.slice(0, CELL_SIZE)
+
+        // Skip creating cells with no unique members - don't wrap around
+        // This prevents users from being in multiple cells per tier
+        if (cellMembers.length === 0) continue
 
         await prisma.cell.create({
           data: {
@@ -433,7 +454,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
               create: cellIdeas.map(idea => ({ ideaId: idea.id })),
             },
             participants: {
-              create: actualMembers.map(member => ({ userId: member.userId })),
+              create: cellMembers.map(member => ({ userId: member.userId })),
             },
           },
         })

@@ -18,6 +18,54 @@ Built for cities, cooperatives, platforms, and organizations needing legitimate 
 
 **Current phase:** Phase 1 complete (core extracted), starting Phase 2 (AI agents)
 
+### Connect to Project Infrastructure
+
+Before starting work, verify access to all services:
+
+**1. Check current access:**
+```bash
+# GitHub
+gh auth status
+
+# Vercel
+npx vercel whoami
+
+# Supabase
+npx supabase projects list
+
+# Prisma (from web directory)
+cd web && npx prisma --version
+```
+
+**2. If Supabase needs authentication:**
+```bash
+# Option A: Interactive login (if in terminal)
+npx supabase login
+
+# Option B: Use access token (for non-TTY environments like Claude)
+# Get token from: https://supabase.com/dashboard/account/tokens
+# Then run:
+export SUPABASE_ACCESS_TOKEN="your-token-here"
+npx supabase link --project-ref pgjqpwtwhwbjcocrttdc
+```
+
+**3. Expected access when fully connected:**
+
+| Service | Status | Account/Project |
+|---------|--------|-----------------|
+| GitHub | ✅ | `GalenGoodwick` |
+| Vercel | ✅ | `galengoodwick-9225` |
+| Supabase | ✅ | `pgjqpwtwhwbjcocrttdc` (East US) |
+| Prisma | ✅ | Connected via DATABASE_URL |
+
+**4. Read the codebase:**
+Ask Claude to "read all files for the project" - this triggers a comprehensive exploration of:
+- All source code in `/web/src/`
+- Database schema in `/web/prisma/schema.prisma`
+- Core voting logic in `/web/src/lib/voting.ts` and `/web/src/lib/challenge.ts`
+- API routes in `/web/src/app/api/`
+- Documentation files
+
 ---
 
 ## Folder Structure

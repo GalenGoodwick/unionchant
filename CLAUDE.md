@@ -10,6 +10,13 @@
 **Deployed:** https://unionchant.vercel.app
 **Status:** Full voting + accumulation (rolling mode) working
 
+**Latest Session (Jan 2026):**
+- Fixed multi-cell voting bug
+- Added goal-based voting triggers (auto-start on idea/participant count)
+- Improved UX: active cells float to top with "Vote Now" indicator
+- Added Start Challenge button for creators
+- Strategic pivot: free creation, paid amplification model
+
 ---
 
 ## What Is This?
@@ -156,6 +163,14 @@ SUBMISSION → VOTING → COMPLETED
             VOTING ───────┘
 ```
 
+### Voting Start Triggers
+Deliberations can start voting in three ways:
+1. **Timer mode**: After submission period ends (default)
+2. **Ideas goal**: Auto-starts when X ideas submitted
+3. **Participants goal**: Auto-starts when X participants join
+
+Set via `ideaGoal` or `participantGoal` fields in deliberation creation.
+
 ---
 
 ## Testing the System
@@ -269,9 +284,39 @@ git push origin main   # Triggers Vercel deployment
 
 ## Known Issues / TODOs
 
-1. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
-2. **Accumulation timer**: Timer-based challenge triggering not fully implemented (manual trigger works)
-3. **Push notifications**: Configured but not fully tested in production
+### Bugs to Fix
+1. **Admin self-delete**: Admin can still delete their own account in settings (Task #30)
+2. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
+
+### Untested Code Paths
+1. **Meta-deliberation auto-reset**: `handleMetaChampion` spawning logic written but never triggered in production
+2. **Zero ideas edge case**: What happens when meta-deliberation has 0 ideas at submission end?
+3. **Duplicate meta-deliberation**: No protection if two META deliberations exist somehow
+4. **Auto-join voters**: The "auto-join voters to spawned deliberation" logic never actually run
+5. **Vercel cron timers**: Timer-based transitions not fully tested in production
+
+### Potential Race Conditions
+1. **Simultaneous votes**: Two people voting at exact same moment
+2. **Cell assignment**: Odd numbers of participants edge cases
+3. ~~**Multi-cell user**: What if a user ends up in multiple cells same tier?~~ **FIXED** - removed wrap-around logic
+4. **Multiple tabs**: Session/auth edge cases
+
+### Security Gaps
+1. **No CAPTCHA**: Idea submission vulnerable to bot spam
+2. **No content moderation**: Bad actors can submit anything
+3. **Rate limit bypass**: Per-IP limits bypassed by VPNs
+4. **Push notifications**: Configured but not fully tested in production
+
+### Performance Unknowns
+1. **Scale testing**: How does it handle 1000+ ideas in one deliberation?
+2. **Query optimization**: Prisma queries not optimized for scale
+3. **Database indexes**: Only default indexes, may need more
+
+### Technical Debt
+1. **Unused component**: `MetaDeliberationEmbed.tsx` created but not used
+2. **Duplicate code**: Some overlap between components
+3. **No test suite**: No comprehensive automated tests
+4. **Free tier permissions**: Need to implement rate limits for free users (see docs/META_DELIBERATION.md)
 
 ---
 
@@ -346,6 +391,40 @@ To change colors app-wide:
 3. All pages using semantic classes update automatically
 
 **Do NOT** use hardcoded hex values like `bg-[#0891b2]` in component files.
+
+---
+
+## Strategic Direction
+
+### Monetization Model
+**Free creation, paid amplification.** Deliberation creation is FREE to maximize content supply and engagement. Revenue comes from:
+- **Amplification**: Promote/feature deliberations (paid)
+- **Private deliberations**: Invite-only with controls (paid)
+- **Creator analytics**: Deep insights on your deliberations (paid)
+- **Enterprise/API**: Governance-as-a-service for orgs (paid)
+
+### Network Effects Roadmap (Priority)
+1. **User stats & reputation** (Task #32)
+   - Track success at EVERY tier, not just final wins
+   - Idea stats: highest tier reached, champion count
+   - Voting prediction accuracy per cell
+   - Portable reputation that means something
+
+2. **Engagement feed** (Task #33)
+   - After voting → swipe to more cells/deliberations
+   - Never a dead end, always more to engage with
+   - "While you wait..." keeps users in app
+
+3. **Social graph of agreement**
+   - Track who you agree with across deliberations
+   - Follow users, see their activity
+   - "People who voted like you..."
+
+### Key Insight
+The voting engine creates MULTIPLE success moments per deliberation:
+- Your idea advances from Tier 1 → win
+- Your vote predicts cell winner → win
+- Rewards at every tier, not just championship
 
 ---
 

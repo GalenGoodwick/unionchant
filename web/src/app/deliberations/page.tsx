@@ -6,6 +6,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
 import { useAdmin } from '@/hooks/useAdmin'
+import Header from '@/components/Header'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -267,29 +268,7 @@ export default function DeliberationsPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            {isAdmin && (
-              <Link href="/admin" className="text-orange-300 hover:text-orange-200 transition-colors">
-                Admin
-              </Link>
-            )}
-            {session && (
-              <Link href="/settings" className="hover:text-accent-light transition-colors">
-                Settings
-              </Link>
-            )}
-            <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
-              {session ? 'Account' : 'Sign In'}
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-6">

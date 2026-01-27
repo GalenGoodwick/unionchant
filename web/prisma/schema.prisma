@@ -17,6 +17,12 @@ enum UserStatus {
   DELETED
 }
 
+enum UserRole {
+  USER       // Regular user (default)
+  MODERATOR  // Can moderate content, manage reports
+  ADMIN      // Full system access
+}
+
 model User {
   id            String     @id @default(cuid())
   email         String     @unique
@@ -24,6 +30,7 @@ model User {
   image         String?
   emailVerified DateTime?
   status        UserStatus @default(ACTIVE)
+  role          UserRole   @default(USER)
   deletedAt     DateTime?
   bannedAt      DateTime?
   banReason     String?
@@ -105,6 +112,22 @@ model Deliberation {
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
   isPublic              Boolean  @default(true)
 
+  // Goal-based auto-start (null = unlimited/manual start)
+  ideaGoal        Int?     // Auto-start voting when this many ideas submitted
+  participantGoal Int?     // Auto-start voting when this many participants join
+
+  // Meta-deliberation fields
+  type              DeliberationType @default(STANDARD)
+  spawnedFromId     String?          // Parent meta-deliberation
+  spawnedFrom       Deliberation?    @relation("SpawnedFrom", fields: [spawnedFromId], references: [id])
+  spawnedChildren   Deliberation[]   @relation("SpawnedFrom")
+  autoJoinVoters    Boolean          @default(false)  // Join voters for winning idea
+
+  // For recurring meta-deliberations
+  isRecurring       Boolean          @default(false)
+  recurringSchedule String?          // e.g., "daily", "weekly"
+  nextOccurrence    DateTime?
+
   // State
   phase               Phase    @default(SUBMISSION)
   currentTier         Int      @default(1)
@@ -127,6 +150,7 @@ model Deliberation {
 
   @@index([creatorId])
   @@index([isPublic, phase])
+  @@index([type])
 }
 
 enum Phase {
@@ -134,6 +158,12 @@ enum Phase {
   VOTING
   COMPLETED
   ACCUMULATING
+}
+
+enum DeliberationType {
+  STANDARD      // Normal deliberation
+  META          // "What should we decide next?"
+  SPAWNED       // Auto-created from meta winner
 }
 
 // ============ DELIBERATION MEMBERSHIP ============

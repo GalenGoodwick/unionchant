@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { startVotingPhase } from '@/lib/voting'
 
 // POST /api/deliberations/[id]/join - Join a deliberation
 export async function POST(
@@ -54,6 +55,26 @@ export async function POST(
         role: 'PARTICIPANT',
       },
     })
+
+    // Check if participant goal is met and auto-start voting
+    if (deliberation.phase === 'SUBMISSION' && deliberation.participantGoal) {
+      const memberCount = await prisma.deliberationMember.count({
+        where: { deliberationId: id }
+      })
+
+      // Need at least 2 ideas to start voting
+      const ideaCount = await prisma.idea.count({
+        where: { deliberationId: id, status: 'SUBMITTED' }
+      })
+
+      if (memberCount >= deliberation.participantGoal && ideaCount >= 2) {
+        try {
+          await startVotingPhase(id)
+        } catch (err) {
+          console.error('Failed to auto-start voting on participant goal:', err)
+        }
+      }
+    }
 
     return NextResponse.json(membership, { status: 201 })
   } catch (error) {

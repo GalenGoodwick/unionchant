@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import Link from 'next/link'
+import Header from '@/components/Header'
 
 interface TestResult {
   success: boolean
@@ -149,22 +150,7 @@ export default function AdminTestPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-            <Link href="/admin" className="hover:text-accent-light transition-colors">
-              Admin
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-4xl mx-auto px-6 py-8">
         <Link href="/admin" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
@@ -354,12 +340,141 @@ export default function AdminTestPage() {
           </div>
         </div>
 
+        {/* Meta-Deliberation Section */}
+        <MetaDeliberationSection addLog={addLog} />
+
         {/* Test Accumulation / Challenge Flow */}
         <AccumulationTestSection addLog={addLog} refreshKey={refreshKey} />
 
         {/* Delete Stuck Deliberations */}
         <DeleteDeliberationsSection addLog={addLog} />
       </div>
+    </div>
+  )
+}
+
+function MetaDeliberationSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
+  const [metaData, setMetaData] = useState<{
+    currentMeta: {
+      id: string
+      question: string
+      phase: string
+      submissionEndsAt: string | null
+      _count: { ideas: number; members: number }
+    } | null
+    spawnedDeliberations: Array<{
+      id: string
+      question: string
+      phase: string
+      _count: { ideas: number; members: number }
+    }>
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const fetchMetaStatus = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/admin/meta-deliberation')
+      if (res.ok) {
+        const data = await res.json()
+        setMetaData(data)
+      }
+    } catch (err) {
+      console.error('Failed to fetch meta status:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchMetaStatus()
+  }, [])
+
+  const timeUntil = (dateStr: string | null) => {
+    if (!dateStr) return 'Not set'
+    const diff = new Date(dateStr).getTime() - Date.now()
+    if (diff < 0) return 'Expired'
+    const hours = Math.floor(diff / (1000 * 60 * 60))
+    const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60))
+    return `${hours}h ${mins}m`
+  }
+
+  return (
+    <div className="mt-6 bg-background rounded-lg p-6 border border-border">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold text-foreground">Meta-Deliberation System</h2>
+        <button
+          onClick={fetchMetaStatus}
+          className="text-sm text-muted hover:text-foreground"
+        >
+          Refresh
+        </button>
+      </div>
+      <p className="text-muted text-sm mb-4">
+        The daily &quot;What should we decide next?&quot; deliberation. Auto-creates and resets daily when a champion is declared.
+      </p>
+
+      {loading ? (
+        <p className="text-muted">Loading...</p>
+      ) : metaData?.currentMeta ? (
+        <div className="space-y-4">
+          <div className="bg-purple-bg border border-purple rounded-lg p-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-foreground font-medium">{metaData.currentMeta.question}</h3>
+                <p className="text-muted text-sm mt-1">
+                  {metaData.currentMeta._count.ideas} ideas • {metaData.currentMeta._count.members} participants
+                </p>
+                <p className="text-muted text-sm">
+                  Submission ends in: {timeUntil(metaData.currentMeta.submissionEndsAt)}
+                </p>
+              </div>
+              <span className={`text-xs px-2 py-1 rounded text-white ${
+                metaData.currentMeta.phase === 'SUBMISSION' ? 'bg-accent' :
+                metaData.currentMeta.phase === 'VOTING' ? 'bg-warning' : 'bg-success'
+              }`}>
+                {metaData.currentMeta.phase}
+              </span>
+            </div>
+            <div className="mt-3">
+              <a
+                href={`/deliberations/${metaData.currentMeta.id}`}
+                className="text-accent hover:text-accent-hover text-sm underline"
+              >
+                View Meta-Deliberation
+              </a>
+            </div>
+          </div>
+
+          {metaData.spawnedDeliberations.length > 0 && (
+            <div>
+              <h4 className="text-sm font-medium text-muted mb-2">Spawned Deliberations</h4>
+              <div className="space-y-2">
+                {metaData.spawnedDeliberations.map(d => (
+                  <div key={d.id} className="bg-surface rounded-lg p-3 border border-border flex justify-between items-center">
+                    <div>
+                      <span className="text-foreground">{d.question}</span>
+                      <span className="ml-2 text-muted text-xs">
+                        {d._count.members} members • {d._count.ideas} ideas
+                      </span>
+                    </div>
+                    <a
+                      href={`/deliberations/${d.id}`}
+                      className="text-accent hover:text-accent-hover text-sm"
+                    >
+                      View
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="bg-surface rounded-lg p-4 border border-border">
+          <p className="text-muted">Meta-deliberation will auto-create when the homepage is visited. Visit the homepage to initialize.</p>
+        </div>
+      )}
     </div>
   )
 }

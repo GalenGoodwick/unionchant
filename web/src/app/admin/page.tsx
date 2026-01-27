@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
+import Header from '@/components/Header'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -139,24 +140,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-            {isAdmin && (
-              <Link href="/admin/test" className="hover:text-accent-light transition-colors">
-                Test Page
-              </Link>
-            )}
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex justify-between items-center mb-6">

@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState } from 'react'
+import Header from '@/components/Header'
 
 export default function NewDeliberationPage() {
   const { data: session, status } = useSession()
@@ -21,6 +22,10 @@ export default function NewDeliberationPage() {
     votingMinutes: 60,
     accumulationEnabled: true,
     accumulationDays: 1,
+    // Goal settings
+    startMode: 'timer' as 'timer' | 'ideas' | 'participants',
+    ideaGoal: 10,
+    participantGoal: 10,
   })
 
   if (status === 'loading') {
@@ -55,11 +60,14 @@ export default function NewDeliberationPage() {
           description: formData.description,
           isPublic: formData.isPublic,
           tags,
-          // Timer settings
-          submissionDurationMs: formData.submissionHours * 60 * 60 * 1000,
+          // Timer settings (only for timer mode)
+          submissionDurationMs: formData.startMode === 'timer' ? formData.submissionHours * 60 * 60 * 1000 : null,
           votingTimeoutMs: formData.votingMinutes * 60 * 1000,
           accumulationEnabled: formData.accumulationEnabled,
           accumulationTimeoutMs: formData.accumulationDays * 24 * 60 * 60 * 1000,
+          // Goal settings
+          ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
+          participantGoal: formData.startMode === 'participants' ? formData.participantGoal : null,
         }),
       })
 
@@ -78,19 +86,7 @@ export default function NewDeliberationPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
@@ -158,42 +154,115 @@ export default function NewDeliberationPage() {
               </label>
             </div>
 
-            {/* Timer Settings */}
+            {/* Voting Start Mode */}
             <div className="border-t border-border pt-6 mt-6">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Timer Settings</h2>
+              <h2 className="text-lg font-semibold text-foreground mb-4">When to Start Voting</h2>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label htmlFor="submissionHours" className="block text-muted text-sm mb-2">
-                    Submission Period (hours)
-                  </label>
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
                   <input
-                    type="number"
-                    id="submissionHours"
-                    min={1}
-                    max={168}
-                    value={formData.submissionHours}
-                    onChange={(e) => setFormData({ ...formData, submissionHours: parseInt(e.target.value) || 24 })}
-                    className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                    type="radio"
+                    name="startMode"
+                    value="timer"
+                    checked={formData.startMode === 'timer'}
+                    onChange={() => setFormData({ ...formData, startMode: 'timer' })}
+                    className="mt-1 w-4 h-4 text-accent"
                   />
-                  <p className="text-muted-light text-xs mt-1">How long to accept new ideas</p>
-                </div>
+                  <div className="flex-1">
+                    <div className="text-foreground font-medium">After a set time</div>
+                    <div className="text-muted text-sm">Voting starts after the submission period ends</div>
+                    {formData.startMode === 'timer' && (
+                      <div className="mt-3">
+                        <label className="block text-muted text-sm mb-1">Submission period (hours)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={168}
+                          value={formData.submissionHours}
+                          onChange={(e) => setFormData({ ...formData, submissionHours: parseInt(e.target.value) || 24 })}
+                          className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
 
-                <div>
-                  <label htmlFor="votingMinutes" className="block text-muted text-sm mb-2">
-                    Voting Timeout (minutes)
-                  </label>
+                <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
                   <input
-                    type="number"
-                    id="votingMinutes"
-                    min={5}
-                    max={1440}
-                    value={formData.votingMinutes}
-                    onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 60 })}
-                    className="w-full bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                    type="radio"
+                    name="startMode"
+                    value="ideas"
+                    checked={formData.startMode === 'ideas'}
+                    onChange={() => setFormData({ ...formData, startMode: 'ideas' })}
+                    className="mt-1 w-4 h-4 text-accent"
                   />
-                  <p className="text-muted-light text-xs mt-1">Time limit for each cell vote</p>
-                </div>
+                  <div className="flex-1">
+                    <div className="text-foreground font-medium">After enough ideas</div>
+                    <div className="text-muted text-sm">Voting starts automatically when the idea goal is reached</div>
+                    {formData.startMode === 'ideas' && (
+                      <div className="mt-3">
+                        <label className="block text-muted text-sm mb-1">Number of ideas</label>
+                        <input
+                          type="number"
+                          min={2}
+                          max={1000}
+                          value={formData.ideaGoal}
+                          onChange={(e) => setFormData({ ...formData, ideaGoal: parseInt(e.target.value) || 10 })}
+                          className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
+                  <input
+                    type="radio"
+                    name="startMode"
+                    value="participants"
+                    checked={formData.startMode === 'participants'}
+                    onChange={() => setFormData({ ...formData, startMode: 'participants' })}
+                    className="mt-1 w-4 h-4 text-accent"
+                  />
+                  <div className="flex-1">
+                    <div className="text-foreground font-medium">After enough participants</div>
+                    <div className="text-muted text-sm">Voting starts automatically when the participant goal is reached</div>
+                    {formData.startMode === 'participants' && (
+                      <div className="mt-3">
+                        <label className="block text-muted text-sm mb-1">Number of participants</label>
+                        <input
+                          type="number"
+                          min={2}
+                          max={10000}
+                          value={formData.participantGoal}
+                          onChange={(e) => setFormData({ ...formData, participantGoal: parseInt(e.target.value) || 10 })}
+                          className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Voting Settings */}
+            <div className="border-t border-border pt-6 mt-6">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Voting Settings</h2>
+
+              <div>
+                <label htmlFor="votingMinutes" className="block text-muted text-sm mb-2">
+                  Voting Timeout per Cell (minutes)
+                </label>
+                <input
+                  type="number"
+                  id="votingMinutes"
+                  min={5}
+                  max={1440}
+                  value={formData.votingMinutes}
+                  onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 60 })}
+                  className="w-32 bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                />
+                <p className="text-muted-light text-xs mt-1">Time limit for each cell to complete voting</p>
               </div>
             </div>
 

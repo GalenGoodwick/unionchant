@@ -78,6 +78,8 @@ export async function POST(req: NextRequest) {
       votingTimeoutMs,
       accumulationEnabled,
       accumulationTimeoutMs,
+      ideaGoal,
+      participantGoal,
     } = body
 
     if (!question?.trim()) {
@@ -110,6 +112,9 @@ export async function POST(req: NextRequest) {
         ...(votingTimeoutMs && { votingTimeoutMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
+        // Goal-based auto-start
+        ...(ideaGoal && { ideaGoal }),
+        ...(participantGoal && { participantGoal }),
         members: {
           create: {
             userId: user.id,

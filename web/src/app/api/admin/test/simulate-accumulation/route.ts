@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { startChallengeRound } from '@/lib/challenge'
 import { processCellResults } from '@/lib/voting'
+import { isAdminEmail } from '@/lib/admin'
 
 // POST /api/admin/test/simulate-accumulation - Test accumulation and challenge flow
 export async function POST(req: NextRequest) {
@@ -12,6 +13,11 @@ export async function POST(req: NextRequest) {
 
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Admin-only endpoint
+    if (!isAdminEmail(session.user.email)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     const body = await req.json()

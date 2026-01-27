@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import CountdownTimer from '@/components/CountdownTimer'
 import { getDisplayName } from '@/lib/user'
+import Header from '@/components/Header'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -334,6 +335,7 @@ export default function DeliberationPage() {
   const [submitting, setSubmitting] = useState(false)
   const [joining, setJoining] = useState(false)
   const [startingVote, setStartingVote] = useState(false)
+  const [startingChallenge, setStartingChallenge] = useState(false)
   const [voting, setVoting] = useState<string | null>(null)
   const [isWatching, setIsWatching] = useState(false)
   const [watchLoading, setWatchLoading] = useState(false)
@@ -482,6 +484,22 @@ export default function DeliberationPage() {
     }
   }
 
+  const handleStartChallenge = async () => {
+    setStartingChallenge(true)
+    try {
+      const res = await fetch(`/api/deliberations/${id}/start-challenge`, { method: 'POST' })
+      if (res.ok) {
+        fetchDeliberation()
+        fetchCells()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to start challenge round')
+      }
+    } finally {
+      setStartingChallenge(false)
+    }
+  }
+
   const handleVote = async (cellId: string, ideaId: string) => {
     setVoting(ideaId)
     try {
@@ -524,22 +542,7 @@ export default function DeliberationPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-            <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
-              {session ? 'Account' : 'Sign In'}
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-6xl mx-auto px-6 py-8">
         <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
@@ -734,6 +737,16 @@ export default function DeliberationPage() {
               </button>
             )}
 
+            {deliberation.isMember && deliberation.phase === 'ACCUMULATING' && deliberation.creatorId === deliberation.creator.id && (
+              <button
+                onClick={handleStartChallenge}
+                disabled={startingChallenge || deliberation.ideas.filter(i => i.status === 'PENDING' && i.isNew).length === 0}
+                className="bg-orange hover:bg-orange-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white px-4 py-2 transition-colors"
+              >
+                {startingChallenge ? 'Starting...' : 'Start Challenge Round'}
+              </button>
+            )}
+
             {deliberation.isMember && deliberation.inviteCode && (
               <button
                 onClick={() => {
@@ -855,10 +868,21 @@ export default function DeliberationPage() {
         )}
 
         {/* Voting Cells */}
-        {(deliberation.phase === 'VOTING' || deliberation.phase === 'COMPLETED') && cells.length > 0 && (
+        {(deliberation.phase === 'VOTING' || deliberation.phase === 'COMPLETED') && cells.length > 0 && (() => {
+          // Separate active cells (need vote) from completed/voted cells
+          const activeCells = cells.filter(c => c.status === 'VOTING' && c.votes.length === 0)
+          const otherCells = cells.filter(c => c.status !== 'VOTING' || c.votes.length > 0)
+
+          return (
           <div className="space-y-6 mb-6">
-            <h2 className="text-xl font-semibold text-foreground">Your Voting Cells</h2>
-            {cells.map(cell => {
+            {/* Priority: Show active cell needing vote */}
+            {activeCells.length > 0 && (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className="w-3 h-3 bg-warning rounded-full animate-pulse" />
+                  <h2 className="text-xl font-semibold text-foreground">Vote Now</h2>
+                </div>
+                {activeCells.map(cell => {
               const hasVoted = cell.votes.length > 0
               const votedIdeaId = cell.votes[0]?.ideaId
 
@@ -953,10 +977,67 @@ export default function DeliberationPage() {
                   {/* Discussion section */}
                   <CellDiscussion cellId={cell.id} isParticipant={true} />
                 </div>
-              )
-            })}
+              )})}
+              </>
+            )}
+
+            {/* Secondary: Show completed/voted cells */}
+            {otherCells.length > 0 && (
+              <>
+                <h2 className="text-lg font-semibold text-muted mt-8">
+                  {activeCells.length > 0 ? 'Previous Cells' : 'Your Voting Cells'}
+                </h2>
+                {otherCells.map(cell => {
+                  const hasVoted = cell.votes.length > 0
+                  const votedIdeaId = cell.votes[0]?.ideaId
+
+                  return (
+                    <div key={cell.id} className="rounded-lg border border-border p-6 opacity-80">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-medium text-foreground">Tier {cell.tier} Cell</h3>
+                        <span className={`text-sm px-2 py-1 ${
+                          cell.status === 'COMPLETED' ? 'bg-success-bg text-success border border-success-border' :
+                          hasVoted ? 'bg-accent-light text-accent border border-accent' :
+                          'bg-surface text-muted border border-border'
+                        }`}>
+                          {hasVoted && cell.status === 'VOTING' ? 'Voted - Waiting' : cell.status}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        {cell.ideas.map(({ idea }) => {
+                          const isVoted = votedIdeaId === idea.id
+                          const isWinner = idea.status === 'ADVANCING' || idea.status === 'WINNER'
+                          const isEliminated = idea.status === 'ELIMINATED'
+
+                          return (
+                            <div
+                              key={idea.id}
+                              className={`p-3 flex justify-between items-center ${
+                                isWinner ? 'bg-success-bg border border-success-border' :
+                                isEliminated ? 'bg-error-bg border border-error-border' :
+                                isVoted ? 'bg-accent-light border border-accent' :
+                                'bg-surface border border-border'
+                              }`}
+                            >
+                              <span className={`${isEliminated ? 'text-muted-light' : 'text-foreground'}`}>{idea.text}</span>
+                              <span className="text-sm">
+                                {cell.status === 'COMPLETED' && <span className="text-muted font-mono">{idea.totalVotes} votes</span>}
+                                {isVoted && <span className="text-accent ml-2">Your vote</span>}
+                                {isWinner && <span className="text-success ml-2">Advanced</span>}
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
           </div>
-        )}
+          )
+        })()}
 
         {/* Voting History */}
         <VotingHistorySection deliberationId={id} key={`history-${deliberation.phase}-${deliberation.challengeRound}`} />

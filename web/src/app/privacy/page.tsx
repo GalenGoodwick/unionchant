@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { Metadata } from 'next'
+import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -9,19 +10,7 @@ export const metadata: Metadata = {
 export default function PrivacyPage() {
   return (
     <div className="min-h-screen bg-surface">
-      {/* Header */}
-      <header className="bg-header text-white">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-            Union Chant
-          </Link>
-          <nav className="flex gap-4 text-sm">
-            <Link href="/deliberations" className="hover:text-accent-light transition-colors">
-              Deliberations
-            </Link>
-          </nav>
-        </div>
-      </header>
+      <Header />
 
       <div className="max-w-3xl mx-auto px-6 py-12">
         <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
@@ -185,8 +174,8 @@ export default function PrivacyPage() {
               <h2 className="text-xl font-semibold text-foreground mb-3">Contact Us</h2>
               <p className="text-subtle">
                 Questions about this policy? Contact us at{' '}
-                <a href="mailto:privacy@unionchant.com" className="text-accent hover:text-accent-hover">
-                  privacy@unionchant.com
+                <a href="mailto:galen.goodwick@icloud.com" className="text-accent hover:text-accent-hover">
+                  galen.goodwick@icloud.com
                 </a>
               </p>
             </section>

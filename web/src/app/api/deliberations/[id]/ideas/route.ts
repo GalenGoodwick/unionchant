@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { startVotingPhase } from '@/lib/voting'
 
 // POST /api/deliberations/[id]/ideas - Submit a new idea
 export async function POST(
@@ -71,6 +72,21 @@ export async function POST(
         status: isAccumulated ? 'PENDING' : 'SUBMITTED',
       },
     })
+
+    // Check if idea goal is met and auto-start voting
+    if (deliberation.phase === 'SUBMISSION' && deliberation.ideaGoal) {
+      const ideaCount = await prisma.idea.count({
+        where: { deliberationId: id, status: 'SUBMITTED' }
+      })
+
+      if (ideaCount >= deliberation.ideaGoal) {
+        try {
+          await startVotingPhase(id)
+        } catch (err) {
+          console.error('Failed to auto-start voting on idea goal:', err)
+        }
+      }
+    }
 
     return NextResponse.json(idea, { status: 201 })
   } catch (error) {

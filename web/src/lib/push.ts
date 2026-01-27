@@ -7,7 +7,7 @@ function ensureVapidConfigured() {
   if (vapidConfigured) return
   if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:hello@unionchant.com',
+      process.env.VAPID_SUBJECT || 'mailto:galen.goodwick@icloud.com',
       process.env.VAPID_PUBLIC_KEY,
       process.env.VAPID_PRIVATE_KEY
     )
