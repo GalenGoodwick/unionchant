@@ -119,7 +119,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
   })
 
   const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-  const isFinalShowdown = cellIdeaIds.length <= 4 && cellIdeaIds.length > 0 &&
+  const isFinalShowdown = cellIdeaIds.length <= 5 && cellIdeaIds.length > 0 &&
     allCellsInTier.every(c => {
       const otherIdeaIds = c.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
       return otherIdeaIds.length === cellIdeaIds.length &&
@@ -219,8 +219,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
            cellIdeaIds.every((id: string, i: number) => id === firstCellIdeaIds[i])
   })
 
-  // FINAL SHOWDOWN: Cross-cell tallying when all cells vote on same ≤4 ideas
-  if (allCellsHaveSameIdeas && firstCellIdeaIds.length <= 4 && firstCellIdeaIds.length > 0) {
+  // FINAL SHOWDOWN: Cross-cell tallying when all cells vote on same ≤5 ideas
+  if (allCellsHaveSameIdeas && firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0) {
     // Count ALL votes across ALL cells
     const crossCellTally: Record<string, number> = {}
     for (const cell of cells) {
@@ -388,8 +388,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       data: { status: 'IN_VOTING', tier: nextTier },
     })
 
-    // FINAL SHOWDOWN: If 4 or fewer ideas, ALL participants vote on ALL ideas
-    if (shuffledIdeas.length <= 4) {
+    // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
+    if (shuffledIdeas.length <= 5) {
       // Create multiple cells (one per ~5 participants), all voting on same ideas
       const numCells = Math.ceil(shuffledMembers.length / CELL_SIZE)
 

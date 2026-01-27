@@ -152,7 +152,7 @@ export default function HowItWorksPage() {
                 <h3 className="font-semibold text-foreground">Voting Phase (Tiered)</h3>
                 <p className="text-subtle text-sm mt-1">
                   Ideas and participants are randomly assigned to cells. Each cell deliberates, then votes.
-                  Winners advance to the next tier. Process repeats until ≤4 ideas remain.
+                  Winners advance to the next tier. Process repeats until ≤5 ideas remain.
                 </p>
               </div>
             </div>
@@ -162,7 +162,7 @@ export default function HowItWorksPage() {
               <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
                 <h3 className="font-semibold text-foreground">Final Showdown</h3>
                 <p className="text-subtle text-sm mt-1">
-                  When ≤4 ideas remain, ALL participants vote on ALL remaining ideas simultaneously.
+                  When ≤5 ideas remain, ALL participants vote on ALL remaining ideas simultaneously.
                   Votes are tallied across all cells. The idea with the most total votes wins.
                 </p>
               </div>
