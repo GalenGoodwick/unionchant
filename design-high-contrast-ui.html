@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Union Chant - High Contrast UI Variants</title>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Franklin:wght@400;500;600;700&family=Source+Serif+Pro:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Libre Franklin', -apple-system, sans-serif;
+      background: #1e293b;
+      color: #f8fafc;
+    }
+
+    .page-header {
+      background: #0c4a6e;
+      color: white;
+      padding: 2rem;
+      text-align: center;
+    }
+    .page-header h1 {
+      font-family: 'Source Serif Pro', serif;
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .page-header p {
+      color: #bae6fd;
+      font-size: 0.9rem;
+    }
+
+    .section-label {
+      max-width: 1800px;
+      margin: 2rem auto 1rem;
+      padding: 0 1.5rem;
+      font-family: 'Source Serif Pro', serif;
+      font-size: 1.1rem;
+      color: #94a3b8;
+    }
+
+    .variants-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+      gap: 1.5rem;
+      padding: 0 1.5rem 1.5rem;
+      max-width: 1800px;
+      margin: 0 auto;
+    }
+
+    .variant {
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+
+    .variant-label {
+      padding: 0.75rem 1rem;
+      background: #334155;
+      color: white;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.85rem;
+    }
+    .variant-label h2 {
+      font-family: 'Source Serif Pro', serif;
+      font-size: 0.9rem;
+    }
+    .variant-label .tags {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .variant-label .tag {
+      font-size: 0.65rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      background: rgba(255,255,255,0.15);
+    }
+    .variant-label .tag.cream {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .variant-content {
+      padding: 1.25rem;
+    }
+
+    /* =========== SHARED BASE =========== */
+    .v-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.6rem 1rem;
+      margin: -1.25rem -1.25rem 1rem;
+    }
+    .v-logo {
+      font-family: 'Source Serif Pro', serif;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .v-nav {
+      font-size: 0.75rem;
+      display: flex;
+      gap: 1rem;
+    }
+    .v-question {
+      font-family: 'Source Serif Pro', serif;
+      font-size: 1.15rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+      line-height: 1.3;
+    }
+    .v-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+      font-size: 0.7rem;
+      margin-bottom: 1rem;
+      padding-bottom: 0.6rem;
+    }
+    .v-badge {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.65rem;
+      font-weight: 600;
+    }
+    .v-idea {
+      padding: 0.75rem 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+    .v-idea-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.3rem;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.65rem;
+    }
+    .v-idea-text {
+      font-family: 'Source Serif Pro', serif;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      margin-bottom: 0.4rem;
+    }
+    .v-idea-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.7rem;
+    }
+    .v-btn {
+      padding: 0.3rem 0.75rem;
+      border: none;
+      font-size: 0.7rem;
+      font-weight: 600;
+      font-family: 'Libre Franklin', sans-serif;
+      cursor: pointer;
+    }
+
+    /* =========== 1. COOL WHITE - SHARP =========== */
+    .hc-cool-sharp .variant-content { background: #ffffff; }
+    .hc-cool-sharp .v-header { background: #0c4a6e; }
+    .hc-cool-sharp .v-logo { color: #ffffff; }
+    .hc-cool-sharp .v-nav { color: #bae6fd; }
+    .hc-cool-sharp .v-question { color: #0c4a6e; }
+    .hc-cool-sharp .v-meta { color: #475569; border-bottom: 2px solid #0c4a6e; }
+    .hc-cool-sharp .v-badge { background: #0c4a6e; color: white; border-radius: 0; }
+    .hc-cool-sharp .v-idea { background: #ffffff; border: 2px solid #e2e8f0; border-radius: 0; }
+    .hc-cool-sharp .v-idea.winner { border-color: #0ea5e9; border-left-width: 4px; background: #f0f9ff; }
+    .hc-cool-sharp .v-idea-header { color: #64748b; }
+    .hc-cool-sharp .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cool-sharp .v-idea-text { color: #0f172a; }
+    .hc-cool-sharp .v-idea-footer { color: #64748b; }
+    .hc-cool-sharp .v-btn { background: #0c4a6e; color: white; border-radius: 0; }
+
+    /* =========== 2. COOL WHITE - ROUNDED =========== */
+    .hc-cool-round .variant-content { background: #ffffff; }
+    .hc-cool-round .v-header { background: #0c4a6e; border-radius: 0 0 12px 12px; }
+    .hc-cool-round .v-logo { color: #ffffff; }
+    .hc-cool-round .v-nav { color: #bae6fd; }
+    .hc-cool-round .v-question { color: #0c4a6e; }
+    .hc-cool-round .v-meta { color: #475569; border-bottom: 2px solid #e2e8f0; }
+    .hc-cool-round .v-badge { background: #0c4a6e; color: white; border-radius: 999px; }
+    .hc-cool-round .v-idea { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; }
+    .hc-cool-round .v-idea.winner { border-color: #0ea5e9; background: #f0f9ff; }
+    .hc-cool-round .v-idea-header { color: #64748b; }
+    .hc-cool-round .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cool-round .v-idea-text { color: #0f172a; }
+    .hc-cool-round .v-idea-footer { color: #64748b; }
+    .hc-cool-round .v-btn { background: #0c4a6e; color: white; border-radius: 999px; }
+
+    /* =========== 3. COOL WHITE - OUTLINED =========== */
+    .hc-cool-outline .variant-content { background: #ffffff; }
+    .hc-cool-outline .v-header { background: #ffffff; border-bottom: 3px solid #0c4a6e; }
+    .hc-cool-outline .v-logo { color: #0c4a6e; }
+    .hc-cool-outline .v-nav { color: #0369a1; }
+    .hc-cool-outline .v-question { color: #0c4a6e; }
+    .hc-cool-outline .v-meta { color: #475569; border-bottom: 1px solid #e2e8f0; }
+    .hc-cool-outline .v-badge { background: transparent; color: #0c4a6e; border: 2px solid #0c4a6e; border-radius: 4px; }
+    .hc-cool-outline .v-idea { background: #ffffff; border: 2px solid #cbd5e1; border-radius: 6px; }
+    .hc-cool-outline .v-idea.winner { border-color: #0ea5e9; border-left-width: 4px; }
+    .hc-cool-outline .v-idea-header { color: #64748b; }
+    .hc-cool-outline .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cool-outline .v-idea-text { color: #0f172a; }
+    .hc-cool-outline .v-idea-footer { color: #64748b; }
+    .hc-cool-outline .v-btn { background: transparent; color: #0c4a6e; border: 2px solid #0c4a6e; border-radius: 4px; }
+
+    /* =========== 4. COOL GRAY - CARDS =========== */
+    .hc-cool-cards .variant-content { background: #f1f5f9; }
+    .hc-cool-cards .v-header { background: #0c4a6e; }
+    .hc-cool-cards .v-logo { color: #ffffff; }
+    .hc-cool-cards .v-nav { color: #bae6fd; }
+    .hc-cool-cards .v-question { color: #0c4a6e; }
+    .hc-cool-cards .v-meta { color: #475569; border-bottom: none; }
+    .hc-cool-cards .v-badge { background: #0c4a6e; color: white; border-radius: 4px; }
+    .hc-cool-cards .v-idea { background: #ffffff; border: none; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.08); }
+    .hc-cool-cards .v-idea.winner { box-shadow: 0 2px 8px rgba(14,165,233,0.25), inset 4px 0 0 #0ea5e9; }
+    .hc-cool-cards .v-idea-header { color: #64748b; }
+    .hc-cool-cards .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cool-cards .v-idea-text { color: #0f172a; }
+    .hc-cool-cards .v-idea-footer { color: #64748b; }
+    .hc-cool-cards .v-btn { background: #0c4a6e; color: white; border-radius: 6px; }
+
+    /* =========== 5. CREAM - SHARP =========== */
+    .hc-cream-sharp .variant-content { background: #fffbf5; }
+    .hc-cream-sharp .v-header { background: #0c4a6e; }
+    .hc-cream-sharp .v-logo { color: #ffffff; }
+    .hc-cream-sharp .v-nav { color: #bae6fd; }
+    .hc-cream-sharp .v-question { color: #1c1917; }
+    .hc-cream-sharp .v-meta { color: #57534e; border-bottom: 2px solid #0c4a6e; }
+    .hc-cream-sharp .v-badge { background: #0c4a6e; color: white; border-radius: 0; }
+    .hc-cream-sharp .v-idea { background: #ffffff; border: 2px solid #e7e5e4; border-radius: 0; }
+    .hc-cream-sharp .v-idea.winner { border-color: #0ea5e9; border-left-width: 4px; background: #fefce8; }
+    .hc-cream-sharp .v-idea-header { color: #78716c; }
+    .hc-cream-sharp .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cream-sharp .v-idea-text { color: #1c1917; }
+    .hc-cream-sharp .v-idea-footer { color: #78716c; }
+    .hc-cream-sharp .v-btn { background: #0c4a6e; color: white; border-radius: 0; }
+
+    /* =========== 6. CREAM - ROUNDED =========== */
+    .hc-cream-round .variant-content { background: #fffbf5; }
+    .hc-cream-round .v-header { background: #0c4a6e; border-radius: 0 0 12px 12px; }
+    .hc-cream-round .v-logo { color: #ffffff; }
+    .hc-cream-round .v-nav { color: #bae6fd; }
+    .hc-cream-round .v-question { color: #1c1917; }
+    .hc-cream-round .v-meta { color: #57534e; border-bottom: 2px solid #e7e5e4; }
+    .hc-cream-round .v-badge { background: #0c4a6e; color: white; border-radius: 999px; }
+    .hc-cream-round .v-idea { background: #ffffff; border: 2px solid #e7e5e4; border-radius: 12px; }
+    .hc-cream-round .v-idea.winner { border-color: #0ea5e9; background: #fefce8; }
+    .hc-cream-round .v-idea-header { color: #78716c; }
+    .hc-cream-round .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cream-round .v-idea-text { color: #1c1917; }
+    .hc-cream-round .v-idea-footer { color: #78716c; }
+    .hc-cream-round .v-btn { background: #0c4a6e; color: white; border-radius: 999px; }
+
+    /* =========== 7. CREAM - NEWSPAPER =========== */
+    .hc-cream-news .variant-content { background: #faf8f3; }
+    .hc-cream-news .v-header { background: #faf8f3; border-bottom: 3px double #1c1917; }
+    .hc-cream-news .v-logo { color: #1c1917; font-size: 1.1rem; }
+    .hc-cream-news .v-nav { color: #57534e; }
+    .hc-cream-news .v-question { color: #1c1917; font-weight: 700; }
+    .hc-cream-news .v-meta { color: #57534e; border-bottom: 1px solid #d6d3d1; }
+    .hc-cream-news .v-badge { background: #1c1917; color: #faf8f3; border-radius: 0; }
+    .hc-cream-news .v-idea { background: #faf8f3; border: none; border-bottom: 1px solid #d6d3d1; border-radius: 0; padding-left: 0; padding-right: 0; }
+    .hc-cream-news .v-idea.winner { border-left: 3px solid #0ea5e9; padding-left: 0.75rem; background: #fefce8; }
+    .hc-cream-news .v-idea-header { color: #78716c; }
+    .hc-cream-news .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cream-news .v-idea-text { color: #1c1917; }
+    .hc-cream-news .v-idea-footer { color: #78716c; }
+    .hc-cream-news .v-btn { background: #1c1917; color: #faf8f3; border-radius: 0; }
+
+    /* =========== 8. CREAM - CARDS =========== */
+    .hc-cream-cards .variant-content { background: #f5f3ed; }
+    .hc-cream-cards .v-header { background: #0c4a6e; }
+    .hc-cream-cards .v-logo { color: #ffffff; }
+    .hc-cream-cards .v-nav { color: #bae6fd; }
+    .hc-cream-cards .v-question { color: #1c1917; }
+    .hc-cream-cards .v-meta { color: #57534e; border-bottom: none; }
+    .hc-cream-cards .v-badge { background: #0c4a6e; color: white; border-radius: 4px; }
+    .hc-cream-cards .v-idea { background: #fffbf5; border: none; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); }
+    .hc-cream-cards .v-idea.winner { box-shadow: 0 2px 8px rgba(14,165,233,0.2), inset 4px 0 0 #0ea5e9; background: #fefce8; }
+    .hc-cream-cards .v-idea-header { color: #78716c; }
+    .hc-cream-cards .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cream-cards .v-idea-text { color: #1c1917; }
+    .hc-cream-cards .v-idea-footer { color: #78716c; }
+    .hc-cream-cards .v-btn { background: #0c4a6e; color: white; border-radius: 6px; }
+
+    /* =========== 9. CREAM - SOFT =========== */
+    .hc-cream-soft .variant-content { background: #fefcf6; }
+    .hc-cream-soft .v-header { background: #0369a1; }
+    .hc-cream-soft .v-logo { color: #ffffff; }
+    .hc-cream-soft .v-nav { color: #bae6fd; }
+    .hc-cream-soft .v-question { color: #292524; }
+    .hc-cream-soft .v-meta { color: #57534e; border-bottom: 1px solid #e7e5e4; }
+    .hc-cream-soft .v-badge { background: #0369a1; color: white; border-radius: 6px; }
+    .hc-cream-soft .v-idea { background: #ffffff; border: 1px solid #e7e5e4; border-radius: 10px; }
+    .hc-cream-soft .v-idea.winner { border-color: #0ea5e9; border-width: 2px; background: #fffbeb; }
+    .hc-cream-soft .v-idea-header { color: #a8a29e; }
+    .hc-cream-soft .v-idea-header .votes { color: #0369a1; font-weight: 600; }
+    .hc-cream-soft .v-idea-text { color: #292524; }
+    .hc-cream-soft .v-idea-footer { color: #a8a29e; }
+    .hc-cream-soft .v-btn { background: #0369a1; color: white; border-radius: 8px; }
+
+    /* =========== 10. CREAM - OUTLINE =========== */
+    .hc-cream-outline .variant-content { background: #fffdf7; }
+    .hc-cream-outline .v-header { background: #fffdf7; border-bottom: 3px solid #0c4a6e; }
+    .hc-cream-outline .v-logo { color: #0c4a6e; }
+    .hc-cream-outline .v-nav { color: #0369a1; }
+    .hc-cream-outline .v-question { color: #1c1917; }
+    .hc-cream-outline .v-meta { color: #57534e; border-bottom: 1px solid #e7e5e4; }
+    .hc-cream-outline .v-badge { background: transparent; color: #0c4a6e; border: 2px solid #0c4a6e; border-radius: 4px; }
+    .hc-cream-outline .v-idea { background: #fffdf7; border: 2px solid #d6d3d1; border-radius: 6px; }
+    .hc-cream-outline .v-idea.winner { border-color: #0ea5e9; border-left-width: 4px; }
+    .hc-cream-outline .v-idea-header { color: #78716c; }
+    .hc-cream-outline .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-cream-outline .v-idea-text { color: #1c1917; }
+    .hc-cream-outline .v-idea-footer { color: #78716c; }
+    .hc-cream-outline .v-btn { background: transparent; color: #0c4a6e; border: 2px solid #0c4a6e; border-radius: 4px; }
+
+    /* =========== 11. WARM PAPER =========== */
+    .hc-paper .variant-content { background: #f9f6f0; }
+    .hc-paper .v-header { background: #0c4a6e; }
+    .hc-paper .v-logo { color: #ffffff; }
+    .hc-paper .v-nav { color: #bae6fd; }
+    .hc-paper .v-question { color: #1c1917; }
+    .hc-paper .v-meta { color: #57534e; border-bottom: 2px solid #0c4a6e; }
+    .hc-paper .v-badge { background: #0c4a6e; color: white; border-radius: 2px; }
+    .hc-paper .v-idea { background: #fdfbf7; border: 1px solid #d6d3d1; border-left: 3px solid #d6d3d1; border-radius: 2px; }
+    .hc-paper .v-idea.winner { border-left-color: #0ea5e9; background: #fefce8; }
+    .hc-paper .v-idea-header { color: #78716c; }
+    .hc-paper .v-idea-header .votes { color: #0c4a6e; font-weight: 600; }
+    .hc-paper .v-idea-text { color: #1c1917; }
+    .hc-paper .v-idea-footer { color: #78716c; }
+    .hc-paper .v-btn { background: #0c4a6e; color: white; border-radius: 2px; }
+
+    /* =========== 12. ANTIQUE =========== */
+    .hc-antique .variant-content { background: #f5f0e6; }
+    .hc-antique .v-header { background: #1e3a5a; }
+    .hc-antique .v-logo { color: #f5f0e6; }
+    .hc-antique .v-nav { color: #93c5fd; }
+    .hc-antique .v-question { color: #1e3a5a; }
+    .hc-antique .v-meta { color: #57534e; border-bottom: 2px solid #1e3a5a; }
+    .hc-antique .v-badge { background: #1e3a5a; color: #f5f0e6; border-radius: 0; }
+    .hc-antique .v-idea { background: #fdfaf3; border: 2px solid #d4c9b5; border-radius: 0; }
+    .hc-antique .v-idea.winner { border-color: #0c4a6e; border-left-width: 4px; background: #fef9e7; }
+    .hc-antique .v-idea-header { color: #8b7355; }
+    .hc-antique .v-idea-header .votes { color: #1e3a5a; font-weight: 600; }
+    .hc-antique .v-idea-text { color: #292524; }
+    .hc-antique .v-idea-footer { color: #8b7355; }
+    .hc-antique .v-btn { background: #1e3a5a; color: #f5f0e6; border-radius: 0; }
+
+  </style>
+</head>
+<body>
+
+  <div class="page-header">
+    <h1>High Contrast - UI Variants</h1>
+    <p>Same high contrast approach, different UI treatments. Cool white and cream backgrounds.</p>
+  </div>
+
+  <h3 class="section-label">Cool White Backgrounds</h3>
+  <div class="variants-grid">
+
+    <!-- 1 -->
+    <div class="variant hc-cool-sharp">
+      <div class="variant-label">
+        <h2>1. Sharp Corners</h2>
+        <div class="tags"><span class="tag">COOL</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2 -->
+    <div class="variant hc-cool-round">
+      <div class="variant-label">
+        <h2>2. Rounded</h2>
+        <div class="tags"><span class="tag">COOL</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3 -->
+    <div class="variant hc-cool-outline">
+      <div class="variant-label">
+        <h2>3. Outlined</h2>
+        <div class="tags"><span class="tag">COOL</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4 -->
+    <div class="variant hc-cool-cards">
+      <div class="variant-label">
+        <h2>4. Shadow Cards</h2>
+        <div class="tags"><span class="tag">COOL</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <h3 class="section-label">Cream Backgrounds</h3>
+  <div class="variants-grid">
+
+    <!-- 5 -->
+    <div class="variant hc-cream-sharp">
+      <div class="variant-label">
+        <h2>5. Cream Sharp</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6 -->
+    <div class="variant hc-cream-round">
+      <div class="variant-label">
+        <h2>6. Cream Rounded</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7 -->
+    <div class="variant hc-cream-news">
+      <div class="variant-label">
+        <h2>7. Cream Newspaper</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 8 -->
+    <div class="variant hc-cream-cards">
+      <div class="variant-label">
+        <h2>8. Cream Cards</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 9 -->
+    <div class="variant hc-cream-soft">
+      <div class="variant-label">
+        <h2>9. Cream Soft</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 10 -->
+    <div class="variant hc-cream-outline">
+      <div class="variant-label">
+        <h2>10. Cream Outlined</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 11 -->
+    <div class="variant hc-paper">
+      <div class="variant-label">
+        <h2>11. Warm Paper</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 12 -->
+    <div class="variant hc-antique">
+      <div class="variant-label">
+        <h2>12. Antique</h2>
+        <div class="tags"><span class="tag cream">CREAM</span></div>
+      </div>
+      <div class="variant-content">
+        <div class="v-header">
+          <div class="v-logo">Union Chant</div>
+          <div class="v-nav">Browse · Votes · History</div>
+        </div>
+        <div class="v-question">How should we improve public transit?</div>
+        <div class="v-meta">
+          <span class="v-badge">VOTING</span>
+          <span>Tier 3 · 47 participants · 4 ideas</span>
+        </div>
+        <div class="v-idea winner">
+          <div class="v-idea-header"><span>#8492</span><span class="votes">12 votes</span></div>
+          <div class="v-idea-text">Expand bus rapid transit corridors with dedicated lanes.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+        <div class="v-idea">
+          <div class="v-idea-header"><span>#8471</span><span class="votes">8 votes</span></div>
+          <div class="v-idea-text">Subsidize electric vehicle purchases for low-income families.</div>
+          <div class="v-idea-footer"><span>Anonymous</span><button class="v-btn">Vote</button></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

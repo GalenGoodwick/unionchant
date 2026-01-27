@@ -16,7 +16,7 @@ export default function Header({ showSettings = true }: HeaderProps) {
     <header className="bg-header text-white">
       <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
         <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-          Union Chant
+          Union Chant v2
         </Link>
         <nav className="flex gap-4 text-sm">
           <Link href="/deliberations" className="hover:text-accent-light transition-colors">

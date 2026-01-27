@@ -285,6 +285,70 @@ git push origin main   # Triggers Vercel deployment
 
 ---
 
+## Styling with Tailwind v4
+
+All styling uses **Tailwind CSS v4** with a centralized theme in `web/src/app/globals.css`.
+
+### Theme Location
+
+Colors, fonts, and design tokens are defined using Tailwind v4's `@theme` directive:
+
+```css
+/* web/src/app/globals.css */
+@theme {
+  --color-accent: #0891b2;
+  --color-success: #059669;
+  /* ... */
+}
+```
+
+### Semantic Color Classes
+
+Use semantic class names instead of hex values:
+
+| Purpose | Background | Text | Border |
+|---------|------------|------|--------|
+| Primary action | `bg-accent` | `text-accent` | `border-accent` |
+| Success/Winner | `bg-success` | `text-success` | `border-success` |
+| Warning/Voting | `bg-warning` | `text-warning` | `border-warning` |
+| Error | `bg-error` | `text-error` | `border-error` |
+| Accumulating | `bg-purple` | `text-purple` | `border-purple` |
+| Challenge round | `bg-orange` | `text-orange` | `border-orange` |
+
+### Additional Color Utilities
+
+```
+Background variants:  bg-surface, bg-background, bg-header
+Text variants:        text-foreground, text-muted, text-subtle
+Border variants:      border-border, border-border-strong
+Light backgrounds:    bg-accent-light, bg-success-bg, bg-warning-bg, bg-error-bg, bg-purple-bg, bg-orange-bg
+Hover states:         bg-accent-hover, bg-success-hover, text-error-hover, etc.
+```
+
+### Fonts
+
+Three font families configured (via `next/font` in `layout.tsx`):
+
+| Class | Font | Usage |
+|-------|------|-------|
+| `font-serif` | Source Serif 4 | Logo, headings (h1-h6 get this automatically) |
+| `font-sans` | Libre Franklin | Body text (default) |
+| `font-mono` | IBM Plex Mono | Numbers, code |
+
+**Note:** The "Union Chant" header logo uses `font-serif` class explicitly since it's a `<Link>`, not an `<h1>`.
+
+### Modifying the Theme
+
+To change colors app-wide:
+
+1. Edit `web/src/app/globals.css`
+2. Update values in the `@theme { }` block
+3. All pages using semantic classes update automatically
+
+**Do NOT** use hardcoded hex values like `bg-[#0891b2]` in component files.
+
+---
+
 ## Working With the User
 
 - Direct communication style
