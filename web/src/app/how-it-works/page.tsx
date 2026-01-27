@@ -259,6 +259,42 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
+        {/* Participant Distribution */}
+        <section className="mb-12">
+          <h2 className="text-2xl font-semibold text-foreground mb-4">Who Votes When?</h2>
+          <div className="bg-background rounded-lg border border-border p-6 mb-4">
+            <p className="text-subtle mb-4">
+              Not everyone votes in every tier. Each cell has <strong className="text-foreground">5 participants</strong>,
+              so in later tiers (with fewer cells), only a subset of participants vote.
+              <strong className="text-foreground"> But in the final showdown, everyone votes.</strong>
+            </p>
+            <div className="bg-surface rounded-lg p-4 font-mono text-sm">
+              <div className="text-muted mb-3">Example: 125 participants, 125 ideas</div>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center py-1 border-b border-border">
+                  <span className="text-foreground">Tier 1:</span>
+                  <span className="text-muted">25 cells × 5 people = <span className="text-accent">125 voters</span> (everyone)</span>
+                </div>
+                <div className="flex justify-between items-center py-1 border-b border-border">
+                  <span className="text-foreground">Tier 2:</span>
+                  <span className="text-muted">5 cells × 5 people = <span className="text-warning">25 voters</span> (20%)</span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="text-foreground">Final Showdown:</span>
+                  <span className="text-muted">All participants vote on all 5 remaining ideas = <span className="text-success">125 voters</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="bg-accent-light border border-accent rounded-lg p-4">
+            <p className="text-subtle text-sm">
+              <strong className="text-accent">Why this matters:</strong> Early tiers are about filtering—random small groups
+              eliminate weaker ideas. The final showdown ensures the winner has broad support from the entire group,
+              not just 5 random people.
+            </p>
+          </div>
+        </section>
+
         {/* FAQ */}
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">FAQ</h2>
