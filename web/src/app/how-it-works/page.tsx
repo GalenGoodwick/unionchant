@@ -143,7 +143,7 @@ export default function HowItWorksPage() {
             <div className="flex items-start gap-3 sm:gap-4">
               <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple flex items-center justify-center text-white font-bold shrink-0 text-sm sm:text-base">3</div>
               <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
-                <h3 className="font-semibold text-foreground">Final Showdown</h3>
+                <h3 className="font-semibold text-foreground">Final Round</h3>
                 <p className="text-subtle text-sm mt-1">
                   When ≤5 ideas remain, ALL participants vote on ALL remaining ideas simultaneously.
                   Votes are tallied across all cells. The idea with the most total votes wins.
@@ -190,7 +190,7 @@ export default function HowItWorksPage() {
           <h2 className="text-2xl font-semibold text-foreground mb-4">Cross-Cell Tallying</h2>
           <div className="bg-background rounded-lg border border-border p-6">
             <p className="text-subtle mb-4">
-              In the final showdown, votes are counted <em>across all cells</em>, not within individual cells.
+              In the final round, votes are counted <em>across all cells</em>, not within individual cells.
               This prevents small-group capture and ensures statistical robustness.
             </p>
             <div className="bg-surface rounded p-4 font-mono text-sm">
@@ -236,7 +236,7 @@ export default function HowItWorksPage() {
               <h3 className="font-semibold text-foreground mb-3">Tie Handling</h3>
               <p className="text-subtle text-sm">
                 If ideas tie in a cell, all tied ideas advance.
-                The final showdown cross-cell tally resolves any remaining ties.
+                The final round cross-cell tally resolves any remaining ties.
               </p>
             </div>
           </div>
@@ -249,7 +249,7 @@ export default function HowItWorksPage() {
             <p className="text-subtle mb-4">
               Not everyone votes in every tier. Each cell has <strong className="text-foreground">5 participants</strong>,
               so in later tiers (with fewer cells), only a subset of participants vote.
-              <strong className="text-foreground"> But in the final showdown, everyone votes.</strong>
+              <strong className="text-foreground"> But in the final round, everyone votes.</strong>
             </p>
             <div className="bg-surface rounded-lg p-4 font-mono text-sm">
               <div className="text-muted mb-3">Example: 125 participants, 125 ideas</div>
@@ -263,7 +263,7 @@ export default function HowItWorksPage() {
                   <span className="text-muted">5 cells × 5 people = <span className="text-warning">25 voters</span> (20%)</span>
                 </div>
                 <div className="flex justify-between items-center py-1">
-                  <span className="text-foreground">Final Showdown:</span>
+                  <span className="text-foreground">Final Round:</span>
                   <span className="text-muted">All participants vote on all 5 remaining ideas = <span className="text-success">125 voters</span></span>
                 </div>
               </div>
@@ -272,7 +272,7 @@ export default function HowItWorksPage() {
           <div className="bg-accent-light border border-accent rounded-lg p-4">
             <p className="text-subtle text-sm">
               <strong className="text-accent">Why this matters:</strong> Early tiers are about filtering—random small groups
-              eliminate weaker ideas. The final showdown ensures the winner has broad support from the entire group,
+              eliminate weaker ideas. The final round ensures the winner has broad support from the entire group,
               not just 5 random people.
             </p>
           </div>

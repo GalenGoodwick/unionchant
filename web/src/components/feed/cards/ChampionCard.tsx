@@ -147,7 +147,7 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
               </div>
             )}
             <div className="flex items-start gap-3">
-              <span className="text-2xl">{isChallenge ? '⚔️' : '👑'}</span>
+              <span className="text-2xl">{isChallenge ? '🔄' : '👑'}</span>
               <div>
                 <p className="text-foreground font-medium">{item.champion.text}</p>
                 <p className={`${headerBg} text-sm`}>

@@ -26,9 +26,9 @@ const steps = [
     tip: 'This process ensures the best ideas rise through the ranks.',
   },
   {
-    title: 'Final Showdown',
-    icon: '⚔️',
-    description: 'When only a few ideas remain, ALL participants vote in a final showdown. The idea with the most votes becomes the Champion!',
+    title: 'Final Round',
+    icon: '🎯',
+    description: 'When only a few ideas remain, ALL participants vote together. The idea with the most support becomes the top priority!',
     tip: 'Even if your idea lost earlier, you can still vote for the winner.',
   },
   {
