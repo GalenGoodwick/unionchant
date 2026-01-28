@@ -12,6 +12,7 @@ let anthropic: any = null
 async function getAnthropic() {
   if (!anthropic) {
     try {
+      // @ts-ignore - Dynamic import, SDK may not be installed
       const Anthropic = (await import('@anthropic-ai/sdk')).default
       anthropic = new Anthropic()
     } catch {
