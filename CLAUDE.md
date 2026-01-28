@@ -242,9 +242,26 @@ npm run dev
 ### Database Commands
 
 ```bash
-npx prisma generate    # Generate client
-npx prisma db push     # Push schema changes
+npx prisma generate    # Generate client (run after schema changes)
 npx prisma studio      # Open database browser
+```
+
+### Schema Change Workflow
+
+**To modify the database schema:**
+
+1. Edit `web/prisma/schema.prisma`
+2. Run `npx prisma generate` locally to update the client
+3. Commit and push to main
+4. Vercel automatically runs `prisma db push` during build (syncs schema to production DB)
+
+**NEVER run these commands:**
+- `prisma db pull` - Overwrites your schema with database state (destructive!)
+- `prisma migrate` - Not used in this project (we use `db push`)
+
+**If schema gets out of sync:**
+```bash
+npx prisma db push    # Manually sync schema to database
 ```
 
 ---
