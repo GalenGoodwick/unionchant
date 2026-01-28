@@ -20,6 +20,12 @@ const steps = [
     tip: 'Take your time to read all ideas. You can change your vote until voting ends.',
   },
   {
+    title: 'Discuss & Up-Pollinate',
+    icon: '💬',
+    description: 'Share thoughts with your cell during voting. If your comment gets upvotes, it "up-pollinates" to other cells discussing the same ideas—your insight can reach thousands!',
+    tip: 'Great comments spread organically. Help others see what you see.',
+  },
+  {
     title: 'Winners Advance',
     icon: '🏆',
     description: 'The winning idea from your cell advances to the next tier. This repeats: winners from Tier 1 compete in Tier 2, and so on.',
