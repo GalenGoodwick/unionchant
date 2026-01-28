@@ -64,6 +64,13 @@ export async function POST(req: NextRequest) {
       ideaGoal,
       participantGoal,
       captchaToken,
+      // Deliberation type
+      type,
+      // Spawn deliberation settings
+      spawnsDeliberation,
+      spawnedStartMode,
+      spawnedSubmissionHours,
+      spawnedIdeaGoal,
     } = body
 
     // Verify CAPTCHA (checks if user verified in last 24h, or verifies token)
@@ -74,6 +81,11 @@ export async function POST(req: NextRequest) {
 
     if (!question?.trim()) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
+    }
+
+    // Validate mutual exclusivity
+    if (spawnsDeliberation && accumulationEnabled) {
+      return NextResponse.json({ error: 'Cannot enable both spawns deliberation and rolling mode' }, { status: 400 })
     }
 
     // Clean and validate tags
@@ -106,6 +118,13 @@ export async function POST(req: NextRequest) {
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
         ...(participantGoal && { participantGoal }),
+        // Deliberation type
+        ...(type && { type }),
+        // Spawn deliberation settings
+        ...(spawnsDeliberation !== undefined && { spawnsDeliberation }),
+        ...(spawnedStartMode && { spawnedStartMode }),
+        ...(spawnedSubmissionHours && { spawnedSubmissionHours }),
+        ...(spawnedIdeaGoal && { spawnedIdeaGoal }),
         members: {
           create: {
             userId: user.id,

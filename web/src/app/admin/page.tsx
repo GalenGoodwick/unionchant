@@ -36,6 +36,20 @@ export default function AdminPage() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'public' | 'private'>('all')
   const [search, setSearch] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [testQuestion, setTestQuestion] = useState('')
+  const [enableRolling, setEnableRolling] = useState(false)
+  const [targetPhase, setTargetPhase] = useState<'SUBMISSION' | 'VOTING' | 'ACCUMULATING'>('SUBMISSION')
+  const [testUsers, setTestUsers] = useState(20)
+  const [createStatus, setCreateStatus] = useState('')
+  // Voting trigger options
+  const [votingTrigger, setVotingTrigger] = useState<'manual' | 'timer' | 'ideas' | 'participants'>('manual')
+  const [timerMinutes, setTimerMinutes] = useState(60)
+  const [ideaGoal, setIdeaGoal] = useState(20)
+  const [participantGoal, setParticipantGoal] = useState(10)
+  const [votingMinutes, setVotingMinutes] = useState(5)
+  // Deliberation type
+  const [delibType, setDelibType] = useState<'STANDARD' | 'META'>('STANDARD')
 
   const fetchDeliberations = async () => {
     try {
@@ -148,21 +162,298 @@ export default function AdminPage() {
             <Link href="/" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
               &larr; Back to home
             </Link>
-            <h1 className="text-2xl font-bold text-foreground">
-              {isAdmin ? 'Admin Panel' : 'Your Deliberations'}
-            </h1>
-            {isAdmin && (
-              <p className="text-muted text-sm mt-1">Full admin access enabled</p>
-            )}
+            <h1 className="text-2xl font-bold text-foreground">Admin Panel</h1>
+            <p className="text-muted text-sm mt-1">Manage deliberations, run tests, and monitor activity</p>
           </div>
-          {isAdmin && (
-            <Link
-              href="/admin/test"
-              className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg transition-colors"
-            >
-              Test Page
-            </Link>
+        </div>
+
+        {/* Test Tools */}
+        <div className="bg-background rounded-lg border border-border p-4 mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-3">Create Test Deliberation</h2>
+
+          {/* Row 1: Basic settings */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div>
+              <label className="block text-xs text-muted mb-1">Question (optional)</label>
+              <input
+                type="text"
+                value={testQuestion}
+                onChange={(e) => setTestQuestion(e.target.value)}
+                placeholder="Auto-generated if blank"
+                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                disabled={creating}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Start in Phase</label>
+              <select
+                value={targetPhase}
+                onChange={(e) => setTargetPhase(e.target.value as 'SUBMISSION' | 'VOTING' | 'ACCUMULATING')}
+                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                disabled={creating}
+              >
+                <option value="SUBMISSION">SUBMISSION (empty)</option>
+                <option value="VOTING">VOTING (with test users & ideas)</option>
+                <option value="ACCUMULATING">ACCUMULATING (with champion)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Test Users (for VOTING/ACCUM)</label>
+              <input
+                type="number"
+                value={testUsers}
+                onChange={(e) => setTestUsers(parseInt(e.target.value) || 20)}
+                min={5}
+                max={100}
+                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                disabled={creating || targetPhase === 'SUBMISSION'}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-muted mb-1">Type</label>
+              <select
+                value={delibType}
+                onChange={(e) => setDelibType(e.target.value as 'STANDARD' | 'META')}
+                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                disabled={creating}
+              >
+                <option value="STANDARD">Standard</option>
+                <option value="META">Meta (daily question picker)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Row 2: Voting trigger settings */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+            <div>
+              <label className="block text-xs text-muted mb-1">Voting Starts</label>
+              <select
+                value={votingTrigger}
+                onChange={(e) => setVotingTrigger(e.target.value as 'manual' | 'timer' | 'ideas' | 'participants')}
+                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                disabled={creating || targetPhase !== 'SUBMISSION'}
+              >
+                <option value="manual">Manual (facilitator)</option>
+                <option value="timer">Timer</option>
+                <option value="ideas">Idea goal</option>
+                <option value="participants">Participant goal</option>
+              </select>
+            </div>
+            {votingTrigger === 'timer' && (
+              <div>
+                <label className="block text-xs text-muted mb-1">Submission Time (min)</label>
+                <input
+                  type="number"
+                  value={timerMinutes}
+                  onChange={(e) => setTimerMinutes(parseInt(e.target.value) || 60)}
+                  min={1}
+                  className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  disabled={creating || targetPhase !== 'SUBMISSION'}
+                />
+              </div>
+            )}
+            {votingTrigger === 'ideas' && (
+              <div>
+                <label className="block text-xs text-muted mb-1">Idea Goal</label>
+                <input
+                  type="number"
+                  value={ideaGoal}
+                  onChange={(e) => setIdeaGoal(parseInt(e.target.value) || 20)}
+                  min={2}
+                  className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  disabled={creating || targetPhase !== 'SUBMISSION'}
+                />
+              </div>
+            )}
+            {votingTrigger === 'participants' && (
+              <div>
+                <label className="block text-xs text-muted mb-1">Participant Goal</label>
+                <input
+                  type="number"
+                  value={participantGoal}
+                  onChange={(e) => setParticipantGoal(parseInt(e.target.value) || 10)}
+                  min={2}
+                  className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                  disabled={creating || targetPhase !== 'SUBMISSION'}
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs text-muted mb-1">Voting Time/Tier (min)</label>
+              <input
+                type="number"
+                value={votingMinutes}
+                onChange={(e) => setVotingMinutes(parseInt(e.target.value) || 5)}
+                min={1}
+                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                disabled={creating}
+              />
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 text-sm text-muted pb-2">
+                <input
+                  type="checkbox"
+                  checked={enableRolling}
+                  onChange={(e) => setEnableRolling(e.target.checked)}
+                  className="rounded"
+                  disabled={creating}
+                />
+                Rolling mode
+              </label>
+            </div>
+          </div>
+
+          {createStatus && (
+            <div className="mb-4 p-2 bg-surface rounded text-sm text-muted font-mono">
+              {createStatus}
+            </div>
           )}
+
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={async () => {
+                setCreating(true)
+                setCreateStatus('Creating deliberation...')
+                try {
+                  const question = testQuestion.trim() || `[TEST] ${targetPhase} Test ${Date.now()}`
+
+                  // Build creation payload with trigger settings
+                  // API expects milliseconds, so convert from minutes
+                  const createPayload: Record<string, unknown> = {
+                    question,
+                    description: `Auto-created test deliberation (target: ${targetPhase})`,
+                    isPublic: true,
+                    tags: ['test'],
+                    accumulationEnabled: enableRolling || targetPhase === 'ACCUMULATING',
+                    votingTimeoutMs: votingMinutes * 60 * 1000, // Convert minutes to ms
+                    type: delibType,
+                  }
+
+                  // Add voting trigger based on selection
+                  if (votingTrigger === 'timer') {
+                    createPayload.submissionDurationMs = timerMinutes * 60 * 1000 // Convert minutes to ms
+                  } else if (votingTrigger === 'ideas') {
+                    createPayload.ideaGoal = ideaGoal
+                  } else if (votingTrigger === 'participants') {
+                    createPayload.participantGoal = participantGoal
+                  }
+                  // 'manual' = no trigger fields set (relies on facilitator starting voting)
+
+                  // Step 1: Create deliberation
+                  const createRes = await fetch('/api/deliberations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(createPayload),
+                  })
+
+                  if (!createRes.ok) {
+                    const err = await createRes.json()
+                    throw new Error(err.error || 'Failed to create')
+                  }
+
+                  const deliberation = await createRes.json()
+
+                  if (targetPhase === 'SUBMISSION') {
+                    // Done - just redirect
+                    router.push(`/admin/deliberation/${deliberation.id}`)
+                    return
+                  }
+
+                  // Step 2: Populate with test users and ideas
+                  setCreateStatus(`Creating ${testUsers} test users and ideas...`)
+                  const populateRes = await fetch('/api/admin/test/populate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      deliberationId: deliberation.id,
+                      userCount: testUsers,
+                    }),
+                  })
+
+                  if (!populateRes.ok) {
+                    throw new Error('Failed to populate test users')
+                  }
+
+                  // Step 3: Start voting
+                  setCreateStatus('Starting voting phase...')
+                  const startRes = await fetch(`/api/deliberations/${deliberation.id}/start-voting`, {
+                    method: 'POST',
+                  })
+
+                  if (!startRes.ok) {
+                    throw new Error('Failed to start voting')
+                  }
+
+                  if (targetPhase === 'VOTING') {
+                    // Done - redirect to voting state
+                    setCreateStatus('Done! Redirecting...')
+                    router.push(`/admin/deliberation/${deliberation.id}`)
+                    return
+                  }
+
+                  // Step 4: Simulate voting to get champion (for ACCUMULATING)
+                  setCreateStatus('Simulating voting through tiers...')
+                  const simRes = await fetch('/api/admin/test/simulate-voting', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      deliberationId: deliberation.id,
+                      leaveFinalVote: false,
+                    }),
+                  })
+
+                  if (!simRes.ok) {
+                    throw new Error('Failed to simulate voting')
+                  }
+
+                  setCreateStatus('Done! Redirecting...')
+                  router.push(`/admin/deliberation/${deliberation.id}`)
+
+                } catch (err) {
+                  setCreateStatus(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+                } finally {
+                  setCreating(false)
+                }
+              }}
+              disabled={creating}
+              className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-6 py-2 rounded transition-colors text-sm font-medium"
+            >
+              {creating ? 'Creating...' : 'Create & Open'}
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('Delete all deliberations with [TEST] in the name?')) return
+                try {
+                  const res = await fetch('/api/admin/test/cleanup', { method: 'POST' })
+                  if (res.ok) {
+                    const data = await res.json()
+                    alert(`Cleaned up ${data.deleted} test deliberations`)
+                    fetchDeliberations()
+                  }
+                } catch {
+                  alert('Cleanup failed')
+                }
+              }}
+              className="bg-error hover:bg-error-hover text-white px-4 py-2 rounded transition-colors text-sm"
+            >
+              Cleanup [TEST]
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/cron/tick')
+                  const data = await res.json()
+                  alert(`Timer check: ${data.processed} transitions processed`)
+                  fetchDeliberations()
+                } catch {
+                  alert('Timer check failed')
+                }
+              }}
+              className="bg-surface hover:bg-header hover:text-white text-muted border border-border px-4 py-2 rounded transition-colors text-sm"
+            >
+              Check Timers
+            </button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -257,7 +548,7 @@ export default function AdminPage() {
                 {filteredDeliberations.map((d) => (
                   <tr key={d.id} className="border-t border-border hover:bg-surface">
                     <td className="p-4">
-                      <Link href={`/deliberations/${d.id}`} className="text-foreground hover:text-accent font-medium">
+                      <Link href={`/admin/deliberation/${d.id}`} className="text-foreground hover:text-accent font-medium">
                         {d.question.length > 50 ? d.question.slice(0, 50) + '...' : d.question}
                       </Link>
                       <div className="flex gap-1 mt-1">
@@ -287,10 +578,16 @@ export default function AdminPage() {
                       {new Date(d.createdAt).toLocaleDateString()}
                     </td>
                     <td className="p-4">
-                      <div className="flex gap-2">
+                      <div className="flex gap-3">
+                        <Link
+                          href={`/admin/deliberation/${d.id}`}
+                          className="text-accent hover:text-accent-hover text-sm font-medium"
+                        >
+                          Manage
+                        </Link>
                         <Link
                           href={`/deliberations/${d.id}`}
-                          className="text-accent hover:text-accent-hover text-sm"
+                          className="text-muted hover:text-foreground text-sm"
                         >
                           View
                         </Link>
@@ -299,7 +596,7 @@ export default function AdminPage() {
                           disabled={deleting === d.id}
                           className="text-error hover:text-error-hover text-sm disabled:opacity-50"
                         >
-                          {deleting === d.id ? 'Deleting...' : 'Delete'}
+                          {deleting === d.id ? '...' : 'Delete'}
                         </button>
                       </div>
                     </td>
