@@ -19,6 +19,7 @@ export type FeedItem = {
     id: string
     question: string
     description: string | null
+    organization: string | null
     phase: string
     currentTier: number
     challengeRound: number
@@ -142,6 +143,7 @@ export async function GET(req: NextRequest) {
             id: cell.deliberation.id,
             question: cell.deliberation.question,
             description: cell.deliberation.description,
+            organization: cell.deliberation.organization,
             phase: cell.deliberation.phase,
             currentTier: cell.deliberation.currentTier,
             challengeRound: cell.deliberation.challengeRound,
@@ -258,6 +260,7 @@ export async function GET(req: NextRequest) {
             id: delib.id,
             question: delib.question,
             description: delib.description,
+            organization: delib.organization,
             phase: delib.phase,
             currentTier: delib.currentTier,
             challengeRound: delib.challengeRound,
@@ -293,6 +296,7 @@ export async function GET(req: NextRequest) {
             id: delib.id,
             question: delib.question,
             description: delib.description,
+            organization: delib.organization,
             phase: delib.phase,
             currentTier: delib.currentTier,
             challengeRound: delib.challengeRound,
@@ -325,6 +329,7 @@ export async function GET(req: NextRequest) {
         id: true,
         question: true,
         description: true,
+        organization: true,
         phase: true,
         currentTier: true,
         challengeRound: true,
@@ -359,6 +364,7 @@ export async function GET(req: NextRequest) {
           id: delib.id,
           question: delib.question,
           description: delib.description,
+          organization: delib.organization,
           phase: delib.phase,
           currentTier: delib.currentTier,
           challengeRound: delib.challengeRound,
@@ -431,6 +437,7 @@ export async function GET(req: NextRequest) {
           id: delib.id,
           question: delib.question,
           description: delib.description,
+          organization: delib.organization,
           phase: delib.phase,
           currentTier: delib.currentTier,
           challengeRound: delib.challengeRound,
@@ -493,6 +500,7 @@ export async function GET(req: NextRequest) {
           id: delib.id,
           question: delib.question,
           description: delib.description,
+          organization: delib.organization,
           phase: delib.phase,
           currentTier: delib.currentTier,
           challengeRound: delib.challengeRound,
@@ -510,10 +518,22 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // Sort by priority (highest first), then by recency
+    // Calculate "hot" score for each item
+    // Score = (views + members*2 + ideas*3) / age^0.5
+    // Higher activity = higher score, older = lower score
+    const getHotScore = (item: FeedItem): number => {
+      const views = item.deliberation.views || 0
+      const members = item.deliberation._count.members || 0
+      const ideas = item.deliberation._count.ideas || 0
+      const ageHours = (Date.now() - new Date(item.deliberation.createdAt).getTime()) / (1000 * 60 * 60)
+      const ageFactor = Math.max(1, Math.sqrt(ageHours))
+      return (views + members * 2 + ideas * 3) / ageFactor
+    }
+
+    // Sort by priority first, then by hot score within same priority
     items.sort((a, b) => {
       if (b.priority !== a.priority) return b.priority - a.priority
-      return new Date(b.deliberation.createdAt).getTime() - new Date(a.deliberation.createdAt).getTime()
+      return getHotScore(b) - getHotScore(a)
     })
 
     return NextResponse.json({

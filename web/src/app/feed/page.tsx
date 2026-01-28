@@ -12,7 +12,9 @@ import ChampionCard from '@/components/feed/cards/ChampionCard'
 import BottomSheet from '@/components/sheets/BottomSheet'
 import DeliberationSheet from '@/components/sheets/DeliberationSheet'
 import Onboarding from '@/components/Onboarding'
+import { NotificationBanner } from '@/components/NotificationSettings'
 import { useOnboarding } from '@/hooks/useOnboarding'
+import UserGuide from '@/components/UserGuide'
 import type { FeedItem } from '@/types/feed'
 
 export default function FeedPage() {
@@ -22,6 +24,22 @@ export default function FeedPage() {
   const [items, setItems] = useState<FeedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showGuide, setShowGuide] = useState(false)
+
+  // Show guide for first-time visitors
+  useEffect(() => {
+    const hasSeenGuide = localStorage.getItem('hasSeenGuide')
+    if (!hasSeenGuide && status === 'authenticated') {
+      // Slight delay to let page load first
+      const timer = setTimeout(() => setShowGuide(true), 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [status])
+
+  const closeGuide = () => {
+    setShowGuide(false)
+    localStorage.setItem('hasSeenGuide', 'true')
+  }
 
   // Track cards for cells user has voted in (to preserve while awaiting results)
   // Store full card data so it survives page refresh
@@ -151,19 +169,34 @@ export default function FeedPage() {
       {/* Onboarding modal for new users */}
       {needsOnboarding && <Onboarding onComplete={completeOnboarding} />}
 
+      {/* User guide modal */}
+      {showGuide && <UserGuide onClose={closeGuide} />}
+
       <div className="max-w-lg mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-xl font-bold text-foreground">
             {status === 'authenticated' ? 'Your Feed' : 'Active Deliberations'}
           </h1>
-          <Link
-            href="/deliberations"
-            className="text-sm text-muted hover:text-foreground transition-colors"
-          >
-            See All →
-          </Link>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowGuide(true)}
+              className="text-sm text-muted hover:text-foreground transition-colors"
+              title="How it works"
+            >
+              ?
+            </button>
+            <Link
+              href="/deliberations"
+              className="text-sm text-muted hover:text-foreground transition-colors"
+            >
+              See All →
+            </Link>
+          </div>
         </div>
+
+        {/* Push notification prompt */}
+        <NotificationBanner />
 
         {/* Error state */}
         {error && (

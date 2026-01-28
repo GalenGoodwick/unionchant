@@ -14,8 +14,10 @@ type Deliberation = {
   id: string
   question: string
   description: string | null
+  organization: string | null
   phase: string
   tags: string[]
+  views: number
   createdAt: string
   creator: {
     name: string | null
@@ -40,6 +42,7 @@ function DeliberationsList() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [phaseFilter, setPhaseFilter] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<'hot' | 'new' | 'active'>('hot')
 
   const activeTag = searchParams.get('tag')
 
@@ -81,11 +84,39 @@ function DeliberationsList() {
     ACCUMULATING: 'bg-purple text-white',
   }
 
-  const filteredDeliberations = deliberations.filter(d => {
-    if (phaseFilter !== 'all' && d.phase !== phaseFilter) return false
-    if (search && !d.question.toLowerCase().includes(search.toLowerCase())) return false
-    return true
-  })
+  // Calculate hot score for a deliberation
+  const getHotScore = (d: Deliberation): number => {
+    const views = d.views || 0
+    const members = d._count.members || 0
+    const ideas = d._count.ideas || 0
+    const ageHours = (Date.now() - new Date(d.createdAt).getTime()) / (1000 * 60 * 60)
+    const ageFactor = Math.max(1, Math.sqrt(ageHours))
+    return (views + members * 2 + ideas * 3) / ageFactor
+  }
+
+  const filteredDeliberations = deliberations
+    .filter(d => {
+      if (phaseFilter !== 'all' && d.phase !== phaseFilter) return false
+      if (search && !d.question.toLowerCase().includes(search.toLowerCase())) return false
+      return true
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'hot':
+          return getHotScore(b) - getHotScore(a)
+        case 'new':
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        case 'active':
+          // Sort by phase priority then activity
+          const phasePriority = { VOTING: 3, SUBMISSION: 2, ACCUMULATING: 1, COMPLETED: 0 }
+          const aPriority = phasePriority[a.phase as keyof typeof phasePriority] ?? 0
+          const bPriority = phasePriority[b.phase as keyof typeof phasePriority] ?? 0
+          if (bPriority !== aPriority) return bPriority - aPriority
+          return (b._count.members + b._count.ideas) - (a._count.members + a._count.ideas)
+        default:
+          return 0
+      }
+    })
 
   // Stats
   const stats = {
@@ -118,26 +149,44 @@ function DeliberationsList() {
       </div>
 
       {/* Filters */}
-      <div className="bg-background rounded-lg border border-border p-3 sm:p-4 mb-6 flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
-        <input
-          type="text"
-          placeholder="Search deliberations..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-0 focus:outline-none focus:border-accent"
-        />
-        <div className="flex gap-1 sm:gap-2 flex-wrap">
-          {['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'].map(phase => (
+      <div className="bg-background rounded-lg border border-border p-3 sm:p-4 mb-6 space-y-3">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
+          <input
+            type="text"
+            placeholder="Search deliberations..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-0 focus:outline-none focus:border-accent"
+          />
+          <div className="flex gap-1 sm:gap-2 flex-wrap">
+            {['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'].map(phase => (
+              <button
+                key={phase}
+                onClick={() => setPhaseFilter(phase)}
+                className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm transition-colors ${
+                  phaseFilter === phase
+                    ? 'bg-header text-white'
+                    : 'bg-surface text-muted border border-border hover:border-border-strong'
+                }`}
+              >
+                {phase === 'all' ? 'All' : phase.charAt(0) + phase.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-muted text-sm">Sort:</span>
+          {(['hot', 'new', 'active'] as const).map(sort => (
             <button
-              key={phase}
-              onClick={() => setPhaseFilter(phase)}
-              className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm transition-colors ${
-                phaseFilter === phase
-                  ? 'bg-header text-white'
-                  : 'bg-surface text-muted border border-border hover:border-border-strong'
+              key={sort}
+              onClick={() => setSortBy(sort)}
+              className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                sortBy === sort
+                  ? 'bg-accent text-white'
+                  : 'bg-surface text-muted border border-border hover:border-accent'
               }`}
             >
-              {phase === 'all' ? 'All' : phase.charAt(0) + phase.slice(1).toLowerCase()}
+              {sort === 'hot' ? '🔥 Hot' : sort === 'new' ? '✨ New' : '⚡ Active'}
             </button>
           ))}
         </div>

@@ -58,6 +58,7 @@ type Deliberation = {
   id: string
   question: string
   description: string | null
+  organization: string | null
   phase: string
   currentTier: number
   isPublic: boolean
@@ -927,6 +928,12 @@ export default function DeliberationPage() {
             <p className="text-muted text-sm mb-2">{deliberation.description}</p>
           )}
 
+          {deliberation.organization && (
+            <p className="text-muted text-sm mb-2">
+              <span className="text-foreground font-medium">{deliberation.organization}</span>
+            </p>
+          )}
+
           <StatsRow items={[
             { label: 'Tier', value: deliberation.currentTier, color: 'text-accent' },
             { label: 'Ideas', value: deliberation.ideas.length },
@@ -1030,6 +1037,36 @@ export default function DeliberationPage() {
               Share
             </button>
           )}
+
+          {/* Export dropdown */}
+          <div className="relative group">
+            <button className="border border-border hover:border-muted text-foreground px-4 py-2 rounded text-sm">
+              Export
+            </button>
+            <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              <a
+                href={`/api/deliberations/${deliberation.id}/export?format=pdf`}
+                download
+                className="block px-4 py-2 text-sm text-foreground hover:bg-surface whitespace-nowrap"
+              >
+                Download PDF
+              </a>
+              <a
+                href={`/api/deliberations/${deliberation.id}/export?format=csv`}
+                download
+                className="block px-4 py-2 text-sm text-foreground hover:bg-surface whitespace-nowrap"
+              >
+                Download CSV
+              </a>
+              <a
+                href={`/api/deliberations/${deliberation.id}/export?format=json`}
+                download
+                className="block px-4 py-2 text-sm text-foreground hover:bg-surface whitespace-nowrap"
+              >
+                Download JSON
+              </a>
+            </div>
+          </div>
         </div>
 
         {/* Submit Idea Form */}

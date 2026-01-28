@@ -131,10 +131,14 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         <div className="p-4">
           <Link
             href={`/deliberations/${item.deliberation.id}`}
-            className="block text-lg font-semibold text-foreground mb-4 hover:text-accent transition-colors"
+            className="block text-lg font-semibold text-foreground hover:text-accent transition-colors"
           >
             "{item.deliberation.question}"
           </Link>
+          {item.deliberation.organization && (
+            <p className="text-muted text-sm mb-4">{item.deliberation.organization}</p>
+          )}
+          {!item.deliberation.organization && <div className="mb-4" />}
 
           {/* Champion display (when deliberation is ACCUMULATING or COMPLETED) */}
           {showChampion && (
@@ -241,10 +245,14 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
       <div className="p-4">
         <Link
           href={`/deliberations/${item.deliberation.id}`}
-          className="block text-lg font-semibold text-foreground mb-4 hover:text-accent transition-colors"
+          className="block text-lg font-semibold text-foreground hover:text-accent transition-colors"
         >
           "{item.deliberation.question}"
         </Link>
+        {item.deliberation.organization && (
+          <p className="text-muted text-sm mb-4">{item.deliberation.organization}</p>
+        )}
+        {!item.deliberation.organization && <div className="mb-4" />}
 
         {/* Ideas */}
         <div className="space-y-2">

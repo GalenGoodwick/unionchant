@@ -20,7 +20,7 @@ export function NotificationSettings() {
 
   if (!isSupported) {
     return (
-      <div className="text-sm text-slate-500">
+      <div className="text-sm text-muted">
         Push notifications are not supported in this browser
       </div>
     )
@@ -28,7 +28,7 @@ export function NotificationSettings() {
 
   if (permission === 'denied') {
     return (
-      <div className="text-sm text-red-400">
+      <div className="text-sm text-error">
         Notifications blocked. Please enable in browser settings.
       </div>
     )
@@ -40,8 +40,8 @@ export function NotificationSettings() {
       disabled={isLoading}
       className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors ${
         isSubscribed
-          ? 'bg-slate-700 hover:bg-slate-600 text-slate-300'
-          : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+          ? 'bg-surface hover:bg-background text-muted border border-border'
+          : 'bg-accent hover:bg-accent-hover text-white'
       } disabled:opacity-50 disabled:cursor-not-allowed`}
     >
       {isLoading ? (
@@ -67,8 +67,8 @@ export function NotificationBanner() {
 
   if (permission === 'denied') {
     return (
-      <div className="bg-red-900/50 border border-red-700 rounded-lg p-4 mb-6">
-        <p className="text-sm text-red-300">
+      <div className="bg-error-bg border border-error rounded-lg p-4 mb-4">
+        <p className="text-sm text-error">
           Notifications blocked. Enable in browser settings to receive voting alerts.
         </p>
       </div>
@@ -76,37 +76,22 @@ export function NotificationBanner() {
   }
 
   if (isSubscribed) {
-    return (
-      <div className="bg-green-900/50 border border-green-700 rounded-lg p-4 mb-6">
-        <div className="flex items-center justify-between gap-4">
-          <p className="text-sm text-green-300">
-            Notifications enabled - you&apos;ll be alerted when it&apos;s time to vote
-          </p>
-          <button
-            onClick={unsubscribe}
-            disabled={isLoading}
-            className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors disabled:opacity-50"
-          >
-            Disable
-          </button>
-        </div>
-      </div>
-    )
+    return null // Don't show banner when already subscribed
   }
 
   return (
-    <div className="bg-indigo-900/50 border border-indigo-700 rounded-lg p-4 mb-6">
+    <div className="bg-accent-light border border-accent rounded-lg p-4 mb-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="font-medium text-white">Stay Updated</h3>
-          <p className="text-sm text-slate-300">
+          <h3 className="font-medium text-foreground">Stay Updated</h3>
+          <p className="text-sm text-muted">
             Get notified when it&apos;s your turn to vote
           </p>
         </div>
         <button
           onClick={subscribe}
           disabled={isLoading}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+          className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 shrink-0"
         >
           {isLoading ? 'Enabling...' : 'Enable'}
         </button>

@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     const {
       question,
       description,
+      organization,
       isPublic = true,
       tags = [],
       submissionDurationMs,
@@ -92,6 +93,7 @@ export async function POST(req: NextRequest) {
       data: {
         question: question.trim(),
         description: description?.trim() || null,
+        organization: organization?.trim() || null,
         isPublic,
         inviteCode,
         tags: cleanTags,

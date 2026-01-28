@@ -25,6 +25,7 @@ export default function NewDeliberationPage() {
   const [formData, setFormData] = useState({
     question: '',
     description: '',
+    organization: '',
     isPublic: true,
     tagsInput: '',
     // Timer settings
@@ -67,6 +68,7 @@ export default function NewDeliberationPage() {
         body: JSON.stringify({
           question: formData.question,
           description: formData.description,
+          organization: formData.organization || null,
           isPublic: formData.isPublic,
           tags,
           // Timer settings (only for timer mode)
@@ -135,6 +137,21 @@ export default function NewDeliberationPage() {
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               />
+            </div>
+
+            <div>
+              <label htmlFor="organization" className="block text-foreground font-medium mb-2">
+                Organization (optional)
+              </label>
+              <input
+                type="text"
+                id="organization"
+                placeholder="e.g., Minneapolis Teachers Union"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.organization}
+                onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
+              />
+              <p className="text-muted-light text-sm mt-1">Help members find deliberations from their organization</p>
             </div>
 
             <div>

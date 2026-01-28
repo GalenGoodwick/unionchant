@@ -13,6 +13,7 @@ export type FeedItem = {
     id: string
     question: string
     description: string | null
+    organization: string | null
     phase: string
     currentTier: number
     challengeRound: number

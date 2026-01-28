@@ -111,9 +111,10 @@ model Deliberation {
   creator     User     @relation("Creator", fields: [creatorId], references: [id])
 
   // Content
-  question    String
-  description String?
-  tags        String[]  @default([])
+  question     String
+  description  String?
+  organization String?   // Organization name (e.g., "Minneapolis Teachers Union")
+  tags         String[]  @default([])
 
   // Invite
   inviteCode  String?  @unique
@@ -167,6 +168,7 @@ model Deliberation {
   @@index([creatorId])
   @@index([isPublic, phase])
   @@index([type])
+  @@index([organization])
 }
 
 enum Phase {
