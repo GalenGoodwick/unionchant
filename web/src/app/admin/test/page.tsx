@@ -418,8 +418,8 @@ export default function AdminTestPage() {
         {/* Test Accumulation / Challenge Flow */}
         <AccumulationTestSection addLog={addLog} refreshKey={refreshKey} />
 
-        {/* Delete Stuck Deliberations */}
-        <DeleteDeliberationsSection addLog={addLog} />
+        {/* AI Agent Testing */}
+        <AIAgentTestSection addLog={addLog} />
       </div>
     </div>
   )
@@ -670,16 +670,39 @@ function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info'
   )
 }
 
-function DeleteDeliberationsSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
+function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
   const [deliberations, setDeliberations] = useState<Array<{ id: string; question: string; phase: string }>>([])
+  const [selectedDelibId, setSelectedDelibId] = useState('')
   const [loading, setLoading] = useState(true)
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<{
+    phase: string
+    currentTier: number
+    totalTiers: number
+    agentsCreated: number
+    ideasSubmitted: number
+    votescast: number
+    commentsPosted: number
+    upvotesGiven: number
+    dropouts: number
+    errors: string[]
+  } | null>(null)
+  const [config, setConfig] = useState({
+    totalAgents: 100,
+    votingTimePerTierMs: 30000,
+    dropoutRate: 0.1,
+    commentRate: 0.2,
+    upvoteRate: 0.3,
+    newJoinRate: 0.05,
+    forceStartVoting: true, // Force start even if trigger not met
+  })
 
   const fetchDeliberations = async () => {
     try {
       const res = await fetch('/api/admin/deliberations')
       if (res.ok) {
         const data = await res.json()
-        setDeliberations(data)
+        setDeliberations(Array.isArray(data) ? data : [])
       }
     } catch (err) {
       console.error('Failed to fetch deliberations:', err)
@@ -692,57 +715,407 @@ function DeleteDeliberationsSection({ addLog }: { addLog: (type: 'info' | 'succe
     fetchDeliberations()
   }, [])
 
-  const handleDelete = async (id: string, question: string) => {
-    if (!confirm(`Delete "${question}"? This cannot be undone.`)) return
+  // Poll for progress while running
+  useEffect(() => {
+    if (!running) return
+
+    const pollProgress = async () => {
+      try {
+        const res = await fetch('/api/admin/test/ai-agents')
+        if (res.ok) {
+          const data = await res.json()
+          setProgress(data)
+
+          if (data.phase === 'completed') {
+            setRunning(false)
+            addLog('success', `AI Agent test completed! ${data.agentsCreated} agents, ${data.votescast} votes, ${data.commentsPosted} comments`)
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch progress:', err)
+      }
+    }
+
+    pollProgress()
+    const interval = setInterval(pollProgress, 2000)
+    return () => clearInterval(interval)
+  }, [running, addLog])
+
+  const startTest = async () => {
+    if (!selectedDelibId) {
+      addLog('error', 'Please select a deliberation')
+      return
+    }
+
+    setRunning(true)
+    setProgress(null)
+    addLog('info', 'Starting AI agent test...')
 
     try {
-      const res = await fetch(`/api/admin/deliberations/${id}`, { method: 'DELETE' })
-      if (res.ok) {
-        addLog('success', `Deleted "${question}"`)
-        fetchDeliberations()
-      } else {
+      const res = await fetch('/api/admin/test/ai-agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deliberationId: selectedDelibId,
+          ...config,
+        }),
+      })
+
+      if (!res.ok) {
         const data = await res.json()
-        addLog('error', `Failed to delete: ${data.error}`)
+        throw new Error(data.error || 'Failed to start test')
       }
+
+      addLog('success', 'AI agent test started in background')
     } catch (err) {
-      addLog('error', 'Failed to delete deliberation')
+      addLog('error', err instanceof Error ? err.message : 'Failed to start test')
+      setRunning(false)
     }
   }
 
-  const phaseStyles: Record<string, string> = {
-    SUBMISSION: 'bg-[#0891b2]',
-    VOTING: 'bg-[#d97706]',
-    COMPLETED: 'bg-[#059669]',
-    ACCUMULATING: 'bg-purple',
+  const cleanupAgents = async () => {
+    addLog('info', 'Cleaning up test agents...')
+    try {
+      const res = await fetch('/api/admin/test/ai-agents', { method: 'DELETE' })
+      if (res.ok) {
+        const data = await res.json()
+        addLog('success', `Cleaned up ${data.deleted} test agents`)
+      } else {
+        addLog('error', 'Failed to cleanup test agents')
+      }
+    } catch (err) {
+      addLog('error', 'Failed to cleanup test agents')
+    }
   }
 
   return (
     <div className="mt-6 bg-background rounded-lg p-6 border border-border">
-      <h2 className="text-lg font-semibold text-foreground mb-4">Your Deliberations</h2>
-      {loading ? (
-        <p className="text-muted">Loading...</p>
-      ) : deliberations.length === 0 ? (
-        <p className="text-muted">No deliberations found.</p>
-      ) : (
-        <div className="space-y-2">
-          {deliberations.map(d => (
-            <div key={d.id} className="flex justify-between items-center bg-surface rounded-lg p-3 border border-border">
-              <div>
-                <span className="text-foreground">{d.question}</span>
-                <span className={`ml-2 text-xs px-2 py-0.5 rounded text-white ${phaseStyles[d.phase] || 'bg-[#64748b]'}`}>
-                  {d.phase}
-                </span>
+      <h2 className="text-lg font-semibold text-foreground mb-4">AI Agent Load Testing (Haiku)</h2>
+      <p className="text-muted text-sm mb-4">
+        Simulate realistic user behavior with AI agents powered by Claude Haiku. Agents submit ideas, vote intelligently, comment, and upvote.
+      </p>
+
+      {/* Deliberations List */}
+      <div className="mb-6 bg-surface rounded-lg p-4 border border-border">
+        <h3 className="text-sm font-semibold text-foreground mb-3">All Deliberations</h3>
+        {loading ? (
+          <p className="text-muted text-sm">Loading...</p>
+        ) : deliberations.length === 0 ? (
+          <p className="text-muted text-sm">No deliberations found</p>
+        ) : (
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {deliberations.map(d => (
+              <div key={d.id} className="flex items-center justify-between bg-background rounded p-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-foreground truncate">{d.question}</p>
+                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                    d.phase === 'VOTING' ? 'bg-warning/20 text-warning' :
+                    d.phase === 'SUBMISSION' ? 'bg-blue-500/20 text-blue-400' :
+                    d.phase === 'ACCUMULATING' ? 'bg-purple/20 text-purple' :
+                    d.phase === 'COMPLETED' ? 'bg-success/20 text-success' :
+                    'bg-muted/20 text-muted'
+                  }`}>
+                    {d.phase}
+                  </span>
+                </div>
+                <Link
+                  href={`/admin/deliberation/${d.id}`}
+                  className="ml-2 bg-accent hover:bg-accent-hover text-white text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap"
+                >
+                  Admin View
+                </Link>
               </div>
-              <button
-                onClick={() => handleDelete(d.id, d.question)}
-                className="px-3 py-1 bg-error hover:bg-error-hover text-white text-sm rounded-lg"
-              >
-                Delete
-              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Configuration */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+        <div>
+          <label className="block text-sm text-muted mb-1">Deliberation</label>
+          <select
+            value={selectedDelibId}
+            onChange={(e) => setSelectedDelibId(e.target.value)}
+            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            disabled={running}
+          >
+            <option value="">Select...</option>
+            {deliberations.map(d => (
+              <option key={d.id} value={d.id}>
+                {d.question.slice(0, 40)}... ({d.phase})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedDelibId && (
+          <Link
+            href={`/admin/deliberation/${selectedDelibId}`}
+            className="w-full bg-purple hover:bg-purple/80 text-white font-medium px-4 py-3 rounded-lg transition-colors text-center block"
+          >
+            Open Admin View for This Deliberation
+          </Link>
+        )}
+
+        <div>
+          <label className="block text-sm text-muted mb-1">Total Agents</label>
+          <input
+            type="number"
+            value={config.totalAgents}
+            onChange={(e) => setConfig(c => ({ ...c, totalAgents: parseInt(e.target.value) || 10 }))}
+            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            min={5}
+            max={1000}
+            disabled={running}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-muted mb-1">Voting Time per Tier (ms)</label>
+          <input
+            type="number"
+            value={config.votingTimePerTierMs}
+            onChange={(e) => setConfig(c => ({ ...c, votingTimePerTierMs: parseInt(e.target.value) || 30000 }))}
+            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            min={5000}
+            max={300000}
+            step={5000}
+            disabled={running}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-muted mb-1">Dropout Rate</label>
+          <input
+            type="number"
+            value={config.dropoutRate}
+            onChange={(e) => setConfig(c => ({ ...c, dropoutRate: parseFloat(e.target.value) || 0 }))}
+            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            min={0}
+            max={0.5}
+            step={0.05}
+            disabled={running}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-muted mb-1">Comment Rate</label>
+          <input
+            type="number"
+            value={config.commentRate}
+            onChange={(e) => setConfig(c => ({ ...c, commentRate: parseFloat(e.target.value) || 0 }))}
+            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            min={0}
+            max={1}
+            step={0.1}
+            disabled={running}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-muted mb-1">Upvote Rate</label>
+          <input
+            type="number"
+            value={config.upvoteRate}
+            onChange={(e) => setConfig(c => ({ ...c, upvoteRate: parseFloat(e.target.value) || 0 }))}
+            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            min={0}
+            max={1}
+            step={0.1}
+            disabled={running}
+          />
+        </div>
+      </div>
+
+      {/* Force Start Option */}
+      <label className="flex items-center gap-2 text-subtle mb-4">
+        <input
+          type="checkbox"
+          checked={config.forceStartVoting}
+          onChange={(e) => setConfig(c => ({ ...c, forceStartVoting: e.target.checked }))}
+          disabled={running}
+          className="rounded"
+        />
+        Force start voting (ignore timer/ideas/manual triggers)
+      </label>
+
+      {/* Live Console Display */}
+      {(running || progress) && (
+        <div className="bg-surface rounded-lg border border-border mb-4 overflow-hidden">
+          {/* Phase Header */}
+          <div className={`px-4 py-3 flex justify-between items-center ${
+            progress?.phase === 'completed' ? 'bg-success-bg' :
+            progress?.phase === 'voting' ? 'bg-warning-bg' :
+            progress?.phase === 'submission' ? 'bg-accent-light' :
+            'bg-purple-bg'
+          }`}>
+            <div className="flex items-center gap-3">
+              {running && progress?.phase !== 'completed' && (
+                <div className="w-4 h-4 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
+              )}
+              {progress?.phase === 'completed' && (
+                <span className="text-success text-lg">✓</span>
+              )}
+              <span className="font-semibold text-foreground">
+                {progress?.phase === 'setup' ? 'Setting Up...' :
+                 progress?.phase === 'submission' ? 'Submission Phase' :
+                 progress?.phase === 'voting' ? `Voting - Tier ${progress.currentTier}` :
+                 progress?.phase === 'completed' ? 'Test Complete!' :
+                 'Initializing...'}
+              </span>
             </div>
-          ))}
+            {progress?.totalTiers && progress.totalTiers > 0 && (
+              <span className="text-sm text-muted font-mono">
+                {progress.totalTiers} tiers total
+              </span>
+            )}
+          </div>
+
+          {/* Stats Grid */}
+          <div className="p-4 grid grid-cols-3 md:grid-cols-6 gap-4">
+            <div className="bg-background rounded-lg p-3 text-center">
+              <div className={`text-2xl font-mono font-bold ${progress?.agentsCreated ? 'text-accent' : 'text-muted'}`}>
+                {progress?.agentsCreated || 0}
+              </div>
+              <div className="text-xs text-muted">Agents</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 text-center">
+              <div className={`text-2xl font-mono font-bold ${progress?.ideasSubmitted ? 'text-purple' : 'text-muted'}`}>
+                {progress?.ideasSubmitted || 0}
+              </div>
+              <div className="text-xs text-muted">Ideas</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 text-center">
+              <div className={`text-2xl font-mono font-bold ${progress?.votescast ? 'text-warning' : 'text-muted'}`}>
+                {progress?.votescast || 0}
+              </div>
+              <div className="text-xs text-muted">Votes</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 text-center">
+              <div className={`text-2xl font-mono font-bold ${progress?.commentsPosted ? 'text-success' : 'text-muted'}`}>
+                {progress?.commentsPosted || 0}
+              </div>
+              <div className="text-xs text-muted">Comments</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 text-center">
+              <div className={`text-2xl font-mono font-bold ${progress?.upvotesGiven ? 'text-orange' : 'text-muted'}`}>
+                {progress?.upvotesGiven || 0}
+              </div>
+              <div className="text-xs text-muted">Upvotes</div>
+            </div>
+            <div className="bg-background rounded-lg p-3 text-center">
+              <div className={`text-2xl font-mono font-bold ${progress?.dropouts ? 'text-error' : 'text-muted'}`}>
+                {progress?.dropouts || 0}
+              </div>
+              <div className="text-xs text-muted">Dropouts</div>
+            </div>
+          </div>
+
+          {/* Progress Bars */}
+          {progress?.phase === 'voting' && progress.currentTier > 0 && (
+            <div className="px-4 pb-4">
+              <div className="bg-background rounded-lg p-3">
+                <div className="flex justify-between text-xs text-muted mb-2">
+                  <span>Tier Progress</span>
+                  <span>{progress.currentTier} / {progress.totalTiers || '?'}</span>
+                </div>
+                <div className="h-2 bg-border rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-warning transition-all duration-500"
+                    style={{ width: `${progress.totalTiers ? (progress.currentTier / progress.totalTiers) * 100 : 10}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tier Visualization */}
+          {progress?.phase === 'voting' && progress.currentTier > 0 && (
+            <div className="px-4 pb-4">
+              <div className="flex items-center gap-2 overflow-x-auto py-2">
+                {Array.from({ length: progress.totalTiers || progress.currentTier + 2 }, (_, i) => i + 1).map(tier => (
+                  <div
+                    key={tier}
+                    className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
+                      tier < progress.currentTier ? 'bg-success text-white' :
+                      tier === progress.currentTier ? 'bg-warning text-white ring-2 ring-warning ring-offset-2 ring-offset-surface' :
+                      'bg-border text-muted'
+                    }`}
+                  >
+                    {tier < progress.currentTier ? '✓' : tier}
+                  </div>
+                ))}
+                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success-bg border-2 border-success flex items-center justify-center">
+                  🏆
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Errors */}
+          {progress?.errors && progress.errors.length > 0 && (
+            <div className="px-4 pb-4">
+              <div className="bg-error-bg border border-error rounded-lg p-3">
+                <div className="text-error text-xs font-semibold mb-1">Errors ({progress.errors.length})</div>
+                <div className="text-error text-xs max-h-24 overflow-y-auto space-y-1">
+                  {progress.errors.slice(-5).map((e, i) => (
+                    <div key={i} className="truncate">{e}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Completion Summary */}
+          {progress?.phase === 'completed' && (
+            <div className="px-4 pb-4">
+              <div className="bg-success-bg border border-success rounded-lg p-4 text-center">
+                <div className="text-success text-4xl mb-2">🎉</div>
+                <div className="text-success font-semibold">Load Test Complete!</div>
+                <div className="text-muted text-sm mt-2">
+                  {progress.agentsCreated} agents processed {progress.votescast} votes across {progress.totalTiers} tiers
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Actions */}
+      <div className="flex gap-4 flex-wrap">
+        <button
+          onClick={startTest}
+          disabled={running || !selectedDelibId}
+          className={`px-6 py-2 rounded-lg font-semibold ${
+            running || !selectedDelibId
+              ? 'bg-muted-light text-muted cursor-not-allowed'
+              : 'bg-accent hover:bg-accent-hover text-white'
+          }`}
+        >
+          {running ? 'Running...' : 'Start AI Agent Test'}
+        </button>
+
+        <button
+          onClick={cleanupAgents}
+          disabled={running}
+          className="px-4 py-2 bg-error hover:bg-error-hover text-white rounded-lg disabled:opacity-50"
+        >
+          Cleanup Test Agents
+        </button>
+
+        <button
+          onClick={fetchDeliberations}
+          className="px-4 py-2 bg-surface hover:bg-border text-muted border border-border rounded-lg"
+        >
+          Refresh List
+        </button>
+      </div>
+
+      <p className="text-muted text-xs mt-4">
+        Note: Test agents are created with @test.bot email addresses and can be cleaned up using the button above.
+        Agents are named &quot;TestBot 1&quot;, &quot;TestBot 2&quot;, etc. for transparency.
+      </p>
     </div>
   )
 }

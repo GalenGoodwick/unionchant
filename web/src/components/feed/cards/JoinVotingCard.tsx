@@ -58,16 +58,13 @@ export default function JoinVotingCard({ item, onAction, onExplore }: Props) {
         >
           "{item.deliberation.question}"
         </Link>
-        {item.deliberation.organization && (
-          <p className="text-muted text-sm mb-3">{item.deliberation.organization}</p>
-        )}
-        {!item.deliberation.organization && <div className="mb-3" />}
-
         {item.deliberation.description && (
-          <p className="text-muted text-sm mb-4 line-clamp-2">
-            {item.deliberation.description}
-          </p>
+          <p className="text-muted text-sm mt-1 line-clamp-2">{item.deliberation.description}</p>
         )}
+        {item.deliberation.organization && (
+          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        )}
+        <div className="mb-4" />
 
         {/* Ideas preview */}
         {tierInfo?.ideas && tierInfo.ideas.length > 0 && (

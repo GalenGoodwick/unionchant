@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { processExpiredCells } from '@/lib/timer-processor'
+import { processExpiredTiers } from '@/lib/timer-processor'
 
 export type FeedItemType =
   | 'vote_now'
@@ -39,6 +39,10 @@ export type FeedItem = {
     votedCount: number
     userHasVoted?: boolean
     userVotedIdeaId?: string | null
+    // Urgency indicators
+    urgency?: 'critical' | 'warning' | 'normal'
+    timeRemainingMs?: number
+    votesNeeded?: number
   }
   tierInfo?: {
     tier: number
@@ -71,9 +75,9 @@ export async function GET(req: NextRequest) {
   try {
     console.log('[Feed API] Starting feed request...')
 
-    // Process any expired cells in background (don't block feed loading)
-    processExpiredCells().catch(err => {
-      console.error('Error processing expired cells:', err)
+    // Process any expired tiers in background (don't block feed loading)
+    processExpiredTiers().catch(err => {
+      console.error('Error processing expired tiers:', err)
     })
 
     const session = await getServerSession(authOptions)
@@ -151,22 +155,40 @@ export async function GET(req: NextRequest) {
             views: cell.deliberation.views || 0,
             _count: cell.deliberation._count,
           },
-          cell: {
-            id: cell.id,
-            tier: cell.tier,
-            status: cell.status,
-            votingDeadline: cell.votingDeadline?.toISOString() || null,
-            spotsRemaining: 0, // Already in cell
-            ideas: cell.ideas.map(ci => ({
-              id: ci.idea.id,
-              text: ci.idea.text,
-              author: ci.idea.author.name || 'Anonymous',
-            })),
-            participantCount: cell.participants.length,
-            votedCount,
-            userHasVoted,
-            userVotedIdeaId,
-          },
+          cell: (() => {
+            const deadline = cell.deliberation.currentTierStartedAt
+              ? new Date(cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs)
+              : null
+            const timeRemainingMs = deadline ? deadline.getTime() - Date.now() : null
+            const votesNeeded = cell.participants.length - votedCount
+
+            // Calculate urgency: critical (<10min), warning (<30min), normal
+            let urgency: 'critical' | 'warning' | 'normal' = 'normal'
+            if (timeRemainingMs !== null) {
+              if (timeRemainingMs < 10 * 60 * 1000) urgency = 'critical'
+              else if (timeRemainingMs < 30 * 60 * 1000) urgency = 'warning'
+            }
+
+            return {
+              id: cell.id,
+              tier: cell.tier,
+              status: cell.status,
+              votingDeadline: deadline?.toISOString() || null,
+              spotsRemaining: 0, // Already in cell
+              ideas: cell.ideas.map(ci => ({
+                id: ci.idea.id,
+                text: ci.idea.text,
+                author: ci.idea.author.name || 'Anonymous',
+              })),
+              participantCount: cell.participants.length,
+              votedCount,
+              userHasVoted,
+              userVotedIdeaId,
+              urgency,
+              timeRemainingMs: timeRemainingMs ?? undefined,
+              votesNeeded,
+            }
+          })(),
         })
       }
     }
@@ -530,9 +552,24 @@ export async function GET(req: NextRequest) {
       return (views + members * 2 + ideas * 3) / ageFactor
     }
 
-    // Sort by priority first, then by hot score within same priority
+    // Urgency score: critical=2, warning=1, normal=0
+    const getUrgencyScore = (item: FeedItem) => {
+      if (item.cell?.urgency === 'critical') return 2
+      if (item.cell?.urgency === 'warning') return 1
+      return 0
+    }
+
+    // Sort by: urgency first (critical cells bubble up), then priority, then hot score
     items.sort((a, b) => {
+      // Urgent cells that user hasn't voted in come first
+      const aUrgent = a.cell && !a.cell.userHasVoted ? getUrgencyScore(a) : 0
+      const bUrgent = b.cell && !b.cell.userHasVoted ? getUrgencyScore(b) : 0
+      if (bUrgent !== aUrgent) return bUrgent - aUrgent
+
+      // Then by priority
       if (b.priority !== a.priority) return b.priority - a.priority
+
+      // Then by hot score
       return getHotScore(b) - getHotScore(a)
     })
 

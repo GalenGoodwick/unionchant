@@ -182,8 +182,6 @@ export async function startChallengeRound(deliberationId: string) {
         deliberationId,
         tier: 1,
         status: 'VOTING',
-        votingStartedAt: new Date(),
-        votingDeadline: new Date(Date.now() + deliberation.votingTimeoutMs),
         ideas: {
           create: cellIdeaIds.map(ideaId => ({ ideaId })),
         },
@@ -194,13 +192,14 @@ export async function startChallengeRound(deliberationId: string) {
     })
   }
 
-  // Update deliberation state
+  // Update deliberation state and start tier timer
   const newChallengeRound = deliberation.challengeRound + 1
   await prisma.deliberation.update({
     where: { id: deliberationId },
     data: {
       phase: 'VOTING',
       currentTier: 1,
+      currentTierStartedAt: new Date(),
       challengeRound: newChallengeRound,
       accumulationEndsAt: null,
     },

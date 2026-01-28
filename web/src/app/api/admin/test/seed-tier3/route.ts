@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
         description: 'Testing comment up-pollination at Tier 3. Comments need ~75 upvotes (60% of 125) to up-pollinate.',
         phase: 'VOTING',
         currentTier: 3,
+        currentTierStartedAt: new Date(),
         isPublic: true,
         creatorId: user.id,
         members: {
@@ -100,8 +101,6 @@ export async function POST(req: NextRequest) {
         deliberationId: deliberation.id,
         tier: 3,
         status: 'VOTING',
-        votingStartedAt: new Date(),
-        votingDeadline: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours
       },
     })
 

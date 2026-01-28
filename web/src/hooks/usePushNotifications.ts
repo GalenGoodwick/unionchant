@@ -30,9 +30,9 @@ export function usePushNotifications() {
     checkSupport()
   }, [])
 
-  const subscribe = useCallback(async () => {
+  const subscribe = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
     if (!session?.user) {
-      throw new Error('Must be logged in to subscribe')
+      return { success: false, error: 'Must be logged in to subscribe' }
     }
 
     setIsLoading(true)
@@ -43,7 +43,7 @@ export function usePushNotifications() {
       setPermission(permission)
 
       if (permission !== 'granted') {
-        throw new Error('Notification permission denied')
+        return { success: false, error: 'Notification permission denied' }
       }
 
       // Get VAPID public key from server
@@ -74,10 +74,14 @@ export function usePushNotifications() {
         } catch {
           errorMsg = text.slice(0, 200) || errorMsg
         }
-        throw new Error(errorMsg)
+        return { success: false, error: errorMsg }
       }
 
       setIsSubscribed(true)
+      return { success: true }
+    } catch (err) {
+      console.error('Push subscription error:', err)
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
     } finally {
       setIsLoading(false)
     }

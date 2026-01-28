@@ -137,7 +137,7 @@ export async function GET(
       votingHistory: deliberation.cells.map(cell => ({
         tier: cell.tier,
         status: cell.status,
-        startedAt: cell.votingStartedAt,
+        startedAt: cell.createdAt,
         completedAt: cell.completedAt,
         participants: cell.participants.map(p => p.user.name || 'Anonymous'),
         ideas: cell.ideas.map(ci => ci.idea.text),

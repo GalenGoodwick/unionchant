@@ -121,14 +121,18 @@ export async function POST(req: NextRequest) {
       prisma.idea.create({ data: { deliberationId: votingDelib.id, authorId: testUsers[3].id, text: 'Jalapeños - for the spice lovers', status: 'IN_VOTING', tier: 1 } }),
     ])
 
+    // Set tier timer on deliberation
+    await prisma.deliberation.update({
+      where: { id: votingDelib.id },
+      data: { currentTierStartedAt: new Date() },
+    })
+
     // Create voting cells
     const cell1 = await prisma.cell.create({
       data: {
         deliberationId: votingDelib.id,
         tier: 1,
         status: 'VOTING',
-        votingStartedAt: new Date(),
-        votingDeadline: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
       },
     })
 
@@ -137,8 +141,6 @@ export async function POST(req: NextRequest) {
         deliberationId: votingDelib.id,
         tier: 1,
         status: 'VOTING',
-        votingStartedAt: new Date(),
-        votingDeadline: new Date(Date.now() + 60 * 60 * 1000),
       },
     })
 

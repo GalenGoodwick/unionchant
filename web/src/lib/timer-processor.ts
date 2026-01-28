@@ -44,27 +44,42 @@ export async function processExpiredSubmissions(): Promise<string[]> {
 }
 
 /**
- * Process cells where voting deadline has passed
- * Completes cells with whatever votes have been cast
+ * Process deliberations where voting tier has expired
+ * Completes all cells in the tier with whatever votes have been cast
  */
-export async function processExpiredCells(): Promise<string[]> {
+export async function processExpiredTiers(): Promise<string[]> {
   const now = new Date()
 
-  const expiredCells = await prisma.cell.findMany({
+  // Find deliberations in VOTING phase where tier has expired
+  const expiredDeliberations = await prisma.deliberation.findMany({
     where: {
-      status: 'VOTING',
-      votingDeadline: { lte: now },
+      phase: 'VOTING',
+      currentTierStartedAt: { not: null },
+    },
+    include: {
+      cells: {
+        where: { status: 'VOTING' },
+      },
     },
   })
 
   const processed: string[] = []
 
-  for (const cell of expiredCells) {
-    try {
-      await processCellResults(cell.id, true) // true = timeout
-      processed.push(cell.id)
-    } catch (err) {
-      console.error(`Failed to process expired cell ${cell.id}:`, err)
+  for (const deliberation of expiredDeliberations) {
+    // Calculate if tier has expired: startedAt + timeoutMs < now
+    const tierStarted = deliberation.currentTierStartedAt!
+    const tierDeadline = new Date(tierStarted.getTime() + deliberation.votingTimeoutMs)
+
+    if (tierDeadline <= now) {
+      // Process all voting cells in this tier
+      for (const cell of deliberation.cells) {
+        try {
+          await processCellResults(cell.id, true) // true = timeout
+          processed.push(cell.id)
+        } catch (err) {
+          console.error(`Failed to process expired cell ${cell.id}:`, err)
+        }
+      }
     }
   }
 
@@ -108,10 +123,17 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
 
   const deliberation = await prisma.deliberation.findUnique({
     where: { id: deliberationId },
-    include: {
+    select: {
+      id: true,
+      phase: true,
+      submissionEndsAt: true,
+      accumulationEndsAt: true,
+      currentTierStartedAt: true,
+      votingTimeoutMs: true,
       _count: { select: { ideas: true } },
       cells: {
-        where: { status: 'VOTING' }
+        where: { status: 'VOTING' },
+        select: { id: true }
       }
     }
   })
@@ -135,14 +157,23 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     }
   }
 
-  // Check voting deadlines
-  for (const cell of deliberation.cells) {
-    if (cell.votingDeadline && cell.votingDeadline <= now) {
-      try {
-        await processCellResults(cell.id, true)
-        transitioned = true
-      } catch (err) {
-        console.error(`Lazy voting deadline transition failed for ${cell.id}:`, err)
+  // Check tier deadline
+  if (
+    deliberation.phase === 'VOTING' &&
+    deliberation.currentTierStartedAt
+  ) {
+    const tierDeadline = new Date(
+      deliberation.currentTierStartedAt.getTime() + deliberation.votingTimeoutMs
+    )
+    if (tierDeadline <= now) {
+      // Process all voting cells in this tier
+      for (const cell of deliberation.cells) {
+        try {
+          await processCellResults(cell.id, true)
+          transitioned = true
+        } catch (err) {
+          console.error(`Lazy tier deadline transition failed for ${cell.id}:`, err)
+        }
       }
     }
   }
@@ -169,16 +200,16 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
  * Run all timer processors
  */
 export async function processAllTimers() {
-  const [submissions, cells, accumulations] = await Promise.all([
+  const [submissions, tiers, accumulations] = await Promise.all([
     processExpiredSubmissions(),
-    processExpiredCells(),
+    processExpiredTiers(),
     processExpiredAccumulations(),
   ])
 
   return {
     submissions,
-    cells,
+    tiers,
     accumulations,
-    total: submissions.length + cells.length + accumulations.length,
+    total: submissions.length + tiers.length + accumulations.length,
   }
 }

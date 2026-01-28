@@ -17,6 +17,8 @@ export async function GET(
             id: true,
             phase: true,
             accumulationEnabled: true,
+            currentTierStartedAt: true,
+            votingTimeoutMs: true,
           },
         },
         ideas: {
@@ -99,15 +101,19 @@ export async function GET(
       }
     }
 
+    // Calculate voting deadline from deliberation tier timer
+    const votingDeadline = cell.deliberation.currentTierStartedAt
+      ? new Date(cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs)
+      : null
+
     return NextResponse.json({
       id: cell.id,
       status: cell.status,
       tier: cell.tier,
-      votingDeadline: cell.votingDeadline,
+      votingDeadline: votingDeadline?.toISOString() || null,
       votedCount: cell._count.votes,
       participantCount: cell._count.participants,
       secondVotesEnabled: cell.secondVotesEnabled,
-      secondVoteDeadline: cell.secondVoteDeadline,
       winner,
       champion,
       deliberation: {

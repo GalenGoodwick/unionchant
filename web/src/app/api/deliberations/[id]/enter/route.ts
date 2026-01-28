@@ -84,11 +84,16 @@ export async function POST(
     }
 
     // Check if user can join a 2nd cell (their first cell completed with window open)
+    // Window is open if secondVotesEnabled and tier hasn't expired yet
+    const tierDeadline = deliberation.currentTierStartedAt
+      ? new Date(deliberation.currentTierStartedAt.getTime() + deliberation.votingTimeoutMs)
+      : null
+    const tierStillActive = !tierDeadline || tierDeadline > new Date()
+
     const completedParticipation = existingParticipations.find(p =>
       p.cell.status === 'COMPLETED' &&
       p.cell.secondVotesEnabled &&
-      p.cell.secondVoteDeadline &&
-      p.cell.secondVoteDeadline > new Date()
+      tierStillActive
     )
 
     // If user has completed cells but no 2nd vote window open, they can't join another

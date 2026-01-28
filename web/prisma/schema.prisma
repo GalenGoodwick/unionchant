@@ -143,9 +143,16 @@ model Deliberation {
   recurringSchedule String?          // e.g., "daily", "weekly"
   nextOccurrence    DateTime?
 
+  // Spawn deliberation from winner
+  spawnsDeliberation       Boolean  @default(false)  // Winner becomes new deliberation question
+  spawnedStartMode         String?  // "timer", "ideas", "manual" - how spawned deliberation starts
+  spawnedSubmissionHours   Int?     // Submission period for spawned deliberation
+  spawnedIdeaGoal          Int?     // Idea goal for spawned deliberation (if ideas mode)
+
   // State
   phase               Phase    @default(SUBMISSION)
   currentTier         Int      @default(1)
+  currentTierStartedAt DateTime?  // When current voting tier started
   championId          String?  // ID of winning idea
   championEnteredTier Int?     // Tier champion enters in challenge
   challengeRound      Int      @default(0)  // Current challenge round number

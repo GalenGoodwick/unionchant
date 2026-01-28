@@ -159,16 +159,16 @@ export const notifications = {
     ],
   }),
 
-  spotExpiring: (minutesLeft: number, deliberationId: string) => ({
+  spotExpiring: (minutesLeft: number, deliberationQuestion: string, deliberationId: string) => ({
     title: `${minutesLeft} Minutes Left!`,
-    body: 'Your voting spot will expire soon. Vote now to participate!',
+    body: `Vote now in "${deliberationQuestion.slice(0, 40)}${deliberationQuestion.length > 40 ? '...' : ''}"`,
     url: `/deliberations/${deliberationId}`,
     tag: `expiring-${deliberationId}`,
   }),
 
-  newTier: (tierNumber: number, deliberationId: string) => ({
+  newTier: (tierNumber: number, deliberationQuestion: string, deliberationId: string) => ({
     title: `Tier ${tierNumber} Started`,
-    body: 'A new round of voting has begun. Check if you have a cell to vote in!',
+    body: `New voting round for "${deliberationQuestion.slice(0, 40)}${deliberationQuestion.length > 40 ? '...' : ''}"`,
     url: `/deliberations/${deliberationId}`,
     tag: `tier-${deliberationId}`,
   }),
@@ -194,9 +194,9 @@ export const notifications = {
     tag: `challenge-${deliberationId}-${round}`,
   }),
 
-  votingExpiring: (minutesLeft: number, deliberationId: string, cellId: string) => ({
+  votingExpiring: (minutesLeft: number, deliberationQuestion: string, deliberationId: string, cellId: string) => ({
     title: `${minutesLeft} Minutes to Vote!`,
-    body: 'Your cell voting deadline is approaching. Cast your vote now!',
+    body: `Deadline approaching for "${deliberationQuestion.slice(0, 40)}${deliberationQuestion.length > 40 ? '...' : ''}"`,
     url: `/deliberations/${deliberationId}`,
     tag: `vote-expiring-${cellId}`,
   }),

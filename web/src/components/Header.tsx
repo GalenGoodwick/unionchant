@@ -19,7 +19,15 @@ export default function Header({ showSettings = true }: HeaderProps) {
         <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
           Union Chant
         </Link>
-        <nav className="flex gap-4 text-sm">
+        <nav className="flex items-center gap-4 text-sm">
+          {session && (
+            <Link
+              href="/deliberations/new"
+              className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
+            >
+              + Create
+            </Link>
+          )}
           {session && (
             <Link href="/feed" className="text-accent-light hover:text-white transition-colors font-medium">
               Feed

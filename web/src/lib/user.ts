@@ -20,10 +20,3 @@ export function getDisplayName(user: UserForDisplay, fallback = 'Anonymous'): st
   }
   return user.name || fallback
 }
-
-/**
- * Check if user account is in a restricted state
- */
-export function isRestrictedUser(user: UserForDisplay): boolean {
-  return user.status === 'DELETED' || user.status === 'BANNED'
-}

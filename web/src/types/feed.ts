@@ -33,6 +33,10 @@ export type FeedItem = {
     votedCount: number
     userHasVoted?: boolean
     userVotedIdeaId?: string | null
+    // Urgency indicators
+    urgency?: 'critical' | 'warning' | 'normal'
+    timeRemainingMs?: number
+    votesNeeded?: number
   }
   tierInfo?: {
     tier: number

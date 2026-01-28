@@ -135,10 +135,13 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
           >
             "{item.deliberation.question}"
           </Link>
-          {item.deliberation.organization && (
-            <p className="text-muted text-sm mb-4">{item.deliberation.organization}</p>
+          {item.deliberation.description && (
+            <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
           )}
-          {!item.deliberation.organization && <div className="mb-4" />}
+          {item.deliberation.organization && (
+            <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+          )}
+          <div className="mb-4" />
 
           {/* Champion display (when deliberation is ACCUMULATING or COMPLETED) */}
           {showChampion && (
@@ -218,24 +221,37 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
     )
   }
 
+  // Determine urgency styling
+  const urgency = cell.urgency || 'normal'
+  const isUrgent = urgency === 'critical' || urgency === 'warning'
+  const borderColor = urgency === 'critical' ? 'border-error' : urgency === 'warning' ? 'border-orange' : 'border-warning'
+  const headerBg = urgency === 'critical' ? 'bg-error/10' : urgency === 'warning' ? 'bg-orange/10' : ''
+
   // Show waiting/voting state
   return (
-    <div className="bg-surface border border-warning rounded-xl overflow-hidden">
+    <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden ${urgency === 'critical' ? 'ring-2 ring-error/50' : ''}`}>
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border flex justify-between items-center">
-        <span className="text-warning font-bold text-sm uppercase tracking-wide">
-          {voted ? 'Waiting for others' : 'Vote Now'}
-        </span>
+      <div className={`px-4 py-3 border-b border-border flex justify-between items-center ${headerBg}`}>
+        <div className="flex items-center gap-2">
+          {urgency === 'critical' && !voted && (
+            <span className="text-error animate-pulse text-lg">⚠</span>
+          )}
+          <span className={`font-bold text-sm uppercase tracking-wide ${urgency === 'critical' ? 'text-error' : urgency === 'warning' ? 'text-orange' : 'text-warning'}`}>
+            {voted ? 'Waiting for others' : urgency === 'critical' ? 'Vote Now - Closing Soon!' : 'Vote Now'}
+          </span>
+        </div>
         <div className="flex items-center gap-2 text-sm text-muted font-mono">
           <span>Tier {cell.tier}</span>
           {cell.votingDeadline && (
             <>
               <span>•</span>
-              <CountdownTimer
-                deadline={cell.votingDeadline}
-                onExpire={onAction}
-                compact
-              />
+              <span className={urgency === 'critical' ? 'text-error font-bold' : urgency === 'warning' ? 'text-orange' : ''}>
+                <CountdownTimer
+                  deadline={cell.votingDeadline}
+                  onExpire={onAction}
+                  compact
+                />
+              </span>
             </>
           )}
         </div>
@@ -249,10 +265,13 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         >
           "{item.deliberation.question}"
         </Link>
-        {item.deliberation.organization && (
-          <p className="text-muted text-sm mb-4">{item.deliberation.organization}</p>
+        {item.deliberation.description && (
+          <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
         )}
-        {!item.deliberation.organization && <div className="mb-4" />}
+        {item.deliberation.organization && (
+          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        )}
+        <div className="mb-4" />
 
         {/* Ideas */}
         <div className="space-y-2">

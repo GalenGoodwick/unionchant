@@ -26,11 +26,10 @@ export default function FeedPage() {
   const [error, setError] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
 
-  // Show guide for first-time visitors
+  // Show guide for first-time authenticated users
   useEffect(() => {
     const hasSeenGuide = localStorage.getItem('hasSeenGuide')
     if (!hasSeenGuide && status === 'authenticated') {
-      // Slight delay to let page load first
       const timer = setTimeout(() => setShowGuide(true), 1000)
       return () => clearTimeout(timer)
     }
@@ -71,16 +70,25 @@ export default function FeedPage() {
       const data = await res.json()
       const newItems = data.items as FeedItem[]
 
+      // Deduplicate new items by cell ID (for vote_now) or deliberation ID (for others)
+      const seenKeys = new Set<string>()
+      const deduplicatedItems = newItems.filter(item => {
+        const key = item.cell?.id || `${item.type}-${item.deliberation.id}`
+        if (seenKeys.has(key)) return false
+        seenKeys.add(key)
+        return true
+      })
+
       // Get preserved cards from storage that should still be shown
       // Only skip if there's already a vote_now card for this exact cell in new items
       const cardsToPreserve = Array.from(preservedVoteCards.values()).filter(p =>
-        !newItems.some(n => n.cell?.id === p.cell?.id)
+        !deduplicatedItems.some(n => n.cell?.id === p.cell?.id)
       )
 
       // Filter out duplicate deliberations - if we have a preserved vote card,
       // don't also show a champion/predict card for the same deliberation
       const preservedDeliberationIds = new Set(cardsToPreserve.map(p => p.deliberation.id))
-      const filteredNewItems = newItems.filter(n =>
+      const filteredNewItems = deduplicatedItems.filter(n =>
         // Keep vote_now cards (they have cells)
         n.type === 'vote_now' ||
         // Keep other cards only if we don't have a preserved card for this deliberation
@@ -169,7 +177,7 @@ export default function FeedPage() {
       {/* Onboarding modal for new users */}
       {needsOnboarding && <Onboarding onComplete={completeOnboarding} />}
 
-      {/* User guide modal */}
+      {/* User guide for first-time users */}
       {showGuide && <UserGuide onClose={closeGuide} />}
 
       <div className="max-w-lg mx-auto px-4 py-6">
@@ -178,21 +186,12 @@ export default function FeedPage() {
           <h1 className="text-xl font-bold text-foreground">
             {status === 'authenticated' ? 'Your Feed' : 'Active Deliberations'}
           </h1>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowGuide(true)}
-              className="text-sm text-muted hover:text-foreground transition-colors"
-              title="How it works"
-            >
-              ?
-            </button>
-            <Link
-              href="/deliberations"
-              className="text-sm text-muted hover:text-foreground transition-colors"
-            >
-              See All →
-            </Link>
-          </div>
+          <Link
+            href="/deliberations"
+            className="text-sm text-muted hover:text-foreground transition-colors"
+          >
+            See All →
+          </Link>
         </div>
 
         {/* Push notification prompt */}
@@ -238,7 +237,7 @@ export default function FeedPage() {
         {/* Feed items */}
         <div className="space-y-4">
           {items.map((item, index) => {
-            const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || index}`
+            const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || 'no-cell'}-${index}`
 
             switch (item.type) {
               case 'vote_now':

@@ -44,6 +44,12 @@ export async function POST(
           participants: true,
           ideas: true,
           votes: true,
+          deliberation: {
+            select: {
+              currentTierStartedAt: true,
+              votingTimeoutMs: true,
+            },
+          },
         },
       })
 
@@ -62,9 +68,14 @@ export async function POST(
         throw new Error('CELL_NOT_VOTING')
       }
 
-      // Check voting deadline
-      if (cell.votingDeadline && cell.votingDeadline < new Date()) {
-        throw new Error('DEADLINE_PASSED')
+      // Check voting deadline (calculated from tier start + timeout)
+      if (cell.deliberation.currentTierStartedAt) {
+        const deadline = new Date(
+          cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs
+        )
+        if (deadline < new Date()) {
+          throw new Error('DEADLINE_PASSED')
+        }
       }
 
       // Check idea is in this cell

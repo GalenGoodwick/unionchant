@@ -102,10 +102,13 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
         >
           "{item.deliberation.question}"
         </Link>
-        {item.deliberation.organization && (
-          <p className="text-muted text-sm mb-4">{item.deliberation.organization}</p>
+        {item.deliberation.description && (
+          <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
         )}
-        {!item.deliberation.organization && <div className="mb-4" />}
+        {item.deliberation.organization && (
+          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        )}
+        <div className="mb-4" />
 
         {submitted ? (
           <div className="bg-success-bg border border-success rounded-lg p-4">

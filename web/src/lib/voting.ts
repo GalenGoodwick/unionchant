@@ -174,6 +174,12 @@ export async function startVotingPhase(deliberationId: string) {
     // Resolve predictions for champion
     await resolveChampionPredictions(deliberationId, winningIdea.id)
 
+    // Handle META or spawnsDeliberation - spawn new deliberation from champion
+    if ((deliberation.type === 'META' || deliberation.spawnsDeliberation) && !deliberation.accumulationEnabled) {
+      handleMetaChampion(deliberationId, winningIdea)
+        .catch(err => console.error('Failed to handle meta champion:', err))
+    }
+
     return {
       success: true,
       reason: 'SINGLE_IDEA',
@@ -217,8 +223,6 @@ export async function startVotingPhase(deliberationId: string) {
         deliberationId,
         tier: 1,
         status: 'VOTING',
-        votingStartedAt: new Date(),
-        votingDeadline: new Date(Date.now() + deliberation.votingTimeoutMs),
         ideas: {
           create: cellIdeas.map(idea => ({
             ideaId: idea.id,
@@ -241,10 +245,14 @@ export async function startVotingPhase(deliberationId: string) {
     })
   }
 
-  // Update deliberation phase
+  // Update deliberation phase and start tier timer
   await prisma.deliberation.update({
     where: { id: deliberationId },
-    data: { phase: 'VOTING', currentTier: 1 },
+    data: {
+      phase: 'VOTING',
+      currentTier: 1,
+      currentTierStartedAt: new Date(),
+    },
   })
 
   // Send push notifications to all members
@@ -330,60 +338,31 @@ export async function processCellResults(cellId: string, isTimeout = false) {
       data: { status: 'ADVANCING', tier: cell.tier },
     })
 
-    // Two-strike elimination: first loss → POOLED, second loss → ELIMINATED
+    // Mark losers as eliminated (single elimination)
+    // TODO: Two-strike system was partially implemented but POOLED ideas
+    // were never re-entered into subsequent tiers. Disabled for now.
     if (loserIds.length > 0) {
-      // Get current loss counts for losers
-      const loserIdeas = await prisma.idea.findMany({
+      await prisma.idea.updateMany({
         where: { id: { in: loserIds } },
-        select: { id: true, losses: true },
+        data: {
+          status: 'ELIMINATED',
+          losses: { increment: 1 },
+        },
       })
-
-      const firstTimeLosers = loserIdeas.filter(i => i.losses === 0).map(i => i.id)
-      const secondTimeLosers = loserIdeas.filter(i => i.losses >= 1).map(i => i.id)
-
-      // First loss: back to pool for another chance
-      if (firstTimeLosers.length > 0) {
-        await prisma.idea.updateMany({
-          where: { id: { in: firstTimeLosers } },
-          data: {
-            status: 'POOLED',
-            losses: { increment: 1 },
-            tier: 0, // Reset tier for re-entry
-          },
-        })
-      }
-
-      // Second loss: eliminated for good
-      if (secondTimeLosers.length > 0) {
-        await prisma.idea.updateMany({
-          where: { id: { in: secondTimeLosers } },
-          data: {
-            status: 'ELIMINATED',
-            losses: { increment: 1 },
-          },
-        })
-      }
     }
 
     // Resolve predictions for this cell
     await resolveCellPredictions(cellId, winnerIds)
   }
 
-  // Mark cell as completed and open 2nd cell window
-  const deliberation = await prisma.deliberation.findUnique({
-    where: { id: cell.deliberationId },
-    select: { secondVoteTimeoutMs: true },
-  })
-
+  // Mark cell as completed
   await prisma.cell.update({
     where: { id: cellId },
     data: {
       status: 'COMPLETED',
       completedAt: new Date(),
       completedByTimeout: isTimeout,
-      // Open window for participants to join another cell in same tier
       secondVotesEnabled: true,
-      secondVoteDeadline: new Date(Date.now() + (deliberation?.secondVoteTimeoutMs || 900000)),
     },
   })
 
@@ -490,8 +469,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             notifications.championDeclared(completedDeliberation.question, deliberationId)
           ).catch(err => console.error('Failed to send push notifications:', err))
 
-          // Handle META deliberation - spawn new deliberation from champion
-          if (completedDeliberation.type === 'META' && completedDeliberation.ideas[0]) {
+          // Handle META or spawnsDeliberation - spawn new deliberation from champion
+          if ((completedDeliberation.type === 'META' || completedDeliberation.spawnsDeliberation) && completedDeliberation.ideas[0]) {
             handleMetaChampion(deliberationId, completedDeliberation.ideas[0])
               .catch(err => console.error('Failed to handle meta champion:', err))
           }
@@ -583,8 +562,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         notifications.championDeclared(deliberation.question, deliberationId)
       ).catch(err => console.error('Failed to send push notifications:', err))
 
-      // Handle META deliberation - spawn new deliberation from champion
-      if (deliberation.type === 'META') {
+      // Handle META or spawnsDeliberation - spawn new deliberation from champion
+      if (deliberation.type === 'META' || deliberation.spawnsDeliberation) {
         const championIdea = advancingIdeas[0]
         handleMetaChampion(deliberationId, championIdea)
           .catch(err => console.error('Failed to handle meta champion:', err))
@@ -622,8 +601,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             deliberationId,
             tier: nextTier,
             status: 'VOTING',
-            votingStartedAt: new Date(),
-            votingDeadline: new Date(Date.now() + deliberation.votingTimeoutMs),
             ideas: {
               create: shuffledIdeas.map(idea => ({ ideaId: idea.id })),
             },
@@ -650,8 +627,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             deliberationId,
             tier: nextTier,
             status: 'VOTING',
-            votingStartedAt: new Date(),
-            votingDeadline: new Date(Date.now() + deliberation.votingTimeoutMs),
             ideas: {
               create: cellIdeas.map(idea => ({ ideaId: idea.id })),
             },
@@ -663,15 +638,19 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       }
     }
 
+    // Update deliberation with new tier and start timer
     await prisma.deliberation.update({
       where: { id: deliberationId },
-      data: { currentTier: nextTier },
+      data: {
+        currentTier: nextTier,
+        currentTierStartedAt: new Date(),
+      },
     })
 
     // Send notification for new tier
     sendPushToDeliberation(
       deliberationId,
-      notifications.newTier(nextTier, deliberationId)
+      notifications.newTier(nextTier, deliberation.question, deliberationId)
     ).catch(err => console.error('Failed to send push notifications:', err))
   }
 }

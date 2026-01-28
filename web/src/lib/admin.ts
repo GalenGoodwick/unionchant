@@ -74,7 +74,3 @@ export const permissions = {
   canBanUsers: (role: UserRole) => role === 'ADMIN' || role === 'MODERATOR',
   canDeleteContent: (role: UserRole) => role === 'ADMIN' || role === 'MODERATOR',
 }
-
-export function getAdminEmails(): string[] {
-  return process.env.ADMIN_EMAILS?.split(',').map(e => e.trim()) || []
-}

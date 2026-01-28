@@ -14,6 +14,19 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid tier' }, { status: 400 })
     }
 
+    // Get deliberation for tier deadline calculation
+    const deliberation = await prisma.deliberation.findUnique({
+      where: { id: deliberationId },
+      select: {
+        currentTierStartedAt: true,
+        votingTimeoutMs: true,
+      },
+    })
+
+    const votingDeadline = deliberation?.currentTierStartedAt
+      ? new Date(deliberation.currentTierStartedAt.getTime() + (deliberation.votingTimeoutMs || 3600000))
+      : null
+
     // Get all cells for this tier
     const cells = await prisma.cell.findMany({
       where: { deliberationId, tier },
@@ -77,7 +90,7 @@ export async function GET(
         participantCount: cell._count.participants,
         votedCount,
         votesRemaining: cell._count.participants - votedCount,
-        votingDeadline: cell.votingDeadline,
+        votingDeadline: votingDeadline?.toISOString() || null,
         ideas: !isBatch ? cell.ideas.map(ci => ci.idea) : undefined, // Only include for Tier 1
       }
     })

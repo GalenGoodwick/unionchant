@@ -321,6 +321,11 @@ git push origin main   # Triggers Vercel deployment
 3. **No test suite**: No comprehensive automated tests
 4. **Free tier permissions**: Need to implement rate limits for free users (see docs/META_DELIBERATION.md)
 
+### Feature Ideas
+1. **Continuous Flow Mode**: Allow Tier 1 voting to happen while ideas are still being submitted. Every 5 ideas creates a new Tier 1 cell that starts voting immediately. Winners advance to Tier 2 while more Tier 1 cells form. Good for large-scale deliberations where you don't want to wait for all submissions.
+2. **Tie handling display**: Show which ideas tied and both advanced in admin panel
+3. **Spawn deliberation from winner**: Checkbox in creation - winner's text becomes a new deliberation question (plan exists in `.claude/plans/`)
+
 ### Recent Additions (Jan 2026)
 - `src/lib/moderation.ts` - Content moderation (profanity, spam, links)
 - `src/components/Toast.tsx` - Toast notification system with `useToast()` hook

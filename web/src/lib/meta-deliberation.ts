@@ -9,7 +9,7 @@ import prisma from './prisma'
 import type { Idea } from '@prisma/client'
 
 /**
- * Handle when a META deliberation crowns a champion.
+ * Handle when a META or spawnsDeliberation deliberation crowns a champion.
  * Creates a new SPAWNED deliberation from the winning idea
  * and auto-joins all voters who supported it.
  */
@@ -17,19 +17,52 @@ export async function handleMetaChampion(
   deliberationId: string,
   championIdea: Idea
 ) {
+  // Fetch parent deliberation for settings
+  const parentDeliberation = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+  })
+
+  if (!parentDeliberation) {
+    throw new Error('Parent deliberation not found')
+  }
+
+  // Determine description based on parent type
+  const description = parentDeliberation.type === 'META'
+    ? 'This topic was chosen by the community in the daily deliberation.'
+    : `This question emerged from: "${parentDeliberation.question}"`
+
+  // Calculate submission settings based on parent's spawned settings
+  const now = new Date()
+  let submissionEndsAt: Date | null = null
+  let submissionDurationMs: number | null = null
+  let ideaGoal: number | null = null
+
+  const spawnedStartMode = parentDeliberation.spawnedStartMode || 'timer'
+
+  if (spawnedStartMode === 'timer') {
+    const hours = parentDeliberation.spawnedSubmissionHours || 24
+    submissionDurationMs = hours * 60 * 60 * 1000
+    submissionEndsAt = new Date(now.getTime() + submissionDurationMs)
+  } else if (spawnedStartMode === 'ideas') {
+    ideaGoal = parentDeliberation.spawnedIdeaGoal || 10
+  }
+  // If 'manual', both remain null
+
   // 1. Create new deliberation from champion
   const newDeliberation = await prisma.deliberation.create({
     data: {
       question: championIdea.text,
-      description: `This topic was chosen by the community in the daily deliberation.`,
+      description,
       type: 'SPAWNED',
       spawnedFromId: deliberationId,
       autoJoinVoters: true,
       isPublic: true,
       creatorId: championIdea.authorId, // Original proposer becomes creator
-      // Default settings
-      submissionDurationMs: 86400000, // 24 hours
-      votingTimeoutMs: 3600000, // 1 hour
+      // Settings from parent's spawned config
+      submissionDurationMs: submissionDurationMs || 86400000,
+      submissionEndsAt,
+      ideaGoal,
+      votingTimeoutMs: parentDeliberation.votingTimeoutMs || 3600000,
       accumulationEnabled: true,
       accumulationTimeoutMs: 86400000, // 24 hours
     },
@@ -69,12 +102,8 @@ export async function handleMetaChampion(
     },
   })
 
-  // 4. Check if parent was recurring, start next cycle
-  const parentDeliberation = await prisma.deliberation.findUnique({
-    where: { id: deliberationId },
-  })
-
-  if (parentDeliberation?.isRecurring) {
+  // 4. Only start next cycle for recurring META deliberations
+  if (parentDeliberation.isRecurring && parentDeliberation.type === 'META') {
     await createNextMetaDeliberation(parentDeliberation)
   }
 
@@ -181,75 +210,6 @@ export async function getCurrentMetaDeliberation() {
       phase: { in: ['SUBMISSION', 'VOTING'] },
     },
     orderBy: { createdAt: 'desc' },
-    include: {
-      _count: {
-        select: {
-          ideas: true,
-          members: true,
-        },
-      },
-    },
-  })
-}
-
-/**
- * Get or create the meta-deliberation.
- * Auto-creates if none exists - this is the always-on daily question.
- */
-export async function getOrCreateMetaDeliberation() {
-  // Check for existing active meta-deliberation
-  const existing = await getCurrentMetaDeliberation()
-  if (existing) return existing
-
-  // None exists - create one automatically
-  // Find a system/admin user to be the creator
-  const systemUser = await prisma.user.findFirst({
-    where: {
-      OR: [
-        { role: 'ADMIN' },
-        { email: { contains: 'system' } },
-      ],
-    },
-    orderBy: { createdAt: 'asc' },
-  })
-
-  // If no admin user, just get first user (or return null if no users)
-  const creatorUser = systemUser || await prisma.user.findFirst({
-    orderBy: { createdAt: 'asc' },
-  })
-
-  if (!creatorUser) {
-    // No users in system yet - can't create meta-deliberation
-    return null
-  }
-
-  const now = new Date()
-
-  // Daily cycle: 20 hours submission, 4 hours voting
-  const submissionDurationMs = 20 * 60 * 60 * 1000 // 20 hours
-  const votingTimeoutMs = 4 * 60 * 60 * 1000 // 4 hours
-  const submissionEndsAt = new Date(now.getTime() + submissionDurationMs)
-  const nextOccurrence = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-
-  const metaDeliberation = await prisma.deliberation.create({
-    data: {
-      question: 'What should we decide next?',
-      description: 'Submit topics you want the community to deliberate on. The winning topic will become a new deliberation.',
-      type: 'META',
-      isPublic: true,
-      isRecurring: true,
-      recurringSchedule: 'daily',
-      nextOccurrence,
-      creatorId: creatorUser.id,
-      submissionDurationMs,
-      votingTimeoutMs,
-      accumulationEnabled: false,
-      submissionEndsAt,
-    },
-  })
-
-  return prisma.deliberation.findUnique({
-    where: { id: metaDeliberation.id },
     include: {
       _count: {
         select: {
