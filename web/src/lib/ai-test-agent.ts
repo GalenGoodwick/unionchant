@@ -5,10 +5,21 @@
  * Agents interact via actual API endpoints like real users.
  */
 
-import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from './prisma'
 
-const anthropic = new Anthropic()
+// Lazy load Anthropic SDK to avoid build failures when not installed
+let anthropic: any = null
+async function getAnthropic() {
+  if (!anthropic) {
+    try {
+      const Anthropic = (await import('@anthropic-ai/sdk')).default
+      anthropic = new Anthropic()
+    } catch {
+      throw new Error('Anthropic SDK not installed. Run: npm install @anthropic-ai/sdk')
+    }
+  }
+  return anthropic
+}
 
 export interface AgentConfig {
   totalAgents: number
@@ -129,11 +140,12 @@ export async function createTestAgents(count: number, prefix: string = 'TestBot'
  */
 export async function generateIdeasBatch(question: string, count: number, existingIdeas: string[] = []): Promise<string[]> {
   try {
+    const client = await getAnthropic()
     const existingContext = existingIdeas.length > 0
       ? `\n\nIdeas already submitted (don't repeat these):\n${existingIdeas.slice(-10).map(i => `- ${i}`).join('\n')}`
       : ''
 
-    const response = await anthropic.messages.create({
+    const response = await client.messages.create({
       model: 'claude-3-5-haiku-20241022',
       max_tokens: 1500,
       messages: [{
@@ -182,9 +194,10 @@ export async function generateIdea(question: string, existingIdeas: string[] = [
  * Use Haiku to decide which idea to vote for
  */
 export async function decideVote(question: string, ideas: { id: string; text: string }[]): Promise<string> {
+  const client = await getAnthropic()
   const ideasList = ideas.map((idea, i) => `${i + 1}. ${idea.text}`).join('\n')
 
-  const response = await anthropic.messages.create({
+  const response = await client.messages.create({
     model: 'claude-3-5-haiku-20241022',
     max_tokens: 50,
     messages: [{
@@ -220,12 +233,13 @@ export async function generateComment(
   ideas: { id: string; text: string }[],
   existingComments: string[] = []
 ): Promise<string> {
+  const client = await getAnthropic()
   const ideasList = ideas.map(idea => `- ${idea.text}`).join('\n')
   const commentsContext = existingComments.length > 0
     ? `\n\nRecent comments:\n${existingComments.slice(-3).map(c => `- "${c}"`).join('\n')}`
     : ''
 
-  const response = await anthropic.messages.create({
+  const response = await client.messages.create({
     model: 'claude-3-5-haiku-20241022',
     max_tokens: 100,
     messages: [{
