@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { verifyCaptcha } from '@/lib/captcha'
 
 // GET /api/deliberations - List all public deliberations
 export async function GET(req: NextRequest) {
@@ -61,7 +62,14 @@ export async function POST(req: NextRequest) {
       accumulationTimeoutMs,
       ideaGoal,
       participantGoal,
+      captchaToken,
     } = body
+
+    // Verify CAPTCHA (checks if user verified in last 24h, or verifies token)
+    const captchaResult = await verifyCaptcha(captchaToken, user.id)
+    if (!captchaResult.success) {
+      return NextResponse.json({ error: captchaResult.error || 'CAPTCHA verification failed' }, { status: 400 })
+    }
 
     if (!question?.trim()) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })

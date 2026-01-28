@@ -3,14 +3,24 @@
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import Header from '@/components/Header'
+import Turnstile from '@/components/Turnstile'
 
 export default function NewDeliberationPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+
+  const handleCaptchaVerify = useCallback((token: string) => {
+    setCaptchaToken(token)
+  }, [])
+
+  const handleCaptchaExpire = useCallback(() => {
+    setCaptchaToken(null)
+  }, [])
 
   const [formData, setFormData] = useState({
     question: '',
@@ -23,9 +33,8 @@ export default function NewDeliberationPage() {
     accumulationEnabled: true,
     accumulationDays: 1,
     // Goal settings
-    startMode: 'timer' as 'timer' | 'ideas' | 'participants',
+    startMode: 'timer' as 'timer' | 'ideas' | 'manual',
     ideaGoal: 10,
-    participantGoal: 10,
   })
 
   if (status === 'loading') {
@@ -67,7 +76,9 @@ export default function NewDeliberationPage() {
           accumulationTimeoutMs: formData.accumulationDays * 24 * 60 * 60 * 1000,
           // Goal settings
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
-          participantGoal: formData.startMode === 'participants' ? formData.participantGoal : null,
+          // Manual trigger mode - no participantGoal needed, creator triggers manually
+          participantGoal: null,
+          captchaToken,
         }),
       })
 
@@ -219,27 +230,14 @@ export default function NewDeliberationPage() {
                   <input
                     type="radio"
                     name="startMode"
-                    value="participants"
-                    checked={formData.startMode === 'participants'}
-                    onChange={() => setFormData({ ...formData, startMode: 'participants' })}
+                    value="manual"
+                    checked={formData.startMode === 'manual'}
+                    onChange={() => setFormData({ ...formData, startMode: 'manual' })}
                     className="mt-1 w-4 h-4 text-accent"
                   />
                   <div className="flex-1">
-                    <div className="text-foreground font-medium">After enough participants</div>
-                    <div className="text-muted text-sm">Voting starts automatically when the participant goal is reached</div>
-                    {formData.startMode === 'participants' && (
-                      <div className="mt-3">
-                        <label className="block text-muted text-sm mb-1">Number of participants</label>
-                        <input
-                          type="number"
-                          min={2}
-                          max={10000}
-                          value={formData.participantGoal}
-                          onChange={(e) => setFormData({ ...formData, participantGoal: parseInt(e.target.value) || 10 })}
-                          className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
-                        />
-                      </div>
-                    )}
+                    <div className="text-foreground font-medium">When I trigger voting</div>
+                    <div className="text-muted text-sm">You control when voting starts - great for live events</div>
                   </div>
                 </label>
               </div>
@@ -308,9 +306,15 @@ export default function NewDeliberationPage() {
               </div>
             )}
 
+            <Turnstile
+              onVerify={handleCaptchaVerify}
+              onExpire={handleCaptchaExpire}
+              className="flex justify-center"
+            />
+
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !captchaToken}
               className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-colors"
             >
               {loading ? 'Creating...' : 'Create Deliberation'}

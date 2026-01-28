@@ -28,7 +28,7 @@ export async function POST(
     }
 
     const body = await req.json()
-    const { ideaId, isSecondVote = false } = body
+    const { ideaId } = body
 
     if (!ideaId) {
       return NextResponse.json({ error: 'Idea ID is required' }, { status: 400 })
@@ -62,7 +62,7 @@ export async function POST(
         throw new Error('CELL_NOT_VOTING')
       }
 
-      // Check deadline hasn't passed
+      // Check voting deadline
       if (cell.votingDeadline && cell.votingDeadline < new Date()) {
         throw new Error('DEADLINE_PASSED')
       }
@@ -73,29 +73,48 @@ export async function POST(
         throw new Error('IDEA_NOT_IN_CELL')
       }
 
-      // Check if already voted (for this vote type)
+      // Check if already voted - allow changing vote
       const existingVote = cell.votes.find(
-        (v: { userId: string; isSecondVote: boolean }) => v.userId === user.id && v.isSecondVote === isSecondVote
+        (v: { userId: string; id: string; ideaId: string }) => v.userId === user.id
       )
+
+      let vote
       if (existingVote) {
-        throw new Error('ALREADY_VOTED')
+        // Changing vote - update existing
+        const oldIdeaId = existingVote.ideaId
+
+        vote = await tx.vote.update({
+          where: { id: existingVote.id },
+          data: { ideaId, votedAt: new Date() },
+        })
+
+        // Update idea vote counts
+        if (oldIdeaId !== ideaId) {
+          await tx.idea.update({
+            where: { id: oldIdeaId },
+            data: { totalVotes: { decrement: 1 } },
+          })
+          await tx.idea.update({
+            where: { id: ideaId },
+            data: { totalVotes: { increment: 1 } },
+          })
+        }
+      } else {
+        // New vote
+        vote = await tx.vote.create({
+          data: {
+            cellId,
+            userId: user.id,
+            ideaId,
+          },
+        })
+
+        // Update idea vote count
+        await tx.idea.update({
+          where: { id: ideaId },
+          data: { totalVotes: { increment: 1 } },
+        })
       }
-
-      // Create vote
-      const vote = await tx.vote.create({
-        data: {
-          cellId,
-          userId: user.id,
-          ideaId,
-          isSecondVote,
-        },
-      })
-
-      // Update idea vote count
-      await tx.idea.update({
-        where: { id: ideaId },
-        data: { totalVotes: { increment: 1 } },
-      })
 
       // Update participant status
       await tx.cellParticipation.updateMany({
@@ -105,7 +124,7 @@ export async function POST(
 
       // Check if all participants have voted (within same transaction)
       const voteCount = await tx.vote.count({
-        where: { cellId, isSecondVote },
+        where: { cellId },
       })
 
       const activeParticipantCount = cell.participants.filter(
@@ -114,19 +133,22 @@ export async function POST(
 
       const allVoted = voteCount >= activeParticipantCount
 
-      return { vote, allVoted }
+      const wasChange = !!existingVote
+      return { vote, allVoted, wasChange }
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       timeout: 10000, // 10 second timeout
     })
 
     // Process cell results OUTSIDE the transaction to avoid long locks
-    // The transaction ensures only one request sees allVoted=true
     if (result.allVoted) {
       await processCellResults(cellId, false)
     }
 
-    return NextResponse.json(result.vote, { status: 201 })
+    return NextResponse.json({
+      ...result.vote,
+      allVoted: result.allVoted,
+    }, { status: 201 })
   } catch (error) {
     // Handle known errors
     if (error instanceof Error) {
@@ -141,7 +163,7 @@ export async function POST(
 
       const mapped = errorMap[error.message]
       if (mapped) {
-        // Handle deadline passed - process timeout
+        // Process cell on deadline if someone tries to vote late
         if (error.message === 'DEADLINE_PASSED') {
           await processCellResults(cellId, true)
         }

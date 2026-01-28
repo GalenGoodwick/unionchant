@@ -182,19 +182,12 @@ export async function startVotingPhase(deliberationId: string) {
     }
   }
 
-  // Edge case: Not enough participants
-  if (deliberation.members.length < 3) {
-    await prisma.deliberation.update({
-      where: { id: deliberationId },
-      data: {
-        phase: 'COMPLETED',
-        completedAt: new Date(),
-      },
-    })
+  // Edge case: Not enough participants - need at least 1 (the creator)
+  if (deliberation.members.length < 1) {
     return {
       success: false,
       reason: 'INSUFFICIENT_PARTICIPANTS',
-      message: 'Need at least 3 participants to start voting'
+      message: 'Need at least 1 participant to start voting'
     }
   }
 
@@ -376,13 +369,21 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     await resolveCellPredictions(cellId, winnerIds)
   }
 
-  // Mark cell as completed
+  // Mark cell as completed and open 2nd cell window
+  const deliberation = await prisma.deliberation.findUnique({
+    where: { id: cell.deliberationId },
+    select: { secondVoteTimeoutMs: true },
+  })
+
   await prisma.cell.update({
     where: { id: cellId },
     data: {
       status: 'COMPLETED',
       completedAt: new Date(),
-      completedByTimeout: isTimeout
+      completedByTimeout: isTimeout,
+      // Open window for participants to join another cell in same tier
+      secondVotesEnabled: true,
+      secondVoteDeadline: new Date(Date.now() + (deliberation?.secondVoteTimeoutMs || 900000)),
     },
   })
 

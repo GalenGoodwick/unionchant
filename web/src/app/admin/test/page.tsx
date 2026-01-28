@@ -29,6 +29,7 @@ export default function AdminTestPage() {
     voteThroughTiers: true,
     leaveFinaVote: true, // Leave one vote in final cell for manual testing
     accumulationEnabled: true, // Enable rolling mode
+    additionalUserEmails: '', // Comma-separated emails for multi-account testing
   })
   const [createdDeliberation, setCreatedDeliberation] = useState<{ id: string; inviteCode: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -59,7 +60,7 @@ export default function AdminTestPage() {
         body: JSON.stringify({
           question: testConfig.question + ' ' + Date.now(),
           description: testConfig.description,
-          isPublic: false,
+          isPublic: true,
           tags: ['test', 'automated'],
           accumulationEnabled: testConfig.accumulationEnabled,
         }),
@@ -220,7 +221,7 @@ export default function AdminTestPage() {
             </div>
           </div>
 
-          <div className="flex gap-4 mb-4">
+          <div className="flex gap-4 mb-4 flex-wrap">
             <label className="flex items-center gap-2 text-subtle">
               <input
                 type="checkbox"
@@ -250,17 +251,88 @@ export default function AdminTestPage() {
             </label>
           </div>
 
-          <button
-            onClick={runTest}
-            disabled={isRunning}
-            className={`px-6 py-2 rounded-lg font-semibold ${
-              isRunning
-                ? 'bg-muted-light text-muted cursor-not-allowed'
-                : 'bg-accent hover:bg-accent-hover text-white'
-            }`}
-          >
-            {isRunning ? 'Running...' : 'Run Automated Test'}
-          </button>
+          <div className="mb-4">
+            <label className="block text-sm text-muted mb-1">Additional User Emails (comma-separated, for multi-account testing)</label>
+            <input
+              type="text"
+              value={testConfig.additionalUserEmails}
+              onChange={(e) => setTestConfig(prev => ({ ...prev, additionalUserEmails: e.target.value }))}
+              placeholder="user2@gmail.com, user3@gmail.com"
+              className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          <div className="flex gap-4">
+            <button
+              onClick={runTest}
+              disabled={isRunning}
+              className={`px-6 py-2 rounded-lg font-semibold ${
+                isRunning
+                  ? 'bg-muted-light text-muted cursor-not-allowed'
+                  : 'bg-accent hover:bg-accent-hover text-white'
+              }`}
+            >
+              {isRunning ? 'Running...' : 'Run Automated Test'}
+            </button>
+
+            <button
+              onClick={async () => {
+                addLog('info', 'Seeding feed test data...')
+                try {
+                  const emails = testConfig.additionalUserEmails.split(',').map(e => e.trim()).filter(Boolean)
+                  const res = await fetch('/api/admin/test/seed-feed', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ additionalUserEmails: emails }),
+                  })
+                  const data = await res.json()
+                  if (res.ok) {
+                    addLog('success', data.message)
+                    data.results?.forEach((r: string) => addLog('success', r))
+                  } else {
+                    addLog('error', data.error || 'Failed to seed')
+                  }
+                } catch (err) {
+                  addLog('error', 'Failed to seed feed data')
+                }
+              }}
+              disabled={isRunning}
+              className="px-6 py-2 rounded-lg font-semibold bg-purple hover:bg-purple-hover text-white"
+            >
+              Seed Feed Test Data
+            </button>
+
+            <button
+              onClick={async () => {
+                addLog('info', 'Creating Tier 3 up-pollination test...')
+                try {
+                  const emails = testConfig.additionalUserEmails.split(',').map(e => e.trim()).filter(Boolean)
+                  const res = await fetch('/api/admin/test/seed-tier3', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ additionalUserEmails: emails }),
+                  })
+                  const data = await res.json()
+                  if (res.ok) {
+                    addLog('success', data.message)
+                    addLog('info', `Deliberation ID: ${data.deliberationId}`)
+                    addLog('info', `Cell ID: ${data.cellId}`)
+                    addLog('info', `Comment needs ${data.upPollinationInfo.votesNeeded} more upvote(s) to up-pollinate`)
+                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
+                  } else {
+                    addLog('error', data.error || 'Failed to create Tier 3 test')
+                    if (data.details) addLog('error', data.details)
+                  }
+                } catch (err) {
+                  addLog('error', 'Failed to create Tier 3 test')
+                }
+              }}
+              disabled={isRunning}
+              className="px-6 py-2 rounded-lg font-semibold bg-orange hover:bg-orange-hover text-white"
+            >
+              Create Tier 3 Up-Pollination Test
+            </button>
+          </div>
         </div>
 
         {/* Created Deliberation Link */}

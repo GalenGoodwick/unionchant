@@ -45,7 +45,7 @@ export async function processExpiredSubmissions(): Promise<string[]> {
 
 /**
  * Process cells where voting deadline has passed
- * Complete cells with whatever votes have been cast
+ * Completes cells with whatever votes have been cast
  */
 export async function processExpiredCells(): Promise<string[]> {
   const now = new Date()
@@ -135,14 +135,14 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     }
   }
 
-  // Check cell timeouts
+  // Check voting deadlines
   for (const cell of deliberation.cells) {
     if (cell.votingDeadline && cell.votingDeadline <= now) {
       try {
         await processCellResults(cell.id, true)
         transitioned = true
       } catch (err) {
-        console.error(`Lazy cell transition failed for ${cell.id}:`, err)
+        console.error(`Lazy voting deadline transition failed for ${cell.id}:`, err)
       }
     }
   }
@@ -163,6 +163,7 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
 
   return transitioned
 }
+
 
 /**
  * Run all timer processors

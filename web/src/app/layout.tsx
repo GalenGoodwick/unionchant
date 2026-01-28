@@ -3,6 +3,8 @@ import { Source_Serif_4, Libre_Franklin, IBM_Plex_Mono } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const sourceSerif = Source_Serif_4({
   subsets: ['latin'],
@@ -95,6 +97,8 @@ export default function RootLayout({
         <Providers>
           {children}
           <ServiceWorkerRegistration />
+          <Analytics />
+          <SpeedInsights />
         </Providers>
       </body>
     </html>

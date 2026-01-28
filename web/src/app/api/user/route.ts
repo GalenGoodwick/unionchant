@@ -20,6 +20,14 @@ export async function DELETE() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // Prevent admins from deleting themselves
+    if (user.role === 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Admins cannot delete their own account. Please contact another admin.' },
+        { status: 403 }
+      )
+    }
+
     // Soft delete - mark as deleted but preserve data for integrity
     await prisma.user.update({
       where: { id: user.id },

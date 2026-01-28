@@ -28,9 +28,13 @@ model User {
   email         String     @unique
   name          String?
   image         String?
+  bio           String?
   emailVerified DateTime?
   status        UserStatus @default(ACTIVE)
   role          UserRole   @default(USER)
+  onboardedAt   DateTime?  // Set when user completes onboarding
+  captchaVerifiedAt DateTime?  // Last CAPTCHA verification (valid for 24h)
+  theme         String     @default("system")  // "light", "dark", "system"
   deletedAt     DateTime?
   bannedAt      DateTime?
   banReason     String?
@@ -48,9 +52,11 @@ model User {
   cellParticipations   CellParticipation[]
   votes                Vote[]
   comments             Comment[]
+  commentUpvotes       CommentUpvote[]
   pushSubscriptions    PushSubscription[]
   watches              Watch[]
   predictions          Prediction[]
+  notifications        Notification[]
 
   // Prediction stats (denormalized for fast leaderboard queries)
   totalPredictions     Int @default(0)
@@ -142,6 +148,7 @@ model Deliberation {
   championId          String?  // ID of winning idea
   championEnteredTier Int?     // Tier champion enters in challenge
   challengeRound      Int      @default(0)  // Current challenge round number
+  views               Int      @default(0)  // View count for social proof
 
   // Timestamps
   createdAt           DateTime  @default(now())
@@ -362,9 +369,33 @@ model Comment {
   replyTo         Comment? @relation("Replies", fields: [replyToId], references: [id])
   replies         Comment[] @relation("Replies")
 
+  // Up-pollinate tracking
+  views           Int      @default(0)       // How many people saw this
+  reachTier       Int      @default(1)       // Current up-pollinate tier (1-9)
+  upvoteCount     Int      @default(0)       // Denormalized for fast queries
+
   createdAt       DateTime @default(now())
 
+  // Relations
+  upvotes         CommentUpvote[]
+
   @@index([cellId])
+  @@index([userId])
+  @@index([cellId, reachTier])
+}
+
+// Track who upvoted which comment (for up-pollinate calculation)
+model CommentUpvote {
+  id              String   @id @default(cuid())
+  commentId       String
+  comment         Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+
+  @@unique([commentId, userId])
+  @@index([commentId])
   @@index([userId])
 }
 
@@ -432,4 +463,41 @@ model Prediction {
   @@index([deliberationId, tierPredictedAt])
   @@index([userId])
   @@index([predictedIdeaId])  // For updating when idea status changes
+}
+
+// ============ NOTIFICATIONS ============
+
+model Notification {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type            NotificationType
+  title           String
+  body            String?
+
+  // Context - what triggered this notification
+  deliberationId  String?
+  cellId          String?
+  commentId       String?
+  ideaId          String?
+
+  // State
+  read            Boolean  @default(false)
+  readAt          DateTime?
+
+  createdAt       DateTime @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+}
+
+enum NotificationType {
+  COMMENT_REPLY        // Someone replied to your comment
+  COMMENT_UPVOTE       // Someone upvoted your comment
+  COMMENT_UP_POLLINATE // Your comment reached a new tier
+  IDEA_ADVANCING       // Your idea is advancing
+  IDEA_WON             // Your idea won
+  VOTE_NEEDED          // Your cell needs your vote
+  DELIBERATION_UPDATE  // General deliberation update
 }

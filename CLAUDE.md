@@ -11,11 +11,14 @@
 **Status:** Full voting + accumulation (rolling mode) working
 
 **Latest Session (Jan 2026):**
-- Fixed multi-cell voting bug
-- Added goal-based voting triggers (auto-start on idea/participant count)
-- Improved UX: active cells float to top with "Vote Now" indicator
-- Added Start Challenge button for creators
-- Strategic pivot: free creation, paid amplification model
+- Built feed-based UI (`/feed`) with inline voting, predictions, idea submission
+- Revamped deliberation detail page with collapsible sections for mobile
+- Fixed comment display bugs in feed and deliberation pages
+- Added content moderation (blocks slurs, hate speech, spam, links)
+- Added Toast notification system for better UX
+- Fixed TypeScript errors and verified production build
+- Updated `/how-it-works` with "Ultimate Vision" section (global scale)
+- Documented up-pollination architecture vision in `web/docs/UP_POLLINATION_ARCHITECTURE.md`
 
 ---
 
@@ -285,7 +288,7 @@ git push origin main   # Triggers Vercel deployment
 ## Known Issues / TODOs
 
 ### Bugs to Fix
-1. **Admin self-delete**: Admin can still delete their own account in settings (Task #30)
+1. ~~**Admin self-delete**: Admin can still delete their own account in settings (Task #30)~~ **FIXED** - API returns 403, UI shows message for admins
 2. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
 
 ### Untested Code Paths
@@ -303,20 +306,46 @@ git push origin main   # Triggers Vercel deployment
 
 ### Security Gaps
 1. **No CAPTCHA**: Idea submission vulnerable to bot spam
-2. **No content moderation**: Bad actors can submit anything
+2. ~~**No content moderation**: Bad actors can submit anything~~ **FIXED** - `src/lib/moderation.ts` blocks slurs, hate speech, spam, and links
 3. **Rate limit bypass**: Per-IP limits bypassed by VPNs
 4. **Push notifications**: Configured but not fully tested in production
 
 ### Performance Unknowns
 1. **Scale testing**: How does it handle 1000+ ideas in one deliberation?
 2. **Query optimization**: Prisma queries not optimized for scale
-3. **Database indexes**: Only default indexes, may need more
+3. ~~**Database indexes**: Only default indexes, may need more~~ **FIXED** - Added indexes on key fields
 
 ### Technical Debt
 1. **Unused component**: `MetaDeliberationEmbed.tsx` created but not used
 2. **Duplicate code**: Some overlap between components
 3. **No test suite**: No comprehensive automated tests
 4. **Free tier permissions**: Need to implement rate limits for free users (see docs/META_DELIBERATION.md)
+
+### Recent Additions (Jan 2026)
+- `src/lib/moderation.ts` - Content moderation (profanity, spam, links)
+- `src/components/Toast.tsx` - Toast notification system with `useToast()` hook
+- `src/app/feed/page.tsx` - Feed-based UI with cards
+- `src/components/feed/cards/` - VoteNowCard, PredictCard, SubmitIdeasCard, ChampionCard
+- `src/components/sheets/` - BottomSheet, DeliberationSheet
+- `web/docs/UP_POLLINATION_ARCHITECTURE.md` - Future vision for comment up-pollination
+- `src/components/Onboarding.tsx` - New user onboarding modal (name, bio)
+- `src/app/user/[id]/page.tsx` - User profile page with stats and activity
+- `src/app/api/user/me/route.ts` - GET/PATCH current user profile
+- `src/app/api/user/[id]/route.ts` - GET public user profile
+- `src/app/api/user/onboarding/route.ts` - POST onboarding completion
+- `src/hooks/useOnboarding.ts` - Hook to check if user needs onboarding
+- User model updated with `bio` and `onboardedAt` fields
+- **Up-pollination system implemented:**
+  - Comment model updated with `views`, `reachTier`, `upvoteCount` fields
+  - `CommentUpvote` model for tracking upvotes
+  - `Notification` model for activity feed (upvotes, replies, up-pollination events)
+  - `src/app/api/comments/[commentId]/upvote/route.ts` - Upvote comments, triggers up-pollination
+  - `src/app/api/notifications/route.ts` - GET/PATCH user notifications
+  - `src/components/NotificationBell.tsx` - Notification bell in header
+  - Comments API returns separate `local` and `upPollinated` arrays
+  - Up-pollination capped at deliberation's current tier (no cross-batch pollution)
+  - Feed cards now show view counts (👁 icon)
+  - Deliberation model updated with `views` field
 
 ---
 
@@ -410,10 +439,10 @@ To change colors app-wide:
    - Voting prediction accuracy per cell
    - Portable reputation that means something
 
-2. **Engagement feed** (Task #33)
-   - After voting → swipe to more cells/deliberations
-   - Never a dead end, always more to engage with
-   - "While you wait..." keeps users in app
+2. ~~**Engagement feed** (Task #33)~~ **DONE**
+   - Built `/feed` with card-based UI
+   - Vote, predict, submit inline without navigation
+   - Bottom sheet for details
 
 3. **Social graph of agreement**
    - Track who you agree with across deliberations

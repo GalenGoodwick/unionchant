@@ -20,7 +20,8 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { deliberationId, leaveFinalVote = true } = body
+    const { deliberationId, leaveFinalVote = true, leaveVotesOpen = 1 } = body
+    const votesToLeaveOpen = typeof leaveVotesOpen === 'number' ? leaveVotesOpen : 1
 
     if (!deliberationId) {
       return NextResponse.json({ error: 'deliberationId required' }, { status: 400 })
@@ -95,18 +96,24 @@ export async function POST(req: NextRequest) {
         })
 
       // If final showdown and we want to leave votes for manual testing,
-      // vote for everyone EXCEPT the real user (session user)
+      // vote for everyone EXCEPT the specified number of participants
       if (isFinalShowdown && leaveFinalVote) {
         for (const cell of cellsAtTier) {
           const votedUserIds = new Set(cell.votes.map((v: { userId: string }) => v.userId))
-          // Get participants who haven't voted, excluding test users (vote for them)
-          // but keep real users unvoted
-          const unvotedParticipants = cell.participants.filter((p: { userId: string; user?: { email?: string } }) => {
-            if (votedUserIds.has(p.userId)) return false
-            // Check if this is a test user (email contains @test.local)
-            const isTestUser = p.user?.email?.includes('@test.local')
-            return isTestUser // Only include test users to vote for
+          // Get all unvoted participants
+          const allUnvotedParticipants = cell.participants.filter((p: { userId: string; user?: { email?: string } }) =>
+            !votedUserIds.has(p.userId)
+          )
+
+          // Sort: real users first (so they get left unvoted), then test users
+          allUnvotedParticipants.sort((a: { user?: { email?: string } }, b: { user?: { email?: string } }) => {
+            const aIsTest = a.user?.email?.includes('@test.local') ? 1 : 0
+            const bIsTest = b.user?.email?.includes('@test.local') ? 1 : 0
+            return aIsTest - bIsTest
           })
+
+          // Skip the first X participants (leave them unvoted), vote for the rest
+          const unvotedParticipants = allUnvotedParticipants.slice(votesToLeaveOpen)
 
           for (let i = 0; i < unvotedParticipants.length; i++) {
             const participant = unvotedParticipants[i]

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
 
 // GET /api/deliberations/[id]/cells - Get user's cells in this deliberation
 export async function GET(
@@ -10,6 +11,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params
+
+    // Lazy evaluation: process any expired cells (non-blocking)
+    checkAndTransitionDeliberation(id).catch(err => {
+      console.error('Error in lazy transition:', err)
+    })
+
     const session = await getServerSession(authOptions)
 
     if (!session?.user?.email) {

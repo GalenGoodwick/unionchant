@@ -40,13 +40,25 @@ export async function GET(
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
-    // Check if current user is a member
+    // Increment view count (fire and forget)
+    prisma.deliberation.update({
+      where: { id },
+      data: { views: { increment: 1 } },
+    }).catch(err => console.error('Failed to increment deliberation views:', err))
+
+    // Check if current user is a member/creator and get their submitted ideas
     let isMember = false
+    let isCreator = false
+    let userSubmittedIdea: { id: string; text: string } | null = null
+    let userSubmittedChallenger: { id: string; text: string } | null = null
+
     if (session?.user?.email) {
       const user = await prisma.user.findUnique({
         where: { email: session.user.email },
       })
       if (user) {
+        isCreator = user.id === deliberation.creatorId
+
         const membership = await prisma.deliberationMember.findUnique({
           where: {
             deliberationId_userId: {
@@ -56,6 +68,33 @@ export async function GET(
           },
         })
         isMember = !!membership
+
+        // Check if user has submitted an idea (regular submission)
+        const existingIdea = await prisma.idea.findFirst({
+          where: {
+            deliberationId: id,
+            authorId: user.id,
+            isNew: false,
+          },
+          select: { id: true, text: true },
+        })
+        if (existingIdea) {
+          userSubmittedIdea = existingIdea
+        }
+
+        // Check if user has submitted a challenger (pending)
+        const existingChallenger = await prisma.idea.findFirst({
+          where: {
+            deliberationId: id,
+            authorId: user.id,
+            isNew: true,
+            status: 'PENDING',
+          },
+          select: { id: true, text: true },
+        })
+        if (existingChallenger) {
+          userSubmittedChallenger = existingChallenger
+        }
       }
     }
 
@@ -63,7 +102,10 @@ export async function GET(
     const response = {
       ...deliberation,
       isMember,
-      inviteCode: isMember ? deliberation.inviteCode : undefined,
+      isCreator,
+      inviteCode: (isMember || isCreator) ? deliberation.inviteCode : undefined,
+      userSubmittedIdea,
+      userSubmittedChallenger,
     }
 
     return NextResponse.json(response)

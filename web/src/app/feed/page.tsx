@@ -1,0 +1,282 @@
+'use client'
+
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
+import Header from '@/components/Header'
+import VoteNowCard from '@/components/feed/cards/VoteNowCard'
+import JoinVotingCard from '@/components/feed/cards/JoinVotingCard'
+import SubmitIdeasCard from '@/components/feed/cards/SubmitIdeasCard'
+import ChampionCard from '@/components/feed/cards/ChampionCard'
+import BottomSheet from '@/components/sheets/BottomSheet'
+import DeliberationSheet from '@/components/sheets/DeliberationSheet'
+import Onboarding from '@/components/Onboarding'
+import { useOnboarding } from '@/hooks/useOnboarding'
+import type { FeedItem } from '@/types/feed'
+
+export default function FeedPage() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
+  const { needsOnboarding, completeOnboarding } = useOnboarding()
+  const [items, setItems] = useState<FeedItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Track cards for cells user has voted in (to preserve while awaiting results)
+  // Store full card data so it survives page refresh
+  const [preservedVoteCards, setPreservedVoteCards] = useState<Map<string, FeedItem>>(new Map())
+  const [preservedCardsLoaded, setPreservedCardsLoaded] = useState(false)
+
+  // Load preserved cards from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('preservedVoteCards')
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as [string, FeedItem][]
+        setPreservedVoteCards(new Map(parsed))
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    setPreservedCardsLoaded(true)
+  }, [])
+
+  // Sheet state
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null)
+
+  const fetchFeed = useCallback(async () => {
+    try {
+      const res = await fetch('/api/feed')
+      if (!res.ok) throw new Error('Failed to fetch feed')
+      const data = await res.json()
+      const newItems = data.items as FeedItem[]
+
+      // Get preserved cards from storage that should still be shown
+      // Only skip if there's already a vote_now card for this exact cell in new items
+      const cardsToPreserve = Array.from(preservedVoteCards.values()).filter(p =>
+        !newItems.some(n => n.cell?.id === p.cell?.id)
+      )
+
+      // Filter out duplicate deliberations - if we have a preserved vote card,
+      // don't also show a champion/predict card for the same deliberation
+      const preservedDeliberationIds = new Set(cardsToPreserve.map(p => p.deliberation.id))
+      const filteredNewItems = newItems.filter(n =>
+        // Keep vote_now cards (they have cells)
+        n.type === 'vote_now' ||
+        // Keep other cards only if we don't have a preserved card for this deliberation
+        !preservedDeliberationIds.has(n.deliberation.id)
+      )
+
+      // Combine: preserved cards first (higher priority), then new items
+      setItems([...cardsToPreserve, ...filteredNewItems])
+      setError(null)
+    } catch (err) {
+      console.error('Feed error:', err)
+      setError('Failed to load feed')
+    } finally {
+      setLoading(false)
+    }
+  }, [preservedVoteCards])
+
+  // Preserve a vote card (called from VoteNowCard after voting)
+  const preserveVoteCard = useCallback((item: FeedItem) => {
+    if (!item.cell) return
+    setPreservedVoteCards(prev => {
+      const updated = new Map(prev)
+      updated.set(item.cell!.id, item)
+      // Persist to localStorage
+      localStorage.setItem('preservedVoteCards', JSON.stringify([...updated]))
+      return updated
+    })
+  }, [])
+
+  // Dismiss a preserved vote card
+  const dismissVoteCard = useCallback((cellId: string) => {
+    setPreservedVoteCards(prev => {
+      const updated = new Map(prev)
+      updated.delete(cellId)
+      localStorage.setItem('preservedVoteCards', JSON.stringify([...updated]))
+      return updated
+    })
+    // Also remove from items immediately
+    setItems(prev => prev.filter(item => item.cell?.id !== cellId))
+  }, [])
+
+  useEffect(() => {
+    // Wait for preserved cards to be loaded from localStorage before fetching
+    if (!preservedCardsLoaded) return
+
+    fetchFeed()
+    // Poll for updates every 5 seconds
+    const interval = setInterval(fetchFeed, 5000)
+    return () => clearInterval(interval)
+  }, [fetchFeed, preservedCardsLoaded])
+
+  const openSheet = (item: FeedItem) => {
+    setSelectedItem(item)
+    setSheetOpen(true)
+  }
+
+  const closeSheet = () => {
+    setSheetOpen(false)
+    setSelectedItem(null)
+  }
+
+  const handleAction = () => {
+    // Refresh feed after an action (vote, predict, submit)
+    fetchFeed()
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="max-w-lg mx-auto px-4 py-8">
+          <div className="animate-pulse space-y-4">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="h-48 bg-surface rounded-xl" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      {/* Onboarding modal for new users */}
+      {needsOnboarding && <Onboarding onComplete={completeOnboarding} />}
+
+      <div className="max-w-lg mx-auto px-4 py-6">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-xl font-bold text-foreground">
+            {status === 'authenticated' ? 'Your Feed' : 'Active Deliberations'}
+          </h1>
+          <Link
+            href="/deliberations"
+            className="text-sm text-muted hover:text-foreground transition-colors"
+          >
+            See All →
+          </Link>
+        </div>
+
+        {/* Error state */}
+        {error && (
+          <div className="bg-error-bg border border-error text-error p-4 rounded-lg mb-4">
+            {error}
+            <button onClick={fetchFeed} className="ml-2 underline">
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {items.length === 0 && !error && (
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">🗳️</div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">
+              Nothing in your feed yet
+            </h2>
+            <p className="text-muted mb-6">
+              Join a deliberation or create your own to get started.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Link
+                href="/deliberations"
+                className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Browse Deliberations
+              </Link>
+              <Link
+                href="/deliberations/new"
+                className="border border-border hover:border-accent text-foreground px-4 py-2 rounded-lg transition-colors"
+              >
+                Create New
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* Feed items */}
+        <div className="space-y-4">
+          {items.map((item, index) => {
+            const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || index}`
+
+            switch (item.type) {
+              case 'vote_now':
+                return (
+                  <VoteNowCard
+                    key={key}
+                    item={item}
+                    onAction={handleAction}
+                    onExplore={() => openSheet(item)}
+                    onVoted={() => preserveVoteCard(item)}
+                    onDismiss={item.cell ? () => dismissVoteCard(item.cell!.id) : undefined}
+                  />
+                )
+              case 'join_voting':
+                return (
+                  <JoinVotingCard
+                    key={key}
+                    item={item}
+                    onAction={handleAction}
+                    onExplore={() => openSheet(item)}
+                  />
+                )
+              case 'submit_ideas':
+                return (
+                  <SubmitIdeasCard
+                    key={key}
+                    item={item}
+                    onAction={handleAction}
+                    onExplore={() => openSheet(item)}
+                  />
+                )
+              case 'champion':
+              case 'challenge':
+                return (
+                  <ChampionCard
+                    key={key}
+                    item={item}
+                    onAction={handleAction}
+                    onExplore={() => openSheet(item)}
+                  />
+                )
+              default:
+                return null
+            }
+          })}
+        </div>
+
+        {/* Sign in prompt for non-authenticated users */}
+        {status === 'unauthenticated' && (
+          <div className="mt-8 p-4 bg-surface border border-border rounded-lg text-center">
+            <p className="text-muted mb-3">Sign in to vote and make predictions</p>
+            <Link
+              href="/auth/signin"
+              className="inline-block bg-accent hover:bg-accent-hover text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              Sign In
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom Sheet */}
+      <BottomSheet isOpen={sheetOpen} onClose={closeSheet}>
+        {selectedItem && (
+          <DeliberationSheet
+            item={selectedItem}
+            onAction={handleAction}
+            onClose={closeSheet}
+          />
+        )}
+      </BottomSheet>
+    </div>
+  )
+}

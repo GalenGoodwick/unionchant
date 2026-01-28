@@ -315,6 +315,97 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
+        {/* The Ultimate Vision */}
+        <section className="mb-12">
+          <h2 className="text-2xl font-semibold text-foreground mb-4">The Ultimate Vision</h2>
+          <div className="bg-purple-bg border border-purple rounded-lg p-6 mb-6">
+            <p className="text-foreground text-lg font-medium mb-4">
+              What if humanity could decide together?
+            </p>
+            <p className="text-subtle">
+              The same algorithm that handles 1,000 participants handles 8 billion. With just
+              <strong className="text-foreground"> 14 tiers</strong>, every human on Earth could participate
+              in selecting a single consensus answer—each person in a genuine 5-person deliberation.
+            </p>
+          </div>
+
+          {/* Global Scale Table */}
+          <div className="bg-background rounded-lg border border-border overflow-x-auto mb-6">
+            <table className="w-full text-sm min-w-[400px]">
+              <thead className="bg-surface">
+                <tr>
+                  <th className="text-left p-4 text-muted font-medium">Scale</th>
+                  <th className="text-left p-4 text-muted font-medium">Participants</th>
+                  <th className="text-left p-4 text-muted font-medium">Tiers</th>
+                  <th className="text-left p-4 text-muted font-medium">Deliberations</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                <tr className="border-t border-border">
+                  <td className="p-4 text-foreground">City</td>
+                  <td className="p-4 text-muted">100,000</td>
+                  <td className="p-4 text-accent">7</td>
+                  <td className="p-4 text-muted">25,000</td>
+                </tr>
+                <tr className="border-t border-border">
+                  <td className="p-4 text-foreground">Nation</td>
+                  <td className="p-4 text-muted">50,000,000</td>
+                  <td className="p-4 text-accent">11</td>
+                  <td className="p-4 text-muted">12.5M</td>
+                </tr>
+                <tr className="border-t border-border bg-purple-bg">
+                  <td className="p-4 text-foreground font-bold">Humanity</td>
+                  <td className="p-4 text-foreground font-bold">8,000,000,000</td>
+                  <td className="p-4 text-purple font-bold">14</td>
+                  <td className="p-4 text-foreground font-bold">2 billion</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* What This Enables */}
+          <div className="grid sm:grid-cols-2 gap-4 mb-6">
+            <div className="bg-background rounded-lg border border-border p-5">
+              <h3 className="font-semibold text-foreground mb-2">Legitimate Global Consensus</h3>
+              <p className="text-muted text-sm">
+                Not "67% clicked a button"—actual deliberated consensus from billions of real discussions.
+                A mandate that means something.
+              </p>
+            </div>
+            <div className="bg-background rounded-lg border border-border p-5">
+              <h3 className="font-semibold text-foreground mb-2">Living Global Policy</h3>
+              <p className="text-muted text-sm">
+                Rolling mode means humanity's position on climate, AI, or inequality can evolve
+                as circumstances change—while maintaining democratic legitimacy.
+              </p>
+            </div>
+            <div className="bg-background rounded-lg border border-border p-5">
+              <h3 className="font-semibold text-foreground mb-2">Collective Intelligence</h3>
+              <p className="text-muted text-sm">
+                The best ideas surface not through virality or wealth, but through genuine evaluation
+                at every tier. 2 billion deliberations distilling wisdom.
+              </p>
+            </div>
+            <div className="bg-background rounded-lg border border-border p-5">
+              <h3 className="font-semibold text-foreground mb-2">Democratic AI Alignment</h3>
+              <p className="text-muted text-sm">
+                What if AI systems were aligned not to one company's values, but to humanity's
+                deliberated consensus on what matters?
+              </p>
+            </div>
+          </div>
+
+          {/* The Point */}
+          <div className="bg-surface rounded-lg border border-border p-6 text-center">
+            <p className="text-foreground mb-2">
+              Every deliberation here is practice for the conversations that matter most.
+            </p>
+            <p className="text-muted text-sm italic">
+              "The measure of a democracy is not the loudness of its voices, but the quality of its listening."
+            </p>
+          </div>
+        </section>
+
         {/* CTA */}
         <div className="text-center pt-8 border-t border-border">
           <h3 className="text-xl font-semibold text-foreground mb-4">Ready to see it in action?</h3>

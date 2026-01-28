@@ -1,0 +1,246 @@
+'use client'
+
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import Header from '@/components/Header'
+
+type Notification = {
+  id: string
+  type: string
+  title: string
+  body: string | null
+  deliberationId: string | null
+  cellId: string | null
+  commentId: string | null
+  ideaId: string | null
+  read: boolean
+  readAt: string | null
+  createdAt: string
+}
+
+export default function NotificationsPage() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [marking, setMarking] = useState(false)
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin')
+      return
+    }
+
+    if (status === 'authenticated') {
+      fetchNotifications()
+    }
+  }, [status, router])
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch('/api/notifications')
+      if (res.ok) {
+        const data = await res.json()
+        setNotifications(data.notifications || [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const markAllRead = async () => {
+    setMarking(true)
+    try {
+      const res = await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markAllRead: true }),
+      })
+      if (res.ok) {
+        setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+      }
+    } catch (err) {
+      console.error('Failed to mark all read:', err)
+    } finally {
+      setMarking(false)
+    }
+  }
+
+  const markOneRead = async (id: string) => {
+    try {
+      await fetch('/api/notifications', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationIds: [id] }),
+      })
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+    } catch (err) {
+      console.error('Failed to mark read:', err)
+    }
+  }
+
+  const getIcon = (type: string) => {
+    switch (type) {
+      case 'COMMENT_UPVOTE': return '👍'
+      case 'COMMENT_REPLY': return '💬'
+      case 'COMMENT_UP_POLLINATE': return '🌸'
+      case 'IDEA_ADVANCING': return '🚀'
+      case 'IDEA_WON': return '🏆'
+      case 'IDEA_ELIMINATED': return '❌'
+      case 'CELL_READY': return '🗳️'
+      case 'DELIBERATION_COMPLETE': return '✅'
+      default: return '🔔'
+    }
+  }
+
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case 'COMMENT_UPVOTE': return 'Upvote'
+      case 'COMMENT_REPLY': return 'Reply'
+      case 'COMMENT_UP_POLLINATE': return 'Up-Pollinated'
+      case 'IDEA_ADVANCING': return 'Advancing'
+      case 'IDEA_WON': return 'Won'
+      case 'IDEA_ELIMINATED': return 'Eliminated'
+      case 'CELL_READY': return 'Vote Ready'
+      case 'DELIBERATION_COMPLETE': return 'Complete'
+      default: return 'Notification'
+    }
+  }
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'COMMENT_UP_POLLINATE': return 'bg-purple text-white'
+      case 'IDEA_ADVANCING':
+      case 'IDEA_WON': return 'bg-success text-white'
+      case 'IDEA_ELIMINATED': return 'bg-error text-white'
+      case 'CELL_READY': return 'bg-warning text-black'
+      default: return 'bg-accent text-white'
+    }
+  }
+
+  const timeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'now'
+    if (mins < 60) return `${mins}m ago`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h ago`
+    const days = Math.floor(hours / 24)
+    return `${days}d ago`
+  }
+
+  const getLink = (n: Notification) => {
+    if (n.deliberationId) return `/deliberations/${n.deliberationId}`
+    return null
+  }
+
+  const unreadCount = notifications.filter(n => !n.read).length
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="max-w-2xl mx-auto px-4 py-8">
+          <div className="animate-pulse space-y-4">
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} className="h-20 bg-surface rounded-lg" />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
+            {unreadCount > 0 && (
+              <p className="text-muted text-sm">{unreadCount} unread</p>
+            )}
+          </div>
+          {unreadCount > 0 && (
+            <button
+              onClick={markAllRead}
+              disabled={marking}
+              className="text-accent hover:text-accent-hover text-sm transition-colors disabled:opacity-50"
+            >
+              {marking ? 'Marking...' : 'Mark all read'}
+            </button>
+          )}
+        </div>
+
+        {/* Empty state */}
+        {notifications.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">🔔</div>
+            <h2 className="text-lg font-semibold text-foreground mb-2">
+              No notifications yet
+            </h2>
+            <p className="text-muted">
+              You'll see activity here when people interact with your comments and ideas.
+            </p>
+          </div>
+        )}
+
+        {/* Notifications list */}
+        <div className="space-y-2">
+          {notifications.map((n) => {
+            const link = getLink(n)
+            const content = (
+              <div
+                className={`p-4 rounded-lg border transition-colors ${
+                  n.read
+                    ? 'bg-surface border-border'
+                    : 'bg-surface border-accent'
+                }`}
+                onClick={() => !n.read && markOneRead(n.id)}
+              >
+                <div className="flex gap-3">
+                  {/* Icon */}
+                  <div className="text-2xl shrink-0">{getIcon(n.type)}</div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs px-2 py-0.5 rounded font-medium ${getTypeColor(n.type)}`}>
+                        {getTypeLabel(n.type)}
+                      </span>
+                      <span className="text-muted text-xs">{timeAgo(n.createdAt)}</span>
+                      {!n.read && (
+                        <span className="w-2 h-2 bg-accent rounded-full" />
+                      )}
+                    </div>
+                    <p className="text-foreground font-medium">{n.title}</p>
+                    {n.body && (
+                      <p className="text-muted text-sm mt-1 line-clamp-2">{n.body}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+
+            if (link) {
+              return (
+                <Link key={n.id} href={link} onClick={() => !n.read && markOneRead(n.id)}>
+                  {content}
+                </Link>
+              )
+            }
+
+            return <div key={n.id}>{content}</div>
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}

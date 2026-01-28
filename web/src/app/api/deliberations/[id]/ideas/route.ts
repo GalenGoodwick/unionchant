@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { startVotingPhase } from '@/lib/voting'
+import { moderateContent } from '@/lib/moderation'
+import { verifyCaptcha } from '@/lib/captcha'
 
 // POST /api/deliberations/[id]/ideas - Submit a new idea
 export async function POST(
@@ -53,11 +55,63 @@ export async function POST(
       return NextResponse.json({ error: 'Deliberation has ended' }, { status: 400 })
     }
 
+    // Check if user has already submitted an idea in this phase
+    if (deliberation.phase === 'SUBMISSION') {
+      const existingIdea = await prisma.idea.findFirst({
+        where: {
+          deliberationId: id,
+          authorId: user.id,
+          isNew: false, // Regular submissions, not challengers
+        },
+      })
+      if (existingIdea) {
+        return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
+      }
+    } else if (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') {
+      // Check if user already submitted a challenger for this round
+      const existingChallenger = await prisma.idea.findFirst({
+        where: {
+          deliberationId: id,
+          authorId: user.id,
+          isNew: true, // Challengers
+          status: 'PENDING', // Not yet used in a challenge round
+        },
+      })
+      if (existingChallenger) {
+        return NextResponse.json({ error: 'You have already submitted a challenger' }, { status: 400 })
+      }
+    }
+
     const body = await req.json()
-    const { text } = body
+    const { text, captchaToken } = body
+
+    // Verify CAPTCHA (checks if user verified in last 24h, or verifies token)
+    const captchaResult = await verifyCaptcha(captchaToken, user.id)
+    if (!captchaResult.success) {
+      return NextResponse.json({ error: captchaResult.error || 'CAPTCHA verification failed' }, { status: 400 })
+    }
 
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Idea text is required' }, { status: 400 })
+    }
+
+    // Content moderation
+    const moderation = moderateContent(text)
+    if (!moderation.allowed) {
+      return NextResponse.json({ error: moderation.reason }, { status: 400 })
+    }
+
+    // Check for duplicate idea text (case-insensitive)
+    const normalizedText = text.trim().toLowerCase()
+    const existingIdeas = await prisma.idea.findMany({
+      where: { deliberationId: id },
+      select: { text: true },
+    })
+    const isDuplicate = existingIdeas.some(
+      idea => idea.text.trim().toLowerCase() === normalizedText
+    )
+    if (isDuplicate) {
+      return NextResponse.json({ error: 'This idea has already been submitted' }, { status: 400 })
     }
 
     // Ideas submitted during VOTING or ACCUMULATING are marked for next round

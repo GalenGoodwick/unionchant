@@ -40,6 +40,11 @@ export async function POST(
 
     const result = await startVotingPhase(id)
 
+    // Return error status if voting didn't start
+    if (!result.success) {
+      return NextResponse.json({ error: result.message, reason: result.reason }, { status: 400 })
+    }
+
     return NextResponse.json(result)
   } catch (error) {
     console.error('Error starting voting:', error)
