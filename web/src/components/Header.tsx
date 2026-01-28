@@ -31,9 +31,6 @@ export default function Header({ showSettings = true }: HeaderProps) {
           <Link href="/deliberations" className="hover:text-accent-light transition-colors">
             Deliberations
           </Link>
-          <Link href="/pricing" className="hover:text-accent-light transition-colors">
-            Pricing
-          </Link>
           <Link href="/donate" className="hover:text-accent-light transition-colors">
             Donate
           </Link>
