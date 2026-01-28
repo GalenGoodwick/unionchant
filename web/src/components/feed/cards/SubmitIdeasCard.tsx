@@ -24,6 +24,9 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
   const [submittedText, setSubmittedText] = useState(item.userSubmittedIdea?.text || '')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
 
+  // Check if submission deadline has passed
+  const isExpired = item.submissionDeadline ? new Date(item.submissionDeadline) < new Date() : false
+
   const handleCaptchaVerify = useCallback((token: string) => {
     setCaptchaToken(token)
   }, [])
@@ -73,11 +76,11 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
   }
 
   return (
-    <div className="bg-surface border border-accent rounded-xl overflow-hidden">
+    <div className={`bg-surface border ${isExpired ? 'border-border' : 'border-accent'} rounded-xl overflow-hidden`}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex justify-between items-center">
-        <span className="text-accent font-bold text-sm uppercase tracking-wide">
-          Accepting Ideas
+        <span className={`font-bold text-sm uppercase tracking-wide ${isExpired ? 'text-muted' : 'text-accent'}`}>
+          {isExpired ? 'Submission Closed' : 'Accepting Ideas'}
         </span>
         <span className="text-sm text-muted font-mono">
           {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
@@ -140,6 +143,11 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
                 See all ideas →
               </Link>
             </div>
+          </div>
+        ) : isExpired ? (
+          <div className="bg-surface border border-border rounded-lg p-4 text-center">
+            <p className="text-muted font-medium mb-2">Submission period ended</p>
+            <p className="text-muted text-sm">Voting will begin soon</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-3">

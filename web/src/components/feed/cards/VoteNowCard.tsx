@@ -100,6 +100,9 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
   const isDeliberationComplete = deliberationPhase === 'COMPLETED'
   const champion = cellResult?.champion
 
+  // Check if voting deadline has passed
+  const isExpired = cell.votingDeadline ? new Date(cell.votingDeadline) < new Date() : false
+
   // Show completed state only when cell is done and we have results
   if (isCompleted && cellResult?.winner) {
     const yourPick = cell.ideas.find(i => i.id === votedIdeaId)
@@ -224,20 +227,20 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
   // Determine urgency styling
   const urgency = cell.urgency || 'normal'
   const isUrgent = urgency === 'critical' || urgency === 'warning'
-  const borderColor = urgency === 'critical' ? 'border-error' : urgency === 'warning' ? 'border-orange' : 'border-warning'
-  const headerBg = urgency === 'critical' ? 'bg-error/10' : urgency === 'warning' ? 'bg-orange/10' : ''
+  const borderColor = isExpired ? 'border-border' : urgency === 'critical' ? 'border-error' : urgency === 'warning' ? 'border-orange' : 'border-warning'
+  const headerBg = isExpired ? '' : urgency === 'critical' ? 'bg-error/10' : urgency === 'warning' ? 'bg-orange/10' : ''
 
   // Show waiting/voting state
   return (
-    <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden ${urgency === 'critical' ? 'ring-2 ring-error/50' : ''}`}>
+    <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden ${urgency === 'critical' && !isExpired ? 'ring-2 ring-error/50' : ''}`}>
       {/* Header */}
       <div className={`px-4 py-3 border-b border-border flex justify-between items-center ${headerBg}`}>
         <div className="flex items-center gap-2">
-          {urgency === 'critical' && !voted && (
+          {urgency === 'critical' && !voted && !isExpired && (
             <span className="text-error animate-pulse text-lg">⚠</span>
           )}
-          <span className={`font-bold text-sm uppercase tracking-wide ${urgency === 'critical' ? 'text-error' : urgency === 'warning' ? 'text-orange' : 'text-warning'}`}>
-            {voted ? 'Waiting for others' : urgency === 'critical' ? 'Vote Now - Closing Soon!' : 'Vote Now'}
+          <span className={`font-bold text-sm uppercase tracking-wide ${isExpired ? 'text-muted' : urgency === 'critical' ? 'text-error' : urgency === 'warning' ? 'text-orange' : 'text-warning'}`}>
+            {isExpired ? 'Voting Ended' : voted ? 'Waiting for others' : urgency === 'critical' ? 'Vote Now - Closing Soon!' : 'Vote Now'}
           </span>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted font-mono">
@@ -293,7 +296,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
                   <p className="text-xs text-muted">by {idea.author}</p>
                 </div>
 
-                {!voted ? (
+                {!voted && !isExpired ? (
                   <button
                     onClick={() => handleVote(idea.id)}
                     disabled={voting !== null}
@@ -301,6 +304,8 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
                   >
                     {voting === idea.id ? '...' : 'Vote'}
                   </button>
+                ) : !voted && isExpired ? (
+                  <span className="text-muted text-sm">Ended</span>
                 ) : isCurrentVote ? (
                   <span className="text-success text-sm font-medium">Your Vote</span>
                 ) : canChange ? (

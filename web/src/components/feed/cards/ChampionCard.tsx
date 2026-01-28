@@ -163,22 +163,29 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
 
         {/* Submit challenger form - only during ACCUMULATING phase (not during VOTING/challenge rounds) */}
         {isAccumulating && !submitted && (
-          <form onSubmit={handleSubmitChallenger} className="flex gap-2">
-            <input
-              type="text"
-              value={idea}
-              onChange={(e) => setIdea(e.target.value)}
-              placeholder="Submit a challenger..."
-              className={`flex-1 bg-background border border-border rounded-lg px-4 py-2 text-foreground placeholder-muted focus:outline-none focus:${borderColor} transition-colors`}
+          <div className="space-y-3">
+            <form onSubmit={handleSubmitChallenger} className="flex gap-2">
+              <input
+                type="text"
+                value={idea}
+                onChange={(e) => setIdea(e.target.value)}
+                placeholder="Submit a challenger..."
+                className={`flex-1 bg-background border border-border rounded-lg px-4 py-2 text-foreground placeholder-muted focus:outline-none focus:${borderColor} transition-colors`}
+              />
+              <button
+                type="submit"
+                disabled={submitting || !idea.trim() || !captchaToken}
+                className={`${isChallenge ? 'bg-orange hover:bg-orange-hover' : 'bg-purple hover:bg-purple-hover'} text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50`}
+              >
+                {submitting ? '...' : 'Challenge'}
+              </button>
+            </form>
+            <Turnstile
+              onVerify={handleCaptchaVerify}
+              onExpire={handleCaptchaExpire}
+              className="flex justify-center"
             />
-            <button
-              type="submit"
-              disabled={submitting || !idea.trim()}
-              className={`${isChallenge ? 'bg-orange hover:bg-orange-hover' : 'bg-purple hover:bg-purple-hover'} text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50`}
-            >
-              {submitting ? '...' : 'Challenge'}
-            </button>
-          </form>
+          </div>
         )}
 
         {/* Submitted confirmation - only show during ACCUMULATING phase */}
