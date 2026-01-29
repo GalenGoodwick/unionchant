@@ -28,7 +28,7 @@
 
 1. **Tiered voting** - Ideas compete in small cells (5 people, 5 ideas)
 2. **Winners advance** - Each tier reduces ideas by ~5:1
-3. **Final showdown** - When ≤4 ideas remain, ALL participants vote
+3. **Final showdown** - When ≤5 ideas remain, ALL participants vote
 4. **Rolling mode** - Champion can be challenged by new ideas continuously
 
 **Scale:** 1,000,000 participants → ~9 tiers → days/weeks to consensus
@@ -93,7 +93,7 @@ checkTierCompletion(deliberationId, tier)
 ```
 
 **Critical concepts:**
-- **Final showdown**: When ≤4 ideas, ALL participants vote on ALL ideas
+- **Final showdown**: When ≤5 ideas, ALL participants vote on ALL ideas
 - **Cross-cell tallying**: In final showdown, votes counted across all cells
 - **Accumulation transition**: Winner goes to ACCUMULATING phase if enabled
 
@@ -307,6 +307,21 @@ git push origin main   # Triggers Vercel deployment
 ### Bugs to Fix
 1. ~~**Admin self-delete**: Admin can still delete their own account in settings (Task #30)~~ **FIXED** - API returns 403, UI shows message for admins
 2. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
+3. **Accumulation signifier bug**: UI shows accumulation state incorrectly during phase transitions
+4. **Cell color updates**: Cells with 5/5 votes not turning green immediately - relying on timeout instead of vote completion trigger
+5. **"Join and Vote" button issues**: Doesn't work sometimes, still shows after user voted, state confusion on refresh
+6. **Vote card state flicker**: Shows several intermediate states before settling - needs loading indicator
+7. **Up-pollination not working**: Despite 60% upvote rate, comments not spreading across cells
+8. **Cell click does nothing**: No detail view when clicking a cell on deliberation page
+9. **Challenger idea fallback**: Shows "Challenger idea #" instead of AI-generated text when Haiku fails
+
+### UX Improvements Needed
+1. **No up-pollination UI** on deliberation page (upvote buttons missing in some contexts)
+2. **No status/progress indicator** during voting actions
+3. **View count mystery**: Shows views from API polling, confusing to users
+
+### Feature Requests (from stress test)
+1. **Facilitator mode enhancements**: Allow manual tier triggering (grey out timer mode in creation when facilitator mode selected)
 
 ### Untested Code Paths
 1. **Meta-deliberation auto-reset**: `handleMetaChampion` spawning logic written but never triggered in production
@@ -316,10 +331,10 @@ git push origin main   # Triggers Vercel deployment
 5. **Vercel cron timers**: Timer-based transitions not fully tested in production
 
 ### Potential Race Conditions
-1. **Simultaneous votes**: Two people voting at exact same moment
-2. **Cell assignment**: Odd numbers of participants edge cases
+1. ~~**Simultaneous votes**: Two people voting at exact same moment~~ **NON-ISSUE** - unique constraint prevents double-voting; extra participants in a cell is harmless
+2. ~~**Cell assignment**: Odd numbers of participants edge cases~~ **NON-ISSUE** - cells with 6+ participants work fine; system sorts by count to balance
 3. ~~**Multi-cell user**: What if a user ends up in multiple cells same tier?~~ **FIXED** - removed wrap-around logic
-4. **Multiple tabs**: Session/auth edge cases
+4. **Multiple tabs**: Session/auth edge cases (minor)
 
 ### Security Gaps
 1. **No CAPTCHA**: Idea submission vulnerable to bot spam
@@ -340,6 +355,7 @@ git push origin main   # Triggers Vercel deployment
 
 ### Feature Ideas
 1. **Continuous Flow Mode**: Allow Tier 1 voting to happen while ideas are still being submitted. Every 5 ideas creates a new Tier 1 cell that starts voting immediately. Winners advance to Tier 2 while more Tier 1 cells form. Good for large-scale deliberations where you don't want to wait for all submissions.
+2. **Promoted Deliberations**: Creators/orgs pay to feature their deliberation in the feed. Native content advertising that aligns with "paid amplification" model. Avoids external ads (Google AdSense etc.) which would undermine democratic legitimacy and user trust. Could also do "Sponsored by" deliberations where orgs sponsor deliberations on specific topics.
 2. **Tie handling display**: Show which ideas tied and both advanced in admin panel
 3. **Spawn deliberation from winner**: Checkbox in creation - winner's text becomes a new deliberation question (plan exists in `.claude/plans/`)
 

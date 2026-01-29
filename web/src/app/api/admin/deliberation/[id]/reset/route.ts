@@ -66,7 +66,42 @@ export async function POST(
       })
     }
 
-    // Reset all ideas to SUBMITTED status
+    // Find test bot members in this deliberation
+    const testBotMembers = await prisma.deliberationMember.findMany({
+      where: {
+        deliberationId,
+        user: {
+          OR: [
+            { email: { contains: '@test.local' } },
+            { email: { contains: '@test.bot' } },
+            { name: { startsWith: 'Test User' } },
+            { name: { startsWith: 'TestBot' } },
+          ],
+        },
+      },
+      select: { userId: true },
+    })
+    const testBotUserIds = testBotMembers.map(m => m.userId)
+
+    // Delete ideas by test bots
+    if (testBotUserIds.length > 0) {
+      await prisma.idea.deleteMany({
+        where: {
+          deliberationId,
+          authorId: { in: testBotUserIds },
+        },
+      })
+
+      // Remove test bot members from deliberation
+      await prisma.deliberationMember.deleteMany({
+        where: {
+          deliberationId,
+          userId: { in: testBotUserIds },
+        },
+      })
+    }
+
+    // Reset remaining ideas to SUBMITTED status
     await prisma.idea.updateMany({
       where: { deliberationId },
       data: {
@@ -92,6 +127,7 @@ export async function POST(
       success: true,
       message: 'Deliberation reset to SUBMISSION phase',
       deletedCells: cellIds.length,
+      removedTestBots: testBotUserIds.length,
     })
   } catch (error) {
     console.error('Error resetting deliberation:', error)

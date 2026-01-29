@@ -37,9 +37,12 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
   const [votedIdeaId, setVotedIdeaId] = useState<string | null>(cell.userVotedIdeaId || null)
   const [cellResult, setCellResult] = useState<CellResult | null>(null)
 
-  // Poll for cell status after voting
+  // Check if cell is already completed on initial render
+  const isInitiallyCompleted = cell.status === 'COMPLETED'
+
+  // Poll for cell status after voting OR if cell is already completed
   useEffect(() => {
-    if (!voted) return
+    if (!voted && !isInitiallyCompleted) return
 
     const pollStatus = async () => {
       try {
@@ -65,10 +68,13 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
     pollStatus()
     const interval = setInterval(pollStatus, 3000)
     return () => clearInterval(interval)
-  }, [voted, cell.id, cell.participantCount])
+  }, [voted, cell.id, cell.participantCount, isInitiallyCompleted])
+
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const handleVote = async (ideaId: string) => {
     setVoting(ideaId)
+    setIsProcessing(true)
     try {
       const res = await fetch(`/api/cells/${cell.id}/vote`, {
         method: 'POST',
@@ -80,6 +86,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         onVoted?.() // Tell feed to preserve this card
         setVoted(true)
         setVotedIdeaId(ideaId)
+        onAction() // Trigger feed refresh
       } else {
         const data = await res.json()
         alert(data.error || 'Failed to vote')
@@ -89,6 +96,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
       alert('Failed to vote')
     } finally {
       setVoting(null)
+      setIsProcessing(false)
     }
   }
 
@@ -232,7 +240,16 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
 
   // Show waiting/voting state
   return (
-    <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden ${urgency === 'critical' && !isExpired ? 'ring-2 ring-error/50' : ''}`}>
+    <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden ${urgency === 'critical' && !isExpired ? 'ring-2 ring-error/50' : ''} relative`}>
+      {/* Loading overlay */}
+      {isProcessing && (
+        <div className="absolute inset-0 bg-surface/80 flex items-center justify-center z-10 rounded-xl">
+          <div className="text-center">
+            <div className="animate-spin w-8 h-8 border-4 border-warning border-t-transparent rounded-full mx-auto mb-2" />
+            <p className="text-muted text-sm">Submitting vote...</p>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className={`px-4 py-3 border-b border-border flex justify-between items-center ${headerBg}`}>
         <div className="flex items-center gap-2">

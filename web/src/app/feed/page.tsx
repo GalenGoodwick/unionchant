@@ -79,9 +79,33 @@ export default function FeedPage() {
         return true
       })
 
+      // Get cell IDs from new items to check which preserved cards are still valid
+      const activeCellIds = new Set(newItems.filter(i => i.cell).map(i => i.cell!.id))
+      const activeDelibIds = new Set(newItems.map(i => i.deliberation.id))
+
+      // Clean up stale preserved cards (cells that no longer exist in the API response)
+      // If a preserved card's deliberation isn't in the feed at all, it's probably deleted
+      const staleCardIds: string[] = []
+      preservedVoteCards.forEach((card, cellId) => {
+        if (!activeDelibIds.has(card.deliberation.id) && !activeCellIds.has(cellId)) {
+          staleCardIds.push(cellId)
+        }
+      })
+
+      // Remove stale cards from storage
+      if (staleCardIds.length > 0) {
+        setPreservedVoteCards(prev => {
+          const updated = new Map(prev)
+          staleCardIds.forEach(id => updated.delete(id))
+          localStorage.setItem('preservedVoteCards', JSON.stringify([...updated]))
+          return updated
+        })
+      }
+
       // Get preserved cards from storage that should still be shown
       // Only skip if there's already a vote_now card for this exact cell in new items
       const cardsToPreserve = Array.from(preservedVoteCards.values()).filter(p =>
+        !staleCardIds.includes(p.cell?.id || '') &&
         !deduplicatedItems.some(n => n.cell?.id === p.cell?.id)
       )
 
@@ -234,9 +258,20 @@ export default function FeedPage() {
           </div>
         )}
 
-        {/* Feed items */}
+        {/* Feed items - filter out expired cards */}
         <div className="space-y-4">
-          {items.map((item, index) => {
+          {items.filter(item => {
+            const now = Date.now()
+            // Filter out expired vote_now cards
+            if (item.type === 'vote_now' && item.cell?.votingDeadline) {
+              if (new Date(item.cell.votingDeadline).getTime() < now) return false
+            }
+            // Filter out expired submit_ideas cards
+            if (item.type === 'submit_ideas' && item.submissionDeadline) {
+              if (new Date(item.submissionDeadline).getTime() < now) return false
+            }
+            return true
+          }).map((item, index) => {
             const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || 'no-cell'}-${index}`
 
             switch (item.type) {

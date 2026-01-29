@@ -166,11 +166,11 @@ model Deliberation {
   accumulationEndsAt  DateTime? // When the accumulation period ends
 
   // Relations
-  members     DeliberationMember[]
-  ideas       Idea[]
-  cells       Cell[]
-  watchers    Watch[]
-  predictions Prediction[]
+  members       DeliberationMember[]
+  ideas         Idea[]
+  cells         Cell[]
+  watchers      Watch[]
+  predictions   Prediction[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -242,6 +242,7 @@ model Idea {
   votes           Vote[]
   cellIdeas       CellIdea[]
   predictions     Prediction[]
+  comments        Comment[]    // Comments linked to this idea (follow across tiers)
 
   @@index([deliberationId])
   @@index([authorId])
@@ -372,6 +373,8 @@ model Comment {
   cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
   userId          String
   user            User     @relation(fields: [userId], references: [id])
+  ideaId          String?  // Optional: link comment to specific idea (follows idea across tiers)
+  idea            Idea?    @relation(fields: [ideaId], references: [id], onDelete: SetNull)
 
   text            String
   replyToId       String?  // For threading
@@ -382,6 +385,7 @@ model Comment {
   views           Int      @default(0)       // How many people saw this
   reachTier       Int      @default(1)       // Current up-pollinate tier (1-9)
   upvoteCount     Int      @default(0)       // Denormalized for fast queries
+  tierUpvotes     Int      @default(0)       // Upvotes in current reach tier (resets on tier change)
 
   createdAt       DateTime @default(now())
 
@@ -390,6 +394,7 @@ model Comment {
 
   @@index([cellId])
   @@index([userId])
+  @@index([ideaId])
   @@index([cellId, reachTier])
 }
 
@@ -486,6 +491,8 @@ model Notification {
   body            String?
 
   // Context - what triggered this notification
+  // NOTE: These are raw IDs without FK relations to avoid orphan issues with existing data.
+  // When querying, check if the referenced entity still exists.
   deliberationId  String?
   cellId          String?
   commentId       String?
@@ -505,6 +512,7 @@ enum NotificationType {
   COMMENT_REPLY        // Someone replied to your comment
   COMMENT_UPVOTE       // Someone upvoted your comment
   COMMENT_UP_POLLINATE // Your comment reached a new tier
+  COMMENT_DEMOTED      // Your comment dropped a tier (didn't maintain engagement)
   IDEA_ADVANCING       // Your idea is advancing
   IDEA_WON             // Your idea won
   VOTE_NEEDED          // Your cell needs your vote

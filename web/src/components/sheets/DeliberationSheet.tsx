@@ -24,6 +24,7 @@ type Comment = {
   userHasUpvoted: boolean
   isUpPollinated: boolean
   sourceTier: number
+  linkedIdea?: { id: string; text: string } | null
   user: {
     id: string
     name: string | null
@@ -46,6 +47,7 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
   const [loading, setLoading] = useState(true)
   const [comment, setComment] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
+  const [linkedIdeaId, setLinkedIdeaId] = useState<string | null>(null)
   const [upvoting, setUpvoting] = useState<string | null>(null)
   const [upPollinationEvent, setUpPollinationEvent] = useState<{ commentId: string; newTier: number } | null>(null)
   const commentsEndRef = useRef<HTMLDivElement>(null)
@@ -130,6 +132,7 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
     if (!comment.trim() || !item.cell) return
 
     setSubmittingComment(true)
@@ -137,11 +140,13 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
       const res = await fetch(`/api/cells/${item.cell.id}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: comment }),
+        body: JSON.stringify({ text: comment, ideaId: linkedIdeaId || undefined }),
       })
 
       if (res.ok) {
         const newComment = await res.json()
+        // Get linked idea from selected idea
+        const selectedIdea = linkedIdeaId && item.cell?.ideas?.find(i => i.id === linkedIdeaId)
         // Add defaults for new comment fields
         const commentWithDefaults: Comment = {
           ...newComment,
@@ -151,16 +156,26 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
           userHasUpvoted: false,
           isUpPollinated: false,
           sourceTier: cellTier,
+          linkedIdea: selectedIdea ? { id: selectedIdea.id, text: selectedIdea.text } : null,
         }
-        setLocalComments(prev => [...prev, commentWithDefaults])
+        setLocalComments(prev => {
+          // Avoid duplicates if comment already exists
+          if (prev.some(c => c.id === commentWithDefaults.id)) return prev
+          return [...prev, commentWithDefaults]
+        })
         setComment('')
+        setLinkedIdeaId(null)
         // Scroll to new comment
         setTimeout(() => {
           commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
         }, 100)
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to post comment')
       }
     } catch (err) {
       console.error('Failed to post comment:', err)
+      alert('Failed to post comment: ' + (err instanceof Error ? err.message : String(err)))
     } finally {
       setSubmittingComment(false)
     }
@@ -265,6 +280,11 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
                         )}
                       </span>
                     </div>
+                    {c.linkedIdea && (
+                      <p className="text-xs text-warning truncate">
+                        Re: {c.linkedIdea.text.slice(0, 40)}{c.linkedIdea.text.length > 40 ? '...' : ''}
+                      </p>
+                    )}
                     <p className="text-foreground text-sm">{c.text}</p>
                   </div>
                 )
@@ -277,22 +297,47 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
 
           {/* Comment input */}
           {session ? (
-            <form onSubmit={handleCommentSubmit} className="flex gap-1.5">
-              <input
-                type="text"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-                placeholder="Say something..."
-                className="flex-1 bg-background border border-border rounded px-2 py-1.5 text-foreground placeholder-muted focus:outline-none focus:border-accent text-sm"
-              />
-              <button
-                type="submit"
-                disabled={submittingComment || !comment.trim()}
-                className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-sm transition-colors disabled:opacity-50"
-              >
-                {submittingComment ? '...' : 'Send'}
-              </button>
-            </form>
+            <div className="space-y-2">
+              {/* Idea chips - tap to link comment */}
+              {item.cell.ideas && item.cell.ideas.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {item.cell.ideas.map(idea => (
+                    <button
+                      key={idea.id}
+                      type="button"
+                      onClick={() => setLinkedIdeaId(linkedIdeaId === idea.id ? null : idea.id)}
+                      className={`text-xs px-2 py-1 rounded border transition-colors truncate max-w-[150px] ${
+                        linkedIdeaId === idea.id
+                          ? 'bg-warning-bg border-warning text-warning'
+                          : 'bg-background border-border text-muted hover:border-warning hover:text-warning'
+                      }`}
+                      title={idea.text}
+                    >
+                      {idea.text.slice(0, 25)}{idea.text.length > 25 ? '...' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {linkedIdeaId && (
+                <p className="text-xs text-warning">Replying to idea (comment will follow it across tiers)</p>
+              )}
+              <form onSubmit={handleCommentSubmit} className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  placeholder={linkedIdeaId ? "Comment on this idea..." : "Say something..."}
+                  className="flex-1 bg-background border border-border rounded px-2 py-1.5 text-foreground placeholder-muted focus:outline-none focus:border-accent text-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={submittingComment || !comment.trim()}
+                  className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-sm transition-colors disabled:opacity-50"
+                >
+                  {submittingComment ? '...' : 'Send'}
+                </button>
+              </form>
+            </div>
           ) : (
             <p className="text-muted text-xs">
               <Link href="/auth/signin" className="text-accent hover:underline">Sign in</Link> to chat

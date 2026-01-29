@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Create 4 ideas (Tier 3 = finals with ≤4 ideas)
+    // Create 5 ideas (Tier 3 = finals with ≤5 ideas)
     const ideas = await Promise.all([
       prisma.idea.create({ data: { deliberationId: deliberation.id, authorId: user.id, text: 'Option Alpha - the first choice', status: 'IN_VOTING', tier: 3 } }),
       prisma.idea.create({ data: { deliberationId: deliberation.id, authorId: testUsers[0].id, text: 'Option Beta - the second choice', status: 'IN_VOTING', tier: 3 } }),

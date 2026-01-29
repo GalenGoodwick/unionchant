@@ -30,6 +30,7 @@ export interface AgentConfig {
   upvoteRate: number // 0-1, percentage who upvote comments
   newJoinRate: number // 0-1, percentage of new joins mid-voting
   forceStartVoting?: boolean // Force start voting even if trigger not met
+  fastMode?: boolean // Skip AI, use batch operations for speed
 }
 
 export interface TestProgress {
@@ -108,32 +109,66 @@ export function resetTestProgress() {
 /**
  * Create test agent users
  */
-export async function createTestAgents(count: number, prefix: string = 'TestBot'): Promise<string[]> {
-  const userIds: string[] = []
-  const timestamp = Date.now()
+export async function createTestAgents(count: number, _prefix: string = 'TestBot'): Promise<string[]> {
+  // Reuse ANY existing test users (@test.local) - shared pool with populate endpoint
+  const existingUsers = await prisma.user.findMany({
+    where: { email: { endsWith: '@test.local' } },
+    take: count,
+    select: { id: true },
+  })
 
-  for (let i = 0; i < count; i++) {
-    // Check for stop every 10 agents
-    if (shouldStopTest && i % 10 === 0) {
-      addTestLog(`Stopped after creating ${i} agents`)
-      break
-    }
-    try {
-      const user = await prisma.user.create({
-        data: {
-          email: `${prefix.toLowerCase()}-${timestamp}-${i}@test.bot`,
-          name: `${prefix} ${i + 1}`,
-          status: 'ACTIVE',
-        },
-      })
-      userIds.push(user.id)
-      testProgress.agentsCreated++
-    } catch (err) {
-      testProgress.errors.push(`Failed to create agent ${i}: ${err}`)
+  const userIds = existingUsers.map(u => u.id)
+  addTestLog(`Reusing ${userIds.length} existing test users`)
+  testProgress.agentsCreated = userIds.length
+
+  // Create more if needed
+  if (userIds.length < count) {
+    const needed = count - userIds.length
+    const timestamp = Date.now()
+    addTestLog(`Creating ${needed} new test users...`)
+
+    // Batch create for speed
+    const batchSize = 100
+    for (let batch = 0; batch < Math.ceil(needed / batchSize); batch++) {
+      if (shouldStopTest) {
+        addTestLog(`Stopped after creating ${userIds.length} users`)
+        break
+      }
+
+      const batchStart = batch * batchSize
+      const batchEnd = Math.min(batchStart + batchSize, needed)
+      const batchCount = batchEnd - batchStart
+
+      try {
+        // Create emails for this specific batch
+        const batchEmails = Array.from({ length: batchCount }, (_, i) =>
+          `test-${timestamp}-${batchStart + i}@test.local`
+        )
+
+        await prisma.user.createMany({
+          data: batchEmails.map((email, i) => ({
+            email,
+            name: `Test User ${userIds.length + batchStart + i + 1}`,
+            status: 'ACTIVE',
+          })),
+        })
+
+        // Fetch ONLY the users we just created in this batch
+        const newUsers = await prisma.user.findMany({
+          where: {
+            email: { in: batchEmails },
+          },
+          select: { id: true },
+        })
+        userIds.push(...newUsers.map(u => u.id))
+        testProgress.agentsCreated = userIds.length
+      } catch (err) {
+        testProgress.errors.push(`Failed to create user batch ${batch}: ${err}`)
+      }
     }
   }
 
-  return userIds
+  return userIds.slice(0, count)
 }
 
 /**
@@ -353,6 +388,28 @@ export async function castVote(
     })
 
     testProgress.votescast++
+
+    // Check if all participants have voted - trigger cell completion
+    const cell = await prisma.cell.findUnique({
+      where: { id: cellId },
+      include: {
+        participants: true,
+        votes: true,
+      },
+    })
+
+    if (cell && cell.status === 'VOTING') {
+      const activeParticipants = cell.participants.filter(
+        p => p.status === 'ACTIVE' || p.status === 'VOTED'
+      ).length
+      const voteCount = cell.votes.length
+
+      if (voteCount >= activeParticipants && activeParticipants > 0) {
+        const { processCellResults } = await import('./voting')
+        await processCellResults(cellId, false)
+      }
+    }
+
     return true
   } catch (err) {
     testProgress.errors.push(`Failed to cast vote: ${err}`)
@@ -507,18 +564,12 @@ export async function runAgentTest(
   try {
     addTestLog('Starting test...')
 
-    // 0. Auto-cleanup old test agents first
+    // 0. Check existing test users (reuse them, don't auto-cleanup)
     const existingCount = await prisma.user.count({
-      where: {
-        AND: [
-          { email: { contains: 'testbot-' } },
-          { email: { endsWith: '@test.bot' } },
-        ],
-      },
+      where: { email: { endsWith: '@test.local' } },
     })
     if (existingCount > 0) {
-      addTestLog(`Cleaning up ${existingCount} existing test agents...`)
-      await cleanupTestAgents()
+      addTestLog(`Found ${existingCount} existing test users - will reuse them`)
     }
 
     // 1. Get deliberation info
@@ -564,11 +615,16 @@ export async function runAgentTest(
         return getTestProgress()
       }
 
-      // 3. Join all agents to the deliberation
+      // 3. Join all agents to the deliberation (batch for speed)
       addTestLog('Joining agents to deliberation...')
-      for (const agentId of agentIds) {
-        await joinDeliberation(deliberationId, agentId)
-      }
+      await prisma.deliberationMember.createMany({
+        data: agentIds.map(userId => ({
+          deliberationId,
+          userId,
+          role: 'PARTICIPANT',
+        })),
+        skipDuplicates: true,
+      })
       addTestLog('All agents joined')
       reportProgress()
 
@@ -593,18 +649,24 @@ export async function runAgentTest(
       const generatedIdeas = await generateIdeasBatch(deliberation.question, ideaCount, existingIdeas)
       addTestLog(`Got ${generatedIdeas.length} ideas, submitting...`)
 
-      // Submit ideas for all agents
-      for (let i = 0; i < agentIds.length; i++) {
-        if (shouldStopTest) {
-          addTestLog('Test stopped by user during idea submission')
-          testProgress.phase = 'completed'
-          return getTestProgress()
-        }
-        const ideaText = generatedIdeas[i] || `Test idea ${i + 1} for: ${deliberation.question.slice(0, 50)}`
-        await submitIdea(deliberationId, agentIds[i], ideaText)
-        testProgress.ideasSubmitted = i + 1
-        reportProgress()
-      }
+      // Submit ideas for all agents (batch for speed)
+      addTestLog('Batch submitting ideas...')
+      const ideaData = agentIds.map((userId, i) => ({
+        deliberationId,
+        authorId: userId,
+        text: generatedIdeas[i] || `Test idea ${i + 1} for: ${deliberation.question.slice(0, 50)}`,
+        status: 'SUBMITTED' as const,
+        isNew: false,
+      }))
+
+      await prisma.idea.createMany({
+        data: ideaData,
+        skipDuplicates: true,
+      })
+
+      testProgress.ideasSubmitted = agentIds.length
+      addTestLog(`Submitted ${agentIds.length} ideas`)
+      reportProgress()
 
       // Check voting trigger
       const updatedDelib = await prisma.deliberation.findUnique({
@@ -637,10 +699,16 @@ export async function runAgentTest(
           // For testing purposes, force-start if manual or waiting
           if (config.forceStartVoting) {
             addTestLog('Force-starting voting...')
-            const result = await startVotingPhase(deliberationId)
-            addTestLog(`startVotingPhase result: ${result.success ? 'SUCCESS' : `FAILED: ${result.reason}`}`)
-            if (!result.success) {
-              testProgress.errors.push(`Voting failed to start: ${result.reason} - ${result.message}`)
+            try {
+              const result = await startVotingPhase(deliberationId)
+              addTestLog(`startVotingPhase result: ${result.success ? 'SUCCESS' : `FAILED: ${result.reason} - ${result.message}`}`)
+              if (!result.success) {
+                testProgress.errors.push(`Voting failed to start: ${result.reason} - ${result.message}`)
+              }
+            } catch (err) {
+              const errMsg = err instanceof Error ? err.message : String(err)
+              addTestLog(`startVotingPhase ERROR: ${errMsg}`)
+              testProgress.errors.push(`Voting exception: ${errMsg}`)
             }
           } else {
             testProgress.phase = 'completed'
@@ -740,6 +808,13 @@ export async function runAgentTest(
 
       // Process each cell
       for (const cell of currentDelib.cells) {
+        // Check for stop during cell processing
+        if (shouldStopTest) {
+          addTestLog('Test stopped by user during cell processing')
+          testProgress.phase = 'completed'
+          return getTestProgress()
+        }
+
         const allParticipantIds = cell.participants.map(p => p.userId)
 
         const ideas = cell.ideas.map(ci => ({
@@ -827,15 +902,10 @@ export async function runAgentTest(
 /**
  * Clean up test data - deletes users and all their related records
  */
-export async function cleanupTestAgents(prefix: string = 'TestBot'): Promise<number> {
-  // Find all test agent user IDs
+export async function cleanupTestAgents(_prefix: string = 'TestBot'): Promise<number> {
+  // Find all test user IDs (@test.local - shared pool)
   const testUsers = await prisma.user.findMany({
-    where: {
-      AND: [
-        { email: { contains: `${prefix.toLowerCase()}-` } },
-        { email: { endsWith: '@test.bot' } },
-      ],
-    },
+    where: { email: { endsWith: '@test.local' } },
     select: { id: true },
   })
 

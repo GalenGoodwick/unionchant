@@ -26,6 +26,7 @@ type CellConversation = {
 type Cell = {
   id: string
   tier: number
+  batch: number  // Which batch this cell belongs to (for clustering)
   ideaIds: string[]
   participantIds: string[]
   votes: Record<string, string>
@@ -252,6 +253,9 @@ export default function DemoPage() {
     while (activeIdeas.length > 1 && !abortRef.current) {
       setCurrentTier(tier)
 
+      // Check for final showdown (≤5 ideas remaining - all vote on same ideas)
+      const isFinalShowdown = activeIdeas.length <= 5
+
       // Update tier summaries
       setTierSummaries(prev => prev.map(t => ({
         ...t,
@@ -265,115 +269,222 @@ export default function DemoPage() {
           : idea
       ))
 
-      setStatusMessage(`Tier ${tier}: ${activeIdeas.length} ideas competing in small groups`)
+      if (isFinalShowdown) {
+        setStatusMessage(`Final Showdown! All ${allParticipants.length} participants vote on ${activeIdeas.length} remaining ideas`)
+      } else {
+        setStatusMessage(`Tier ${tier}: ${activeIdeas.length} ideas competing in small groups`)
+      }
       await sleep(1000)
 
-      // Create cells
-      const shuffledIdeas = shuffle(activeIdeas)
+      // Create cells - ALL participants always vote (same number of cells each tier)
       const shuffledParticipants = shuffle(allParticipants)
-      const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+      const numCells = Math.ceil(allParticipants.length / CELL_SIZE)
 
       const tierCells: Cell[] = []
 
+      // Shuffle ideas ONCE before creating cells
+      const shuffledIdeas = shuffle(activeIdeas)
+
+      // Determine cell structure based on idea count:
+      // - If enough ideas for each cell to have unique set: no batching (Tier 1)
+      // - If not enough for unique sets but > 5: batch cells to vote on same ideas
+      // - If ≤ 5 ideas: final showdown, all cells vote on all ideas
+      const canHaveUniqueCells = activeIdeas.length >= numCells * IDEAS_PER_CELL
+
+      let numBatches: number
+      let cellsPerBatch: number
+
+      if (isFinalShowdown) {
+        // Final showdown: all cells in 1 batch, all vote on same ideas
+        numBatches = 1
+        cellsPerBatch = numCells
+      } else if (canHaveUniqueCells) {
+        // Tier 1 style: each cell gets unique ideas, no real batching
+        numBatches = numCells
+        cellsPerBatch = 1
+      } else {
+        // Later tiers: group cells into batches voting on same ideas
+        numBatches = Math.ceil(activeIdeas.length / IDEAS_PER_CELL)
+        cellsPerBatch = Math.ceil(numCells / numBatches)
+      }
+
       for (let i = 0; i < numCells; i++) {
-        const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
         const cellParticipants = shuffledParticipants.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
-        const actualParticipants = cellParticipants.length >= 3 ? cellParticipants : shuffledParticipants.slice(0, CELL_SIZE)
+        if (cellParticipants.length === 0) continue
+
+        // Determine which batch this cell belongs to
+        const batchIndex = isFinalShowdown ? 0 : Math.floor(i / cellsPerBatch)
+
+        // Get ideas for this batch (use pre-shuffled ideas)
+        let cellIdeas: Idea[]
+        if (isFinalShowdown) {
+          cellIdeas = activeIdeas // All cells vote on all remaining ideas
+        } else {
+          cellIdeas = shuffledIdeas.slice(batchIndex * IDEAS_PER_CELL, (batchIndex + 1) * IDEAS_PER_CELL)
+          if (cellIdeas.length === 0) cellIdeas = shuffledIdeas.slice(0, IDEAS_PER_CELL)
+        }
 
         const cell: Cell = {
           id: `r${demoRunId}t${tier}c${i}`,
           tier,
+          batch: batchIndex,
           ideaIds: cellIdeas.map(idea => idea.id),
-          participantIds: actualParticipants.map(p => p.id),
+          participantIds: cellParticipants.map(p => p.id),
           votes: {},
           status: 'deliberating',
           conversations: generateConversation(
-            cellIdeas.map(i => i.text),
-            actualParticipants.map(p => p.name)
+            cellIdeas.map(idea => idea.text),
+            cellParticipants.map(p => p.name)
           )
         }
         tierCells.push(cell)
       }
 
       setCells(prev => [...prev, ...tierCells])
-      setStatusMessage(`${tierCells.length} cells created - participants are discussing...`)
+      if (isFinalShowdown) {
+        setStatusMessage(`${tierCells.length} cells deliberating on the same ${activeIdeas.length} finalists...`)
+      } else {
+        setStatusMessage(`${tierCells.length} cells deliberating in parallel...`)
+      }
       await sleep(800)
 
-      // Process each cell with conversation display
-      const advancingIdeas: string[] = []
-
-      for (let cellIndex = 0; cellIndex < tierCells.length; cellIndex++) {
-        if (abortRef.current) return
-
-        const cell = tierCells[cellIndex]
-        setActiveCell(cell)
-
-        // Show deliberation
+      // ALL CELLS DELIBERATE IN PARALLEL
+      setStatusMessage(`All ${tierCells.length} cells discussing...`)
+      for (const cell of tierCells) {
         cell.status = 'deliberating'
-        setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
-        setStatusMessage(`Cell ${cellIndex + 1}/${tierCells.length}: 5 people discussing 5 ideas...`)
+      }
+      // Show a sample cell's conversation
+      setActiveCell(tierCells[0])
+      setCells(prev => prev.map(c => {
+        const tierCell = tierCells.find(tc => tc.id === c.id)
+        return tierCell ? { ...tierCell } : c
+      }))
+      await sleep(1500)
 
-        // Show conversations one by one
-        for (let convIndex = 0; convIndex < cell.conversations.length; convIndex++) {
-          if (abortRef.current) return
-          await sleep(600)
-        }
-
-        // Voting
+      // ALL CELLS VOTE - show individual votes accumulating
+      setStatusMessage(`All ${tierCells.length} cells voting...`)
+      for (const cell of tierCells) {
         cell.status = 'voting'
-        setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
-        setStatusMessage(`Cell ${cellIndex + 1}: Voting...`)
+      }
+      setActiveCell({ ...tierCells[0] })
+      setCells(prev => prev.map(c => {
+        const tierCell = tierCells.find(tc => tc.id === c.id)
+        return tierCell ? { ...tierCell } : c
+      }))
+      await sleep(300)
 
-        for (const participantId of cell.participantIds) {
-          if (abortRef.current) return
-          const votedIdeaId = cell.ideaIds[Math.floor(Math.random() * cell.ideaIds.length)]
-          cell.votes[participantId] = votedIdeaId
-          setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
-          await sleep(150)
-        }
-
-        // Count and determine winner
-        const voteCounts: Record<string, number> = {}
-        Object.values(cell.votes).forEach(ideaId => {
-          voteCounts[ideaId] = (voteCounts[ideaId] || 0) + 1
+      // Collect all participant votes across all cells
+      const allVotes: { cell: Cell; participantId: string; participantIndex: number }[] = []
+      for (const cell of tierCells) {
+        cell.participantIds.forEach((participantId, idx) => {
+          allVotes.push({ cell, participantId, participantIndex: idx })
         })
+      }
+      // Shuffle for visual effect but voting pattern is deterministic
+      const shuffledVotes = shuffle(allVotes)
 
-        const maxVotes = Math.max(...Object.values(voteCounts))
-        const tiedWinners = Object.entries(voteCounts)
-          .filter(([, count]) => count === maxVotes)
-          .map(([id]) => id)
+      // Show votes coming in one by one
+      for (let i = 0; i < shuffledVotes.length; i++) {
+        if (abortRef.current) return
+        const { cell, participantId, participantIndex } = shuffledVotes[i]
+        // Deterministic voting: first 3 participants vote for idea 0, next 2 for idea 1
+        // This ensures idea 0 always wins with 3 votes vs 2 votes
+        const votedIdeaId = cell.ideaIds[participantIndex < 3 ? 0 : Math.min(1, cell.ideaIds.length - 1)]
+        cell.votes[participantId] = votedIdeaId
 
-        // Pick only ONE winner per cell (random tiebreaker if needed)
-        const winner = tiedWinners[Math.floor(Math.random() * tiedWinners.length)]
-        const winners = [winner]
+        // Update every few votes to show progress
+        if (i % 3 === 0 || i === shuffledVotes.length - 1) {
+          const totalVotes = tierCells.reduce((sum, c) => sum + Object.keys(c.votes).length, 0)
+          setStatusMessage(`Voting: ${totalVotes}/${shuffledVotes.length} votes cast...`)
+          // Update active cell to show vote progress
+          setActiveCell({ ...tierCells[0] })
+          setCells(prev => prev.map(c => {
+            const tierCell = tierCells.find(tc => tc.id === c.id)
+            return tierCell ? { ...tierCell } : c
+          }))
+          await sleep(50)
+        }
+      }
+      await sleep(500)
 
-        advancingIdeas.push(winner)
-        cell.status = 'completed'
-        cell.winner = winners[0]
-        setCells(prev => prev.map(c => c.id === cell.id ? { ...cell } : c))
-
-        // Update idea statuses
-        setIdeas(prev => prev.map(idea => {
-          if (cell.ideaIds.includes(idea.id)) {
-            return {
-              ...idea,
-              votes: idea.votes + (voteCounts[idea.id] || 0),
-              status: winners.includes(idea.id) ? 'advancing' : 'eliminated'
-            }
-          }
-          return idea
-        }))
-
-        await sleep(400)
+      // TALLY VOTES ACROSS ALL CELLS
+      const globalVoteCounts: Record<string, number> = {}
+      for (const cell of tierCells) {
+        Object.values(cell.votes).forEach(ideaId => {
+          globalVoteCounts[ideaId] = (globalVoteCounts[ideaId] || 0) + 1
+        })
       }
 
-      setActiveCell(null)
+      setStatusMessage(`Tallying votes across all ${tierCells.length} cells...`)
+      await sleep(800)
 
-      // Dedupe and update active ideas
+      // Determine winners (no random tiebreaker - just pick highest votes, first alphabetically)
+      let advancingIdeas: string[] = []
+
+      if (isFinalShowdown) {
+        // Final showdown: pick idea with most votes (deterministic)
+        const sorted = Object.entries(globalVoteCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        advancingIdeas = [sorted[0][0]]
+      } else {
+        // Normal tier: each unique idea batch gets one winner
+        // Group cells by their idea set
+        const ideaSets = new Map<string, Cell[]>()
+        for (const cell of tierCells) {
+          const key = [...cell.ideaIds].sort().join(',')
+          if (!ideaSets.has(key)) ideaSets.set(key, [])
+          ideaSets.get(key)!.push(cell)
+        }
+
+        // For each idea set, tally votes and pick winner (deterministic)
+        for (const [, batchCells] of ideaSets) {
+          const batchVoteCounts: Record<string, number> = {}
+          for (const cell of batchCells) {
+            Object.values(cell.votes).forEach(ideaId => {
+              batchVoteCounts[ideaId] = (batchVoteCounts[ideaId] || 0) + 1
+            })
+          }
+          // Sort by votes descending, then by ID for deterministic tiebreaker
+          const sorted = Object.entries(batchVoteCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+          if (sorted.length > 0) {
+            advancingIdeas.push(sorted[0][0])
+          }
+        }
+      }
+
+      // Mark cells as completed and set winners
+      for (const cell of tierCells) {
+        cell.status = 'completed'
+        // Find the winner among this cell's ideas
+        const cellWinner = advancingIdeas.find(id => cell.ideaIds.includes(id))
+        cell.winner = cellWinner
+      }
+      setCells(prev => prev.map(c => {
+        const tierCell = tierCells.find(tc => tc.id === c.id)
+        return tierCell ? { ...tierCell } : c
+      }))
+
+      // Update idea statuses
+      setIdeas(prev => prev.map(idea => {
+        const votes = globalVoteCounts[idea.id] || 0
+        if (activeIdeas.find(ai => ai.id === idea.id)) {
+          return {
+            ...idea,
+            votes: idea.votes + votes,
+            status: advancingIdeas.includes(idea.id) ? 'advancing' : 'eliminated'
+          }
+        }
+        return idea
+      }))
+
+      // Update active ideas
       const uniqueAdvancing = [...new Set(advancingIdeas)]
       activeIdeas = allIdeas.filter(idea => uniqueAdvancing.includes(idea.id))
 
-      setStatusMessage(`Tier ${tier} complete! ${activeIdeas.length} ideas advancing to next round.`)
+      if (isFinalShowdown) {
+        setStatusMessage(`Final showdown complete! Champion determined by ${Object.values(globalVoteCounts).reduce((a, b) => a + b, 0)} votes across all cells.`)
+      } else {
+        setStatusMessage(`Tier ${tier} complete! ${activeIdeas.length} ideas advancing.`)
+      }
 
       // Update tier summary
       setTierSummaries(prev => prev.map(t =>
@@ -386,12 +497,16 @@ export default function DemoPage() {
 
     // Champion!
     if (activeIdeas.length === 1 && !abortRef.current) {
-      const winner = activeIdeas[0]
-      setIdeas(prev => prev.map(idea =>
-        idea.id === winner.id ? { ...idea, status: 'winner' } : idea
-      ))
-      setChampion(winner)
+      const winnerId = activeIdeas[0].id
+      // Mark ONLY the winner as 'winner', ALL others as eliminated
+      setIdeas(prev => prev.map(idea => ({
+        ...idea,
+        status: idea.id === winnerId ? 'winner' : (idea.status === 'submitted' ? 'submitted' : 'eliminated')
+      })))
+      setChampion(activeIdeas[0])
       setPhase('completed')
+      // Mark all tiers as completed
+      setTierSummaries(prev => prev.map(t => ({ ...t, status: 'completed' })))
       setStatusMessage(`Champion determined through ${tier - 1} tiers of deliberation!`)
     }
 
@@ -474,31 +589,43 @@ export default function DemoPage() {
 
         {/* Running Demo */}
         {phase !== 'setup' && (
-          <div className="grid lg:grid-cols-3 gap-6">
+          <div className="space-y-6">
+            {/* Champion Banner - Always visible, shows ? until winner */}
+            <div className={`rounded-lg p-6 text-center border-2 transition-all ${
+              champion
+                ? 'bg-success-bg border-success'
+                : 'bg-surface border-border'
+            }`}>
+              <div className="text-4xl mb-2">{champion ? '🏆' : '❓'}</div>
+              <div className={`text-sm font-medium mb-1 ${champion ? 'text-success' : 'text-muted'}`}>
+                {champion ? 'CHAMPION' : 'CHAMPION TBD'}
+              </div>
+              <div className={`text-xl font-bold mb-2 ${champion ? 'text-foreground' : 'text-muted'}`}>
+                {champion ? champion.text : 'Deliberation in progress...'}
+              </div>
+              <p className="text-muted text-sm">
+                {champion
+                  ? `From ${ideas.length} ideas → 1 winner through ${currentTier} tiers`
+                  : `${ideas.filter(i => i.status === 'advancing' || i.status === 'in_voting').length} ideas still competing`
+                }
+              </p>
+            </div>
+
+            <div className="grid lg:grid-cols-5 gap-6">
             {/* Left: Tier Progress */}
-            <div className="lg:col-span-1 space-y-4">
+            <div className="lg:col-span-2 space-y-4">
               {/* Status */}
               <div className="bg-background rounded-lg p-4 border border-border">
                 <div className="text-sm text-muted mb-1">Status</div>
                 <div className="text-foreground font-medium">{statusMessage}</div>
               </div>
 
-              {/* Champion Banner */}
-              {champion && (
-                <div className="bg-success-bg border-2 border-success rounded-lg p-6 text-center animate-pulse">
-                  <div className="text-success text-sm font-medium mb-2">CHAMPION</div>
-                  <div className="text-foreground text-xl font-bold">{champion.text}</div>
-                  <div className="text-success text-sm mt-3">
-                    Selected by {participantCount} people through {currentTier} tiers
-                  </div>
-                </div>
-              )}
 
-              {/* Tier Funnel */}
+              {/* Tier Funnel - only show active or completed tiers */}
               <div className="bg-background rounded-lg p-4 border border-border">
                 <h3 className="text-sm font-medium text-muted mb-4">Tournament Progress</h3>
                 <div className="space-y-2">
-                  {tierSummaries.map((t, i) => (
+                  {tierSummaries.filter(t => t.status !== 'pending').map((t, i, arr) => (
                     <div key={t.tier} className="relative">
                       <div className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
                         t.status === 'active' ? 'bg-warning-bg border border-warning' :
@@ -529,11 +656,16 @@ export default function DemoPage() {
                           <div className="w-5 h-5 border-2 border-warning border-t-transparent rounded-full animate-spin" />
                         )}
                       </div>
-                      {i < tierSummaries.length - 1 && (
+                      {i < arr.length - 1 && (
                         <div className="absolute left-6 top-full w-0.5 h-2 bg-border" />
                       )}
                     </div>
                   ))}
+                  {tierSummaries.filter(t => t.status === 'pending').length > 0 && (
+                    <div className="text-xs text-muted text-center py-2">
+                      {tierSummaries.filter(t => t.status === 'pending').length} more tier{tierSummaries.filter(t => t.status === 'pending').length > 1 ? 's' : ''} to go...
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -576,134 +708,230 @@ export default function DemoPage() {
             </div>
 
             {/* Middle/Right: Panels */}
-            <div className="lg:col-span-2 space-y-4">
-              {/* All Cells Grid - Always visible during voting */}
-              {cells.length > 0 && phase !== 'completed' && (
-                <div className="bg-background rounded-lg border border-border p-4">
-                  <h3 className="text-sm font-semibold text-foreground mb-3">All Cells - Tier {currentTier}</h3>
-                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-1.5">
-                    {cells.filter(c => c.tier === currentTier).map(cell => (
-                      <div
-                        key={cell.id}
-                        className={`aspect-square rounded flex items-center justify-center text-xs font-mono ${
-                          activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
-                        } ${
-                          cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
-                          cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
-                          cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
-                          'bg-surface border border-border text-muted'
-                        }`}
-                        title={`Cell ${cell.id}: ${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
-                      >
-                        {Object.keys(cell.votes).length}/{cell.participantIds.length}
-                      </div>
-                    ))}
+            <div className="lg:col-span-3 space-y-4">
+              {/* Cells Grid - Always visible */}
+              <div className="bg-background rounded-lg border border-border p-4">
+                <h3 className="text-sm font-semibold text-foreground mb-3">
+                  {phase === 'completed' ? 'Final Voting Summary' : phase === 'voting' ? `Tier ${currentTier} Cells` : 'Voting Cells'}
+                </h3>
+
+                {cells.length > 0 ? (
+                  /* Show all tiers */
+                  <div className="space-y-4">
+                    {Array.from(new Set(cells.map(c => c.tier))).sort((a, b) => a - b).map(tier => {
+                      const tierCells = cells.filter(c => c.tier === tier)
+                      const batches = [...new Set(tierCells.map(c => c.batch))].sort((a, b) => a - b)
+                      const isCurrentTier = tier === currentTier && phase !== 'completed'
+
+                      // Check if this is real batching (multiple cells per batch voting on same ideas)
+                      const cellsPerBatch = tierCells.filter(c => c.batch === 0).length
+                      const hasRealBatching = cellsPerBatch > 1
+                      const isFinalShowdown = batches.length === 1 && tierCells.length > 1 && hasRealBatching
+
+                      // Get ideas per batch (from first cell of first batch)
+                      const ideasPerBatch = tierCells[0]?.ideaIds.length || 0
+
+                      return (
+                        <div key={tier} className={`${isCurrentTier ? '' : 'opacity-60'}`}>
+                          <div className="text-xs text-muted mb-2 flex items-center gap-2">
+                            <span className={`font-medium ${isCurrentTier ? 'text-warning' : 'text-success'}`}>
+                              Tier {tier}
+                            </span>
+                            <span>
+                              {isFinalShowdown
+                                ? `(Final Showdown - all ${tierCells.length} cells vote on same ${ideasPerBatch} ideas)`
+                                : hasRealBatching
+                                  ? `(${batches.length} batches with ${ideasPerBatch} ideas each, ${cellsPerBatch} cells per batch)`
+                                  : `(${tierCells.length} cells, each with ${ideasPerBatch} unique ideas)`
+                              }
+                            </span>
+                          </div>
+
+                          {/* Cells layout - horizontal for no batching, grouped for batching */}
+                          {hasRealBatching ? (
+                            /* Group cells by batch when real batching */
+                            <div className="space-y-3">
+                              {batches.map(batch => {
+                                const batchCells = tierCells.filter(c => c.batch === batch)
+                                return (
+                                  <div key={batch} className="flex items-center gap-2 pb-2 border-b border-border/50 last:border-0 last:pb-0">
+                                    <span className="text-[10px] text-muted w-8 font-medium">B{batch + 1}:</span>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                      {batchCells.map(cell => (
+                                        <div
+                                          key={cell.id}
+                                          onClick={() => setActiveCell(cell)}
+                                          className={`w-8 h-8 rounded flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all ${
+                                            activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
+                                          } ${
+                                            cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
+                                            cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
+                                            cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
+                                            'bg-surface border border-border text-muted'
+                                          }`}
+                                          title={`${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
+                                        >
+                                          {Object.keys(cell.votes).length}/{cell.participantIds.length}
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {/* Show batch winner */}
+                                    {batchCells.every(c => c.status === 'completed') && (
+                                      <span className="text-[10px] text-success ml-2 truncate max-w-[150px]">
+                                        → {getIdeaText(batchCells[0]?.winner || '').slice(0, 25)}...
+                                      </span>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : (
+                            /* Horizontal layout when no batching (each cell has unique ideas) */
+                            <div className="flex gap-1.5 flex-wrap">
+                              {tierCells.map(cell => (
+                                <div
+                                  key={cell.id}
+                                  onClick={() => setActiveCell(cell)}
+                                  className={`w-8 h-8 rounded flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all ${
+                                    activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
+                                  } ${
+                                    cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
+                                    cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
+                                    cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
+                                    'bg-surface border border-border text-muted'
+                                  }`}
+                                  title={`${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
+                                >
+                                  {Object.keys(cell.votes).length}/{cell.participantIds.length}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  /* Placeholder when no cells yet */
+                  <div className="text-center py-8 text-muted">
+                    <div className="text-2xl mb-2">📦</div>
+                    <p className="text-sm">Cells will appear here once voting begins</p>
+                  </div>
+                )}
+
+                {/* Legend - always show */}
+                <div className="flex gap-4 mt-4 pt-3 border-t border-border text-xs text-muted">
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded bg-accent-light border border-accent"></div>
+                    <span>Deliberating</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded bg-warning-bg border border-warning"></div>
+                    <span>Voting</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded bg-success-bg border border-success"></div>
+                    <span>Complete</span>
                   </div>
                 </div>
-              )}
+              </div>
 
-              {/* Active Cell Detail */}
-              {activeCell && (
-                <div className="bg-background rounded-lg border border-border overflow-hidden">
-                  <div className={`p-3 ${
-                    activeCell.status === 'deliberating' ? 'bg-accent-light' :
-                    activeCell.status === 'voting' ? 'bg-warning-bg' :
-                    'bg-success-bg'
-                  }`}>
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-semibold text-foreground text-sm">
-                        Active: Cell {activeCell.id.split('t')[1]} - Tier {activeCell.tier}
-                      </h3>
-                      <span className={`text-xs px-2 py-1 rounded ${
-                        activeCell.status === 'deliberating' ? 'bg-accent text-white' :
-                        activeCell.status === 'voting' ? 'bg-warning text-white' :
-                        'bg-success text-white'
-                      }`}>
-                        {activeCell.status === 'deliberating' ? 'Discussing' :
-                         activeCell.status === 'voting' ? 'Voting' : 'Complete'}
-                      </span>
+
+              {/* Active Cell Detail - Always visible */}
+              <div className="bg-background rounded-lg border border-border overflow-hidden">
+                {activeCell ? (
+                  <>
+                    <div className={`p-3 ${
+                      activeCell.status === 'deliberating' ? 'bg-accent-light' :
+                      activeCell.status === 'voting' ? 'bg-warning-bg' :
+                      'bg-success-bg'
+                    }`}>
+                      <div className="flex justify-between items-center">
+                        <h3 className="font-semibold text-foreground text-sm">
+                          Cell Detail - Tier {activeCell.tier}
+                        </h3>
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          activeCell.status === 'deliberating' ? 'bg-accent text-white' :
+                          activeCell.status === 'voting' ? 'bg-warning text-white' :
+                          'bg-success text-white'
+                        }`}>
+                          {activeCell.status === 'deliberating' ? 'Discussing' :
+                           activeCell.status === 'voting' ? 'Voting' : 'Complete'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="p-4 grid md:grid-cols-2 gap-4">
-                    {/* Ideas being voted on */}
-                    <div>
-                      <h4 className="text-sm font-medium text-muted mb-2">Ideas in this cell:</h4>
-                      <div className="space-y-1.5">
-                        {activeCell.ideaIds.map(ideaId => {
-                          const voteCount = Object.values(activeCell.votes).filter(v => v === ideaId).length
-                          const isWinner = activeCell.winner === ideaId
-                          return (
-                            <div key={ideaId} className={`p-2 rounded text-sm flex justify-between items-center ${
-                              isWinner ? 'bg-success-bg border border-success' : 'bg-surface'
-                            }`}>
-                              <span className={`${isWinner ? 'text-success font-medium' : 'text-foreground'} text-xs`}>
-                                {getIdeaText(ideaId)}
-                              </span>
-                              {voteCount > 0 && (
-                                <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
-                                  isWinner ? 'bg-success text-white' : 'bg-border text-muted'
-                                }`}>
-                                  {voteCount}
+                    <div className="p-4 grid md:grid-cols-2 gap-4">
+                      {/* Ideas being voted on */}
+                      <div>
+                        <h4 className="text-sm font-medium text-muted mb-2">Ideas in this cell:</h4>
+                        <div className="space-y-1.5">
+                          {activeCell.ideaIds.map(ideaId => {
+                            const voteCount = Object.values(activeCell.votes).filter(v => v === ideaId).length
+                            const isWinner = activeCell.winner === ideaId
+                            return (
+                              <div key={ideaId} className={`p-2 rounded text-sm flex justify-between items-center ${
+                                isWinner ? 'bg-success-bg border border-success' : 'bg-surface'
+                              }`}>
+                                <span className={`${isWinner ? 'text-success font-medium' : 'text-foreground'} text-xs`}>
+                                  {getIdeaText(ideaId)}
                                 </span>
-                              )}
+                                {voteCount > 0 && (
+                                  <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
+                                    isWinner ? 'bg-success text-white' : 'bg-border text-muted'
+                                  }`}>
+                                    {voteCount}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Conversation */}
+                      <div>
+                        <h4 className="text-sm font-medium text-muted mb-2">Discussion:</h4>
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                          {activeCell.conversations.map((conv, i) => (
+                            <div key={i} className="bg-surface rounded p-2 text-xs">
+                              <span className="font-medium text-accent">{conv.participantName}:</span>
+                              <span className="text-subtle ml-1">{conv.message}</span>
                             </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Participants */}
+                    <div className="px-4 pb-3">
+                      <div className="flex flex-wrap gap-1.5">
+                        {activeCell.participantIds.map(pId => {
+                          const hasVoted = activeCell.votes[pId]
+                          return (
+                            <span key={pId} className={`text-xs px-2 py-0.5 rounded ${
+                              hasVoted ? 'bg-success text-white' : 'bg-surface text-muted border border-border'
+                            }`}>
+                              {getParticipantName(pId)} {hasVoted ? '✓' : ''}
+                            </span>
                           )
                         })}
                       </div>
                     </div>
-
-                    {/* Conversation */}
-                    <div>
-                      <h4 className="text-sm font-medium text-muted mb-2">Discussion:</h4>
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                        {activeCell.conversations.map((conv, i) => (
-                          <div key={i} className="bg-surface rounded p-2 text-xs">
-                            <span className="font-medium text-accent">{conv.participantName}:</span>
-                            <span className="text-subtle ml-1">{conv.message}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+                  </>
+                ) : (
+                  /* Placeholder when no cell selected */
+                  <div className="p-3 bg-surface/50">
+                    <h3 className="font-semibold text-muted text-sm">Cell Detail</h3>
                   </div>
-
-                  {/* Participants */}
-                  <div className="px-4 pb-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {activeCell.participantIds.map(pId => {
-                        const hasVoted = activeCell.votes[pId]
-                        return (
-                          <span key={pId} className={`text-xs px-2 py-0.5 rounded ${
-                            hasVoted ? 'bg-success text-white' : 'bg-surface text-muted border border-border'
-                          }`}>
-                            {getParticipantName(pId)} {hasVoted ? '✓' : ''}
-                          </span>
-                        )
-                      })}
-                    </div>
+                )}
+                {!activeCell && (
+                  <div className="p-8 text-center text-muted text-sm">
+                    <div className="text-2xl mb-2">💬</div>
+                    <p>{phase === 'submission' ? 'Cell discussions will appear here' : 'Click a cell to see its discussion'}</p>
                   </div>
-                </div>
-              )}
-
-              {/* Completed View */}
-              {phase === 'completed' && (
-                <div className="bg-background rounded-lg border border-border p-8 text-center">
-                  <div className="text-6xl mb-4">🏆</div>
-                  <h3 className="text-2xl font-bold text-foreground mb-2">Deliberation Complete!</h3>
-                  <p className="text-muted mb-6">
-                    From {ideas.length} ideas submitted by {participants.length} participants,
-                    one champion emerged through {currentTier} rounds of small-group deliberation.
-                  </p>
-                  <div className="bg-success-bg border border-success rounded-lg p-4 mb-6">
-                    <div className="text-success text-sm mb-1">Winning Idea:</div>
-                    <div className="text-foreground text-xl font-semibold">{champion?.text}</div>
-                  </div>
-                  <div className="text-sm text-muted">
-                    <p className="mb-2">This is the power of Union Chant:</p>
-                    <p>Not just a vote count, but a decision shaped by real discussion.</p>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Key Insight Box */}
               {!champion && (
@@ -722,6 +950,7 @@ export default function DemoPage() {
                 </div>
               )}
             </div>
+          </div>
           </div>
         )}
 

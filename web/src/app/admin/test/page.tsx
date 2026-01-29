@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
 
@@ -397,6 +398,27 @@ export default function AdminTestPage() {
             </Link>
             <button
               onClick={async () => {
+                addLog('info', 'Creating test deliberation with completed cell...')
+                try {
+                  const res = await fetch('/api/admin/test/create-completed-cell', { method: 'POST' })
+                  const data = await res.json()
+                  if (res.ok) {
+                    addLog('success', `Created deliberation with completed cell`)
+                    addLog('info', `URL: ${data.url}`)
+                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
+                  } else {
+                    addLog('error', data.error || 'Failed to create test')
+                  }
+                } catch (err) {
+                  addLog('error', 'Failed to create test')
+                }
+              }}
+              className="px-4 py-2 bg-success hover:bg-success-hover text-white rounded-lg"
+            >
+              Create Completed Cell Test
+            </button>
+            <button
+              onClick={async () => {
                 const res = await fetch('/api/admin/test/cleanup', { method: 'POST' })
                 if (res.ok) {
                   const data = await res.json()
@@ -671,8 +693,9 @@ function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info'
 }
 
 function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
+  const searchParams = useSearchParams()
   const [deliberations, setDeliberations] = useState<Array<{ id: string; question: string; phase: string }>>([])
-  const [selectedDelibId, setSelectedDelibId] = useState('')
+  const [selectedDelibId, setSelectedDelibId] = useState(searchParams.get('deliberationId') || '')
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<{
@@ -688,7 +711,7 @@ function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'e
     errors: string[]
   } | null>(null)
   const [config, setConfig] = useState({
-    totalAgents: 100,
+    totalAgents: 1000,
     votingTimePerTierMs: 30000,
     dropoutRate: 0.1,
     commentRate: 0.2,

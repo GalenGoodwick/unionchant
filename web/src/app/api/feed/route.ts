@@ -94,13 +94,13 @@ export async function GET(req: NextRequest) {
       userId = user?.id || null
     }
 
-    // 1. Get cells user is in (highest priority - both ACTIVE and VOTED)
+    // 1. Get cells user is in (highest priority - ACTIVE, VOTED, and COMPLETED)
     if (userId) {
       const userCells = await prisma.cellParticipation.findMany({
         where: {
           userId: userId,
           status: { in: ['ACTIVE', 'VOTED'] },
-          cell: { status: 'VOTING' },
+          cell: { status: { in: ['VOTING', 'COMPLETED'] } },
         },
         include: {
           cell: {
@@ -129,6 +129,7 @@ export async function GET(req: NextRequest) {
         const cell = cp.cell
         const votedCount = cell.participants.filter(p => p.status === 'VOTED').length
         const userHasVoted = cp.status === 'VOTED'
+        const isCompleted = cell.status === 'COMPLETED'
 
         // Get user's vote if they voted
         let userVotedIdeaId: string | null = null
@@ -142,7 +143,7 @@ export async function GET(req: NextRequest) {
 
         items.push({
           type: 'vote_now',
-          priority: userHasVoted ? 90 : 100, // Slightly lower priority if already voted
+          priority: isCompleted ? 80 : (userHasVoted ? 90 : 100), // Completed cells lower priority
           deliberation: {
             id: cell.deliberation.id,
             question: cell.deliberation.question,

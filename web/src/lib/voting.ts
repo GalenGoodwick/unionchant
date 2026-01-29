@@ -205,44 +205,64 @@ export async function startVotingPhase(deliberationId: string) {
   const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
   const shuffledMembers = [...members].sort(() => Math.random() - 0.5)
 
-  // Calculate number of cells needed
-  const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+  // Group ideas into batches of 5. All members must be assigned to cells.
+  const numBatches = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+
+  // Distribute members evenly across batches
+  const baseMembersPerBatch = Math.floor(shuffledMembers.length / numBatches)
+  const extraMembers = shuffledMembers.length % numBatches
 
   // Create cells
   const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
-  for (let i = 0; i < numCells; i++) {
-    const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
-    const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
+  let memberIndex = 0
 
-    // Skip creating cells with no unique members - don't wrap around
-    // This prevents users from being in multiple cells per tier
-    if (cellMembers.length === 0) continue
+  for (let batch = 0; batch < numBatches; batch++) {
+    const batchIdeas = shuffledIdeas.slice(batch * IDEAS_PER_CELL, (batch + 1) * IDEAS_PER_CELL)
 
-    const cell = await prisma.cell.create({
-      data: {
-        deliberationId,
-        tier: 1,
-        status: 'VOTING',
-        ideas: {
-          create: cellIdeas.map(idea => ({
-            ideaId: idea.id,
-          })),
-        },
-        participants: {
-          create: cellMembers.map(member => ({
-            userId: member.userId,
-          })),
-        },
-      },
-    })
+    // This batch gets base members + 1 extra if batch < extraMembers (even distribution)
+    const batchMemberCount = baseMembersPerBatch + (batch < extraMembers ? 1 : 0)
+    const batchMembers = shuffledMembers.slice(memberIndex, memberIndex + batchMemberCount)
+    memberIndex += batchMemberCount
 
-    cells.push(cell)
+    // Skip batch if no ideas
+    if (batchIdeas.length === 0) continue
 
-    // Update idea statuses
+    // Update idea statuses for this batch
     await prisma.idea.updateMany({
-      where: { id: { in: cellIdeas.map((i: { id: string }) => i.id) } },
+      where: { id: { in: batchIdeas.map((i: { id: string }) => i.id) } },
       data: { status: 'IN_VOTING', tier: 1 },
     })
+
+    // Create cells for all members in this batch
+    // Allow cells up to 7 members to avoid tiny leftovers
+    let remainingMembers = [...batchMembers]
+    while (remainingMembers.length > 0) {
+      const cellSize = remainingMembers.length <= 7 ? remainingMembers.length : CELL_SIZE
+      const cellMembers = remainingMembers.slice(0, cellSize)
+      remainingMembers = remainingMembers.slice(cellSize)
+
+      if (cellMembers.length === 0) continue
+
+      const cell = await prisma.cell.create({
+        data: {
+          deliberationId,
+          tier: 1,
+          status: 'VOTING',
+          ideas: {
+            create: batchIdeas.map(idea => ({
+              ideaId: idea.id,
+            })),
+          },
+          participants: {
+            create: cellMembers.map(member => ({
+              userId: member.userId,
+            })),
+          },
+        },
+      })
+
+      cells.push(cell)
+    }
   }
 
   // Update deliberation phase and start tier timer
@@ -589,11 +609,14 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
     if (shuffledIdeas.length <= 5) {
-      // Create multiple cells (one per ~5 participants), all voting on same ideas
-      const numCells = Math.ceil(shuffledMembers.length / CELL_SIZE)
+      // Create cells for all members, all voting on same ideas
+      // Allow cells up to 7 members to avoid tiny leftovers
+      let remainingMembers = [...shuffledMembers]
+      while (remainingMembers.length > 0) {
+        const cellSize = remainingMembers.length <= 7 ? remainingMembers.length : CELL_SIZE
+        const cellMembers = remainingMembers.slice(0, cellSize)
+        remainingMembers = remainingMembers.slice(cellSize)
 
-      for (let i = 0; i < numCells; i++) {
-        const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
         if (cellMembers.length === 0) continue
 
         await prisma.cell.create({
@@ -611,30 +634,45 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         })
       }
     } else {
-      // Normal case: batch ideas among cells
-      const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+      // Normal case: batch ideas into groups, distribute ALL members across batches
+      const numBatches = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+      const baseMembersPerBatch = Math.floor(shuffledMembers.length / numBatches)
+      const extraMembers = shuffledMembers.length % numBatches
 
-      for (let i = 0; i < numCells; i++) {
-        const cellIdeas = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
-        const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
+      let memberIndex = 0
+      for (let batch = 0; batch < numBatches; batch++) {
+        const batchIdeas = shuffledIdeas.slice(batch * IDEAS_PER_CELL, (batch + 1) * IDEAS_PER_CELL)
 
-        // Skip creating cells with no unique members - don't wrap around
-        // This prevents users from being in multiple cells per tier
-        if (cellMembers.length === 0) continue
+        // Even distribution: base + 1 extra for first 'extraMembers' batches
+        const batchMemberCount = baseMembersPerBatch + (batch < extraMembers ? 1 : 0)
+        const batchMembers = shuffledMembers.slice(memberIndex, memberIndex + batchMemberCount)
+        memberIndex += batchMemberCount
 
-        await prisma.cell.create({
-          data: {
-            deliberationId,
-            tier: nextTier,
-            status: 'VOTING',
-            ideas: {
-              create: cellIdeas.map(idea => ({ ideaId: idea.id })),
+        if (batchIdeas.length === 0) continue
+
+        // Create cells for all members in this batch
+        let remainingMembers = [...batchMembers]
+        while (remainingMembers.length > 0) {
+          const cellSize = remainingMembers.length <= 7 ? remainingMembers.length : CELL_SIZE
+          const cellMembers = remainingMembers.slice(0, cellSize)
+          remainingMembers = remainingMembers.slice(cellSize)
+
+          if (cellMembers.length === 0) continue
+
+          await prisma.cell.create({
+            data: {
+              deliberationId,
+              tier: nextTier,
+              status: 'VOTING',
+              ideas: {
+                create: batchIdeas.map(idea => ({ ideaId: idea.id })),
+              },
+              participants: {
+                create: cellMembers.map(member => ({ userId: member.userId })),
+              },
             },
-            participants: {
-              create: cellMembers.map(member => ({ userId: member.userId })),
-            },
-          },
-        })
+          })
+        }
       }
     }
 

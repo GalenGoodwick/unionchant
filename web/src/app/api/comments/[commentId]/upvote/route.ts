@@ -67,7 +67,7 @@ export async function POST(
       return NextResponse.json({ upvoted: false })
     }
 
-    // Add upvote
+    // Add upvote (increment both total and tier-specific counts)
     await prisma.$transaction([
       prisma.commentUpvote.create({
         data: {
@@ -77,7 +77,10 @@ export async function POST(
       }),
       prisma.comment.update({
         where: { id: commentId },
-        data: { upvoteCount: { increment: 1 } },
+        data: {
+          upvoteCount: { increment: 1 },
+          tierUpvotes: { increment: 1 },
+        },
       }),
     ])
 
@@ -103,7 +106,10 @@ export async function POST(
       const newTier = Math.min(currentTier + 1, deliberationTier)
       await prisma.comment.update({
         where: { id: commentId },
-        data: { reachTier: newTier },
+        data: {
+          reachTier: newTier,
+          tierUpvotes: 0, // Reset tier upvotes for the new level
+        },
       })
 
       // Create notification for comment author

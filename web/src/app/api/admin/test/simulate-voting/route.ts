@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 
       // Check if this is a final showdown (all cells have same ideas, ≤4 ideas)
       const firstCellIdeaIds = cellsAtTier[0]?.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort() || []
-      const isFinalShowdown = firstCellIdeaIds.length <= 4 && firstCellIdeaIds.length > 0 &&
+      const isFinalShowdown = firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0 &&
         cellsAtTier.every(cell => {
           const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
           return cellIdeaIds.length === firstCellIdeaIds.length &&

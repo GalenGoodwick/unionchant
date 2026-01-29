@@ -112,7 +112,8 @@ type TierInfo = {
     participantCount: number
     votedCount: number
     votingDeadline?: string | null
-    ideas?: { id: string; text: string; status: string; author: { name: string | null } }[]
+    ideas?: { id: string; text: string; status: string; voteCount?: number; author: { name: string | null } }[]
+    winner?: { id: string; text: string; author: string }
   }[]
 }
 
@@ -178,20 +179,181 @@ function StatsRow({ items }: { items: { label: string; value: string | number; c
   )
 }
 
+// Champion Box - Always visible, shows TBD until winner
+function ChampionBox({ winner, phase }: { winner: Idea | undefined; phase: string }) {
+  const hasWinner = !!winner
+  // Only show accumulating state if we actually have a champion
+  // This prevents flickering during phase transitions
+  const isAccumulating = phase === 'ACCUMULATING' && hasWinner
+
+  return (
+    <div className={`rounded-lg p-4 mb-4 border-2 transition-all ${
+      hasWinner
+        ? isAccumulating
+          ? 'bg-purple-bg border-purple'
+          : 'bg-success-bg border-success'
+        : 'bg-surface border-border'
+    }`}>
+      <div className="flex items-center gap-3">
+        <div className="text-3xl">{hasWinner ? '🏆' : '❓'}</div>
+        <div className="flex-1">
+          <div className={`text-xs font-semibold mb-0.5 ${
+            hasWinner
+              ? isAccumulating ? 'text-purple' : 'text-success'
+              : 'text-muted'
+          }`}>
+            {hasWinner
+              ? isAccumulating ? 'CURRENT CHAMPION' : 'CHAMPION'
+              : 'CHAMPION TBD'}
+          </div>
+          <div className={`font-medium ${hasWinner ? 'text-foreground' : 'text-muted'}`}>
+            {hasWinner ? winner.text : 'Deliberation in progress...'}
+          </div>
+          {hasWinner && winner.author && (
+            <div className={`text-sm ${isAccumulating ? 'text-purple' : 'text-success'}`}>
+              {getDisplayName(winner.author)}
+            </div>
+          )}
+          {isAccumulating && hasWinner && (
+            <div className="text-xs text-muted mt-1">Accepting challengers...</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Tier Funnel - Visual tournament bracket
+function TierFunnel({
+  currentTier,
+  totalIdeas,
+  phase,
+  ideas
+}: {
+  currentTier: number
+  totalIdeas: number
+  phase: string
+  ideas: Idea[]
+}) {
+  // Calculate tier structure based on 5:1 reduction
+  const tiers: { tier: number; ideas: number; status: 'completed' | 'active' | 'pending' }[] = []
+  let ideasAtTier = totalIdeas
+  let tier = 1
+
+  while (ideasAtTier > 1 && tier <= 10) {
+    const status = tier < currentTier ? 'completed'
+      : tier === currentTier ? 'active'
+      : 'pending'
+
+    // Count actual ideas at this tier if we have the data
+    const actualCount = tier < currentTier
+      ? Math.ceil(ideasAtTier / 5) // Estimated winners from previous tier
+      : tier === currentTier
+        ? ideas.filter(i => i.status === 'IN_VOTING' || i.status === 'ADVANCING').length || ideasAtTier
+        : ideasAtTier
+
+    tiers.push({ tier, ideas: tier === 1 ? totalIdeas : actualCount, status })
+    ideasAtTier = Math.ceil(ideasAtTier / 5)
+    tier++
+  }
+
+  // Add final tier if we have a winner
+  if (phase === 'COMPLETED' || ideas.some(i => i.status === 'WINNER')) {
+    if (tiers.length > 0 && tiers[tiers.length - 1].ideas > 1) {
+      tiers.push({ tier: tiers.length + 1, ideas: 1, status: 'completed' })
+    }
+  }
+
+  if (tiers.length === 0) return null
+
+  return (
+    <div className="bg-background rounded-lg border border-border p-4 mb-4">
+      <h3 className="text-sm font-medium text-muted mb-3">Tournament Progress</h3>
+      <div className="space-y-2">
+        {tiers.filter(t => t.status !== 'pending').map((t, i, arr) => (
+          <div key={t.tier} className="relative">
+            <div className={`flex items-center gap-3 p-2 rounded-lg transition-all ${
+              t.status === 'active' ? 'bg-warning-bg border border-warning' :
+              t.status === 'completed' ? 'bg-success-bg border border-success' :
+              'bg-surface border border-border'
+            }`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                t.status === 'active' ? 'bg-warning text-white' :
+                t.status === 'completed' ? 'bg-success text-white' :
+                'bg-border text-muted'
+              }`}>
+                {t.tier}
+              </div>
+              <div className="flex-1">
+                <div className="text-sm text-foreground font-medium">
+                  Tier {t.tier}
+                </div>
+                <div className="text-xs text-muted">
+                  {t.ideas} idea{t.ideas !== 1 ? 's' : ''} {t.status === 'completed' ? '→ ' + Math.ceil(t.ideas / 5) + ' advancing' : ''}
+                </div>
+              </div>
+              {t.status === 'completed' && (
+                <svg className="w-5 h-5 text-success" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              )}
+              {t.status === 'active' && (
+                <div className="w-5 h-5 border-2 border-warning border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
+            {i < arr.length - 1 && (
+              <div className="absolute left-5 top-full w-0.5 h-2 bg-border" />
+            )}
+          </div>
+        ))}
+        {tiers.filter(t => t.status === 'pending').length > 0 && (
+          <div className="text-xs text-muted text-center py-1">
+            {tiers.filter(t => t.status === 'pending').length} more tier{tiers.filter(t => t.status === 'pending').length > 1 ? 's' : ''} to go...
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// Extended comment type with upvote info
+type CommentWithUpvote = Comment & {
+  upvoteCount?: number
+  userHasUpvoted?: boolean
+  reachTier?: number
+  isUpPollinated?: boolean
+  sourceTier?: number
+  linkedIdea?: { id: string; text: string } | null
+}
+
 // Discussion component for a cell
-function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipant: boolean }) {
-  const [comments, setComments] = useState<Comment[]>([])
+function CellDiscussion({ cellId, isParticipant, ideas }: {
+  cellId: string
+  isParticipant: boolean
+  ideas?: { id: string; text: string }[]
+}) {
+  const [localComments, setLocalComments] = useState<CommentWithUpvote[]>([])
+  const [upPollinatedComments, setUpPollinatedComments] = useState<CommentWithUpvote[]>([])
   const [newComment, setNewComment] = useState('')
+  const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [expanded, setExpanded] = useState(false)
+  const [upvoting, setUpvoting] = useState<string | null>(null)
 
   const fetchComments = async () => {
     try {
       const res = await fetch(`/api/cells/${cellId}/comments`)
       if (res.ok) {
         const data = await res.json()
-        setComments(data)
+        // Handle both old flat array and new structured response
+        if (Array.isArray(data)) {
+          setLocalComments(data)
+          setUpPollinatedComments([])
+        } else {
+          setLocalComments(data.local || [])
+          setUpPollinatedComments(data.upPollinated || [])
+        }
       }
     } catch (err) {
       console.error('Failed to fetch comments:', err)
@@ -199,6 +361,9 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
       setLoading(false)
     }
   }
+
+  const comments = [...localComments, ...upPollinatedComments]
+  const totalCount = comments.length
 
   useEffect(() => {
     fetchComments()
@@ -215,14 +380,41 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
       const res = await fetch(`/api/cells/${cellId}/comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: newComment }),
+        body: JSON.stringify({
+          text: newComment,
+          ideaId: selectedIdeaId || undefined,
+        }),
       })
       if (res.ok) {
         setNewComment('')
+        setSelectedIdeaId(null)
         fetchComments()
+      } else {
+        const data = await res.json()
+        console.error('Comment failed:', data.error)
+        alert(data.error || 'Failed to post comment')
       }
+    } catch (err) {
+      console.error('Comment error:', err)
+      alert('Failed to post comment')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleUpvote = async (commentId: string) => {
+    setUpvoting(commentId)
+    try {
+      const res = await fetch(`/api/comments/${commentId}/upvote`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        fetchComments()
+      }
+    } catch (err) {
+      console.error('Failed to upvote:', err)
+    } finally {
+      setUpvoting(null)
     }
   }
 
@@ -245,46 +437,129 @@ function CellDiscussion({ cellId, isParticipant }: { cellId: string; isParticipa
         <svg className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
         </svg>
-        Discussion ({comments.length})
+        Discussion ({totalCount})
+        {upPollinatedComments.length > 0 && (
+          <span className="text-purple text-xs">+{upPollinatedComments.length} from other cells</span>
+        )}
       </button>
 
       {expanded && (
         <div className="mt-2">
+          {/* Up-pollinated comments section */}
+          {upPollinatedComments.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs text-purple mb-1.5">From other cells in this batch:</p>
+              <div className="space-y-1.5">
+                {upPollinatedComments.slice(0, 3).map(c => (
+                  <div key={c.id} className="bg-purple-bg border-l-2 border-purple rounded p-2 text-sm">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-purple">{getDisplayName(c.user)}</span>
+                          <span className="text-xs text-muted">T{c.sourceTier}</span>
+                          {c.reachTier && c.reachTier > 1 && (
+                            <span className="text-purple text-xs">reached T{c.reachTier}</span>
+                          )}
+                        </div>
+                        <p className="text-foreground text-sm">{c.text}</p>
+                      </div>
+                      <span className="text-xs text-purple font-mono">{c.upvoteCount || 0}↑</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Local comments */}
           <div className="space-y-2 max-h-40 overflow-y-auto mb-2">
             {loading ? (
               <p className="text-muted text-sm">Loading...</p>
-            ) : comments.length === 0 ? (
-              <p className="text-muted text-sm">No messages yet</p>
+            ) : localComments.length === 0 ? (
+              <p className="text-muted text-sm">No messages yet in this cell</p>
             ) : (
-              comments.map(c => (
+              localComments.map(c => (
                 <div key={c.id} className="bg-surface rounded p-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="font-medium text-accent">{getDisplayName(c.user)}</span>
-                    <span className="text-muted text-xs">{timeAgo(c.createdAt)}</span>
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-accent">{getDisplayName(c.user)}</span>
+                        <span className="text-muted text-xs">{timeAgo(c.createdAt)}</span>
+                        {c.reachTier && c.reachTier > 1 && (
+                          <span className="text-purple text-xs">↑T{c.reachTier}</span>
+                        )}
+                      </div>
+                      {c.linkedIdea && (
+                        <p className="text-xs text-warning truncate">
+                          Re: {c.linkedIdea.text.slice(0, 50)}{c.linkedIdea.text.length > 50 ? '...' : ''}
+                        </p>
+                      )}
+                      <p className="text-foreground">{c.text}</p>
+                    </div>
+                    {/* Upvote button */}
+                    <button
+                      onClick={() => handleUpvote(c.id)}
+                      disabled={upvoting === c.id || c.userHasUpvoted}
+                      className={`ml-2 flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                        c.userHasUpvoted
+                          ? 'bg-purple-bg text-purple'
+                          : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
+                      }`}
+                      title={c.userHasUpvoted ? 'You upvoted this' : 'Upvote to help this comment reach more people'}
+                    >
+                      <svg className="w-3 h-3" fill={c.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                      </svg>
+                      <span className="font-mono">{c.upvoteCount || 0}</span>
+                    </button>
                   </div>
-                  <p className="text-foreground">{c.text}</p>
                 </div>
               ))
             )}
           </div>
 
           {isParticipant && (
-            <form onSubmit={handleSubmit} className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Message..."
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                className="flex-1 bg-background rounded border border-border px-3 py-1.5 text-sm text-foreground placeholder-muted focus:outline-none focus:border-accent"
-              />
-              <button
-                type="submit"
-                disabled={submitting || !newComment.trim()}
-                className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm"
-              >
-                {submitting ? '...' : 'Send'}
-              </button>
-            </form>
+            <div className="space-y-2">
+              {/* Idea chips - tap to link comment */}
+              {ideas && ideas.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {ideas.map(idea => (
+                    <button
+                      key={idea.id}
+                      type="button"
+                      onClick={() => setSelectedIdeaId(selectedIdeaId === idea.id ? null : idea.id)}
+                      className={`text-xs px-2 py-1 rounded border transition-colors truncate max-w-[150px] ${
+                        selectedIdeaId === idea.id
+                          ? 'bg-warning-bg border-warning text-warning'
+                          : 'bg-background border-border text-muted hover:border-warning hover:text-warning'
+                      }`}
+                      title={idea.text}
+                    >
+                      {idea.text.slice(0, 25)}{idea.text.length > 25 ? '...' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {selectedIdeaId && (
+                <p className="text-xs text-warning">Replying to idea (follows across tiers)</p>
+              )}
+              <form onSubmit={handleSubmit} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder={selectedIdeaId ? "Comment on this idea..." : "Message..."}
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  className="flex-1 bg-background rounded border border-border px-3 py-1.5 text-sm text-foreground placeholder-muted focus:outline-none focus:border-accent"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting || !newComment.trim()}
+                  className="bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm"
+                >
+                  {submitting ? '...' : 'Send'}
+                </button>
+              </form>
+            </div>
           )}
         </div>
       )}
@@ -373,7 +648,11 @@ function VotingCell({
         })}
       </div>
 
-      <CellDiscussion cellId={cell.id} isParticipant={true} />
+      <CellDiscussion
+        cellId={cell.id}
+        isParticipant={true}
+        ideas={cell.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text }))}
+      />
     </div>
   )
 }
@@ -382,6 +661,7 @@ function VotingCell({
 function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliberationId: string; currentTier: number; onRefresh: () => void }) {
   const [tierInfo, setTierInfo] = useState<TierInfo | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedCell, setSelectedCell] = useState<TierInfo['cells'][0] | null>(null)
 
   useEffect(() => {
     const fetchTierInfo = async () => {
@@ -403,18 +683,29 @@ function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliber
   if (loading || !tierInfo) return null
 
   const { stats, cells, ideas, liveTally, isBatch } = tierInfo
+  const isFinalShowdown = isBatch && ideas && ideas.length <= 5
 
   return (
     <Section
-      title={`Tier ${currentTier} Progress`}
+      title={isFinalShowdown ? `Final Showdown - Tier ${currentTier}` : `Tier ${currentTier} Progress`}
       badge={
-        <span className="text-xs bg-warning text-black px-2 py-0.5 rounded font-mono">
+        <span className={`text-xs px-2 py-0.5 rounded font-mono ${
+          isFinalShowdown ? 'bg-purple text-white' : 'bg-warning text-black'
+        }`}>
           {stats.completedCells}/{stats.totalCells} cells
         </span>
       }
-      variant="warning"
+      variant={isFinalShowdown ? 'purple' : 'warning'}
       defaultOpen={true}
     >
+      {/* Final showdown banner */}
+      {isFinalShowdown && (
+        <div className="bg-purple-bg border border-purple rounded-lg p-3 mb-4 text-center">
+          <div className="text-purple font-semibold text-sm">All {stats.totalCells} cells voting on the same {ideas?.length} ideas!</div>
+          <div className="text-xs text-muted mt-1">Cross-cell tallying determines the champion</div>
+        </div>
+      )}
+
       {/* Overall progress bar */}
       <div className="mb-4">
         <div className="flex justify-between text-xs text-muted mb-1">
@@ -423,29 +714,41 @@ function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliber
         </div>
         <div className="w-full bg-background rounded-full h-2">
           <div
-            className="bg-warning h-2 rounded-full transition-all"
+            className={`h-2 rounded-full transition-all ${isFinalShowdown ? 'bg-purple' : 'bg-warning'}`}
             style={{ width: `${stats.votingProgress}%` }}
           />
         </div>
       </div>
 
-      {/* Live vote tally for batches (Tier 2+) */}
+      {/* Live vote tally for batches */}
       {isBatch && liveTally && liveTally.length > 0 && (
         <div className="mb-4">
-          <p className="text-xs text-muted uppercase tracking-wide mb-2">Live Vote Tally</p>
+          <p className="text-xs text-muted uppercase tracking-wide mb-2">
+            {isFinalShowdown ? 'Live Championship Tally' : 'Live Vote Tally'}
+          </p>
           <div className="space-y-1">
             {liveTally.map((item, index) => {
-              const maxVotes = liveTally[0]?.voteCount || 1
+              const maxVotes = Math.max(...liveTally.map(i => i.voteCount), 1)
               const percentage = maxVotes > 0 ? (item.voteCount / maxVotes) * 100 : 0
+              const isLeading = index === 0 && item.voteCount > 0
               return (
                 <div key={item.ideaId} className="relative">
                   <div
-                    className="absolute inset-y-0 left-0 bg-warning-bg rounded"
+                    className={`absolute inset-y-0 left-0 rounded ${
+                      isLeading ? (isFinalShowdown ? 'bg-purple-bg' : 'bg-warning-bg') : 'bg-surface'
+                    }`}
                     style={{ width: `${percentage}%` }}
                   />
                   <div className="relative flex justify-between items-center p-2 text-sm">
-                    <span className="text-foreground truncate flex-1">{item.text}</span>
-                    <span className="font-mono text-warning ml-2">{item.voteCount}</span>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {isLeading && <span className="text-success">●</span>}
+                      <span className="text-foreground truncate">{item.text}</span>
+                    </div>
+                    <span className={`font-mono ml-2 ${
+                      isLeading ? (isFinalShowdown ? 'text-purple font-bold' : 'text-warning font-bold') : 'text-muted'
+                    }`}>
+                      {item.voteCount}
+                    </span>
                   </div>
                 </div>
               )
@@ -456,8 +759,10 @@ function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliber
 
       {/* Cell grid */}
       <div className="mb-2">
-        <p className="text-xs text-muted uppercase tracking-wide mb-2">Cells</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <p className="text-xs text-muted uppercase tracking-wide mb-2">
+          {isBatch ? 'All Cells (voting on same ideas)' : 'Cells (each with unique ideas)'}
+        </p>
+        <div className="flex flex-wrap gap-1.5">
           {cells.map((cell, index) => {
             const isComplete = cell.status === 'COMPLETED'
             const progress = cell.participantCount > 0
@@ -465,34 +770,19 @@ function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliber
               : 0
 
             return (
-              <div
+              <button
                 key={cell.id}
-                className={`rounded-lg p-2 text-xs ${
+                onClick={() => setSelectedCell(cell)}
+                className={`w-10 h-10 rounded flex flex-col items-center justify-center text-[10px] font-mono transition-all cursor-pointer hover:ring-2 hover:ring-accent ${
                   isComplete
-                    ? 'bg-success-bg border border-success'
-                    : 'bg-surface border border-border'
+                    ? 'bg-success-bg border border-success text-success'
+                    : 'bg-surface border border-border text-muted'
                 }`}
+                title={`Cell ${index + 1}: ${cell.votedCount}/${cell.participantCount} voted - Click for details`}
               >
-                <div className="flex justify-between items-center mb-1">
-                  <span className="font-medium text-foreground">Cell {index + 1}</span>
-                  <span className={`text-xs ${isComplete ? 'text-success' : 'text-muted'}`}>
-                    {isComplete ? '✓' : `${progress}%`}
-                  </span>
-                </div>
-                <div className="text-muted">
-                  {cell.votedCount}/{cell.participantCount} voted
-                </div>
-                {/* Show voting deadline if available */}
-                {!isComplete && cell.votingDeadline && (
-                  <div className="mt-1">
-                    <CountdownTimer
-                      deadline={cell.votingDeadline}
-                      onExpire={onRefresh}
-                      compact
-                    />
-                  </div>
-                )}
-              </div>
+                <span>{cell.votedCount}/{cell.participantCount}</span>
+                {isComplete && <span>✓</span>}
+              </button>
             )
           })}
         </div>
@@ -520,10 +810,68 @@ function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliber
         </div>
       )}
 
-      {/* Stats summary */}
-      <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted">
-        <span>{stats.totalParticipants} participants</span>
-        <span>{ideas?.length || 0} ideas</span>
+      {/* Cell Detail Modal */}
+      {selectedCell && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedCell(null)}>
+          <div className="bg-surface rounded-xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-border flex justify-between items-center">
+              <h3 className="font-bold">Cell Details</h3>
+              <button onClick={() => setSelectedCell(null)} className="text-muted hover:text-foreground">✕</button>
+            </div>
+            <div className="p-4 space-y-4">
+              {/* Status */}
+              <div className="flex justify-between items-center">
+                <span className="text-muted">Status</span>
+                <span className={selectedCell.status === 'COMPLETED' ? 'text-success font-medium' : 'text-warning font-medium'}>
+                  {selectedCell.status === 'COMPLETED' ? 'Completed' : 'Voting'}
+                </span>
+              </div>
+              {/* Votes */}
+              <div className="flex justify-between items-center">
+                <span className="text-muted">Votes</span>
+                <span className="font-mono">{selectedCell.votedCount}/{selectedCell.participantCount}</span>
+              </div>
+              {/* Winner if completed */}
+              {selectedCell.status === 'COMPLETED' && selectedCell.winner && (
+                <div className="bg-success-bg border border-success rounded-lg p-3">
+                  <p className="text-success text-xs font-semibold uppercase mb-1">Winner</p>
+                  <p className="text-foreground">{selectedCell.winner.text}</p>
+                  <p className="text-muted text-sm">by {selectedCell.winner.author}</p>
+                </div>
+              )}
+              {/* Ideas */}
+              <div>
+                <p className="text-muted text-xs uppercase mb-2">Ideas in this cell</p>
+                <div className="space-y-2">
+                  {selectedCell.ideas?.map(idea => (
+                    <div key={idea.id} className={`p-2 rounded border ${
+                      selectedCell.winner?.id === idea.id ? 'bg-success-bg border-success' : 'bg-background border-border'
+                    }`}>
+                      <p className="text-foreground text-sm">{idea.text}</p>
+                      <div className="flex justify-between text-xs text-muted mt-1">
+                        <span>by {idea.author?.name || 'Anonymous'}</span>
+                        {idea.voteCount !== undefined && <span>{idea.voteCount} votes</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Legend */}
+      <div className="mt-3 pt-3 border-t border-border flex flex-wrap gap-3 text-xs text-muted">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-surface border border-border"></div>
+          <span>Voting</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-success-bg border border-success"></div>
+          <span>Complete</span>
+        </div>
+        <span className="ml-auto">{stats.totalParticipants} participants</span>
       </div>
     </Section>
   )
@@ -883,6 +1231,7 @@ export default function DeliberationPage() {
   const [joining, setJoining] = useState(false)
   const [startingVote, setStartingVote] = useState(false)
   const [startingChallenge, setStartingChallenge] = useState(false)
+  const [forcingNextTier, setForcingNextTier] = useState(false)
   const [voting, setVoting] = useState<string | null>(null)
   const [enteringVoting, setEnteringVoting] = useState(false)
 
@@ -980,6 +1329,20 @@ export default function DeliberationPage() {
     }
   }
 
+  const handleForceNextTier = async () => {
+    if (!confirm('Force advance to the next tier? This will close all voting cells and determine winners based on current votes.')) {
+      return
+    }
+    setForcingNextTier(true)
+    try {
+      const res = await fetch(`/api/deliberations/${id}/force-next-tier`, { method: 'POST' })
+      if (res.ok) { fetchDeliberation(); fetchCells() }
+      else { const d = await res.json(); alert(d.error || 'Failed to advance tier') }
+    } finally {
+      setForcingNextTier(false)
+    }
+  }
+
   const handleEnterVoting = async () => {
     if (!session) { router.push('/auth/signin'); return }
     setEnteringVoting(true)
@@ -1033,18 +1396,32 @@ export default function DeliberationPage() {
 
   if (!deliberation) return null
 
+  // Find winner by status or by championId (during ACCUMULATING, champion might have different status)
   const winner = deliberation.ideas.find(i => i.status === 'WINNER')
+    || (deliberation.championId ? deliberation.ideas.find(i => i.id === deliberation.championId) : undefined)
   const defender = deliberation.ideas.find(i => i.status === 'DEFENDING')
+  // Cells where user can still vote (VOTING status and hasn't voted yet)
   const activeCells = cells.filter(c => c.status === 'VOTING' && c.votes.length === 0)
+  // Cells where user has voted or cell is completed
   const votedCells = cells.filter(c => c.status !== 'VOTING' || c.votes.length > 0)
+  // Check if user has any cells in current tier (whether voted or not)
+  const currentTierCells = cells.filter(c => c.tier === deliberation.currentTier)
+  const hasVotedInCurrentTier = currentTierCells.some(c => c.votes.length > 0)
+  const isInCurrentTier = currentTierCells.length > 0
   const isCreator = deliberation.isCreator || false
+
+  // Calculate effective phase to prevent flickering during transitions
+  // ACCUMULATING should only show if we have a champion, otherwise show VOTING
+  const effectivePhase = (deliberation.phase === 'ACCUMULATING' && !winner)
+    ? 'VOTING'
+    : deliberation.phase
 
   const phaseColor = {
     SUBMISSION: 'text-accent',
     VOTING: 'text-warning',
     COMPLETED: 'text-success',
     ACCUMULATING: 'text-purple',
-  }[deliberation.phase] || 'text-muted'
+  }[effectivePhase] || 'text-muted'
 
   return (
     <div className="min-h-screen bg-background">
@@ -1061,7 +1438,7 @@ export default function DeliberationPage() {
           <div className="flex justify-between items-start gap-2 mb-2">
             <h1 className="text-xl font-bold text-foreground leading-tight">{deliberation.question}</h1>
             <span className={`text-xs font-semibold px-2 py-1 rounded shrink-0 ${phaseColor} bg-surface`}>
-              {deliberation.phase}
+              {effectivePhase}
             </span>
           </div>
 
@@ -1081,6 +1458,9 @@ export default function DeliberationPage() {
             { label: 'Members', value: deliberation._count.members },
           ]} />
         </div>
+
+        {/* Champion Box - Always visible */}
+        <ChampionBox winner={winner} phase={effectivePhase} />
 
         {/* Phase-specific banners */}
         {deliberation.phase === 'SUBMISSION' && deliberation.submissionEndsAt && (
@@ -1104,15 +1484,7 @@ export default function DeliberationPage() {
           </div>
         )}
 
-        {winner && deliberation.phase !== 'ACCUMULATING' && (
-          <div className="bg-success-bg border border-success rounded-lg p-3 mb-4">
-            <div className="text-success text-xs font-semibold mb-1">🏆 CHAMPION</div>
-            <p className="text-foreground font-medium">{winner.text}</p>
-            <p className="text-success text-sm">{getDisplayName(winner.author)}</p>
-          </div>
-        )}
-
-        {deliberation.phase === 'ACCUMULATING' && (
+        {effectivePhase === 'ACCUMULATING' && winner && (
           <div className="bg-purple-bg border border-purple rounded-lg p-3 mb-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-purple font-semibold text-sm">Accepting Challengers</span>
@@ -1120,12 +1492,10 @@ export default function DeliberationPage() {
                 <CountdownTimer deadline={deliberation.accumulationEndsAt} onExpire={fetchDeliberation} compact />
               )}
             </div>
-            {winner && (
-              <div className="text-sm">
-                <span className="text-muted">Champion: </span>
-                <span className="text-foreground">{winner.text}</span>
-              </div>
-            )}
+            <div className="text-sm">
+              <span className="text-muted">Champion: </span>
+              <span className="text-foreground">{winner.text}</span>
+            </div>
             <div className="mt-2 text-xs text-purple">
               {deliberation.ideas.filter(i => i.status === 'PENDING' && i.isNew).length} challengers waiting
             </div>
@@ -1151,13 +1521,25 @@ export default function DeliberationPage() {
             </button>
           )}
 
-          {isCreator && deliberation.phase === 'ACCUMULATING' && (
+          {isCreator && effectivePhase === 'ACCUMULATING' && winner && (
             <button
               onClick={handleStartChallenge}
               disabled={startingChallenge || deliberation.ideas.filter(i => i.status === 'PENDING' && i.isNew).length === 0}
               className="bg-orange hover:bg-orange-hover disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium"
             >
               {startingChallenge ? '...' : 'Start Challenge'}
+            </button>
+          )}
+
+          {/* Facilitator mode: force advance tier */}
+          {isCreator && deliberation.phase === 'VOTING' && (
+            <button
+              onClick={handleForceNextTier}
+              disabled={forcingNextTier}
+              className="border border-warning hover:bg-warning-bg text-warning px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+              title="Force close all voting cells and advance to next tier"
+            >
+              {forcingNextTier ? '...' : 'Force Next Tier'}
             </button>
           )}
 
@@ -1238,7 +1620,7 @@ export default function DeliberationPage() {
         )}
 
         {/* Submit Challenger Form */}
-        {deliberation.isMember && (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') && (
+        {deliberation.isMember && (effectivePhase === 'VOTING' || effectivePhase === 'ACCUMULATING') && (
           deliberation.userSubmittedChallenger ? (
             <div className="bg-purple-bg border border-purple rounded-lg p-3 mb-4">
               <p className="text-purple font-medium text-sm mb-1">Your challenger submitted:</p>
@@ -1279,8 +1661,8 @@ export default function DeliberationPage() {
           </Section>
         )}
 
-        {/* Join Voting - when in VOTING phase but no active cells */}
-        {deliberation.phase === 'VOTING' && activeCells.length === 0 && session && (
+        {/* Join Voting - when in VOTING phase but not yet in current tier */}
+        {deliberation.phase === 'VOTING' && activeCells.length === 0 && !isInCurrentTier && session && (
           <Section
             title="Join Voting"
             badge={<span className="w-2 h-2 bg-warning rounded-full animate-pulse" />}
@@ -1301,6 +1683,30 @@ export default function DeliberationPage() {
               <p className="text-xs text-muted mt-2">You'll be assigned to an available voting cell</p>
             </div>
           </Section>
+        )}
+
+        {/* Already voted in current tier */}
+        {deliberation.phase === 'VOTING' && hasVotedInCurrentTier && activeCells.length === 0 && session && (
+          <Section
+            title="Vote Submitted"
+            badge={<span className="text-success">✓</span>}
+            variant="default"
+          >
+            <div className="text-center py-4">
+              <p className="text-success font-medium mb-2">You've voted in Tier {deliberation.currentTier}!</p>
+              <p className="text-muted text-sm">Waiting for other voters to complete this tier...</p>
+            </div>
+          </Section>
+        )}
+
+        {/* Tier Funnel - visual tournament bracket */}
+        {(deliberation.phase === 'VOTING' || deliberation.phase === 'COMPLETED') && (
+          <TierFunnel
+            currentTier={deliberation.currentTier}
+            totalIdeas={deliberation.ideas.length}
+            phase={deliberation.phase}
+            ideas={deliberation.ideas}
+          />
         )}
 
         {/* Tier & Cell Progress - during voting */}

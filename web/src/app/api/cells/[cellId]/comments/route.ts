@@ -66,6 +66,9 @@ export async function GET(
         cell: {
           select: { tier: true },
         },
+        idea: {
+          select: { id: true, text: true },
+        },
         upvotes: currentUserId ? {
           where: { userId: currentUserId },
           select: { id: true },
@@ -73,13 +76,42 @@ export async function GET(
       },
     })
 
-    // 2. Get UP-POLLINATED comments (from OTHER cells in SAME BATCH - sharing ideas)
-    // Comments are shown to a % of CELLS based on reach tier vs deliberation tier
-    // Formula: 5^(reachTier - cellTier) = probability this cell sees it
-    // T2 comment at T3: 5^(2-3) = 5^-1 = 0.2 = 20% of T3 cells
-    // T3 comment at T3: 5^(3-3) = 5^0 = 1 = 100% of T3 cells
-    // T3 comment at T4: 5^(3-4) = 5^-1 = 0.2 = 20% of T4 cells
+    // 2. Get UP-POLLINATED comments
+    // Two sources:
+    // A) Comments linked to ideas in this cell (follow idea across tiers)
+    // B) Comments from same batch cells (original behavior)
 
+    // A) Idea-linked comments: comments that are linked to ideas in this cell,
+    // from previous tiers, with sufficient reachTier
+    const ideaLinkedComments = cellIdeaIds.length > 0 ? await prisma.comment.findMany({
+      where: {
+        ideaId: { in: cellIdeaIds }, // Linked to ideas in this cell
+        cellId: { not: cellId }, // Not from this cell (those are local)
+        reachTier: { gte: cell.tier }, // Has reached this tier level
+      },
+      orderBy: [
+        { upvoteCount: 'desc' },
+        { createdAt: 'asc' },
+      ],
+      include: {
+        user: {
+          select: { id: true, name: true, image: true, status: true },
+        },
+        cell: {
+          select: { tier: true },
+        },
+        idea: {
+          select: { id: true, text: true },
+        },
+        upvotes: currentUserId ? {
+          where: { userId: currentUserId },
+          select: { id: true },
+        } : false,
+      },
+      take: 20,
+    }) : []
+
+    // B) Batch comments (same ideas, different cells in same tier)
     // Deterministic check if this cell should see a comment
     const shouldShowComment = (commentId: string, targetCellId: string, reachTier: number, cellTier: number) => {
       if (reachTier >= cellTier) return true // Full reach = always show
@@ -90,15 +122,17 @@ export async function GET(
       return (Math.abs(hash) % 1000) < (probability * 1000)
     }
 
-    // Fetch candidates (comments that COULD be shown based on batch)
-    const upPollinatedCandidates = sameBatchCellIds.length > 0 ? await prisma.comment.findMany({
+    // Fetch batch candidates (comments from same-tier cells with same ideas)
+    const batchCandidates = sameBatchCellIds.length > 0 ? await prisma.comment.findMany({
       where: {
-        cellId: { in: sameBatchCellIds }, // Only from cells with same ideas
-        reachTier: { gte: 1 }, // Any promoted comment is a candidate
+        cellId: { in: sameBatchCellIds },
+        reachTier: { gte: 1 },
+        // Exclude idea-linked comments (already fetched above)
+        ideaId: null,
       },
       orderBy: [
-        { reachTier: 'desc' }, // Higher reach first
-        { upvoteCount: 'desc' }, // Then by popularity
+        { reachTier: 'desc' },
+        { upvoteCount: 'desc' },
         { createdAt: 'asc' },
       ],
       include: {
@@ -113,13 +147,16 @@ export async function GET(
           select: { id: true },
         } : false,
       },
-      take: 50, // Fetch more candidates, filter down
+      take: 30,
     }) : []
 
-    // Filter based on probabilistic reach
-    const upPollinatedComments = upPollinatedCandidates.filter(comment =>
+    // Filter batch comments based on probabilistic reach
+    const batchComments = batchCandidates.filter(comment =>
       shouldShowComment(comment.id, cellId, comment.reachTier, cell.tier)
-    ).slice(0, 20) // Limit final results
+    ).slice(0, 10)
+
+    // Combine and dedupe
+    const upPollinatedComments = [...ideaLinkedComments, ...batchComments]
 
     // Increment view count for local comments (fire and forget)
     prisma.comment.updateMany({
@@ -134,22 +171,33 @@ export async function GET(
       upvotes: undefined,
       isUpPollinated: false,
       sourceTier: comment.cell.tier,
+      linkedIdea: comment.idea ? { id: comment.idea.id, text: comment.idea.text } : null,
       cell: undefined,
+      idea: undefined,
     }))
 
     // Transform up-pollinated comments
-    const upPollinatedWithStatus = upPollinatedComments.map(comment => ({
-      ...comment,
-      userHasUpvoted: currentUserId ? (comment.upvotes && Array.isArray(comment.upvotes) && comment.upvotes.length > 0) : false,
-      upvotes: undefined,
-      isUpPollinated: true,
-      sourceTier: comment.cell.tier,
-      cell: undefined,
-    }))
+    const upPollinatedWithStatus = upPollinatedComments.map(comment => {
+      const idea = 'idea' in comment ? (comment as { idea?: { id: string; text: string } | null }).idea : null
+      return {
+        ...comment,
+        userHasUpvoted: currentUserId ? (comment.upvotes && Array.isArray(comment.upvotes) && comment.upvotes.length > 0) : false,
+        upvotes: undefined,
+        isUpPollinated: true,
+        sourceTier: comment.cell.tier,
+        linkedIdea: idea ? { id: idea.id, text: idea.text } : null,
+        cell: undefined,
+        idea: undefined,
+      }
+    })
+
+    // Dedupe - remove any upPollinated that are also in local
+    const localIds = new Set(localWithStatus.map(c => c.id))
+    const dedupedUpPollinated = upPollinatedWithStatus.filter(c => !localIds.has(c.id))
 
     return NextResponse.json({
       local: localWithStatus,
-      upPollinated: upPollinatedWithStatus,
+      upPollinated: dedupedUpPollinated,
       cellTier: cell.tier,
     })
   } catch (error) {
@@ -195,10 +243,20 @@ export async function POST(
     }
 
     const body = await req.json()
-    const { text, replyToId } = body
+    const { text, replyToId, ideaId } = body
 
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Comment text is required' }, { status: 400 })
+    }
+
+    // Validate ideaId if provided - must be an idea in this cell
+    if (ideaId) {
+      const ideaInCell = await prisma.cellIdea.findFirst({
+        where: { cellId, ideaId },
+      })
+      if (!ideaInCell) {
+        return NextResponse.json({ error: 'Idea not in this cell' }, { status: 400 })
+      }
     }
 
     // Content moderation
@@ -213,17 +271,22 @@ export async function POST(
         userId: user.id,
         text: text.trim(),
         replyToId: replyToId || null,
+        ideaId: ideaId || null,
       },
       include: {
         user: {
           select: { id: true, name: true, image: true, status: true },
         },
+        idea: ideaId ? {
+          select: { id: true, text: true },
+        } : false,
       },
     })
 
     return NextResponse.json(comment, { status: 201 })
   } catch (error) {
     console.error('Error creating comment:', error)
-    return NextResponse.json({ error: 'Failed to create comment' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({ error: `Failed to create comment: ${message}` }, { status: 500 })
   }
 }

@@ -165,6 +165,12 @@ export default function AdminPage() {
             <h1 className="text-2xl font-bold text-foreground">Admin Panel</h1>
             <p className="text-muted text-sm mt-1">Manage deliberations, run tests, and monitor activity</p>
           </div>
+          <Link
+            href="/admin/test"
+            className="bg-surface hover:bg-header hover:text-white text-muted border border-border px-4 py-2 rounded transition-colors text-sm"
+          >
+            Advanced Test Page →
+          </Link>
         </div>
 
         {/* Test Tools */}
@@ -452,6 +458,106 @@ export default function AdminPage() {
               className="bg-surface hover:bg-header hover:text-white text-muted border border-border px-4 py-2 rounded transition-colors text-sm"
             >
               Check Timers
+            </button>
+            <button
+              onClick={async () => {
+                setCreating(true)
+                setCreateStatus('Creating deliberation with completed cell...')
+                try {
+                  const res = await fetch('/api/admin/test/create-completed-cell', { method: 'POST' })
+                  const data = await res.json()
+                  if (res.ok) {
+                    setCreateStatus('Done! Redirecting...')
+                    router.push(`/admin/deliberation/${data.deliberationId}`)
+                  } else {
+                    setCreateStatus(`Error: ${data.error}`)
+                  }
+                } catch {
+                  setCreateStatus('Error: Failed to create')
+                } finally {
+                  setCreating(false)
+                }
+              }}
+              disabled={creating}
+              className="bg-success hover:bg-success-hover disabled:bg-muted text-white px-4 py-2 rounded transition-colors text-sm"
+            >
+              Completed Cell Test
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('Delete ALL test bot users (TestBot, Test User, @test.bot, etc)?')) return
+                setCreateStatus('Wiping test bots...')
+                try {
+                  const res = await fetch('/api/admin/test/wipe-bots', { method: 'POST' })
+                  const data = await res.json()
+                  if (res.ok) {
+                    setCreateStatus(`Wiped ${data.usersDeleted} test users`)
+                    fetchDeliberations()
+                  } else {
+                    setCreateStatus(`Error: ${data.error} - ${data.details || ''}`)
+                  }
+                } catch {
+                  setCreateStatus('Error: Failed to wipe')
+                }
+              }}
+              className="bg-orange hover:bg-orange-hover text-white px-4 py-2 rounded transition-colors text-sm"
+            >
+              Wipe Bots
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('Delete duplicate deliberations (keeps oldest, deletes newer copies)?')) return
+                setCreateStatus('Wiping duplicates...')
+                try {
+                  const res = await fetch('/api/admin/test/wipe-duplicates', { method: 'POST' })
+                  const data = await res.json()
+                  if (res.ok) {
+                    setCreateStatus(`Wiped ${data.duplicatesDeleted} duplicate deliberations`)
+                    fetchDeliberations()
+                  } else {
+                    setCreateStatus(`Error: ${data.error} - ${data.details || ''}`)
+                  }
+                } catch {
+                  setCreateStatus('Error: Failed to wipe')
+                }
+              }}
+              className="bg-purple hover:bg-purple-hover text-white px-4 py-2 rounded transition-colors text-sm"
+            >
+              Wipe Duplicates
+            </button>
+            <button
+              onClick={async () => {
+                if (!confirm('Create stress test deliberation and go to test page?')) return
+                setCreating(true)
+                setCreateStatus('Creating deliberation...')
+                try {
+                  const createRes = await fetch('/api/deliberations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      question: '[STRESS TEST] 1000 Bot Test ' + Date.now(),
+                      description: 'Stress test with AI bots - configure agents on test page',
+                      isPublic: true,
+                      tags: ['test', 'stress'],
+                      accumulationEnabled: true,
+                      votingTimeoutMs: 5 * 60 * 1000,
+                    }),
+                  })
+                  if (!createRes.ok) throw new Error('Failed to create deliberation')
+                  const deliberation = await createRes.json()
+
+                  setCreateStatus('Redirecting to test page...')
+                  router.push(`/admin/test?deliberationId=${deliberation.id}`)
+                } catch (err) {
+                  setCreateStatus(`Error: ${err instanceof Error ? err.message : 'Unknown'}`)
+                } finally {
+                  setCreating(false)
+                }
+              }}
+              disabled={creating}
+              className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-4 py-2 rounded transition-colors text-sm font-semibold"
+            >
+              Create Stress Test
             </button>
           </div>
         </div>

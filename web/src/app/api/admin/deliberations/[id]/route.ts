@@ -35,9 +35,29 @@ export async function DELETE(
     }
 
     // Delete in order due to foreign key constraints
+    // Delete notifications (no FK, but clean up to prevent orphans)
+    await prisma.notification.deleteMany({
+      where: { deliberationId: id },
+    })
+
+    // Delete predictions
+    await prisma.prediction.deleteMany({
+      where: { deliberationId: id },
+    })
+
+    // Delete watches
+    await prisma.watch.deleteMany({
+      where: { deliberationId: id },
+    })
+
     // Delete votes
     await prisma.vote.deleteMany({
       where: { cell: { deliberationId: id } },
+    })
+
+    // Delete comment upvotes (before comments)
+    await prisma.commentUpvote.deleteMany({
+      where: { comment: { cell: { deliberationId: id } } },
     })
 
     // Delete comments

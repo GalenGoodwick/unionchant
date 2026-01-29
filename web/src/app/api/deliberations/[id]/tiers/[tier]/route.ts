@@ -83,7 +83,33 @@ export async function GET(
 
     // Cell-level stats
     const cellStats = cells.map(cell => {
-      const votedCount = cell.participants.filter(p => p.status === 'VOTED').length
+      // Use actual votes count rather than participant status (status updates may lag)
+      const votedCount = cell._count.votes
+      // Get winner for completed cells
+      const winner = cell.status === 'COMPLETED' && cell.ideas.length > 0
+        ? (() => {
+            // Find the idea with most votes in this cell
+            const voteCounts: Record<string, number> = {}
+            for (const vote of cell.votes) {
+              voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
+            }
+            let maxVotes = 0
+            let winnerIdea = cell.ideas[0]?.idea
+            for (const ci of cell.ideas) {
+              const votes = voteCounts[ci.ideaId] || 0
+              if (votes > maxVotes) {
+                maxVotes = votes
+                winnerIdea = ci.idea
+              }
+            }
+            return winnerIdea ? {
+              id: winnerIdea.id,
+              text: winnerIdea.text,
+              author: winnerIdea.author?.name || 'Anonymous',
+            } : undefined
+          })()
+        : undefined
+
       return {
         id: cell.id,
         status: cell.status,
@@ -91,7 +117,11 @@ export async function GET(
         votedCount,
         votesRemaining: cell._count.participants - votedCount,
         votingDeadline: votingDeadline?.toISOString() || null,
-        ideas: !isBatch ? cell.ideas.map(ci => ci.idea) : undefined, // Only include for Tier 1
+        ideas: cell.ideas.map(ci => ({
+          ...ci.idea,
+          voteCount: cell.votes.filter(v => v.ideaId === ci.ideaId).length,
+        })),
+        winner,
       }
     })
 

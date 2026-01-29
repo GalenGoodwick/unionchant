@@ -186,20 +186,12 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
             </span>
           )}
         </div>
-        <div className="flex gap-4">
-          <button
-            onClick={onExplore}
-            className="text-muted hover:text-foreground transition-colors"
-          >
-            Comments
-          </button>
-          <Link
-            href={`/deliberations/${item.deliberation.id}`}
-            className="text-accent hover:text-accent-hover transition-colors"
-          >
-            Full page →
-          </Link>
-        </div>
+        <Link
+          href={`/deliberations/${item.deliberation.id}`}
+          className="text-accent hover:text-accent-hover transition-colors"
+        >
+          Full page →
+        </Link>
       </div>
     </div>
   )

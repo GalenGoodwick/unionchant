@@ -37,45 +37,55 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Deliberation must be in SUBMISSION phase' }, { status: 400 })
     }
 
-    // Create test users
-    const timestamp = Date.now()
-    const users: { id: string; email: string; name: string | null }[] = []
+    // Reuse existing test users or create new ones
+    let users = await prisma.user.findMany({
+      where: { email: { endsWith: '@test.local' } },
+      take: userCount,
+      select: { id: true, email: true, name: true },
+    })
 
-    for (let i = 1; i <= userCount; i++) {
-      const user = await prisma.user.create({
-        data: {
-          email: `test-${timestamp}-${i}@test.local`,
-          name: `Test User ${i}`,
-        },
-      })
-      users.push(user)
-    }
+    // Create more if needed
+    if (users.length < userCount) {
+      const needed = userCount - users.length
+      const timestamp = Date.now()
 
-    // Have each user join and submit an idea
-    let ideasCreated = 0
-
-    for (const user of users) {
-      // Join deliberation
-      await prisma.deliberationMember.create({
-        data: {
-          deliberationId,
-          userId: user.id,
-        },
+      // Batch create users
+      await prisma.user.createMany({
+        data: Array.from({ length: needed }, (_, i) => ({
+          email: `test-${timestamp}-${i + 1}@test.local`,
+          name: `Test User ${users.length + i + 1}`,
+        })),
       })
 
-      // Submit idea (not every user needs one, but let's do most)
-      if (ideasCreated < userCount - 1) { // Leave room for real user's idea
-        await prisma.idea.create({
-          data: {
-            deliberationId,
-            authorId: user.id,
-            text: `Test idea #${ideasCreated + 1} from ${user.name}: This is an automated test idea proposing solution ${ideasCreated + 1}.`,
-            status: 'SUBMITTED',
-          },
-        })
-        ideasCreated++
-      }
+      // Fetch all test users again
+      users = await prisma.user.findMany({
+        where: { email: { endsWith: '@test.local' } },
+        take: userCount,
+        select: { id: true, email: true, name: true },
+      })
     }
+
+    // Batch create memberships
+    await prisma.deliberationMember.createMany({
+      data: users.map(user => ({
+        deliberationId,
+        userId: user.id,
+      })),
+      skipDuplicates: true,
+    })
+
+    // Batch create ideas (one per user, leave room for real user)
+    const ideaCount = userCount - 1
+    await prisma.idea.createMany({
+      data: users.slice(0, ideaCount).map((user, i) => ({
+        deliberationId,
+        authorId: user.id,
+        text: `Test idea #${i + 1} from ${user.name}: This is an automated test idea proposing solution ${i + 1}.`,
+        status: 'SUBMITTED',
+      })),
+    })
+
+    const ideasCreated = ideaCount
 
     return NextResponse.json({
       success: true,
