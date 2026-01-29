@@ -71,9 +71,16 @@ export async function GET(
     })
 
     // Get unique ideas (for batches) or all ideas (for Tier 1)
-    const allIdeas = isBatch
+    // Deduplicate by idea ID to handle any legacy data issues
+    const allIdeasRaw = isBatch
       ? cells[0].ideas.map(ci => ci.idea)
       : cells.flatMap(cell => cell.ideas.map(ci => ci.idea))
+    const seenIds = new Set<string>()
+    const allIdeas = allIdeasRaw.filter(idea => {
+      if (seenIds.has(idea.id)) return false
+      seenIds.add(idea.id)
+      return true
+    })
 
     // Calculate totals
     const totalCells = cells.length
