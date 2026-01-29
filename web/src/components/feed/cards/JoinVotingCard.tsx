@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
+import ShareMenu from '@/components/ShareMenu'
 
 type Props = {
   item: FeedItem
@@ -133,12 +134,19 @@ export default function JoinVotingCard({ item, onAction, onExplore }: Props) {
             </span>
           )}
         </div>
-        <Link
-          href={`/deliberations/${item.deliberation.id}`}
-          className="text-accent hover:text-accent-hover transition-colors"
-        >
-          Full page →
-        </Link>
+        <div className="flex items-center gap-4">
+          <ShareMenu
+            url={`/deliberations/${item.deliberation.id}`}
+            text={item.deliberation.question}
+            variant="icon"
+          />
+          <Link
+            href={`/deliberations/${item.deliberation.id}`}
+            className="text-accent hover:text-accent-hover transition-colors"
+          >
+            Full page →
+          </Link>
+        </div>
       </div>
     </div>
   )

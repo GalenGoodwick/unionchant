@@ -6,11 +6,7 @@ import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
 import NotificationBell from '@/components/NotificationBell'
 
-interface HeaderProps {
-  showSettings?: boolean
-}
-
-export default function Header({ showSettings = true }: HeaderProps) {
+export default function Header() {
   const { data: session } = useSession()
   const { isAdmin } = useAdmin()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -55,11 +51,6 @@ export default function Header({ showSettings = true }: HeaderProps) {
           {isAdmin && (
             <Link href="/admin" className="text-orange-300 hover:text-orange-200 transition-colors">
               Admin
-            </Link>
-          )}
-          {showSettings && session && (
-            <Link href="/settings" className="hover:text-accent-light transition-colors">
-              Settings
             </Link>
           )}
           {session && <NotificationBell />}
@@ -141,15 +132,6 @@ export default function Header({ showSettings = true }: HeaderProps) {
                 className="py-2 px-4 rounded-lg text-orange-300 hover:bg-white/10 transition-colors"
               >
                 Admin
-              </Link>
-            )}
-            {showSettings && session && (
-              <Link
-                href="/settings"
-                onClick={() => setMenuOpen(false)}
-                className="py-2 px-4 rounded-lg hover:bg-white/10 transition-colors"
-              >
-                Settings
               </Link>
             )}
             <div className="border-t border-white/10 pt-3 mt-2">

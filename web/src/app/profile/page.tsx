@@ -170,13 +170,13 @@ export default function ProfilePage() {
             )}
 
             <div className="flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold text-foreground">{profile.name}</h1>
                 <Link
                   href="/settings"
-                  className="text-muted hover:text-foreground text-sm"
+                  className="text-sm text-muted hover:text-foreground border border-border rounded-lg px-3 py-1.5 transition-colors"
                 >
-                  Edit
+                  Settings
                 </Link>
               </div>
 

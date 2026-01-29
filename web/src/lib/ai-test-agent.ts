@@ -17,6 +17,7 @@ export interface AgentConfig {
   newJoinRate: number // 0-1, percentage of new joins mid-voting
   forceStartVoting?: boolean // Force start voting even if trigger not met
   fastMode?: boolean // Skip AI, use batch operations for speed
+  excludeAdminEmail?: string // Remove this admin from deliberation before voting
 }
 
 export interface TestProgress {
@@ -34,25 +35,39 @@ export interface TestProgress {
 }
 
 // Store for tracking test state
-let testProgress: TestProgress = {
-  phase: 'setup',
-  currentTier: 0,
-  totalTiers: 0,
-  agentsCreated: 0,
-  ideasSubmitted: 0,
-  votescast: 0,
-  commentsPosted: 0,
-  upvotesGiven: 0,
-  dropouts: 0,
-  errors: [],
-  logs: [],
+// Use globalThis to persist state across Next.js hot-reloads in dev mode.
+// Without this, polling the GET endpoint can hit a fresh module instance
+// that has zeroed-out state, causing the UI to flash between real and empty data.
+const globalForTest = globalThis as unknown as {
+  __testProgress?: TestProgress
+  __shouldStopTest?: boolean
+  __testRunning?: boolean
 }
 
+if (!globalForTest.__testProgress) {
+  globalForTest.__testProgress = {
+    phase: 'setup',
+    currentTier: 0,
+    totalTiers: 0,
+    agentsCreated: 0,
+    ideasSubmitted: 0,
+    votescast: 0,
+    commentsPosted: 0,
+    upvotesGiven: 0,
+    dropouts: 0,
+    errors: [],
+    logs: [],
+  }
+}
+
+const testProgress = globalForTest.__testProgress
+
 // Flag to stop test early
-let shouldStopTest = false
+let shouldStopTest = globalForTest.__shouldStopTest ?? false
 
 export function stopTest() {
   shouldStopTest = true
+  globalForTest.__shouldStopTest = true
   addTestLog('Stop requested - will stop after current operation')
 }
 
@@ -76,8 +91,10 @@ export function getTestProgress(): TestProgress {
 }
 
 export function resetTestProgress() {
-  shouldStopTest = false  // Reset stop flag
-  testProgress = {
+  shouldStopTest = false
+  globalForTest.__shouldStopTest = false
+  // Mutate in place so the globalThis reference stays valid
+  Object.assign(testProgress, {
     phase: 'setup',
     currentTier: 0,
     totalTiers: 0,
@@ -89,7 +106,7 @@ export function resetTestProgress() {
     dropouts: 0,
     errors: [],
     logs: [],
-  }
+  })
 }
 
 /**
@@ -361,7 +378,8 @@ export async function castVote(
 export async function postComment(
   cellId: string,
   userId: string,
-  text: string
+  text: string,
+  ideaId?: string
 ): Promise<string | null> {
   try {
     const comment = await prisma.comment.create({
@@ -369,6 +387,7 @@ export async function postComment(
         cellId,
         userId,
         text,
+        ideaId: ideaId || null,
       },
     })
     testProgress.commentsPosted++
@@ -420,11 +439,11 @@ export async function upvoteComment(
     // Check for up-pollination (60% threshold)
     const cellParticipantCount = comment.cell.participants.length
     const threshold = Math.ceil(cellParticipantCount * 0.6)
-    const deliberationTier = comment.cell.deliberation.currentTier
+    const maxReachTier = comment.cell.deliberation.currentTier + 1
 
-    if (updated.upvoteCount >= threshold && updated.reachTier < deliberationTier) {
+    if (updated.upvoteCount >= threshold && updated.reachTier < maxReachTier) {
       // Up-pollinate!
-      const newTier = Math.min(updated.reachTier + 1, deliberationTier)
+      const newTier = Math.min(updated.reachTier + 1, maxReachTier)
       await prisma.comment.update({
         where: { id: commentId },
         data: { reachTier: newTier },
@@ -484,6 +503,14 @@ export async function runAgentTest(
   config: AgentConfig,
   onProgress?: (progress: TestProgress) => void
 ): Promise<TestProgress> {
+  // Prevent concurrent test runs
+  if (globalForTest.__testRunning) {
+    addTestLog('ERROR: Test already running, refusing to start another')
+    testProgress.errors.push('Test already running')
+    return getTestProgress()
+  }
+  globalForTest.__testRunning = true
+
   resetTestProgress()
   testProgress.phase = 'setup'
 
@@ -617,6 +644,20 @@ export async function runAgentTest(
       })
 
       if (updatedDelib) {
+        // Exclude admin from deliberation before voting starts
+        if (config.excludeAdminEmail) {
+          const adminUser = await prisma.user.findUnique({
+            where: { email: config.excludeAdminEmail },
+            select: { id: true },
+          })
+          if (adminUser) {
+            await prisma.deliberationMember.deleteMany({
+              where: { deliberationId, userId: adminUser.id },
+            })
+            addTestLog(`Excluded admin (${config.excludeAdminEmail}) from deliberation`)
+          }
+        }
+
         const shouldStartVoting = checkVotingTrigger(updatedDelib)
         const { startVotingPhase } = await import('./voting')
 
@@ -701,6 +742,7 @@ export async function runAgentTest(
     testProgress.phase = 'voting'
     let votingComplete = false
     let tierCount = 0
+    const MAX_TIERS = 15 // Safety limit
 
     // Small delay to let startVotingPhase complete
     await new Promise(resolve => setTimeout(resolve, 500))
@@ -716,6 +758,12 @@ export async function runAgentTest(
       tierCount++
       testProgress.currentTier = tierCount
 
+      if (tierCount > MAX_TIERS) {
+        addTestLog(`Safety limit reached (${MAX_TIERS} tiers), stopping`)
+        votingComplete = true
+        break
+      }
+
       // Get current state
       const currentDelib = await prisma.deliberation.findUnique({
         where: { id: deliberationId },
@@ -724,7 +772,9 @@ export async function runAgentTest(
             where: { status: 'VOTING' },
             include: {
               ideas: { include: { idea: true } },
-              participants: true,
+              participants: {
+                include: { user: { select: { id: true, email: true } } },
+              },
               comments: true,
             },
           },
@@ -771,6 +821,9 @@ export async function runAgentTest(
         for (const participant of cell.participants) {
           if (votedUserIds.has(participant.userId)) continue
 
+          // Skip non-test users (real users) — don't vote on their behalf
+          if (!agentIds.includes(participant.userId)) continue
+
           // Random vote
           const chosenIdea = ideas[Math.floor(Math.random() * ideas.length)]
           allVotes.push({
@@ -789,17 +842,19 @@ export async function runAgentTest(
         }
       }
 
-      addTestLog(`Batch creating ${allVotes.length} votes...`)
+      addTestLog(`Voting: ${allVotes.length} votes across ${currentDelib.cells.length} cells (${currentDelib.cells.length * 5 - allVotes.length} skipped non-test)`)
 
       // Batch create all votes
       if (allVotes.length > 0) {
-        await prisma.vote.createMany({
+        const voteResult = await prisma.vote.createMany({
           data: allVotes,
           skipDuplicates: true,
         })
-        testProgress.votescast += allVotes.length
+        testProgress.votescast += voteResult.count
+        addTestLog(`Votes inserted: ${voteResult.count}/${allVotes.length}`)
 
         // Batch update idea vote counts
+        addTestLog(`Updating vote counts for ${ideaVoteCounts.size} ideas...`)
         for (const [ideaId, count] of ideaVoteCounts) {
           await prisma.idea.update({
             where: { id: ideaId },
@@ -815,19 +870,88 @@ export async function runAgentTest(
             data: { status: 'VOTED', votedAt: now },
           })
         }
+        addTestLog(`Updated ${participationUpdates.length} participation records`)
       }
 
-      addTestLog(`Votes created, skipping comments/upvotes for speed`)
+      // Post comments based on commentRate
+      if (config.commentRate > 0) {
+        addTestLog(`Posting comments (rate=${config.commentRate})...`)
+        let commentsThisTier = 0
+        for (const cell of currentDelib.cells) {
+          const ideas = cell.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+          }))
+
+          for (const participant of cell.participants) {
+            if (!agentIds.includes(participant.userId)) continue // Skip real users
+            if (Math.random() < config.commentRate) {
+              const commentText = generateComment(
+                currentDelib.question || '',
+                ideas,
+                cell.comments.map((c: { text: string }) => c.text)
+              )
+              const randomIdea = ideas[Math.floor(Math.random() * ideas.length)]
+              await postComment(cell.id, participant.userId, commentText, randomIdea?.id)
+              commentsThisTier++
+            }
+          }
+        }
+        addTestLog(`Comments: ${commentsThisTier} posted`)
+      }
+
+      // Upvote comments based on upvoteRate
+      if (config.upvoteRate > 0) {
+        addTestLog(`Upvoting comments (rate=${config.upvoteRate})...`)
+        let upvotesThisTier = 0
+        for (const cell of currentDelib.cells) {
+          const cellComments = await prisma.comment.findMany({
+            where: { cellId: cell.id },
+            select: { id: true, userId: true },
+          })
+
+          if (cellComments.length === 0) continue
+
+          for (const participant of cell.participants) {
+            if (!agentIds.includes(participant.userId)) continue // Skip real users
+            if (Math.random() < config.upvoteRate) {
+              const eligible = cellComments.filter(c => c.userId !== participant.userId)
+              if (eligible.length === 0) continue
+              const comment = eligible[Math.floor(Math.random() * eligible.length)]
+              const success = await upvoteComment(comment.id, participant.userId)
+              if (success) upvotesThisTier++
+            }
+          }
+        }
+        addTestLog(`Upvotes: ${upvotesThisTier} given`)
+      }
+
       reportProgress()
 
-      // Process cell results - force completion with timeout flag if needed
-      addTestLog(`Processing tier ${tierCount} results...`)
+      // Process cell results
+      addTestLog(`Processing ${currentDelib.cells.length} cells...`)
       const { processCellResults } = await import('./voting')
 
+      let processedCount = 0
+      let alreadyClaimedCount = 0
       for (const cell of currentDelib.cells) {
-        // Force process with timeout=true to ensure completion even if somehow votes are missing
-        await processCellResults(cell.id, true)
+        const result = await processCellResults(cell.id, true)
+        if (result) {
+          processedCount++
+          addTestLog(`  Cell ${cell.id.slice(-4)}: ${result.winnerIds.length} winners, ${result.loserIds.length} eliminated`)
+        } else {
+          alreadyClaimedCount++
+        }
       }
+      addTestLog(`Tier ${tierCount} done: ${processedCount} processed, ${alreadyClaimedCount} already-claimed`)
+
+      // Check what happened after processing
+      const postTierDelib = await prisma.deliberation.findUnique({
+        where: { id: deliberationId },
+        select: { phase: true, currentTier: true, championId: true },
+      })
+      addTestLog(`Post-tier state: phase=${postTierDelib?.phase}, currentTier=${postTierDelib?.currentTier}, champion=${postTierDelib?.championId ? 'YES' : 'no'}`)
+
       reportProgress()
     }
 
@@ -846,6 +970,8 @@ export async function runAgentTest(
     addTestLog(`FATAL ERROR: ${errorMessage}`)
     reportProgress()
     return getTestProgress()
+  } finally {
+    globalForTest.__testRunning = false
   }
 }
 

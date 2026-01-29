@@ -73,15 +73,12 @@ export type FeedItem = {
 // GET /api/feed - Get personalized feed
 export async function GET(req: NextRequest) {
   try {
-    console.log('[Feed API] Starting feed request...')
-
     // Process any expired tiers in background (don't block feed loading)
     processExpiredTiers().catch(err => {
       console.error('Error processing expired tiers:', err)
     })
 
     const session = await getServerSession(authOptions)
-    console.log('[Feed API] Session:', session?.user?.email || 'anonymous')
     const items: FeedItem[] = []
 
     // Get user if logged in
@@ -94,11 +91,12 @@ export async function GET(req: NextRequest) {
       userId = user?.id || null
     }
 
-    // 1. Get cells user is in (highest priority - ACTIVE, VOTED, and COMPLETED)
-    if (userId) {
-      const userCells = await prisma.cellParticipation.findMany({
+    // Run all main queries in parallel
+    const [userCells, votingDelibs, submissionDelibs, accumulatingDelibs, challengeDelibs] = await Promise.all([
+      // 1. Cells user is in
+      userId ? prisma.cellParticipation.findMany({
         where: {
-          userId: userId,
+          userId,
           status: { in: ['ACTIVE', 'VOTED'] },
           cell: { status: { in: ['VOTING', 'COMPLETED'] } },
         },
@@ -123,139 +121,208 @@ export async function GET(req: NextRequest) {
             },
           },
         },
-      })
+      }) : Promise.resolve([]),
 
-      for (const cp of userCells) {
-        const cell = cp.cell
-        const votedCount = cell.participants.filter(p => p.status === 'VOTED').length
-        const userHasVoted = cp.status === 'VOTED'
-        const isCompleted = cell.status === 'COMPLETED'
-
-        // Get user's vote if they voted
-        let userVotedIdeaId: string | null = null
-        if (userHasVoted && userId) {
-          const userVote = await prisma.vote.findFirst({
-            where: { cellId: cell.id, userId },
-            select: { ideaId: true },
-          })
-          userVotedIdeaId = userVote?.ideaId || null
-        }
-
-        items.push({
-          type: 'vote_now',
-          priority: isCompleted ? 80 : (userHasVoted ? 90 : 100), // Completed cells lower priority
-          deliberation: {
-            id: cell.deliberation.id,
-            question: cell.deliberation.question,
-            description: cell.deliberation.description,
-            organization: cell.deliberation.organization,
-            phase: cell.deliberation.phase,
-            currentTier: cell.deliberation.currentTier,
-            challengeRound: cell.deliberation.challengeRound,
-            createdAt: cell.deliberation.createdAt,
-            views: cell.deliberation.views || 0,
-            _count: cell.deliberation._count,
+      // 2. Voting phase deliberations
+      prisma.deliberation.findMany({
+        where: { phase: 'VOTING', isPublic: true },
+        include: {
+          _count: { select: { members: true, ideas: true } },
+          cells: {
+            where: { status: 'VOTING' },
+            include: {
+              ideas: {
+                include: { idea: { select: { id: true, text: true } } },
+              },
+              participants: { select: { id: true } },
+            },
           },
-          cell: (() => {
-            const deadline = cell.deliberation.currentTierStartedAt
-              ? new Date(cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs)
-              : null
-            const timeRemainingMs = deadline ? deadline.getTime() - Date.now() : null
-            const votesNeeded = cell.participants.length - votedCount
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      }),
 
-            // Calculate urgency: critical (<10min), warning (<30min), normal
-            let urgency: 'critical' | 'warning' | 'normal' = 'normal'
-            if (timeRemainingMs !== null) {
-              if (timeRemainingMs < 10 * 60 * 1000) urgency = 'critical'
-              else if (timeRemainingMs < 30 * 60 * 1000) urgency = 'warning'
-            }
+      // 3. Submission phase deliberations
+      prisma.deliberation.findMany({
+        where: { phase: 'SUBMISSION', isPublic: true },
+        select: {
+          id: true, question: true, description: true, organization: true,
+          phase: true, currentTier: true, challengeRound: true, createdAt: true,
+          views: true, submissionEndsAt: true, ideaGoal: true,
+          _count: { select: { members: true, ideas: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
 
-            return {
-              id: cell.id,
-              tier: cell.tier,
-              status: cell.status,
-              votingDeadline: deadline?.toISOString() || null,
-              spotsRemaining: 0, // Already in cell
-              ideas: cell.ideas.map(ci => ({
-                id: ci.idea.id,
-                text: ci.idea.text,
-                author: ci.idea.author.name || 'Anonymous',
-              })),
-              participantCount: cell.participants.length,
-              votedCount,
-              userHasVoted,
-              userVotedIdeaId,
-              urgency,
-              timeRemainingMs: timeRemainingMs ?? undefined,
-              votesNeeded,
-            }
-          })(),
+      // 4. Accumulating phase deliberations
+      prisma.deliberation.findMany({
+        where: { phase: 'ACCUMULATING', isPublic: true },
+        include: {
+          _count: { select: { members: true, ideas: true } },
+          ideas: {
+            where: { status: 'WINNER' },
+            include: { author: { select: { name: true } } },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+
+      // 5. Challenge round deliberations
+      prisma.deliberation.findMany({
+        where: { phase: 'VOTING', challengeRound: { gt: 0 }, isPublic: true },
+        include: {
+          _count: { select: { members: true, ideas: true } },
+          ideas: {
+            where: { status: 'DEFENDING' },
+            include: { author: { select: { name: true } } },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+    ])
+
+    // Batch fetch user votes for all cells at once (avoid N+1)
+    const votedCellIds = userCells
+      .filter(cp => cp.status === 'VOTED')
+      .map(cp => cp.cell.id)
+
+    const userVotes = votedCellIds.length > 0 && userId
+      ? await prisma.vote.findMany({
+          where: { cellId: { in: votedCellIds }, userId },
+          select: { cellId: true, ideaId: true },
         })
+      : []
+
+    const votesByCell = new Map(userVotes.map(v => [v.cellId, v.ideaId]))
+
+    // Process section 1: user cells
+    // Deduplicate by deliberation - keep only the highest-tier cell per deliberation
+    const now = Date.now()
+    const bestCellByDelib = new Map<string, typeof userCells[number]>()
+    for (const cp of userCells) {
+      const delibId = cp.cell.deliberation.id
+      const existing = bestCellByDelib.get(delibId)
+      if (!existing || cp.cell.tier > existing.cell.tier) {
+        bestCellByDelib.set(delibId, cp)
       }
     }
 
-    // 2. Get deliberations in VOTING phase for predictions
-    const votingDeliberations = await prisma.deliberation.findMany({
-      where: {
-        phase: 'VOTING',
-        isPublic: true,
-      },
-      include: {
-        _count: { select: { members: true, ideas: true } },
-        cells: {
-          where: { status: 'VOTING' },
-          include: {
-            ideas: {
-              include: {
-                idea: { select: { id: true, text: true } },
-              },
-            },
-            participants: { select: { id: true } },
-          },
+    for (const cp of bestCellByDelib.values()) {
+      const cell = cp.cell
+      const votedCount = cell.participants.filter(p => p.status === 'VOTED').length
+      const userHasVoted = cp.status === 'VOTED'
+      const isCompleted = cell.status === 'COMPLETED'
+      const userVotedIdeaId = votesByCell.get(cell.id) || null
+
+      const deadline = cell.deliberation.currentTierStartedAt
+        ? new Date(cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs)
+        : null
+      const timeRemainingMs = deadline ? deadline.getTime() - now : null
+
+      // Skip expired voting cells (not yet processed to COMPLETED)
+      if (!isCompleted && deadline && deadline.getTime() < now) continue
+      const votesNeeded = cell.participants.length - votedCount
+
+      let urgency: 'critical' | 'warning' | 'normal' = 'normal'
+      if (timeRemainingMs !== null) {
+        if (timeRemainingMs < 10 * 60 * 1000) urgency = 'critical'
+        else if (timeRemainingMs < 30 * 60 * 1000) urgency = 'warning'
+      }
+
+      items.push({
+        type: 'vote_now',
+        priority: isCompleted ? 80 : (userHasVoted ? 90 : 100),
+        deliberation: {
+          id: cell.deliberation.id,
+          question: cell.deliberation.question,
+          description: cell.deliberation.description,
+          organization: cell.deliberation.organization,
+          phase: cell.deliberation.phase,
+          currentTier: cell.deliberation.currentTier,
+          challengeRound: cell.deliberation.challengeRound,
+          createdAt: cell.deliberation.createdAt,
+          views: cell.deliberation.views || 0,
+          _count: cell.deliberation._count,
         },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    })
+        cell: {
+          id: cell.id,
+          tier: cell.tier,
+          status: cell.status,
+          votingDeadline: deadline?.toISOString() || null,
+          spotsRemaining: 0,
+          ideas: cell.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+            author: ci.idea.author.name || 'Anonymous',
+          })),
+          participantCount: cell.participants.length,
+          votedCount,
+          userHasVoted,
+          userVotedIdeaId,
+          urgency,
+          timeRemainingMs: timeRemainingMs ?? undefined,
+          votesNeeded,
+        },
+      })
+    }
 
-    for (const delib of votingDeliberations) {
-      // Skip if user already has a vote_now card for this
-      if (items.some(i => i.type === 'vote_now' && i.deliberation.id === delib.id)) {
-        continue
+    // Collect all deliberation IDs we need user's submitted ideas for (batch query)
+    const delibIdsForUserIdeas: string[] = []
+    for (const delib of submissionDelibs) delibIdsForUserIdeas.push(delib.id)
+    for (const delib of accumulatingDelibs) delibIdsForUserIdeas.push(delib.id)
+    for (const delib of challengeDelibs) delibIdsForUserIdeas.push(delib.id)
+    // Also check voting delibs for challenge rounds
+    for (const delib of votingDelibs) {
+      if (delib.challengeRound > 0) delibIdsForUserIdeas.push(delib.id)
+    }
+
+    // Batch fetch user's submitted ideas across all deliberations
+    const userIdeas = userId && delibIdsForUserIdeas.length > 0
+      ? await prisma.idea.findMany({
+          where: {
+            deliberationId: { in: delibIdsForUserIdeas },
+            authorId: userId,
+          },
+          select: { id: true, text: true, deliberationId: true, isNew: true },
+        })
+      : []
+
+    const userIdeaByDelib = new Map<string, { id: string; text: string }>()
+    const userChallengerByDelib = new Map<string, { id: string; text: string }>()
+    for (const idea of userIdeas) {
+      if (idea.isNew) {
+        userChallengerByDelib.set(idea.deliberationId, { id: idea.id, text: idea.text })
+      } else {
+        userIdeaByDelib.set(idea.deliberationId, { id: idea.id, text: idea.text })
       }
+    }
 
-      // Calculate spots remaining across all voting cells
+    // Process section 2: voting deliberations
+    for (const delib of votingDelibs) {
+      if (items.some(i => i.type === 'vote_now' && i.deliberation.id === delib.id)) continue
+
       const votingCells = delib.cells.filter(c => c.status === 'VOTING')
+      if (votingCells.length === 0) continue
 
-      // Skip if no voting cells
-      if (votingCells.length === 0) {
-        continue
-      }
-
-      const totalSpots = votingCells.reduce((sum, c) => sum + (5 - c.participants.length), 0)
-
-      // Get unique ideas from first cell (for batches they're the same)
       const ideas = votingCells[0]?.ideas.map(ci => ({
         id: ci.idea.id,
         text: ci.idea.text,
       })) || []
+      if (ideas.length === 0) continue
 
-      // Skip if no ideas to show
-      if (ideas.length === 0) {
-        continue
-      }
-
+      const totalSpots = votingCells.reduce((sum, c) => sum + (5 - c.participants.length), 0)
       const totalParticipants = votingCells.reduce((sum, c) => sum + c.participants.length, 0)
-      const expectedVotes = totalParticipants
-      // We'd need to count actual votes - simplified for now
       const votingProgress = votingCells.length > 0 ?
         Math.round((votingCells.filter(c => c.status === 'COMPLETED').length / votingCells.length) * 100) : 0
 
-      // Determine if this is a challenge round or regular voting
       const isChallenge = delib.challengeRound > 0
 
       if (isChallenge) {
-        // Get defending champion
         const champion = await prisma.idea.findFirst({
           where: {
             deliberationId: delib.id,
@@ -264,135 +331,59 @@ export async function GET(req: NextRequest) {
           include: { author: { select: { name: true } } },
         })
 
-        // Check if user has already submitted a challenger
-        let userSubmittedIdea: { id: string; text: string } | null = null
-        if (userId) {
-          const existingChallenger = await prisma.idea.findFirst({
-            where: { deliberationId: delib.id, authorId: userId, isNew: true },
-            select: { id: true, text: true },
-          })
-          if (existingChallenger) {
-            userSubmittedIdea = { id: existingChallenger.id, text: existingChallenger.text }
-          }
-        }
-
         items.push({
           type: 'challenge',
           priority: 70,
           deliberation: {
-            id: delib.id,
-            question: delib.question,
-            description: delib.description,
-            organization: delib.organization,
-            phase: delib.phase,
-            currentTier: delib.currentTier,
-            challengeRound: delib.challengeRound,
-            createdAt: delib.createdAt,
-            views: delib.views || 0,
-            _count: delib._count,
+            id: delib.id, question: delib.question, description: delib.description,
+            organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
+            challengeRound: delib.challengeRound, createdAt: delib.createdAt,
+            views: delib.views || 0, _count: delib._count,
           },
           champion: champion ? {
-            id: champion.id,
-            text: champion.text,
-            author: champion.author?.name || 'Anonymous',
-            totalVotes: champion.totalVotes,
+            id: champion.id, text: champion.text,
+            author: champion.author?.name || 'Anonymous', totalVotes: champion.totalVotes,
           } : undefined,
           tierInfo: {
-            tier: delib.currentTier,
-            totalCells: votingCells.length,
-            votingProgress,
-            ideas,
+            tier: delib.currentTier, totalCells: votingCells.length, votingProgress, ideas,
             spotsRemaining: totalSpots,
             cells: votingCells.map(c => ({
-              id: c.id,
-              ideas: c.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })),
+              id: c.id, ideas: c.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })),
             })),
           },
-          userSubmittedIdea,
+          userSubmittedIdea: userChallengerByDelib.get(delib.id) || null,
         })
       } else {
-        // Regular voting (not challenge) - show join_voting card
         items.push({
           type: 'join_voting',
-          priority: 75, // Between vote_now (100) and challenge (70)
+          priority: 75,
           deliberation: {
-            id: delib.id,
-            question: delib.question,
-            description: delib.description,
-            organization: delib.organization,
-            phase: delib.phase,
-            currentTier: delib.currentTier,
-            challengeRound: delib.challengeRound,
-            createdAt: delib.createdAt,
-            views: delib.views || 0,
-            _count: delib._count,
+            id: delib.id, question: delib.question, description: delib.description,
+            organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
+            challengeRound: delib.challengeRound, createdAt: delib.createdAt,
+            views: delib.views || 0, _count: delib._count,
           },
           tierInfo: {
-            tier: delib.currentTier,
-            totalCells: votingCells.length,
-            votingProgress,
-            ideas,
+            tier: delib.currentTier, totalCells: votingCells.length, votingProgress, ideas,
             spotsRemaining: totalSpots,
             cells: votingCells.map(c => ({
-              id: c.id,
-              ideas: c.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })),
+              id: c.id, ideas: c.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })),
             })),
           },
         })
       }
     }
 
-    // 3. Get deliberations in SUBMISSION phase
-    const submissionDeliberations = await prisma.deliberation.findMany({
-      where: {
-        phase: 'SUBMISSION',
-        isPublic: true,
-      },
-      select: {
-        id: true,
-        question: true,
-        description: true,
-        organization: true,
-        phase: true,
-        currentTier: true,
-        challengeRound: true,
-        createdAt: true,
-        views: true,
-        submissionEndsAt: true,
-        ideaGoal: true,
-        _count: { select: { members: true, ideas: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    })
-
-    for (const delib of submissionDeliberations) {
-      // Check if user has already submitted an idea
-      let userSubmittedIdea: { id: string; text: string } | null = null
-      if (userId) {
-        const existingIdea = await prisma.idea.findFirst({
-          where: { deliberationId: delib.id, authorId: userId },
-          select: { id: true, text: true },
-        })
-        if (existingIdea) {
-          userSubmittedIdea = { id: existingIdea.id, text: existingIdea.text }
-        }
-      }
-
+    // Process section 3: submission deliberations
+    for (const delib of submissionDelibs) {
       items.push({
         type: 'submit_ideas',
         priority: 60,
         deliberation: {
-          id: delib.id,
-          question: delib.question,
-          description: delib.description,
-          organization: delib.organization,
-          phase: delib.phase,
-          currentTier: delib.currentTier,
-          challengeRound: delib.challengeRound,
-          createdAt: delib.createdAt,
-          views: delib.views || 0,
-          _count: delib._count,
+          id: delib.id, question: delib.question, description: delib.description,
+          organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
+          challengeRound: delib.challengeRound, createdAt: delib.createdAt,
+          views: delib.views || 0, _count: delib._count,
         },
         submissionDeadline: delib.submissionEndsAt?.toISOString() || null,
         votingTrigger: {
@@ -401,148 +392,72 @@ export async function GET(req: NextRequest) {
           currentIdeas: delib._count.ideas,
           currentParticipants: delib._count.members,
         },
-        userSubmittedIdea,
+        userSubmittedIdea: userIdeaByDelib.get(delib.id) || null,
       })
     }
 
-    // 4. Get deliberations in ACCUMULATING phase (has champion, accepting challengers)
-    const accumulatingDeliberations = await prisma.deliberation.findMany({
-      where: {
-        phase: 'ACCUMULATING',
-        isPublic: true,
-      },
-      include: {
-        _count: { select: { members: true, ideas: true } },
-        ideas: {
-          where: { status: 'WINNER' },
-          include: { author: { select: { name: true } } },
-          take: 1,
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    })
-
-    for (const delib of accumulatingDeliberations) {
-      const champion = delib.ideas[0]
-
-      // Skip if no champion to show
-      if (!champion) {
-        continue
-      }
-
-      // Count pending challengers
-      const challengersCount = await prisma.idea.count({
-        where: {
-          deliberationId: delib.id,
-          status: 'PENDING',
-          isNew: true,
-        },
-      })
-
-      // Check if user has already submitted a challenger
-      let userSubmittedIdea: { id: string; text: string } | null = null
-      if (userId) {
-        const existingChallenger = await prisma.idea.findFirst({
-          where: { deliberationId: delib.id, authorId: userId, isNew: true },
-          select: { id: true, text: true },
+    // Process section 4: accumulating deliberations
+    // Batch fetch challenger counts
+    const accumDelibIds = accumulatingDelibs.filter(d => d.ideas[0]).map(d => d.id)
+    const challengerCounts = accumDelibIds.length > 0
+      ? await prisma.idea.groupBy({
+          by: ['deliberationId'],
+          where: {
+            deliberationId: { in: accumDelibIds },
+            status: 'PENDING',
+            isNew: true,
+          },
+          _count: true,
         })
-        if (existingChallenger) {
-          userSubmittedIdea = { id: existingChallenger.id, text: existingChallenger.text }
-        }
-      }
+      : []
+    const challengerCountByDelib = new Map(challengerCounts.map(c => [c.deliberationId, c._count]))
+
+    for (const delib of accumulatingDelibs) {
+      const champion = delib.ideas[0]
+      if (!champion) continue
 
       items.push({
         type: 'champion',
         priority: 40,
         deliberation: {
-          id: delib.id,
-          question: delib.question,
-          description: delib.description,
-          organization: delib.organization,
-          phase: delib.phase,
-          currentTier: delib.currentTier,
-          challengeRound: delib.challengeRound,
-          createdAt: delib.createdAt,
-          views: delib.views || 0,
-          _count: delib._count,
+          id: delib.id, question: delib.question, description: delib.description,
+          organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
+          challengeRound: delib.challengeRound, createdAt: delib.createdAt,
+          views: delib.views || 0, _count: delib._count,
         },
         champion: {
-          id: champion.id,
-          text: champion.text,
-          author: champion.author.name || 'Anonymous',
-          totalVotes: champion.totalVotes,
+          id: champion.id, text: champion.text,
+          author: champion.author.name || 'Anonymous', totalVotes: champion.totalVotes,
         },
-        challengersCount,
-        userSubmittedIdea,
+        challengersCount: challengerCountByDelib.get(delib.id) || 0,
+        userSubmittedIdea: userChallengerByDelib.get(delib.id) || null,
       })
     }
 
-    // 5. Get active challenge rounds
-    const challengeDeliberations = await prisma.deliberation.findMany({
-      where: {
-        phase: 'VOTING',
-        challengeRound: { gt: 0 },
-        isPublic: true,
-      },
-      include: {
-        _count: { select: { members: true, ideas: true } },
-        ideas: {
-          where: { status: 'DEFENDING' },
-          include: { author: { select: { name: true } } },
-          take: 1,
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-    })
-
-    for (const delib of challengeDeliberations) {
-      // Skip if already have a vote_now or predict card
+    // Process section 5: challenge deliberations
+    for (const delib of challengeDelibs) {
       if (items.some(i => i.deliberation.id === delib.id)) continue
 
       const defender = delib.ideas[0]
-
-      // Check if user has already submitted a challenger
-      let userSubmittedIdea: { id: string; text: string } | null = null
-      if (userId) {
-        const existingChallenger = await prisma.idea.findFirst({
-          where: { deliberationId: delib.id, authorId: userId, isNew: true },
-          select: { id: true, text: true },
-        })
-        if (existingChallenger) {
-          userSubmittedIdea = { id: existingChallenger.id, text: existingChallenger.text }
-        }
-      }
 
       items.push({
         type: 'challenge',
         priority: 70,
         deliberation: {
-          id: delib.id,
-          question: delib.question,
-          description: delib.description,
-          organization: delib.organization,
-          phase: delib.phase,
-          currentTier: delib.currentTier,
-          challengeRound: delib.challengeRound,
-          createdAt: delib.createdAt,
-          views: delib.views || 0,
-          _count: delib._count,
+          id: delib.id, question: delib.question, description: delib.description,
+          organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
+          challengeRound: delib.challengeRound, createdAt: delib.createdAt,
+          views: delib.views || 0, _count: delib._count,
         },
         champion: defender ? {
-          id: defender.id,
-          text: defender.text,
-          author: defender.author.name || 'Anonymous',
-          totalVotes: defender.totalVotes,
+          id: defender.id, text: defender.text,
+          author: defender.author.name || 'Anonymous', totalVotes: defender.totalVotes,
         } : undefined,
-        userSubmittedIdea,
+        userSubmittedIdea: userChallengerByDelib.get(delib.id) || null,
       })
     }
 
-    // Calculate "hot" score for each item
-    // Score = (views + members*2 + ideas*3) / age^0.5
-    // Higher activity = higher score, older = lower score
+    // Sort by: urgency first, then priority, then hot score
     const getHotScore = (item: FeedItem): number => {
       const views = item.deliberation.views || 0
       const members = item.deliberation._count.members || 0
@@ -552,30 +467,23 @@ export async function GET(req: NextRequest) {
       return (views + members * 2 + ideas * 3) / ageFactor
     }
 
-    // Urgency score: critical=2, warning=1, normal=0
     const getUrgencyScore = (item: FeedItem) => {
       if (item.cell?.urgency === 'critical') return 2
       if (item.cell?.urgency === 'warning') return 1
       return 0
     }
 
-    // Sort by: urgency first (critical cells bubble up), then priority, then hot score
     items.sort((a, b) => {
-      // Urgent cells that user hasn't voted in come first
       const aUrgent = a.cell && !a.cell.userHasVoted ? getUrgencyScore(a) : 0
       const bUrgent = b.cell && !b.cell.userHasVoted ? getUrgencyScore(b) : 0
       if (bUrgent !== aUrgent) return bUrgent - aUrgent
-
-      // Then by priority
       if (b.priority !== a.priority) return b.priority - a.priority
-
-      // Then by hot score
       return getHotScore(b) - getHotScore(a)
     })
 
     return NextResponse.json({
       items,
-      hasMore: false, // Pagination not implemented yet
+      hasMore: false,
     })
   } catch (error) {
     console.error('Error fetching feed:', error)

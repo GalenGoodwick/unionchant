@@ -82,6 +82,27 @@ export async function GET(
       return true
     })
 
+    // Group ideas by batch for non-final tiers with multiple idea groups
+    const batchGroups: { batch: number; ideas: typeof allIdeas }[] = []
+    if (!isBatch) {
+      const batchMap = new Map<number, typeof allIdeas>()
+      for (const cell of cells) {
+        const batchNum = cell.batch ?? 0
+        if (!batchMap.has(batchNum)) {
+          batchMap.set(batchNum, [])
+        }
+        const group = batchMap.get(batchNum)!
+        for (const ci of cell.ideas) {
+          if (!group.some(i => i.id === ci.idea.id)) {
+            group.push(ci.idea)
+          }
+        }
+      }
+      for (const [batch, ideas] of [...batchMap.entries()].sort((a, b) => a[0] - b[0])) {
+        batchGroups.push({ batch, ideas })
+      }
+    }
+
     // Calculate totals
     const totalCells = cells.length
     const totalParticipants = cells.reduce((sum, c) => sum + c._count.participants, 0)
@@ -119,6 +140,7 @@ export async function GET(
 
       return {
         id: cell.id,
+        batch: cell.batch ?? 0,
         status: cell.status,
         participantCount: cell._count.participants,
         votedCount,
@@ -172,6 +194,9 @@ export async function GET(
 
       // Ideas in this tier/batch
       ideas: allIdeas,
+
+      // Ideas grouped by batch (non-final tiers only)
+      batchGroups: batchGroups.length > 1 ? batchGroups : undefined,
 
       // Live cross-cell tally (batches only)
       liveTally,

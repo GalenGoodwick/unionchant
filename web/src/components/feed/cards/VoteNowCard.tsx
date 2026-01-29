@@ -4,6 +4,58 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
 import CountdownTimer from '@/components/CountdownTimer'
+import ShareMenu from '@/components/ShareMenu'
+
+function CellIdeasCollapsible({ ideas, winnerId, votedIdeaId, tier }: {
+  ideas: { id: string; text: string; author: string }[]
+  winnerId: string | null
+  votedIdeaId: string | null
+  tier: number
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mt-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="text-sm text-muted hover:text-foreground transition-colors flex items-center gap-1"
+      >
+        <span className="text-xs">{open ? '▼' : '▶'}</span>
+        <span>Ideas ({ideas.length})</span>
+      </button>
+      {open && (
+        <div className="space-y-1.5 mt-2">
+          {ideas.map((idea) => {
+            const isWinner = idea.id === winnerId
+            const isYourVote = idea.id === votedIdeaId
+
+            return (
+              <div
+                key={idea.id}
+                className={`p-2 rounded-lg text-sm flex items-center gap-2 ${
+                  isWinner
+                    ? 'bg-success-bg border border-success'
+                    : isYourVote
+                    ? 'bg-warning-bg border border-warning'
+                    : 'bg-background border border-border opacity-60'
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <p className="text-foreground truncate">{idea.text}</p>
+                  <p className="text-xs text-muted">by {idea.author}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 text-xs">
+                  {isWinner && <span className="text-success font-medium">Winner</span>}
+                  {isYourVote && <span className="text-warning font-medium">Your vote</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 type Props = {
   item: FeedItem
@@ -100,7 +152,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
     }
   }
 
-  const isCompleted = cellResult?.status === 'COMPLETED'
+  const isCompleted = cellResult?.status === 'COMPLETED' || isInitiallyCompleted
   const currentVotedCount = cellResult?.votedCount ?? cell.votedCount
   const currentParticipantCount = cellResult?.participantCount ?? cell.participantCount
   const deliberationPhase = cellResult?.deliberation?.phase
@@ -110,6 +162,23 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
 
   // Check if voting deadline has passed
   const isExpired = cell.votingDeadline ? new Date(cell.votingDeadline) < new Date() : false
+
+  // Show loading state while fetching results for completed cells
+  if (isInitiallyCompleted && !cellResult) {
+    return (
+      <div className="bg-surface border border-border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <span className="font-bold text-sm uppercase tracking-wide text-muted">Loading results...</span>
+        </div>
+        <div className="p-4">
+          <p className="text-lg font-semibold text-foreground">&quot;{item.deliberation.question}&quot;</p>
+          <div className="mt-4 flex justify-center">
+            <div className="animate-spin w-6 h-6 border-3 border-accent border-t-transparent rounded-full" />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Show completed state only when cell is done and we have results
   if (isCompleted && cellResult?.winner) {
@@ -134,7 +203,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
             {headerText}
           </span>
           <span className="text-sm text-muted font-mono">
-            {showChampion ? 'Final' : `Tier ${cell.tier}`}
+            {showChampion ? `Final · Tier ${cell.tier}` : `Tier ${cell.tier}`}
           </span>
         </div>
 
@@ -144,7 +213,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
             href={`/deliberations/${item.deliberation.id}`}
             className="block text-lg font-semibold text-foreground hover:text-accent transition-colors"
           >
-            "{item.deliberation.question}"
+            &quot;{item.deliberation.question}&quot;
           </Link>
           {item.deliberation.description && (
             <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
@@ -189,6 +258,14 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
             </div>
           )}
 
+          {/* Collapsible: All ideas in this cell */}
+          <CellIdeasCollapsible
+            ideas={cell.ideas}
+            winnerId={cellResult.winner?.id || null}
+            votedIdeaId={votedIdeaId}
+            tier={cell.tier}
+          />
+
           {/* Challenge option when in ACCUMULATING phase */}
           {isAccumulating && cellResult.deliberation?.accumulationEnabled && (
             <div className="mt-4 p-3 bg-purple-bg border border-purple rounded-lg text-center">
@@ -213,7 +290,12 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
               Dismiss
             </button>
           ) : <span />}
-          <div className="flex gap-4">
+          <div className="flex items-center gap-4">
+            <ShareMenu
+              url={`/deliberations/${item.deliberation.id}`}
+              text={item.deliberation.question}
+              variant="icon"
+            />
             <button
               onClick={onExplore}
               className="text-muted hover:text-foreground text-sm transition-colors"
@@ -234,7 +316,6 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
 
   // Determine urgency styling
   const urgency = cell.urgency || 'normal'
-  const isUrgent = urgency === 'critical' || urgency === 'warning'
   const borderColor = isExpired ? 'border-border' : urgency === 'critical' ? 'border-error' : urgency === 'warning' ? 'border-orange' : 'border-warning'
   const headerBg = isExpired ? '' : urgency === 'critical' ? 'bg-error/10' : urgency === 'warning' ? 'bg-orange/10' : ''
 
@@ -283,7 +364,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
           href={`/deliberations/${item.deliberation.id}`}
           className="block text-lg font-semibold text-foreground hover:text-accent transition-colors"
         >
-          "{item.deliberation.question}"
+          &quot;{item.deliberation.question}&quot;
         </Link>
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
@@ -358,7 +439,12 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
             </span>
           )}
         </div>
-        <div className="flex gap-4">
+        <div className="flex items-center gap-4">
+          <ShareMenu
+            url={`/deliberations/${item.deliberation.id}`}
+            text={item.deliberation.question}
+            variant="icon"
+          />
           <button
             onClick={onExplore}
             className="text-muted hover:text-foreground transition-colors"

@@ -279,6 +279,7 @@ model Cell {
   votingStartedAt   DateTime?
   votingDeadline    DateTime?
   secondVoteDeadline DateTime?
+  finalizesAt       DateTime?  // Grace period: all votes in, finalizes at this time
   completedAt       DateTime?
   completedByTimeout Boolean @default(false)
 

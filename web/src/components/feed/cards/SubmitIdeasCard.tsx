@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
 import CountdownTimer from '@/components/CountdownTimer'
+import ShareMenu from '@/components/ShareMenu'
 import Turnstile from '@/components/Turnstile'
 
 type Props = {
@@ -23,6 +24,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
   const [submitted, setSubmitted] = useState(Boolean(item.userSubmittedIdea))
   const [submittedText, setSubmittedText] = useState(item.userSubmittedIdea?.text || '')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [showCaptchaModal, setShowCaptchaModal] = useState(false)
 
   // Check if submission deadline has passed
   const isExpired = item.submissionDeadline ? new Date(item.submissionDeadline) < new Date() : false
@@ -35,16 +37,9 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
     setCaptchaToken(null)
   }, [])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!idea.trim()) return
-
-    if (!session) {
-      router.push('/auth/signin')
-      return
-    }
-
+  const doSubmit = async (token: string | null) => {
     setSubmitting(true)
+    setShowCaptchaModal(false)
     try {
       // First, try to join the deliberation (will succeed or already member)
       await fetch(`/api/deliberations/${item.deliberation.id}/join`, {
@@ -55,7 +50,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
       const res = await fetch(`/api/deliberations/${item.deliberation.id}/ideas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: idea, captchaToken }),
+        body: JSON.stringify({ text: idea, captchaToken: token }),
       })
 
       if (res.ok) {
@@ -65,7 +60,12 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
         onAction()
       } else {
         const data = await res.json()
-        alert(data.error || 'Failed to submit idea')
+        // If captcha required, show modal
+        if (data.error?.includes('CAPTCHA')) {
+          setShowCaptchaModal(true)
+        } else {
+          alert(data.error || 'Failed to submit idea')
+        }
       }
     } catch (err) {
       console.error('Submit error:', err)
@@ -73,6 +73,24 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!idea.trim()) return
+
+    if (!session) {
+      router.push('/auth/signin')
+      return
+    }
+
+    // Try to submit - server will check if user is already verified
+    doSubmit(captchaToken)
+  }
+
+  const handleCaptchaSuccess = (token: string) => {
+    setCaptchaToken(token)
+    doSubmit(token)
   }
 
   return (
@@ -84,13 +102,13 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
         </span>
         <span className="text-sm text-muted font-mono">
           {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
-            <>{item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal} ideas</>
+            <>Idea Goal {item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal}</>
           ) : item.submissionDeadline ? (
-            <CountdownTimer
+            <>Timed (<CountdownTimer
               deadline={item.submissionDeadline}
               onExpire={onAction}
               compact
-            />
+            />)</>
           ) : (
             <>Facilitator controlled</>
           )}
@@ -123,15 +141,15 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
               <p className="text-muted text-xs uppercase tracking-wide mb-1">Voting starts</p>
               {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
                 <p className="text-foreground text-sm">
-                  At {item.votingTrigger.ideaGoal} ideas
+                  Idea Goal {item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal}
                   <span className="text-muted"> ({item.votingTrigger.ideaGoal - item.votingTrigger.currentIdeas} more needed)</span>
                 </p>
               ) : item.submissionDeadline ? (
                 <span className="text-foreground text-sm">
-                  In <CountdownTimer deadline={item.submissionDeadline} onExpire={onAction} compact />
+                  Timed (<CountdownTimer deadline={item.submissionDeadline} onExpire={onAction} compact />)
                 </span>
               ) : (
-                <p className="text-muted text-sm">When creator triggers voting</p>
+                <p className="text-muted text-sm">Facilitator controlled</p>
               )}
             </div>
 
@@ -150,29 +168,46 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
             <p className="text-muted text-sm">Voting will begin soon</p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={idea}
-                onChange={(e) => setIdea(e.target.value)}
-                placeholder="Your idea..."
-                className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-foreground placeholder-muted focus:outline-none focus:border-accent transition-colors"
-              />
-              <button
-                type="submit"
-                disabled={submitting || !idea.trim() || !captchaToken}
-                className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
-              >
-                {submitting ? '...' : 'Submit'}
-              </button>
-            </div>
-            <Turnstile
-              onVerify={handleCaptchaVerify}
-              onExpire={handleCaptchaExpire}
-              className="flex justify-center"
-            />
-          </form>
+          <>
+            <form onSubmit={handleSubmit} className="space-y-3">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={idea}
+                  onChange={(e) => setIdea(e.target.value)}
+                  placeholder="Your idea..."
+                  className="flex-1 bg-background border border-border rounded-lg px-4 py-2 text-foreground placeholder-muted focus:outline-none focus:border-accent transition-colors"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting || !idea.trim()}
+                  className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+                >
+                  {submitting ? '...' : 'Submit'}
+                </button>
+              </div>
+            </form>
+
+            {/* Captcha Modal */}
+            {showCaptchaModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCaptchaModal(false)}>
+                <div className="bg-surface border border-border rounded-xl p-6 max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-foreground font-semibold mb-4 text-center">Quick verification</h3>
+                  <Turnstile
+                    onVerify={handleCaptchaSuccess}
+                    onExpire={handleCaptchaExpire}
+                    className="flex justify-center"
+                  />
+                  <button
+                    onClick={() => setShowCaptchaModal(false)}
+                    className="mt-4 w-full text-muted text-sm hover:text-foreground transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -186,12 +221,19 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
             </span>
           )}
         </div>
-        <Link
-          href={`/deliberations/${item.deliberation.id}`}
-          className="text-accent hover:text-accent-hover transition-colors"
-        >
-          Full page →
-        </Link>
+        <div className="flex items-center gap-4">
+          <ShareMenu
+            url={`/deliberations/${item.deliberation.id}`}
+            text={item.deliberation.question}
+            variant="icon"
+          />
+          <Link
+            href={`/deliberations/${item.deliberation.id}`}
+            className="text-accent hover:text-accent-hover transition-colors"
+          >
+            Full page →
+          </Link>
+        </div>
       </div>
     </div>
   )

@@ -43,8 +43,23 @@ export async function markUserCaptchaVerified(userId: string): Promise<void> {
 }
 
 /**
+ * Check if user is an admin
+ */
+async function isUserAdmin(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  })
+  if (!user?.email) return false
+
+  const adminEmails = process.env.ADMIN_EMAILS?.split(',').map(e => e.trim().toLowerCase()) || []
+  return adminEmails.includes(user.email.toLowerCase())
+}
+
+/**
  * Verify a Turnstile token server-side
  * If userId provided, checks session validity first and updates on success
+ * Admins are automatically bypassed
  */
 export async function verifyCaptcha(
   token: string | null | undefined,
@@ -59,6 +74,14 @@ export async function verifyCaptcha(
       return { success: true }
     }
     return { success: false, error: 'CAPTCHA not configured' }
+  }
+
+  // Skip verification for admin users
+  if (userId) {
+    const isAdmin = await isUserAdmin(userId)
+    if (isAdmin) {
+      return { success: true }
+    }
   }
 
   // Check if user already verified recently

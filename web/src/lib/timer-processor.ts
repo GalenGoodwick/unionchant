@@ -50,7 +50,27 @@ export async function processExpiredSubmissions(): Promise<string[]> {
 export async function processExpiredTiers(): Promise<string[]> {
   const now = new Date()
 
-  // Find deliberations in VOTING phase where tier has expired
+  // 1. Finalize cells whose grace period has expired (all votes in, timer elapsed)
+  const gracePeriodCells = await prisma.cell.findMany({
+    where: {
+      status: 'VOTING',
+      finalizesAt: { lte: now },
+    },
+    select: { id: true },
+  })
+
+  const processed: string[] = []
+
+  for (const cell of gracePeriodCells) {
+    try {
+      await processCellResults(cell.id, false)
+      processed.push(cell.id)
+    } catch (err) {
+      console.error(`Failed to finalize grace period cell ${cell.id}:`, err)
+    }
+  }
+
+  // 2. Find deliberations in VOTING phase where tier has expired
   const expiredDeliberations = await prisma.deliberation.findMany({
     where: {
       phase: 'VOTING',
@@ -63,8 +83,6 @@ export async function processExpiredTiers(): Promise<string[]> {
     },
   })
 
-  const processed: string[] = []
-
   for (const deliberation of expiredDeliberations) {
     // Calculate if tier has expired: startedAt + timeoutMs < now
     const tierStarted = deliberation.currentTierStartedAt!
@@ -73,6 +91,13 @@ export async function processExpiredTiers(): Promise<string[]> {
     if (tierDeadline <= now) {
       // Process all voting cells in this tier
       for (const cell of deliberation.cells) {
+        // Re-check cell status to reduce contention with vote endpoint
+        const currentCell = await prisma.cell.findUnique({
+          where: { id: cell.id },
+          select: { status: true },
+        })
+        if (currentCell?.status === 'COMPLETED') continue
+
         try {
           await processCellResults(cell.id, true) // true = timeout
           processed.push(cell.id)
@@ -157,6 +182,27 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     }
   }
 
+  // Check grace period cells (all votes in, timer elapsed)
+  if (deliberation.phase === 'VOTING') {
+    const graceCells = await prisma.cell.findMany({
+      where: {
+        deliberationId,
+        status: 'VOTING',
+        finalizesAt: { lte: now },
+      },
+      select: { id: true },
+    })
+
+    for (const cell of graceCells) {
+      try {
+        await processCellResults(cell.id, false)
+        transitioned = true
+      } catch (err) {
+        console.error(`Lazy grace period finalization failed for ${cell.id}:`, err)
+      }
+    }
+  }
+
   // Check tier deadline
   if (
     deliberation.phase === 'VOTING' &&
@@ -168,6 +214,13 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     if (tierDeadline <= now) {
       // Process all voting cells in this tier
       for (const cell of deliberation.cells) {
+        // Re-check cell status to reduce contention
+        const currentCell = await prisma.cell.findUnique({
+          where: { id: cell.id },
+          select: { status: true },
+        })
+        if (currentCell?.status === 'COMPLETED') continue
+
         try {
           await processCellResults(cell.id, true)
           transitioned = true

@@ -328,62 +328,64 @@ vercel                   # Deploy preview
 
 ---
 
-## Known Issues / TODOs
+## Production Roadmap
 
-### Bugs to Fix
-1. ~~**Admin self-delete**: Admin can still delete their own account in settings (Task #30)~~ **FIXED** - API returns 403, UI shows message for admins
-2. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
-3. **Accumulation signifier bug**: UI shows accumulation state incorrectly during phase transitions
-4. **Cell color updates**: Cells with 5/5 votes not turning green immediately - relying on timeout instead of vote completion trigger
-5. **"Join and Vote" button issues**: Doesn't work sometimes, still shows after user voted, state confusion on refresh
-6. **Vote card state flicker**: Shows several intermediate states before settling - needs loading indicator
-7. **Up-pollination not working**: Despite 60% upvote rate, comments not spreading across cells
-8. **Cell click does nothing**: No detail view when clicking a cell on deliberation page
-9. **Challenger idea fallback**: Shows "Challenger idea #" instead of AI-generated text when Haiku fails
+### P0 — Must-Have Before Real Users
 
-### UX Improvements Needed
-1. **No up-pollination UI** on deliberation page (upvote buttons missing in some contexts)
-2. **No status/progress indicator** during voting actions
-3. **View count mystery**: Shows views from API polling, confusing to users
+1. **Integration tests for voting engine** — zero automated tests. `voting.ts` is the heart of the system; one bad deploy breaks democracy. Need tests for cell assignment, tier progression, cross-cell tallying, final showdown, and accumulation transitions.
+2. **User verification for voting** — currently anyone with a Google account can vote. Need email verification or SMS verification to prevent ballot stuffing with throwaway accounts.
+3. **Email notifications** — users have no reason to come back. Need transactional emails for: "Your cell is ready to vote", "Voting ends in 1 hour", "Your idea won!", "A champion was crowned". Push notifications are half-implemented but email is the baseline.
+4. **Real-time updates** — polling every 5 seconds is expensive and laggy. WebSockets or SSE for live vote counts, cell completion, and chat messages.
+5. **Error handling overhaul** — `alert()` calls throughout, no retry logic, no graceful degradation. Replace with toast notifications, retry with backoff, and error boundaries.
+6. **Vote auditability** — for a democracy platform, users need to verify their vote was counted. At minimum: show vote receipt, public tally per cell. Stretch: hash-based verification.
 
-### Feature Requests (from stress test)
-1. **Facilitator mode enhancements**: Allow manual tier triggering (grey out timer mode in creation when facilitator mode selected)
+### P1 — Serious Platform Features
+
+7. **Multiple auth providers** — Google OAuth only. Add email/password, Apple, and GitHub.
+8. **Moderation & reporting** — word-list filter is insufficient. Need: user reporting, flagging, facilitator tools to remove bad actors, admin review queue.
+9. **Organization accounts** — the pitch is governance-as-a-service but there's no org management. Need: org creation, member invites, private deliberations with access control, org admin role.
+10. **Communities** — let groups form around topics/interests. A community can have multiple deliberations, shared members, and a community feed. Think subreddits but for deliberation. Communities create the "come back" loop — you're not just voting on one question, you belong to a group.
+11. **Sharing & virality** — no Open Graph meta tags, no share buttons, no way to generate a compelling link preview. Need: OG images per deliberation, share to Twitter/Facebook/WhatsApp, copy link button, "Invite friends" with referral tracking.
+12. **Timer processing reliability** — Vercel cron is untested in production and is a single point of failure for tier transitions. Need monitoring, alerting, and a fallback mechanism.
+
+### P2 — Growth & Engagement
+
+13. **Social graph of agreement** — track who you agree with across deliberations. Follow users, see their activity, "People who voted like you..." recommendations.
+14. **User stats & reputation** — track success at every tier (not just final wins). Idea stats: highest tier reached, champion count. Voting prediction accuracy. Portable reputation.
+15. **Continuous Flow Mode** — Tier 1 voting starts while ideas are still being submitted. Every 5 ideas creates a new cell that votes immediately. Winners advance while more cells form. Good for large-scale deliberations.
+16. **Promoted Deliberations** — creators/orgs pay to feature in the feed. Native advertising that aligns with "paid amplification" model. Also "Sponsored by" deliberations on specific topics.
+17. **Analytics dashboard** — for creators/facilitators: funnel (views → joins → ideas → votes), drop-off points, engagement over time, demographic breakdown.
+18. **Spawn deliberation from winner** — winner's text becomes a new deliberation question (plan exists in `.claude/plans/`).
+
+### P2.5 — Performance & Infrastructure
+
+19. **Feed optimization** — feed API still runs 6+ DB queries per request even after parallelization. Need: response caching (Redis or in-memory with TTL), pagination for large feeds, incremental updates (only fetch changes since last poll), and move from polling to push-based updates.
+
+### Known Bugs
+
+1. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
+2. **Accumulation signifier bug**: UI shows accumulation state incorrectly during phase transitions
+3. **Cell color updates**: Cells with 5/5 votes not turning green immediately - relying on timeout instead of vote completion trigger
+4. **"Join and Vote" button issues**: Doesn't work sometimes, still shows after user voted, state confusion on refresh
+5. **Cell click does nothing**: No detail view when clicking a cell on deliberation page
+6. **Challenger idea fallback**: Shows "Challenger idea #" instead of AI-generated text when Haiku fails
 
 ### Untested Code Paths
+
 1. **Meta-deliberation auto-reset**: `handleMetaChampion` spawning logic written but never triggered in production
 2. **Zero ideas edge case**: What happens when meta-deliberation has 0 ideas at submission end?
 3. **Duplicate meta-deliberation**: No protection if two META deliberations exist somehow
 4. **Auto-join voters**: The "auto-join voters to spawned deliberation" logic never actually run
 5. **Vercel cron timers**: Timer-based transitions not fully tested in production
 
-### Potential Race Conditions
-1. ~~**Simultaneous votes**: Two people voting at exact same moment~~ **NON-ISSUE** - unique constraint prevents double-voting; extra participants in a cell is harmless
-2. ~~**Cell assignment**: Odd numbers of participants edge cases~~ **NON-ISSUE** - cells with 6+ participants work fine; system sorts by count to balance
-3. ~~**Multi-cell user**: What if a user ends up in multiple cells same tier?~~ **FIXED** - removed wrap-around logic
-4. **Multiple tabs**: Session/auth edge cases (minor)
-
-### Security Gaps
-1. **No CAPTCHA**: Idea submission vulnerable to bot spam
-2. ~~**No content moderation**: Bad actors can submit anything~~ **FIXED** - `src/lib/moderation.ts` blocks slurs, hate speech, spam, and links
-3. **Rate limit bypass**: Per-IP limits bypassed by VPNs
-4. **Push notifications**: Configured but not fully tested in production
-
-### Performance Unknowns
-1. **Scale testing**: How does it handle 1000+ ideas in one deliberation?
-2. **Query optimization**: Prisma queries not optimized for scale
-3. ~~**Database indexes**: Only default indexes, may need more~~ **FIXED** - Added indexes on key fields
-
 ### Technical Debt
-1. **Unused component**: `MetaDeliberationEmbed.tsx` created but not used
-2. **Duplicate code**: Some overlap between components
-3. **No test suite**: No comprehensive automated tests
-4. **Free tier permissions**: Need to implement rate limits for free users (see docs/META_DELIBERATION.md)
 
-### Feature Ideas
-1. **Continuous Flow Mode**: Allow Tier 1 voting to happen while ideas are still being submitted. Every 5 ideas creates a new Tier 1 cell that starts voting immediately. Winners advance to Tier 2 while more Tier 1 cells form. Good for large-scale deliberations where you don't want to wait for all submissions.
-2. **Promoted Deliberations**: Creators/orgs pay to feature their deliberation in the feed. Native content advertising that aligns with "paid amplification" model. Avoids external ads (Google AdSense etc.) which would undermine democratic legitimacy and user trust. Could also do "Sponsored by" deliberations where orgs sponsor deliberations on specific topics.
-2. **Tie handling display**: Show which ideas tied and both advanced in admin panel
-3. **Spawn deliberation from winner**: Checkbox in creation - winner's text becomes a new deliberation question (plan exists in `.claude/plans/`)
+1. **No test suite**: No comprehensive automated tests (see P0 #1)
+2. **Unused component**: `MetaDeliberationEmbed.tsx` created but not used
+3. **Duplicate code**: Some overlap between components
+4. **Free tier permissions**: Need to implement rate limits for free users
+5. **Rate limit bypass**: Per-IP limits bypassed by VPNs
+6. **Scale unknowns**: Untested beyond 200 users. Prisma queries not optimized for scale.
 
 ### Recent Additions (Jan 2026)
 - `src/lib/moderation.ts` - Content moderation (profanity, spam, links)
@@ -497,21 +499,37 @@ To change colors app-wide:
 - **Enterprise/API**: Governance-as-a-service for orgs (paid)
 
 ### Network Effects Roadmap (Priority)
-1. **User stats & reputation** (Task #32)
-   - Track success at EVERY tier, not just final wins
-   - Idea stats: highest tier reached, champion count
-   - Voting prediction accuracy per cell
-   - Portable reputation that means something
+1. ~~**Engagement feed**~~ **DONE** — `/feed` with card-based UI, inline voting, bottom sheet
 
-2. ~~**Engagement feed** (Task #33)~~ **DONE**
-   - Built `/feed` with card-based UI
-   - Vote, predict, submit inline without navigation
-   - Bottom sheet for details
+2. **Communities** (next priority)
+   - Groups around topics/interests (e.g., "Climate Action", "City Council", "Book Club")
+   - Community has members, multiple deliberations, community feed
+   - Creates the retention loop — you belong, you come back
+   - Community admins can moderate, pin deliberations, set rules
+   - Public vs private communities
 
-3. **Social graph of agreement**
+3. **Sharing & virality**
+   - OG meta tags per deliberation (question + phase + participant count)
+   - Share buttons: Twitter, Facebook, WhatsApp, copy link
+   - "Invite friends" with referral tracking
+   - Shareable results: "X won with Y votes across Z tiers"
+
+4. **Follow system**
+   - Follow/unfollow users
+   - Following feed: see deliberations, ideas, and wins from people you follow
+   - Follower/following counts on profile
+   - Notifications when someone you follow submits an idea or wins
+
+5. **User profile stats**
+   - Ideas: total submitted, highest tier reached, champion count, win rate
+   - Comments: total posted, highest up-pollination tier reached, total upvotes received
+   - Deliberations: created, participated in, completed
+   - Voting: prediction accuracy, current streak, best streak
+   - Activity timeline on profile page
+
+6. **Social graph of agreement**
    - Track who you agree with across deliberations
-   - Follow users, see their activity
-   - "People who voted like you..."
+   - "People who voted like you..." recommendations
 
 ### Key Insight
 The voting engine creates MULTIPLE success moments per deliberation:

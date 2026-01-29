@@ -5,7 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
 import { isAdminEmail } from '@/lib/admin'
 
-// POST /api/admin/test/simulate-voting - Simulate votes through all tiers
+// POST /api/admin/test/simulate-voting - Simulate votes for ONE tier per request.
+// Client should loop calling this endpoint until isComplete=true.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -36,185 +37,189 @@ export async function POST(req: NextRequest) {
     }
 
     if (deliberation.phase !== 'VOTING') {
+      // If already completed/accumulating, report that
+      if (deliberation.phase === 'COMPLETED' || deliberation.phase === 'ACCUMULATING') {
+        const winnerIdea = deliberation.championId
+          ? await prisma.idea.findUnique({ where: { id: deliberation.championId } })
+          : null
+        return NextResponse.json({
+          success: true,
+          isComplete: true,
+          votesCreated: 0,
+          tierProcessed: deliberation.currentTier,
+          champion: winnerIdea?.text || null,
+          phase: deliberation.phase,
+        })
+      }
       return NextResponse.json({ error: 'Deliberation must be in VOTING phase' }, { status: 400 })
     }
 
     let votesCreated = 0
-    let tiersProcessed = 0
-    let champion: string | null = null
-    let finalCellStatus: string | null = null
 
-    // Process tiers until we reach completion or final cell
-    while (true) {
-      // Get incomplete cells (status != COMPLETED) at the current lowest tier
-      const incompleteCells = await prisma.cell.findMany({
-        where: {
-          deliberationId,
-          status: { not: 'COMPLETED' },
+    // Get incomplete cells at the current lowest tier
+    const incompleteCells = await prisma.cell.findMany({
+      where: {
+        deliberationId,
+        status: { not: 'COMPLETED' },
+      },
+      include: {
+        participants: {
+          include: { user: true },
         },
+        ideas: {
+          include: { idea: true },
+        },
+        votes: true,
+      },
+      orderBy: { tier: 'asc' },
+    })
+
+    if (incompleteCells.length === 0) {
+      // Check if deliberation is complete or in accumulation
+      const updatedDeliberation = await prisma.deliberation.findUnique({
+        where: { id: deliberationId },
         include: {
-          participants: {
-            include: { user: true },
-          },
-          ideas: {
-            include: { idea: true },
-          },
-          votes: true,
+          ideas: { where: { status: 'WINNER' } },
         },
-        orderBy: { tier: 'asc' },
       })
 
-      if (incompleteCells.length === 0) {
-        // Check if deliberation is complete or in accumulation
-        const updatedDeliberation = await prisma.deliberation.findUnique({
-          where: { id: deliberationId },
-          include: {
-            ideas: {
-              where: { status: 'WINNER' },
-            },
-          },
-        })
-
-        if (updatedDeliberation?.phase === 'COMPLETED' && updatedDeliberation.ideas.length > 0) {
-          champion = updatedDeliberation.ideas[0].text
-        } else if (updatedDeliberation?.phase === 'ACCUMULATING' && updatedDeliberation.ideas.length > 0) {
-          champion = updatedDeliberation.ideas[0].text + ' (now accepting challengers)'
+      let champion: string | null = null
+      if (updatedDeliberation?.ideas?.[0]) {
+        champion = updatedDeliberation.ideas[0].text
+        if (updatedDeliberation.phase === 'ACCUMULATING') {
+          champion += ' (now accepting challengers)'
         }
-        break
       }
 
-      const currentTier = incompleteCells[0].tier
-      const cellsAtTier = incompleteCells.filter((c: typeof incompleteCells[number]) => c.tier === currentTier)
+      return NextResponse.json({
+        success: true,
+        isComplete: true,
+        votesCreated: 0,
+        tierProcessed: deliberation.currentTier,
+        champion,
+        phase: updatedDeliberation?.phase,
+      })
+    }
 
-      // Check if this is a final showdown (all cells have same ideas, ≤4 ideas)
-      const firstCellIdeaIds = cellsAtTier[0]?.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort() || []
-      const isFinalShowdown = firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0 &&
-        cellsAtTier.every(cell => {
-          const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-          return cellIdeaIds.length === firstCellIdeaIds.length &&
-                 cellIdeaIds.every((id: string, i: number) => id === firstCellIdeaIds[i])
-        })
+    const currentTier = incompleteCells[0].tier
+    const cellsAtTier = incompleteCells.filter(c => c.tier === currentTier)
 
-      // If final showdown and we want to leave votes for manual testing,
-      // vote for everyone EXCEPT the specified number of participants
+    // Check if this is a final showdown (all cells have same ideas, ≤5 ideas)
+    const firstCellIdeaIds = cellsAtTier[0]?.ideas.map(ci => ci.ideaId).sort() || []
+    const isFinalShowdown = firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0 &&
+      cellsAtTier.every(cell => {
+        const cellIdeaIds = cell.ideas.map(ci => ci.ideaId).sort()
+        return cellIdeaIds.length === firstCellIdeaIds.length &&
+               cellIdeaIds.every((id, i) => id === firstCellIdeaIds[i])
+      })
+
+    // Process all cells at this tier
+    for (const cell of cellsAtTier) {
+      const votedUserIds = new Set(cell.votes.map(v => v.userId))
+      const allUnvotedParticipants = cell.participants.filter(p => !votedUserIds.has(p.userId))
+
+      let unvotedParticipants = allUnvotedParticipants
+
+      // If final showdown and we want to leave votes for manual testing
       if (isFinalShowdown && leaveFinalVote) {
-        for (const cell of cellsAtTier) {
-          const votedUserIds = new Set(cell.votes.map((v: { userId: string }) => v.userId))
-          // Get all unvoted participants
-          const allUnvotedParticipants = cell.participants.filter((p: { userId: string; user?: { email?: string } }) =>
-            !votedUserIds.has(p.userId)
-          )
-
-          // Sort: real users first (so they get left unvoted), then test users
-          allUnvotedParticipants.sort((a: { user?: { email?: string } }, b: { user?: { email?: string } }) => {
-            const aIsTest = a.user?.email?.includes('@test.local') ? 1 : 0
-            const bIsTest = b.user?.email?.includes('@test.local') ? 1 : 0
-            return aIsTest - bIsTest
-          })
-
-          // Skip the first X participants (leave them unvoted), vote for the rest
-          const unvotedParticipants = allUnvotedParticipants.slice(votesToLeaveOpen)
-
-          for (let i = 0; i < unvotedParticipants.length; i++) {
-            const participant = unvotedParticipants[i]
-            const ideaIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
-            const ideaToVote = cell.ideas[Math.min(ideaIndex, cell.ideas.length - 1)]
-            if (!ideaToVote) continue
-
-            await prisma.vote.create({
-              data: {
-                cellId: cell.id,
-                userId: participant.userId,
-                ideaId: ideaToVote.ideaId,
-              },
-            })
-            votesCreated++
-          }
-
-          // Check if cell is complete (real user may have already voted or isn't in this cell)
-          const updatedCell = await prisma.cell.findUnique({
-            where: { id: cell.id },
-            include: { votes: true, participants: true },
-          })
-
-          if (updatedCell && updatedCell.votes.length >= updatedCell.participants.length) {
-            await processCellResults(cell.id)
-          }
-        }
-
-        // Check if deliberation completed after processing final showdown cells
-        const checkDeliberation = await prisma.deliberation.findUnique({
-          where: { id: deliberationId },
-          include: {
-            ideas: { where: { status: 'WINNER' } },
-          },
+        // Sort: real users first (so they get left unvoted), then test users
+        allUnvotedParticipants.sort((a, b) => {
+          const aIsTest = a.user?.email?.includes('@test.local') ? 1 : 0
+          const bIsTest = b.user?.email?.includes('@test.local') ? 1 : 0
+          return aIsTest - bIsTest
         })
-
-        if (checkDeliberation?.phase === 'COMPLETED' || checkDeliberation?.phase === 'ACCUMULATING') {
-          if (checkDeliberation.ideas.length > 0) {
-            champion = checkDeliberation.ideas[0].text
-            if (checkDeliberation.phase === 'ACCUMULATING') {
-              champion += ' (now accepting challengers)'
-            }
-          }
-          break // Deliberation complete, exit loop
-        }
-
-        finalCellStatus = `Final showdown: waiting for your vote in your cell`
-        tiersProcessed++
-        break // Exit loop - waiting for real user vote, don't keep looping
+        // Skip the first X participants (leave them unvoted)
+        unvotedParticipants = allUnvotedParticipants.slice(votesToLeaveOpen)
       }
 
-      for (const cell of cellsAtTier) {
-        const votedUserIds = new Set(cell.votes.map((v: { userId: string }) => v.userId))
-        const unvotedParticipants = cell.participants.filter((p: { userId: string }) => !votedUserIds.has(p.userId))
+      // Build vote batch
+      const voteBatch: { cellId: string; userId: string; ideaId: string }[] = []
+      for (let i = 0; i < unvotedParticipants.length; i++) {
+        const participant = unvotedParticipants[i]
+        const ideaIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
+        const ideaToVote = cell.ideas[Math.min(ideaIndex, cell.ideas.length - 1)]
+        if (!ideaToVote) continue
 
-        // Simulate votes - concentrate on first 1-2 ideas to create clear winners
-        for (let i = 0; i < unvotedParticipants.length; i++) {
-          const participant = unvotedParticipants[i]
-          // Most votes go to first idea, some to second - creates clear winner
-          // With 5 voters: 3 vote for idea 0, 2 vote for idea 1
-          const ideaIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
-          const ideaToVote = cell.ideas[Math.min(ideaIndex, cell.ideas.length - 1)]
-
-          if (!ideaToVote) continue
-
-          await prisma.vote.create({
-            data: {
-              cellId: cell.id,
-              userId: participant.userId,
-              ideaId: ideaToVote.ideaId,
-            },
-          })
-          votesCreated++
-        }
-
-        // Check if cell is now complete and process it using the real voting logic
-        const updatedCell = await prisma.cell.findUnique({
-          where: { id: cell.id },
-          include: { votes: true, participants: true },
+        voteBatch.push({
+          cellId: cell.id,
+          userId: participant.userId,
+          ideaId: ideaToVote.ideaId,
         })
-
-        if (updatedCell && updatedCell.votes.length >= updatedCell.participants.length) {
-          // Use the real processCellResults which handles accumulation transitions
-          await processCellResults(cell.id)
-        }
       }
 
-      tiersProcessed++
+      // Batch insert votes with skipDuplicates to prevent unique constraint errors
+      if (voteBatch.length > 0) {
+        const result = await prisma.vote.createMany({
+          data: voteBatch,
+          skipDuplicates: true,
+        })
+        votesCreated += result.count
+      }
 
-      // Safety limit
-      if (tiersProcessed > 10) {
-        break
+      // Check if cell is now complete and process it
+      const updatedCell = await prisma.cell.findUnique({
+        where: { id: cell.id },
+        include: { votes: true, participants: true },
+      })
+
+      if (updatedCell && updatedCell.votes.length >= updatedCell.participants.length) {
+        await processCellResults(cell.id)
+      }
+    }
+
+    // If final showdown with leaveFinalVote, stop here — waiting for real user
+    if (isFinalShowdown && leaveFinalVote) {
+      // Check if deliberation completed (all participants may have voted)
+      const checkDeliberation = await prisma.deliberation.findUnique({
+        where: { id: deliberationId },
+        include: { ideas: { where: { status: 'WINNER' } } },
+      })
+
+      if (checkDeliberation?.phase === 'COMPLETED' || checkDeliberation?.phase === 'ACCUMULATING') {
+        return NextResponse.json({
+          success: true,
+          isComplete: true,
+          votesCreated,
+          tierProcessed: currentTier,
+          champion: checkDeliberation.ideas[0]?.text || null,
+          phase: checkDeliberation.phase,
+        })
+      }
+
+      return NextResponse.json({
+        success: true,
+        isComplete: false,
+        votesCreated,
+        tierProcessed: currentTier,
+        nextTier: null,
+        waitingForFinalVote: true,
+        finalCellStatus: 'Final showdown: waiting for your vote in your cell',
+      })
+    }
+
+    // Check post-processing state
+    const postDeliberation = await prisma.deliberation.findUnique({
+      where: { id: deliberationId },
+      include: { ideas: { where: { status: 'WINNER' } } },
+    })
+
+    const isComplete = postDeliberation?.phase === 'COMPLETED' || postDeliberation?.phase === 'ACCUMULATING'
+    let champion: string | null = null
+    if (postDeliberation?.ideas?.[0]) {
+      champion = postDeliberation.ideas[0].text
+      if (postDeliberation.phase === 'ACCUMULATING') {
+        champion += ' (now accepting challengers)'
       }
     }
 
     return NextResponse.json({
       success: true,
+      isComplete,
       votesCreated,
-      tiersProcessed,
+      tierProcessed: currentTier,
+      nextTier: isComplete ? null : postDeliberation?.currentTier,
       champion,
-      finalCellStatus,
+      phase: postDeliberation?.phase,
     })
   } catch (error) {
     console.error('Error simulating voting:', error)
@@ -227,4 +232,3 @@ export async function POST(req: NextRequest) {
     }, { status: 500 })
   }
 }
-

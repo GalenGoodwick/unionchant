@@ -151,9 +151,24 @@ export async function POST(
       timeout: 10000, // 10 second timeout
     })
 
-    // Process cell results OUTSIDE the transaction to avoid long locks
+    // When all votes are in, start a 10-second grace period before finalizing.
+    // Users can change their vote during this window but it doesn't extend it.
     if (result.allVoted) {
-      await processCellResults(cellId, false)
+      const GRACE_PERIOD_MS = 10_000
+      // Only set finalizesAt if not already set (first time all votes land)
+      await prisma.cell.updateMany({
+        where: { id: cellId, finalizesAt: null, status: 'VOTING' },
+        data: { finalizesAt: new Date(Date.now() + GRACE_PERIOD_MS) },
+      })
+
+      // Schedule finalization after the grace period
+      setTimeout(async () => {
+        try {
+          await processCellResults(cellId, false)
+        } catch (err) {
+          console.error(`Grace period finalization failed for cell ${cellId}:`, err)
+        }
+      }, GRACE_PERIOD_MS)
     }
 
     return NextResponse.json({

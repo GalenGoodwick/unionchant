@@ -45,13 +45,22 @@ export default function FeedPage() {
   const [preservedVoteCards, setPreservedVoteCards] = useState<Map<string, FeedItem>>(new Map())
   const [preservedCardsLoaded, setPreservedCardsLoaded] = useState(false)
 
-  // Load preserved cards from localStorage on mount
+  // Load preserved cards from localStorage on mount (filter out expired)
   useEffect(() => {
     const saved = localStorage.getItem('preservedVoteCards')
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as [string, FeedItem][]
-        setPreservedVoteCards(new Map(parsed))
+        const now = Date.now()
+        const valid = parsed.filter(([, item]) => {
+          // Remove expired voting cells from cache
+          if (item.cell?.votingDeadline && item.cell.status !== 'COMPLETED') {
+            if (new Date(item.cell.votingDeadline).getTime() < now) return false
+          }
+          return true
+        })
+        setPreservedVoteCards(new Map(valid))
+        localStorage.setItem('preservedVoteCards', JSON.stringify(valid))
       } catch {
         // Ignore parse errors
       }
@@ -261,18 +270,7 @@ export default function FeedPage() {
 
         {/* Feed items - filter out expired cards */}
         <div className="space-y-4">
-          {items.filter(item => {
-            const now = Date.now()
-            // Filter out expired vote_now cards
-            if (item.type === 'vote_now' && item.cell?.votingDeadline) {
-              if (new Date(item.cell.votingDeadline).getTime() < now) return false
-            }
-            // Filter out expired submit_ideas cards
-            if (item.type === 'submit_ideas' && item.submissionDeadline) {
-              if (new Date(item.submissionDeadline).getTime() < now) return false
-            }
-            return true
-          }).map((item, index) => {
+          {items.map((item, index) => {
             const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || 'no-cell'}-${index}`
 
             switch (item.type) {

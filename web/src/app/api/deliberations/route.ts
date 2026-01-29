@@ -27,6 +27,11 @@ export async function GET(req: NextRequest) {
         creator: {
           select: { name: true, status: true },
         },
+        ideas: {
+          where: { status: 'WINNER' },
+          select: { text: true },
+          take: 1,
+        },
         _count: {
           select: { members: true, ideas: true },
         },

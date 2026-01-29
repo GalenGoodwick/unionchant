@@ -71,6 +71,9 @@ export async function GET(
                 user: {
                   select: { name: true },
                 },
+                idea: {
+                  select: { text: true },
+                },
               },
             },
             _count: {
@@ -89,5 +92,41 @@ export async function GET(
   } catch (error) {
     console.error('Error fetching deliberation:', error)
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
+  }
+}
+
+// PATCH /api/admin/deliberation/[id] - Update deliberation settings
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { id } = await params
+    const body = await req.json()
+
+    const allowedFields: Record<string, boolean> = { isPublic: true }
+    const data: Record<string, unknown> = {}
+    for (const key of Object.keys(body)) {
+      if (allowedFields[key]) data[key] = body[key]
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    }
+
+    const updated = await prisma.deliberation.update({
+      where: { id },
+      data,
+    })
+
+    return NextResponse.json(updated)
+  } catch (error) {
+    console.error('Error updating deliberation:', error)
+    return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }
 }

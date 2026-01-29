@@ -146,7 +146,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-surface">
-      <Header showSettings={false} />
+      <Header />
 
       <div className="max-w-2xl mx-auto px-6 py-8">
         <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">

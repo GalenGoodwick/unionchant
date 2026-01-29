@@ -16,6 +16,8 @@ interface Deliberation {
   isPublic: boolean
   tags: string[]
   createdAt: string
+  submissionEndsAt: string | null
+  ideaGoal: number | null
   creator: {
     name: string | null
     email: string
@@ -25,6 +27,12 @@ interface Deliberation {
     members: number
     ideas: number
   }
+}
+
+function getVotingType(d: Deliberation): string {
+  if (d.ideaGoal) return `Idea Goal ${d._count.ideas}/${d.ideaGoal}`
+  if (d.submissionEndsAt) return 'Timed'
+  return 'Facilitator controlled'
 }
 
 export default function AdminPage() {
@@ -310,7 +318,7 @@ export default function AdminPage() {
                 setCreating(true)
                 setCreateStatus('Creating deliberation...')
                 try {
-                  const question = testQuestion.trim() || `[TEST] ${targetPhase} Test ${Date.now()}`
+                  const question = testQuestion.trim() || `Test ${targetPhase} ${Date.now()}`
 
                   // Build creation payload with trigger settings
                   // API expects milliseconds, so convert from minutes
@@ -346,60 +354,7 @@ export default function AdminPage() {
 
                   const deliberation = await createRes.json()
 
-                  if (targetPhase === 'SUBMISSION') {
-                    // Done - just redirect
-                    router.push(`/admin/deliberation/${deliberation.id}`)
-                    return
-                  }
-
-                  // Step 2: Populate with test users and ideas
-                  setCreateStatus(`Creating ${testUsers} test users and ideas...`)
-                  const populateRes = await fetch('/api/admin/test/populate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      deliberationId: deliberation.id,
-                      userCount: testUsers,
-                    }),
-                  })
-
-                  if (!populateRes.ok) {
-                    throw new Error('Failed to populate test users')
-                  }
-
-                  // Step 3: Start voting
-                  setCreateStatus('Starting voting phase...')
-                  const startRes = await fetch(`/api/deliberations/${deliberation.id}/start-voting`, {
-                    method: 'POST',
-                  })
-
-                  if (!startRes.ok) {
-                    throw new Error('Failed to start voting')
-                  }
-
-                  if (targetPhase === 'VOTING') {
-                    // Done - redirect to voting state
-                    setCreateStatus('Done! Redirecting...')
-                    router.push(`/admin/deliberation/${deliberation.id}`)
-                    return
-                  }
-
-                  // Step 4: Simulate voting to get champion (for ACCUMULATING)
-                  setCreateStatus('Simulating voting through tiers...')
-                  const simRes = await fetch('/api/admin/test/simulate-voting', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      deliberationId: deliberation.id,
-                      leaveFinalVote: false,
-                    }),
-                  })
-
-                  if (!simRes.ok) {
-                    throw new Error('Failed to simulate voting')
-                  }
-
-                  setCreateStatus('Done! Redirecting...')
+                  // Just redirect to admin page - user can manually trigger populate/voting from there
                   router.push(`/admin/deliberation/${deliberation.id}`)
 
                 } catch (err) {
@@ -412,6 +367,108 @@ export default function AdminPage() {
               className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-6 py-2 rounded transition-colors text-sm font-medium"
             >
               {creating ? 'Creating...' : 'Create & Open'}
+            </button>
+            <button
+              onClick={async () => {
+                if (targetPhase === 'SUBMISSION') {
+                  alert('Select VOTING or ACCUMULATING phase to simulate a mid-progress deliberation')
+                  return
+                }
+                setCreating(true)
+                setCreateStatus('Creating deliberation...')
+                try {
+                  const question = testQuestion.trim() || `Test ${targetPhase} ${Date.now()}`
+
+                  // Build creation payload
+                  const createPayload: Record<string, unknown> = {
+                    question,
+                    description: `Simulated test deliberation (target: ${targetPhase})`,
+                    isPublic: true,
+                    tags: ['test'],
+                    accumulationEnabled: enableRolling || targetPhase === 'ACCUMULATING',
+                    votingTimeoutMs: votingMinutes * 60 * 1000,
+                    type: delibType,
+                  }
+
+                  // Step 1: Create deliberation
+                  const createRes = await fetch('/api/deliberations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(createPayload),
+                  })
+
+                  if (!createRes.ok) {
+                    const err = await createRes.json()
+                    throw new Error(err.error || 'Failed to create')
+                  }
+
+                  const deliberation = await createRes.json()
+                  const delibId = deliberation.id
+
+                  // Step 2: Populate with test users and ideas
+                  setCreateStatus('Populating test users and ideas...')
+                  const populateRes = await fetch('/api/admin/test/populate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      deliberationId: delibId,
+                      userCount: testUsers,
+                      ideasPerUser: 1
+                    }),
+                  })
+
+                  if (!populateRes.ok) {
+                    const err = await populateRes.json()
+                    throw new Error(err.error || 'Failed to populate')
+                  }
+
+                  // Step 3: Start voting
+                  setCreateStatus('Starting voting phase...')
+                  const startRes = await fetch(`/api/deliberations/${delibId}/start-voting`, {
+                    method: 'POST',
+                  })
+
+                  if (!startRes.ok) {
+                    const err = await startRes.json()
+                    throw new Error(err.error || 'Failed to start voting')
+                  }
+
+                  // Step 4: If ACCUMULATING, simulate voting through all tiers to get a champion
+                  if (targetPhase === 'ACCUMULATING') {
+                    setCreateStatus('Simulating votes through tiers...')
+                    for (let safety = 0; safety < 20; safety++) {
+                      const simRes = await fetch('/api/admin/test/simulate-voting', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ deliberationId: delibId, leaveFinalVote: false }),
+                      })
+
+                      if (!simRes.ok) {
+                        const err = await simRes.json()
+                        throw new Error(err.error || 'Failed to simulate voting')
+                      }
+
+                      const simData = await simRes.json()
+                      if (simData.isComplete) break
+                    }
+                  }
+
+                  setCreateStatus('Done! Redirecting...')
+                  router.push(`/admin/deliberation/${delibId}`)
+
+                } catch (err) {
+                  setCreateStatus(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+                  setCreating(false)
+                }
+              }}
+              disabled={creating || targetPhase === 'SUBMISSION'}
+              className={`px-6 py-2 rounded transition-colors text-sm font-medium ${
+                targetPhase === 'SUBMISSION'
+                  ? 'bg-muted/50 text-muted cursor-not-allowed'
+                  : 'bg-warning hover:bg-warning-hover text-black disabled:bg-muted'
+              }`}
+            >
+              {creating ? 'Simulating...' : 'Create & Simulate'}
             </button>
             <button
               onClick={async () => {
@@ -596,6 +653,7 @@ export default function AdminPage() {
                 <tr>
                   <th className="text-left p-4 text-muted font-medium text-sm">Question</th>
                   <th className="text-left p-4 text-muted font-medium text-sm">Phase</th>
+                  <th className="text-left p-4 text-muted font-medium text-sm">Type</th>
                   <th className="text-left p-4 text-muted font-medium text-sm">Members</th>
                   <th className="text-left p-4 text-muted font-medium text-sm">Ideas</th>
                   <th className="text-left p-4 text-muted font-medium text-sm">Creator</th>
@@ -628,6 +686,7 @@ export default function AdminPage() {
                         {d.phase}
                       </span>
                     </td>
+                    <td className="p-4 text-muted text-sm">{getVotingType(d)}</td>
                     <td className="p-4 text-muted font-mono">{d._count.members}</td>
                     <td className="p-4 text-muted font-mono">{d._count.ideas}</td>
                     <td className="p-4 text-muted-light text-sm">
@@ -637,7 +696,7 @@ export default function AdminPage() {
                       {new Date(d.createdAt).toLocaleDateString()}
                     </td>
                     <td className="p-4">
-                      <div className="flex gap-3">
+                      <div className="flex gap-3 items-center">
                         <Link
                           href={`/admin/deliberation/${d.id}`}
                           className="text-accent hover:text-accent-hover text-sm font-medium"
@@ -650,6 +709,23 @@ export default function AdminPage() {
                         >
                           View
                         </Link>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/admin/deliberation/${d.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ isPublic: !d.isPublic }),
+                              })
+                              if (res.ok) fetchDeliberations()
+                            } catch (err) {
+                              console.error('Failed to toggle visibility:', err)
+                            }
+                          }}
+                          className={`text-sm ${d.isPublic ? 'text-success' : 'text-error'} hover:opacity-70`}
+                        >
+                          {d.isPublic ? 'Public' : 'Private'}
+                        </button>
                         <button
                           onClick={() => handleDelete(d.id, d.question)}
                           disabled={deleting === d.id}

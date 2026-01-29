@@ -243,22 +243,11 @@ export async function startVotingPhase(deliberationId: string) {
   const cellSizes = calculateCellSizes(shuffledMembers.length)
   const numCells = cellSizes.length
 
-  // Calculate cells based on IDEAS (target 5 per cell, flex 3-7)
-  // This ensures ALL ideas get into voting
-  const targetIdeasPerCell = IDEAS_PER_CELL // 5
-  const minIdeasPerCell = 3
-  const maxIdeasPerCell = MAX_CELL_SIZE // 7
-
-  // Calculate number of cells needed for ideas
-  const numCellsForIdeas = Math.ceil(shuffledIdeas.length / targetIdeasPerCell)
-
-  // Use the larger of: cells needed for participants OR cells needed for ideas
-  const actualNumCells = Math.max(numCells, numCellsForIdeas)
-
-  // Recalculate cell sizes if we need more cells than participants allow
-  const actualCellSizes = actualNumCells > numCells
-    ? calculateCellSizes(shuffledMembers.length) // Will need to reuse participants
-    : cellSizes
+  // Number of cells is determined by PARTICIPANTS (never create unstaffed cells).
+  // Ideas flex to fit — some cells may get 6-7 ideas if there are more ideas than
+  // ideal, but every idea gets into a cell.
+  const actualNumCells = numCells
+  const actualCellSizes = cellSizes
 
   // Calculate ideas per cell using flexible sizing (target 5, allow 3-7)
   function calculateIdeaSizes(totalIdeas: number, totalCells: number): number[] {
@@ -358,6 +347,24 @@ export async function startVotingPhase(deliberationId: string) {
  * Process cell results and handle tier completion
  */
 export async function processCellResults(cellId: string, isTimeout = false) {
+  // ATOMIC GUARD: Claim this cell for processing using atomic updateMany.
+  // Only one concurrent caller can succeed — others get count=0 and bail out.
+  const claimed = await prisma.cell.updateMany({
+    where: { id: cellId, status: { not: 'COMPLETED' } },
+    data: {
+      status: 'COMPLETED',
+      completedAt: new Date(),
+      completedByTimeout: isTimeout,
+      secondVotesEnabled: true,
+    },
+  })
+
+  if (claimed.count === 0) {
+    console.log(`Cell ${cellId} already completed, skipping processCellResults`)
+    return null
+  }
+
+  // Now fetch the cell data for processing (status is already COMPLETED)
   const cell = await prisma.cell.findUnique({
     where: { id: cellId },
     include: {
@@ -368,12 +375,6 @@ export async function processCellResults(cellId: string, isTimeout = false) {
   })
 
   if (!cell) return null
-
-  // Guard: Don't process if cell is already completed (prevents race condition)
-  if (cell.status === 'COMPLETED') {
-    console.log(`Cell ${cellId} already completed, skipping processCellResults`)
-    return null
-  }
 
   // Check if this is a final showdown cell (all cells in tier have same ideas, ≤4 ideas)
   const allCellsInTier = await prisma.cell.findMany({
@@ -441,17 +442,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     await resolveCellPredictions(cellId, winnerIds)
   }
 
-  // Mark cell as completed
-  await prisma.cell.update({
-    where: { id: cellId },
-    data: {
-      status: 'COMPLETED',
-      completedAt: new Date(),
-      completedByTimeout: isTimeout,
-      secondVotesEnabled: true,
-    },
-  })
-
+  // Cell already marked COMPLETED by atomic guard above.
   // Check if all cells in this tier are complete
   await checkTierCompletion(cell.deliberationId, cell.tier)
 
@@ -473,6 +464,36 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
   const allComplete = cells.every((c: { status: string }) => c.status === 'COMPLETED')
 
   if (!allComplete) return
+
+  // IDEMPOTENCY: Check if this tier has already been processed by another caller.
+  // Without this, concurrent calls that both see allComplete=true would both
+  // create next-tier cells, doubling everything.
+  const currentDeliberation = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+    select: { currentTier: true, phase: true },
+  })
+
+  if (!currentDeliberation) return
+
+  // If deliberation already advanced past this tier, or is no longer in VOTING, bail out.
+  if (
+    currentDeliberation.currentTier > tier ||
+    currentDeliberation.phase === 'COMPLETED' ||
+    currentDeliberation.phase === 'ACCUMULATING'
+  ) {
+    console.log(`checkTierCompletion: deliberation ${deliberationId} already past tier ${tier} (currentTier=${currentDeliberation.currentTier}, phase=${currentDeliberation.phase}), skipping`)
+    return
+  }
+
+  // Also check if next-tier cells already exist (belt-and-suspenders)
+  const nextTierCellCount = await prisma.cell.count({
+    where: { deliberationId, tier: tier + 1 },
+  })
+
+  if (nextTierCellCount > 0) {
+    console.log(`checkTierCompletion: next tier cells already exist for deliberation ${deliberationId} tier ${tier + 1} (${nextTierCellCount} cells), skipping`)
+    return
+  }
 
   // Check if this is a final showdown (all cells have same ideas, ≤4 ideas)
   const firstCellIdeaIds = cells[0]?.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort() || []
@@ -521,8 +542,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
       if (deliberation?.accumulationEnabled) {
         const accumulationEndsAt = new Date(Date.now() + deliberation.accumulationTimeoutMs)
-        await prisma.deliberation.update({
-          where: { id: deliberationId },
+        // Atomic: only transition if still in VOTING phase
+        const updated = await prisma.deliberation.updateMany({
+          where: { id: deliberationId, phase: 'VOTING' },
           data: {
             phase: 'ACCUMULATING',
             championId: winnerId,
@@ -531,13 +553,16 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           },
         })
 
-        sendPushToDeliberation(
-          deliberationId,
-          notifications.accumulationStarted(deliberation.question, deliberationId)
-        ).catch(err => console.error('Failed to send push notifications:', err))
+        if (updated.count > 0) {
+          sendPushToDeliberation(
+            deliberationId,
+            notifications.accumulationStarted(deliberation.question, deliberationId)
+          ).catch(err => console.error('Failed to send push notifications:', err))
+        }
       } else {
-        await prisma.deliberation.update({
-          where: { id: deliberationId },
+        // Atomic: only complete if still in VOTING phase
+        const updated = await prisma.deliberation.updateMany({
+          where: { id: deliberationId, phase: 'VOTING' },
           data: {
             phase: 'COMPLETED',
             championId: winnerId,
@@ -545,20 +570,22 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           },
         })
 
-        const completedDeliberation = await prisma.deliberation.findUnique({
-          where: { id: deliberationId },
-          include: { ideas: { where: { id: winnerId } } }
-        })
-        if (completedDeliberation) {
-          sendPushToDeliberation(
-            deliberationId,
-            notifications.championDeclared(completedDeliberation.question, deliberationId)
-          ).catch(err => console.error('Failed to send push notifications:', err))
+        if (updated.count > 0) {
+          const completedDeliberation = await prisma.deliberation.findUnique({
+            where: { id: deliberationId },
+            include: { ideas: { where: { id: winnerId } } }
+          })
+          if (completedDeliberation) {
+            sendPushToDeliberation(
+              deliberationId,
+              notifications.championDeclared(completedDeliberation.question, deliberationId)
+            ).catch(err => console.error('Failed to send push notifications:', err))
 
-          // Handle META or spawnsDeliberation - spawn new deliberation from champion
-          if ((completedDeliberation.type === 'META' || completedDeliberation.spawnsDeliberation) && completedDeliberation.ideas[0]) {
-            handleMetaChampion(deliberationId, completedDeliberation.ideas[0])
-              .catch(err => console.error('Failed to handle meta champion:', err))
+            // Handle META or spawnsDeliberation - spawn new deliberation from champion
+            if ((completedDeliberation.type === 'META' || completedDeliberation.spawnsDeliberation) && completedDeliberation.ideas[0]) {
+              handleMetaChampion(deliberationId, completedDeliberation.ideas[0])
+                .catch(err => console.error('Failed to handle meta champion:', err))
+            }
           }
         }
       }
@@ -613,29 +640,29 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     // Check if accumulation is enabled
     if (deliberation.accumulationEnabled) {
-      // Transition to accumulation phase
+      // Atomic: only transition if still in VOTING phase
       const accumulationEndsAt = new Date(Date.now() + deliberation.accumulationTimeoutMs)
 
-      await prisma.deliberation.update({
-        where: { id: deliberationId },
+      const updated = await prisma.deliberation.updateMany({
+        where: { id: deliberationId, phase: 'VOTING' },
         data: {
           phase: 'ACCUMULATING',
           championId: winnerId,
           accumulationEndsAt,
-          // Set minimum tier for champion entry (at least tier 2)
           championEnteredTier: Math.max(2, tier),
         },
       })
 
-      // Send notification
-      sendPushToDeliberation(
-        deliberationId,
-        notifications.accumulationStarted(deliberation.question, deliberationId)
-      ).catch(err => console.error('Failed to send push notifications:', err))
+      if (updated.count > 0) {
+        sendPushToDeliberation(
+          deliberationId,
+          notifications.accumulationStarted(deliberation.question, deliberationId)
+        ).catch(err => console.error('Failed to send push notifications:', err))
+      }
     } else {
-      // Complete the deliberation
-      await prisma.deliberation.update({
-        where: { id: deliberationId },
+      // Atomic: only complete if still in VOTING phase
+      const updated = await prisma.deliberation.updateMany({
+        where: { id: deliberationId, phase: 'VOTING' },
         data: {
           phase: 'COMPLETED',
           championId: winnerId,
@@ -643,16 +670,18 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         },
       })
 
-      sendPushToDeliberation(
-        deliberationId,
-        notifications.championDeclared(deliberation.question, deliberationId)
-      ).catch(err => console.error('Failed to send push notifications:', err))
+      if (updated.count > 0) {
+        sendPushToDeliberation(
+          deliberationId,
+          notifications.championDeclared(deliberation.question, deliberationId)
+        ).catch(err => console.error('Failed to send push notifications:', err))
 
-      // Handle META or spawnsDeliberation - spawn new deliberation from champion
-      if (deliberation.type === 'META' || deliberation.spawnsDeliberation) {
-        const championIdea = advancingIdeas[0]
-        handleMetaChampion(deliberationId, championIdea)
-          .catch(err => console.error('Failed to handle meta champion:', err))
+        // Handle META or spawnsDeliberation - spawn new deliberation from champion
+        if (deliberation.type === 'META' || deliberation.spawnsDeliberation) {
+          const championIdea = advancingIdeas[0]
+          handleMetaChampion(deliberationId, championIdea)
+            .catch(err => console.error('Failed to handle meta champion:', err))
+        }
       }
     }
 
@@ -661,6 +690,35 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
   } else {
     // Need another tier - create new cells with advancing ideas
     const nextTier = tier + 1
+
+    // ATOMIC CLAIM: Only one caller can advance the tier.
+    // Move this BEFORE cell creation so a second concurrent caller
+    // cannot also start creating cells.
+    const tierAdvanced = await prisma.deliberation.updateMany({
+      where: { id: deliberationId, currentTier: tier },
+      data: {
+        currentTier: nextTier,
+        currentTierStartedAt: new Date(),
+      },
+    })
+
+    if (tierAdvanced.count === 0) {
+      console.log(`checkTierCompletion: failed to claim tier advancement for ${deliberationId} tier ${tier}→${nextTier}, another caller won`)
+      return
+    }
+
+    // Double-check: if cells already exist for next tier despite winning the claim,
+    // something went wrong (e.g., server restart during cell creation). Bail out.
+    const existingNextTierCells = await prisma.cell.count({
+      where: { deliberationId, tier: nextTier },
+    })
+    if (existingNextTierCells > 0) {
+      console.log(`checkTierCompletion: WARNING - won tier claim but ${existingNextTierCells} cells already exist for tier ${nextTier}, skipping cell creation`)
+      return
+    }
+
+    console.log(`checkTierCompletion: claimed tier advancement ${tier}→${nextTier} for ${deliberationId}`)
+
     const shuffledIdeas = [...advancingIdeas].sort(() => Math.random() - 0.5)
     const shuffledMembers = [...deliberation.members].sort(() => Math.random() - 0.5)
 
@@ -703,14 +761,23 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         })
       }
     } else {
-      // Normal case: batch ideas into groups, distribute ALL members across batches
-      const numBatches = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+      // Normal case: batch ideas into groups, distribute ALL members across batches.
+      // Use floor division so remainder ideas absorb into existing batches
+      // rather than creating a tiny batch. Fewer batches with more ideas = better deliberation.
+      // e.g., 11 ideas → 2 batches of 6,5 instead of 3 batches of 5,5,1
+      const numBatches = Math.max(1, Math.floor(shuffledIdeas.length / IDEAS_PER_CELL))
+      const baseIdeasPerBatch = Math.floor(shuffledIdeas.length / numBatches)
+      const extraIdeas = shuffledIdeas.length % numBatches
       const baseMembersPerBatch = Math.floor(shuffledMembers.length / numBatches)
       const extraMembers = shuffledMembers.length % numBatches
 
       let memberIndex = 0
+      let ideaIndex = 0
       for (let batch = 0; batch < numBatches; batch++) {
-        const batchIdeas = shuffledIdeas.slice(batch * IDEAS_PER_CELL, (batch + 1) * IDEAS_PER_CELL)
+        // Distribute ideas evenly: earlier batches get one extra
+        const batchIdeaCount = baseIdeasPerBatch + (batch < extraIdeas ? 1 : 0)
+        const batchIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + batchIdeaCount)
+        ideaIndex += batchIdeaCount
 
         // Even distribution: base + 1 extra for first 'extraMembers' batches
         const batchMemberCount = baseMembersPerBatch + (batch < extraMembers ? 1 : 0)
@@ -719,14 +786,23 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
         if (batchIdeas.length === 0) continue
 
-        // Create cells for all members in this batch
-        let remainingMembers = [...batchMembers]
-        while (remainingMembers.length > 0) {
-          const cellSize = remainingMembers.length <= 7 ? remainingMembers.length : CELL_SIZE
-          const cellMembers = remainingMembers.slice(0, cellSize)
-          remainingMembers = remainingMembers.slice(cellSize)
+        // Create cells for all members in this batch.
+        // Calculate cell count and sizes upfront to distribute evenly.
+        const targetCellSize = Math.max(CELL_SIZE, batchIdeas.length)
+        const effectiveCellSize = Math.min(targetCellSize, MAX_CELL_SIZE)
+        const numCellsInBatch = Math.max(1, Math.ceil(batchMembers.length / effectiveCellSize))
+        // Distribute members as evenly as possible across cells
+        const baseSizePerCell = Math.floor(batchMembers.length / numCellsInBatch)
+        const extraCount = batchMembers.length % numCellsInBatch
 
-          if (cellMembers.length === 0) continue
+        let memberOffset = 0
+        for (let c = 0; c < numCellsInBatch; c++) {
+          // Earlier cells get one extra member to absorb remainder
+          const cellSize = baseSizePerCell + (c < extraCount ? 1 : 0)
+          if (cellSize === 0) continue
+
+          const cellMembers = batchMembers.slice(memberOffset, memberOffset + cellSize)
+          memberOffset += cellSize
 
           await prisma.cell.create({
             data: {
@@ -746,16 +822,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       }
     }
 
-    // Update deliberation with new tier and start timer
-    await prisma.deliberation.update({
-      where: { id: deliberationId },
-      data: {
-        currentTier: nextTier,
-        currentTierStartedAt: new Date(),
-      },
-    })
-
-    // Send notification for new tier
+    // Send notification for new tier (tier was already advanced above)
     sendPushToDeliberation(
       deliberationId,
       notifications.newTier(nextTier, deliberation.question, deliberationId)
@@ -792,7 +859,7 @@ export async function addLateJoinerToCell(deliberationId: string, userId: string
     return { success: false, reason: 'ALREADY_IN_CELL', cellId: existingParticipation.cellId }
   }
 
-  // Find all active cells in current tier, sorted by participant count (smallest first)
+  // Find all active cells in current tier with batch info
   const cells = await prisma.cell.findMany({
     where: {
       deliberationId,
@@ -802,43 +869,58 @@ export async function addLateJoinerToCell(deliberationId: string, userId: string
     include: {
       _count: { select: { participants: true } },
     },
-    orderBy: {
-      participants: { _count: 'asc' },
-    },
   })
 
   if (cells.length === 0) {
     return { success: false, reason: 'NO_ACTIVE_CELLS' }
   }
 
-  // Find the smallest cell that can still accept members (under MAX_CELL_SIZE)
-  const targetCell = cells.find(c => c._count.participants < MAX_CELL_SIZE)
+  // Group cells by batch and find the batch with fewest total participants
+  // This ensures late joiners are distributed across batches round-robin
+  const batchMap = new Map<number, typeof cells>()
+  for (const cell of cells) {
+    const b = cell.batch ?? 0
+    if (!batchMap.has(b)) batchMap.set(b, [])
+    batchMap.get(b)!.push(cell)
+  }
+
+  // Sort batches by total participant count (ascending) — least populated first
+  const batchEntries = [...batchMap.entries()].sort((a, b) => {
+    const totalA = a[1].reduce((sum, c) => sum + c._count.participants, 0)
+    const totalB = b[1].reduce((sum, c) => sum + c._count.participants, 0)
+    return totalA - totalB
+  })
+
+  // Within the least populated batch, find the smallest cell under MAX_CELL_SIZE
+  let targetCell: typeof cells[0] | null = null
+  for (const [, batchCells] of batchEntries) {
+    // Sort cells by participant count ascending
+    batchCells.sort((a, b) => a._count.participants - b._count.participants)
+    const candidate = batchCells.find(c => c._count.participants < MAX_CELL_SIZE)
+    if (candidate) {
+      targetCell = candidate
+      break
+    }
+  }
 
   if (!targetCell) {
-    // All cells are at max size - add to the smallest one anyway
-    // This ensures everyone can participate
-    const smallestCell = cells[0]
+    // All cells at max size — pick the globally smallest cell
+    cells.sort((a, b) => a._count.participants - b._count.participants)
+    targetCell = cells[0]
 
     await prisma.cellParticipation.create({
-      data: {
-        cellId: smallestCell.id,
-        userId,
-      },
+      data: { cellId: targetCell.id, userId },
     })
 
     return {
       success: true,
-      cellId: smallestCell.id,
+      cellId: targetCell.id,
       note: 'Added to full cell (overflow)'
     }
   }
 
-  // Add to the smallest cell under max size
   await prisma.cellParticipation.create({
-    data: {
-      cellId: targetCell.id,
-      userId,
-    },
+    data: { cellId: targetCell.id, userId },
   })
 
   return { success: true, cellId: targetCell.id }

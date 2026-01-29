@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
       upvoteRate = 0.3, // 30% upvote
       newJoinRate = 0.05, // 5% new joins (not implemented yet)
       forceStartVoting = true, // Force start even if trigger not met
+      excludeAdmin = false, // Remove admin from deliberation before voting
     } = body
 
     if (!deliberationId) {
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
       upvoteRate,
       newJoinRate,
       forceStartVoting,
+      excludeAdminEmail: excludeAdmin ? session.user.email : undefined,
     }
 
     // Run test in background (don't await)

@@ -240,6 +240,11 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
                         </button>
                       </span>
                     </div>
+                    {c.linkedIdea && (
+                      <p className="text-xs text-warning truncate mt-0.5">
+                        Re: {c.linkedIdea.text.slice(0, 40)}{c.linkedIdea.text.length > 40 ? '...' : ''}
+                      </p>
+                    )}
                     <p className="text-foreground text-sm mt-0.5">{c.text}</p>
                   </div>
                 ))}

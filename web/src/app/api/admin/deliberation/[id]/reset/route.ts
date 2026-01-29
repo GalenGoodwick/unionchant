@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isAdmin } from '@/lib/admin'
+import { resetTestProgress } from '@/lib/ai-test-agent'
 
 // POST /api/admin/deliberation/[id]/reset - Reset deliberation to SUBMISSION phase
 export async function POST(
@@ -105,6 +106,9 @@ export async function POST(
       },
     })
 
+    // Clear test progress state
+    resetTestProgress()
+
     // Reset deliberation to SUBMISSION phase
     await prisma.deliberation.update({
       where: { id: deliberationId },
@@ -114,6 +118,21 @@ export async function POST(
         challengeRound: 0,
       },
     })
+
+    // Re-add admin as member if they were excluded during testing
+    const adminUser = await prisma.user.findUnique({
+      where: { email: session.user.email! },
+      select: { id: true },
+    })
+    if (adminUser) {
+      await prisma.deliberationMember.upsert({
+        where: {
+          deliberationId_userId: { deliberationId, userId: adminUser.id },
+        },
+        create: { deliberationId, userId: adminUser.id, role: 'CREATOR' },
+        update: {},
+      })
+    }
 
     return NextResponse.json({
       success: true,

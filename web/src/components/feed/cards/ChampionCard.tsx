@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
 import Turnstile from '@/components/Turnstile'
+import ShareMenu from '@/components/ShareMenu'
 
 type Props = {
   item: FeedItem
@@ -24,10 +25,7 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
   const [joining, setJoining] = useState(false)
   const [joined, setJoined] = useState(false)
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
-
-  const handleCaptchaVerify = useCallback((token: string) => {
-    setCaptchaToken(token)
-  }, [])
+  const [showCaptchaModal, setShowCaptchaModal] = useState(false)
 
   const handleCaptchaExpire = useCallback(() => {
     setCaptchaToken(null)
@@ -39,16 +37,9 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
   const spotsRemaining = item.tierInfo?.spotsRemaining ?? 0
   const canJoinVote = isChallenge && spotsRemaining > 0
 
-  const handleSubmitChallenger = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!idea.trim()) return
-
-    if (!session) {
-      router.push('/auth/signin')
-      return
-    }
-
+  const doSubmit = async (token: string | null) => {
     setSubmitting(true)
+    setShowCaptchaModal(false)
     try {
       // Auto-join first
       await fetch(`/api/deliberations/${item.deliberation.id}/join`, {
@@ -58,7 +49,7 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
       const res = await fetch(`/api/deliberations/${item.deliberation.id}/ideas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: idea, captchaToken }),
+        body: JSON.stringify({ text: idea, captchaToken: token }),
       })
 
       if (res.ok) {
@@ -68,7 +59,12 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
         onAction()
       } else {
         const data = await res.json()
-        alert(data.error || 'Failed to submit challenger')
+        // If captcha required, show modal
+        if (data.error?.includes('CAPTCHA')) {
+          setShowCaptchaModal(true)
+        } else {
+          alert(data.error || 'Failed to submit challenger')
+        }
       }
     } catch (err) {
       console.error('Submit error:', err)
@@ -76,6 +72,24 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleSubmitChallenger = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!idea.trim()) return
+
+    if (!session) {
+      router.push('/auth/signin')
+      return
+    }
+
+    // Try to submit - server will check if user is already verified
+    doSubmit(captchaToken)
+  }
+
+  const handleCaptchaSuccess = (token: string) => {
+    setCaptchaToken(token)
+    doSubmit(token)
   }
 
   const handleJoinAndVote = async () => {
@@ -174,17 +188,32 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
               />
               <button
                 type="submit"
-                disabled={submitting || !idea.trim() || !captchaToken}
+                disabled={submitting || !idea.trim()}
                 className={`${isChallenge ? 'bg-orange hover:bg-orange-hover' : 'bg-purple hover:bg-purple-hover'} text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50`}
               >
                 {submitting ? '...' : 'Challenge'}
               </button>
             </form>
-            <Turnstile
-              onVerify={handleCaptchaVerify}
-              onExpire={handleCaptchaExpire}
-              className="flex justify-center"
-            />
+          </div>
+        )}
+
+        {/* Captcha Modal */}
+        {showCaptchaModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowCaptchaModal(false)}>
+            <div className="bg-surface border border-border rounded-xl p-6 max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-foreground font-semibold mb-4 text-center">Quick verification</h3>
+              <Turnstile
+                onVerify={handleCaptchaSuccess}
+                onExpire={handleCaptchaExpire}
+                className="flex justify-center"
+              />
+              <button
+                onClick={() => setShowCaptchaModal(false)}
+                className="mt-4 w-full text-muted text-sm hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 
@@ -254,7 +283,12 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
             </span>
           )}
         </div>
-        <div className="flex gap-4">
+        <div className="flex items-center gap-4">
+          <ShareMenu
+            url={`/deliberations/${item.deliberation.id}`}
+            text={item.deliberation.question}
+            variant="icon"
+          />
           <button
             onClick={onExplore}
             className="text-muted hover:text-foreground transition-colors"

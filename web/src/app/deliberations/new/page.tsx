@@ -507,11 +507,13 @@ export default function NewDeliberationPage() {
               </div>
             )}
 
-            <Turnstile
-              onVerify={handleCaptchaVerify}
-              onExpire={handleCaptchaExpire}
-              className="flex justify-center"
-            />
+            {!captchaToken && (
+              <Turnstile
+                onVerify={handleCaptchaVerify}
+                onExpire={handleCaptchaExpire}
+                className="flex justify-center"
+              />
+            )}
 
             <button
               type="submit"

@@ -19,14 +19,23 @@ type Deliberation = {
   tags: string[]
   views: number
   createdAt: string
+  submissionEndsAt: string | null
+  ideaGoal: number | null
   creator: {
     name: string | null
     status?: UserStatus
   }
+  ideas: { text: string }[]
   _count: {
     members: number
     ideas: number
   }
+}
+
+function getVotingTrigger(d: Deliberation): string {
+  if (d.ideaGoal) return `Idea Goal ${d._count.ideas}/${d.ideaGoal}`
+  if (d.submissionEndsAt) return 'Timed'
+  return 'Facilitator controlled'
 }
 
 function DeliberationsList() {
@@ -234,6 +243,7 @@ function DeliberationsList() {
                   <tr>
                     <th className="text-left p-4 text-muted font-medium text-sm">Question</th>
                     <th className="text-left p-4 text-muted font-medium text-sm">Phase</th>
+                    <th className="text-left p-4 text-muted font-medium text-sm">Type</th>
                     <th className="text-left p-4 text-muted font-medium text-sm">Members</th>
                     <th className="text-left p-4 text-muted font-medium text-sm">Ideas</th>
                     <th className="text-left p-4 text-muted font-medium text-sm">Creator</th>
@@ -246,6 +256,11 @@ function DeliberationsList() {
                         <Link href={`/deliberations/${d.id}`} className="text-foreground hover:text-accent font-medium">
                           {d.question.length > 60 ? d.question.slice(0, 60) + '...' : d.question}
                         </Link>
+                        {d.ideas[0] && (
+                          <p className="text-xs text-success mt-1 truncate max-w-md">
+                            Winner: {d.ideas[0].text.length > 60 ? d.ideas[0].text.slice(0, 60) + '...' : d.ideas[0].text}
+                          </p>
+                        )}
                         {d.tags && d.tags.length > 0 && (
                           <div className="flex gap-1 mt-1">
                             {d.tags.slice(0, 3).map(tag => (
@@ -261,6 +276,7 @@ function DeliberationsList() {
                           {d.phase}
                         </span>
                       </td>
+                      <td className="p-4 text-muted text-sm">{getVotingTrigger(d)}</td>
                       <td className="p-4 text-muted font-mono">{d._count.members}</td>
                       <td className="p-4 text-muted font-mono">{d._count.ideas}</td>
                       <td className="p-4 text-muted-light text-sm">
@@ -287,7 +303,13 @@ function DeliberationsList() {
                       {d.phase}
                     </span>
                   </div>
+                  {d.ideas[0] && (
+                    <p className="text-xs text-success mb-1 truncate">
+                      Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}
+                    </p>
+                  )}
                   <div className="flex gap-3 text-xs text-muted">
+                    <span>{getVotingTrigger(d)}</span>
                     <span className="font-mono">{d._count.members} members</span>
                     <span className="font-mono">{d._count.ideas} ideas</span>
                     <span>{getDisplayName(d.creator)}</span>

@@ -15,6 +15,7 @@ interface Deliberation {
   createdAt: string
   ideaGoal: number | null
   submissionEndsAt: string | null
+  isPublic: boolean
   _count: {
     ideas: number
     members: number
@@ -50,6 +51,7 @@ interface Comment {
   upvoteCount: number
   reachTier: number
   user: { name: string | null }
+  idea: { text: string } | null
 }
 
 interface TestProgress {
@@ -84,6 +86,7 @@ export default function AdminDeliberationPage() {
   const [commentRate, setCommentRate] = useState(0.4)
   const [upvoteRate, setUpvoteRate] = useState(0.6)
   const [votingTime, setVotingTime] = useState(5000)
+  const [excludeAdmin, setExcludeAdmin] = useState(true)
   const [logs, setLogs] = useState<string[]>([])
 
   const addLog = (msg: string) => {
@@ -171,6 +174,7 @@ export default function AdminDeliberationPage() {
           commentRate,
           upvoteRate,
           forceStartVoting: true,
+          excludeAdmin,
         }),
       })
 
@@ -252,6 +256,7 @@ export default function AdminDeliberationPage() {
       if (res.ok) {
         const data = await res.json()
         addLog(`Reset complete. Deleted ${data.deletedCells} cells.`)
+        setTestProgress(null)
         fetchDeliberation()
       } else {
         const data = await res.json()
@@ -321,7 +326,7 @@ export default function AdminDeliberationPage() {
       <Header />
 
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <Link href="/admin/test" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
+        <Link href="/admin" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
           &larr; Back to Admin
         </Link>
 
@@ -359,6 +364,27 @@ export default function AdminDeliberationPage() {
           </Link>
         </div>
 
+        {/* Champion Banner */}
+        {(() => {
+          const champion = deliberation.ideas.find(i => i.isChampion || i.status === 'WINNER')
+          if (!champion) return null
+          return (
+            <div className={`mb-6 p-4 rounded-lg border ${
+              deliberation.phase === 'ACCUMULATING'
+                ? 'bg-purple-bg border-purple'
+                : 'bg-success-bg border-success'
+            }`}>
+              <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+                deliberation.phase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
+              }`}>
+                {deliberation.phase === 'ACCUMULATING' ? 'Champion (Accepting Challengers)' : 'Winner'}
+              </div>
+              <p className="text-foreground font-medium text-lg">{champion.text}</p>
+              <p className="text-muted text-sm mt-1">{champion.totalVotes} total votes</p>
+            </div>
+          )
+        })()}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column - AI Testing */}
           <div className="space-y-4">
@@ -381,29 +407,47 @@ export default function AdminDeliberationPage() {
                   </div>
                   <div>
                     <label className="block text-sm text-muted mb-1">Comment Rate</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.1}
-                      value={commentRate ?? ''}
-                      onChange={(e) => setCommentRate(parseFloat(e.target.value) || 0)}
-                      disabled={testRunning}
-                      className="w-full bg-background border border-border rounded px-3 py-2 font-mono text-sm"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={commentRate > 0}
+                        onChange={(e) => setCommentRate(e.target.checked ? 0.4 : 0)}
+                        disabled={testRunning}
+                        className="w-4 h-4 accent-accent"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        value={commentRate}
+                        onChange={(e) => setCommentRate(parseFloat(e.target.value) || 0)}
+                        disabled={testRunning || commentRate === 0}
+                        className={`flex-1 border border-border rounded px-3 py-2 font-mono text-sm ${commentRate === 0 ? 'bg-surface text-muted' : 'bg-background'}`}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm text-muted mb-1">Upvote Rate</label>
-                    <input
-                      type="number"
-                      min={0}
-                      max={1}
-                      step={0.1}
-                      value={upvoteRate ?? ''}
-                      onChange={(e) => setUpvoteRate(parseFloat(e.target.value) || 0)}
-                      disabled={testRunning}
-                      className="w-full bg-background border border-border rounded px-3 py-2 font-mono text-sm"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={upvoteRate > 0}
+                        onChange={(e) => setUpvoteRate(e.target.checked ? 0.6 : 0)}
+                        disabled={testRunning}
+                        className="w-4 h-4 accent-accent"
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.1}
+                        value={upvoteRate}
+                        onChange={(e) => setUpvoteRate(parseFloat(e.target.value) || 0)}
+                        disabled={testRunning || upvoteRate === 0}
+                        className={`flex-1 border border-border rounded px-3 py-2 font-mono text-sm ${upvoteRate === 0 ? 'bg-surface text-muted' : 'bg-background'}`}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm text-muted mb-1">Voting Time (ms)</label>
@@ -420,10 +464,31 @@ export default function AdminDeliberationPage() {
                   </div>
                 </div>
 
+                <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={excludeAdmin}
+                    onChange={(e) => setExcludeAdmin(e.target.checked)}
+                    disabled={testRunning}
+                    className="w-4 h-4 accent-accent"
+                  />
+                  Remove me from deliberation (skip voting)
+                </label>
+
+                {(deliberation.phase === 'COMPLETED' || deliberation.phase === 'ACCUMULATING') && (
+                  <div className={`p-3 rounded text-sm mb-2 ${
+                    deliberation.phase === 'COMPLETED'
+                      ? 'bg-success-bg border border-success text-success'
+                      : 'bg-purple-bg border border-purple text-purple'
+                  }`}>
+                    Deliberation is {deliberation.phase.toLowerCase()} — reset to submission to re-test.
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <button
                     onClick={startAITest}
-                    disabled={testRunning}
+                    disabled={testRunning || deliberation.phase === 'COMPLETED' || deliberation.phase === 'ACCUMULATING'}
                     className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-4 py-2 rounded transition-colors"
                   >
                     {testRunning ? 'Running...' : 'Start AI Test'}
@@ -582,7 +647,7 @@ export default function AdminDeliberationPage() {
                   .map(tier => {
                     const tierCells = deliberation.cells.filter(c => c.tier === tier)
                     const batches = [...new Set(tierCells.map(c => c.batch ?? 0))].sort((a, b) => a - b)
-                    const hasMultipleBatches = batches.length > 1 || (batches.length === 1 && tierCells.length > 1)
+                    const hasMultipleBatches = tier > 1 && batches.length > 1
                     const isCurrentTier = tier === deliberation.currentTier
 
                     return (
@@ -592,9 +657,12 @@ export default function AdminDeliberationPage() {
                             Tier {tier}
                           </span>
                           <span>
-                            {hasMultipleBatches
-                              ? `(${batches.length} batches, ${tierCells.length} cells)`
-                              : `(${tierCells.length} cells)`}
+                            {(() => {
+                              const totalParticipants = tierCells.reduce((sum, c) => sum + c.participants.length, 0)
+                              return hasMultipleBatches
+                                ? `(${batches.length} batches, ${tierCells.length} cells, ${totalParticipants} people)`
+                                : `(${tierCells.length} cells, ${totalParticipants} people)`
+                            })()}
                           </span>
                         </div>
 
@@ -609,7 +677,7 @@ export default function AdminDeliberationPage() {
                                 <div key={batch} className="border-l-2 border-accent/30 pl-3">
                                   <div className="text-xs text-accent mb-1 flex items-center gap-2">
                                     <span className="font-medium">Batch {batch + 1}</span>
-                                    <span className="text-muted">({batchCells.length} cells, {batchCells[0]?.ideas.length || 0} ideas)</span>
+                                    <span className="text-muted">({batchCells.length} cells, {batchCells[0]?.ideas.length || 0} ideas, {batchCells.reduce((sum, c) => sum + c.participants.length, 0)} people)</span>
                                   </div>
                                   <div className="flex gap-2 flex-wrap">
                                     {batchCells.map(cell => (
@@ -784,6 +852,9 @@ export default function AdminDeliberationPage() {
                           <span className="text-purple">• Reached T{comment.reachTier}</span>
                         )}
                       </div>
+                      {comment.idea && (
+                        <p className="text-xs text-accent mb-1 truncate">Re: {comment.idea.text}</p>
+                      )}
                       <p className="text-sm text-foreground">{comment.text}</p>
                     </div>
                   ))}

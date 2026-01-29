@@ -110,34 +110,48 @@ export default function AdminTestPage() {
       const votingData = await startVotingRes.json()
       addLog('success', `Voting started! Created ${votingData.cellsCreated} cells`)
 
-      // Step 4: Simulate voting through tiers
+      // Step 4: Simulate voting through tiers (one tier per request, loop client-side)
       if (testConfig.simulateVoting) {
         addLog('info', 'Simulating votes through tiers...')
 
-        const simulateRes = await fetch('/api/admin/test/simulate-voting', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deliberationId: deliberation.id,
-            leaveFinalVote: testConfig.leaveFinaVote,
-          }),
-        })
+        let totalVotes = 0
+        let tiersProcessed = 0
 
-        if (!simulateRes.ok) {
-          const error = await simulateRes.json()
-          throw new Error(`Failed to simulate voting: ${error.error}${error.details ? ' - ' + error.details : ''}`)
+        for (let safety = 0; safety < 20; safety++) {
+          const simulateRes = await fetch('/api/admin/test/simulate-voting', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              deliberationId: deliberation.id,
+              leaveFinalVote: testConfig.leaveFinaVote,
+            }),
+          })
+
+          if (!simulateRes.ok) {
+            const error = await simulateRes.json()
+            throw new Error(`Failed to simulate voting: ${error.error}${error.details ? ' - ' + error.details : ''}`)
+          }
+
+          const simData = await simulateRes.json()
+          totalVotes += simData.votesCreated
+          if (simData.tierProcessed) tiersProcessed++
+
+          addLog('info', `Tier ${simData.tierProcessed}: ${simData.votesCreated} votes created`)
+
+          if (simData.isComplete) {
+            if (simData.champion) {
+              addLog('success', `Champion determined: "${simData.champion}"`)
+            }
+            break
+          }
+
+          if (simData.waitingForFinalVote) {
+            addLog('info', `Final cell: ${simData.finalCellStatus}`)
+            break
+          }
         }
 
-        const simData = await simulateRes.json()
-        addLog('success', `Simulated ${simData.votesCreated} votes across ${simData.tiersProcessed} tiers`)
-
-        if (simData.finalCellStatus) {
-          addLog('info', `Final cell: ${simData.finalCellStatus}`)
-        }
-
-        if (simData.champion) {
-          addLog('success', `Champion determined: "${simData.champion}"`)
-        }
+        addLog('success', `Simulated ${totalVotes} votes across ${tiersProcessed} tiers`)
       }
 
       addLog('success', 'Test completed successfully!')

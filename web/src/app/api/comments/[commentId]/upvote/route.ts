@@ -98,12 +98,13 @@ export async function POST(
     const currentTierSize = tierSizes[currentTier - 1] || 5
     const threshold = Math.ceil(currentTierSize * 0.6)
 
-    // Comments can only up-pollinate as high as their deliberation's current tier
-    const deliberationTier = comment.cell.deliberation.currentTier
+    // Allow comments to up-pollinate one tier beyond their cell's tier
+    // so they're ready when the next tier's cells load comments
+    const maxReachTier = comment.cell.deliberation.currentTier + 1
 
-    if (currentUpvotes >= threshold && currentTier < 9 && currentTier < deliberationTier) {
-      // Up-pollinate to next tier! (capped at deliberation's current tier)
-      const newTier = Math.min(currentTier + 1, deliberationTier)
+    if (currentUpvotes >= threshold && currentTier < 9 && currentTier < maxReachTier) {
+      // Up-pollinate to next tier!
+      const newTier = Math.min(currentTier + 1, maxReachTier)
       await prisma.comment.update({
         where: { id: commentId },
         data: {
