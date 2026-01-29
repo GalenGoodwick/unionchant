@@ -46,9 +46,14 @@ export async function GET(
           orderBy: [
             { status: 'asc' },
             { tier: 'desc' },
+            { batch: 'asc' },
             { createdAt: 'desc' },
           ],
-          include: {
+          select: {
+            id: true,
+            tier: true,
+            batch: true,
+            status: true,
             participants: {
               select: { userId: true, status: true },
             },

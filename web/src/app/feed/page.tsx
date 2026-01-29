@@ -84,10 +84,11 @@ export default function FeedPage() {
       const activeDelibIds = new Set(newItems.map(i => i.deliberation.id))
 
       // Clean up stale preserved cards (cells that no longer exist in the API response)
-      // If a preserved card's deliberation isn't in the feed at all, it's probably deleted
+      // If a preserved card's cell isn't in the active cells, the cell has been completed/deleted
       const staleCardIds: string[] = []
       preservedVoteCards.forEach((card, cellId) => {
-        if (!activeDelibIds.has(card.deliberation.id) && !activeCellIds.has(cellId)) {
+        // Remove if cell no longer exists (tier completed) OR deliberation is gone
+        if (!activeCellIds.has(cellId)) {
           staleCardIds.push(cellId)
         }
       })

@@ -28,6 +28,7 @@ interface Deliberation {
 interface Cell {
   id: string
   tier: number
+  batch: number | null
   status: string
   participants: { userId: string; status: string }[]
   ideas: { idea: { id: string; text: string; totalVotes: number } }[]
@@ -571,29 +572,102 @@ export default function AdminDeliberationPage() {
 
           {/* Right Column - Deliberation State */}
           <div className="space-y-4">
-            {/* Active Cells */}
+            {/* Active Cells - Grouped by Tier and Batch */}
             <div className="bg-surface border border-border rounded-lg p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4">
                 Active Cells ({deliberation.cells.filter(c => c.status === 'VOTING').length})
               </h2>
 
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {deliberation.cells.filter(c => c.status === 'VOTING').map(cell => (
-                  <div key={cell.id} className="bg-background rounded p-3">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium">Tier {cell.tier}</span>
-                      <span className="text-xs text-muted">
-                        {cell._count.votes}/{cell.participants.length} voted
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted">
-                      {cell.ideas.length} ideas • {cell.comments.length} comments
-                    </div>
-                  </div>
-                ))}
-                {deliberation.cells.filter(c => c.status === 'VOTING').length === 0 && (
-                  <p className="text-muted text-sm">No active voting cells</p>
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {/* Group by tier */}
+                {Array.from(new Set(deliberation.cells.map(c => c.tier)))
+                  .sort((a, b) => b - a)
+                  .map(tier => {
+                    const tierCells = deliberation.cells.filter(c => c.tier === tier)
+                    const batches = [...new Set(tierCells.map(c => c.batch ?? 0))].sort((a, b) => a - b)
+                    const hasMultipleBatches = batches.length > 1 || (batches.length === 1 && tierCells.length > 1)
+                    const isCurrentTier = tier === deliberation.currentTier
+
+                    return (
+                      <div key={tier} className={isCurrentTier ? '' : 'opacity-60'}>
+                        <div className="text-xs text-muted mb-2 flex items-center gap-2">
+                          <span className={`font-medium ${isCurrentTier ? 'text-warning' : 'text-success'}`}>
+                            Tier {tier}
+                          </span>
+                          <span>
+                            {hasMultipleBatches
+                              ? `(${batches.length} batches, ${tierCells.length} cells)`
+                              : `(${tierCells.length} cells)`}
+                          </span>
+                        </div>
+
+                        {/* Group by batch if tier 2+ */}
+                        {tier > 1 && hasMultipleBatches ? (
+                          <div className="space-y-2">
+                            {batches.map(batch => {
+                              const batchCells = tierCells.filter(c => (c.batch ?? 0) === batch)
+                              const batchIdeas = batchCells[0]?.ideas.map(i => i.idea.text.slice(0, 30)) || []
+
+                              return (
+                                <div key={batch} className="border-l-2 border-accent/30 pl-3">
+                                  <div className="text-xs text-accent mb-1 flex items-center gap-2">
+                                    <span className="font-medium">Batch {batch + 1}</span>
+                                    <span className="text-muted">({batchCells.length} cells, {batchCells[0]?.ideas.length || 0} ideas)</span>
+                                  </div>
+                                  <div className="flex gap-2 flex-wrap">
+                                    {batchCells.map(cell => (
+                                      <div
+                                        key={cell.id}
+                                        className={`px-2 py-1 rounded text-xs font-mono ${
+                                          cell.status === 'VOTING'
+                                            ? 'bg-warning-bg border border-warning text-warning'
+                                            : 'bg-success-bg border border-success text-success'
+                                        }`}
+                                        title={batchIdeas.join(', ')}
+                                      >
+                                        {cell._count.votes}/{cell.participants.length}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          /* Flat layout for tier 1 or single batch */
+                          <div className="flex gap-2 flex-wrap">
+                            {tierCells.map(cell => (
+                              <div
+                                key={cell.id}
+                                className={`px-2 py-1 rounded text-xs font-mono ${
+                                  cell.status === 'VOTING'
+                                    ? 'bg-warning-bg border border-warning text-warning'
+                                    : 'bg-success-bg border border-success text-success'
+                                }`}
+                              >
+                                {cell._count.votes}/{cell.participants.length}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                {deliberation.cells.length === 0 && (
+                  <p className="text-muted text-sm">No cells yet</p>
                 )}
+              </div>
+
+              {/* Legend */}
+              <div className="flex gap-4 mt-4 pt-3 border-t border-border text-xs text-muted">
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded bg-warning-bg border border-warning"></div>
+                  <span>Voting</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded bg-success-bg border border-success"></div>
+                  <span>Complete</span>
+                </div>
               </div>
             </div>
 

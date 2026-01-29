@@ -243,27 +243,62 @@ export async function startVotingPhase(deliberationId: string) {
   const cellSizes = calculateCellSizes(shuffledMembers.length)
   const numCells = cellSizes.length
 
+  // Calculate cells based on IDEAS (target 5 per cell, flex 3-7)
+  // This ensures ALL ideas get into voting
+  const targetIdeasPerCell = IDEAS_PER_CELL // 5
+  const minIdeasPerCell = 3
+  const maxIdeasPerCell = MAX_CELL_SIZE // 7
+
+  // Calculate number of cells needed for ideas
+  const numCellsForIdeas = Math.ceil(shuffledIdeas.length / targetIdeasPerCell)
+
+  // Use the larger of: cells needed for participants OR cells needed for ideas
+  const actualNumCells = Math.max(numCells, numCellsForIdeas)
+
+  // Recalculate cell sizes if we need more cells than participants allow
+  const actualCellSizes = actualNumCells > numCells
+    ? calculateCellSizes(shuffledMembers.length) // Will need to reuse participants
+    : cellSizes
+
+  // Calculate ideas per cell using flexible sizing (target 5, allow 3-7)
+  function calculateIdeaSizes(totalIdeas: number, totalCells: number): number[] {
+    if (totalIdeas <= 0) return []
+
+    const basePerCell = Math.floor(totalIdeas / totalCells)
+    let remainder = totalIdeas % totalCells
+
+    // Distribute: some cells get basePerCell+1, rest get basePerCell
+    const sizes: number[] = []
+    for (let i = 0; i < totalCells; i++) {
+      if (remainder > 0) {
+        sizes.push(basePerCell + 1)
+        remainder--
+      } else {
+        sizes.push(basePerCell)
+      }
+    }
+    return sizes
+  }
+
+  const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, actualNumCells)
+
   // Create cells
   const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
   let ideaIndex = 0
   let memberIndex = 0
 
-  for (let cellNum = 0; cellNum < numCells; cellNum++) {
-    const cellSize = cellSizes[cellNum]
-
-    // Calculate ideas for this cell (distribute remaining ideas evenly)
-    const ideasRemaining = shuffledIdeas.length - ideaIndex
-    const cellsRemaining = numCells - cellNum
-    const maxIdeasForCell = Math.min(MAX_CELL_SIZE, cellSize) // Ideas can match cell size up to 7
-    const ideasForThisCell = Math.min(maxIdeasForCell, Math.ceil(ideasRemaining / cellsRemaining))
+  for (let cellNum = 0; cellNum < actualNumCells; cellNum++) {
+    // Get ideas for this cell
+    const ideasForThisCell = ideaSizes[cellNum] || 0
     const cellIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + ideasForThisCell)
     ideaIndex += ideasForThisCell
 
-    // Get members for this cell based on flexible sizing
+    // Get members - NO wrap around, each participant only in ONE cell
+    const cellSize = actualCellSizes[cellNum % actualCellSizes.length]
     const cellMembers = shuffledMembers.slice(memberIndex, memberIndex + cellSize)
     memberIndex += cellSize
 
-    // Skip if no ideas or no members
+    // Skip if no ideas or no members (ran out of participants)
     if (cellIdeas.length === 0 || cellMembers.length === 0) continue
 
     // Update idea statuses for this cell
@@ -353,6 +388,8 @@ export async function processCellResults(cellId: string, isTimeout = false) {
       return otherIdeaIds.length === cellIdeaIds.length &&
              otherIdeaIds.every((id: string, i: number) => id === cellIdeaIds[i])
     })
+
+  console.log(`Processing cell ${cellId}: tier ${cell.tier}, ${cellIdeaIds.length} ideas, ${allCellsInTier.length} cells in tier, isFinalShowdown: ${isFinalShowdown}`)
 
   let winnerIds: string[] = []
   let loserIds: string[] = []
@@ -637,12 +674,14 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     })
 
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
+    // Multiple cells for up-pollination of comments between cells
+    console.log(`Creating tier ${nextTier}: ${shuffledIdeas.length} ideas, ${shuffledMembers.length} members, final showdown: ${shuffledIdeas.length <= 5}`)
     if (shuffledIdeas.length <= 5) {
       // Create cells for all members, all voting on same ideas
-      // Allow cells up to 7 members to avoid tiny leftovers
+      // Each participant only in ONE cell (no duplicates)
       let remainingMembers = [...shuffledMembers]
       while (remainingMembers.length > 0) {
-        const cellSize = remainingMembers.length <= 7 ? remainingMembers.length : CELL_SIZE
+        const cellSize = remainingMembers.length <= MAX_CELL_SIZE ? remainingMembers.length : CELL_SIZE
         const cellMembers = remainingMembers.slice(0, cellSize)
         remainingMembers = remainingMembers.slice(cellSize)
 
@@ -652,6 +691,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           data: {
             deliberationId,
             tier: nextTier,
+            batch: 0, // All cells vote on same ideas in final showdown
             status: 'VOTING',
             ideas: {
               create: shuffledIdeas.map(idea => ({ ideaId: idea.id })),
@@ -692,6 +732,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             data: {
               deliberationId,
               tier: nextTier,
+              batch, // Track which batch of ideas this cell votes on
               status: 'VOTING',
               ideas: {
                 create: batchIdeas.map(idea => ({ ideaId: idea.id })),

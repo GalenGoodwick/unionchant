@@ -14,6 +14,7 @@ type Idea = {
   id: string
   text: string
   status: string
+  tier: number
   totalVotes: number
   losses: number
   isNew: boolean
@@ -235,32 +236,55 @@ function TierFunnel({
   phase: string
   ideas: Idea[]
 }) {
-  // Calculate tier structure based on 5:1 reduction
-  const tiers: { tier: number; ideas: number; status: 'completed' | 'active' | 'pending' }[] = []
-  let ideasAtTier = totalIdeas
-  let tier = 1
+  // Build tier structure from ACTUAL idea data
+  // Each idea's 'tier' field = the highest tier it participated in
+  const tiers: { tier: number; ideas: number; advancing: number; status: 'completed' | 'active' | 'pending'; isFinalShowdown: boolean }[] = []
 
-  while (ideasAtTier > 1 && tier <= 10) {
-    const status = tier < currentTier ? 'completed'
-      : tier === currentTier ? 'active'
-      : 'pending'
+  // Count ideas at each tier level based on their tier field
+  // tier=1 means eliminated at tier 1, tier=2 means reached tier 2, etc.
+  for (let t = 1; t <= currentTier; t++) {
+    // Ideas at this tier = ideas with tier >= t (participated in at least tier t)
+    // For tier 1, count all non-pending ideas
+    const ideasAtThisTier = t === 1
+      ? ideas.filter(i => i.status !== 'PENDING' && i.status !== 'SUBMITTED').length || totalIdeas
+      : ideas.filter(i => i.tier >= t).length
 
-    // Count actual ideas at this tier if we have the data
-    const actualCount = tier < currentTier
-      ? Math.ceil(ideasAtTier / 5) // Estimated winners from previous tier
-      : tier === currentTier
-        ? ideas.filter(i => i.status === 'IN_VOTING' || i.status === 'ADVANCING').length || ideasAtTier
-        : ideasAtTier
+    // Ideas that advanced FROM this tier:
+    // - For completed tiers: count ideas that reached tier t+1
+    // - For current tier: count ideas with ADVANCING or WINNER status
+    let advancingFromThisTier: number
+    if (t < currentTier) {
+      // Completed tier: advancing = ideas that made it to next tier
+      advancingFromThisTier = ideas.filter(i => i.tier >= t + 1).length
+    } else {
+      // Current tier: advancing = ideas marked as advancing or winner
+      advancingFromThisTier = ideas.filter(i => i.status === 'ADVANCING' || i.status === 'WINNER').length
+    }
 
-    tiers.push({ tier, ideas: tier === 1 ? totalIdeas : actualCount, status })
-    ideasAtTier = Math.ceil(ideasAtTier / 5)
-    tier++
+    const status: 'completed' | 'active' | 'pending' = t < currentTier ? 'completed' : t === currentTier ? 'active' : 'pending'
+
+    // Final showdown = ≤5 ideas and tier > 1
+    const isFinalShowdown = t > 1 && ideasAtThisTier <= 5 && ideasAtThisTier > 0
+
+    if (ideasAtThisTier > 0 || t === 1) {
+      tiers.push({
+        tier: t,
+        ideas: ideasAtThisTier,
+        advancing: advancingFromThisTier,
+        status,
+        isFinalShowdown
+      })
+    }
   }
 
-  // Add final tier if we have a winner
-  if (phase === 'COMPLETED' || ideas.some(i => i.status === 'WINNER')) {
-    if (tiers.length > 0 && tiers[tiers.length - 1].ideas > 1) {
-      tiers.push({ tier: tiers.length + 1, ideas: 1, status: 'completed' })
+  // Handle champion/winner
+  const winner = ideas.find(i => i.status === 'WINNER')
+  if (winner && tiers.length > 0) {
+    const lastTier = tiers[tiers.length - 1]
+    if (lastTier.status === 'active') {
+      // Current tier produced winner - mark as completed
+      lastTier.status = 'completed'
+      lastTier.advancing = 1
     }
   }
 
@@ -270,7 +294,7 @@ function TierFunnel({
     <div className="bg-background rounded-lg border border-border p-4 mb-4">
       <h3 className="text-sm font-medium text-muted mb-3">Tournament Progress</h3>
       <div className="space-y-2">
-        {tiers.filter(t => t.status !== 'pending').map((t, i, arr) => (
+        {tiers.map((t, i, arr) => (
           <div key={t.tier} className="relative">
             <div className={`flex items-center gap-3 p-2 rounded-lg transition-all ${
               t.status === 'active' ? 'bg-warning-bg border border-warning' :
@@ -286,10 +310,10 @@ function TierFunnel({
               </div>
               <div className="flex-1">
                 <div className="text-sm text-foreground font-medium">
-                  Tier {t.tier}
+                  Tier {t.tier} {t.isFinalShowdown && <span className="text-purple text-xs ml-1">(Final Showdown)</span>}
                 </div>
                 <div className="text-xs text-muted">
-                  {t.ideas} idea{t.ideas !== 1 ? 's' : ''} {t.status === 'completed' ? '→ ' + Math.ceil(t.ideas / 5) + ' advancing' : ''}
+                  {t.ideas} idea{t.ideas !== 1 ? 's' : ''} {t.status === 'completed' && t.advancing > 0 ? `→ ${t.advancing} advancing` : ''}
                 </div>
               </div>
               {t.status === 'completed' && (
@@ -306,11 +330,6 @@ function TierFunnel({
             )}
           </div>
         ))}
-        {tiers.filter(t => t.status === 'pending').length > 0 && (
-          <div className="text-xs text-muted text-center py-1">
-            {tiers.filter(t => t.status === 'pending').length} more tier{tiers.filter(t => t.status === 'pending').length > 1 ? 's' : ''} to go...
-          </div>
-        )}
       </div>
     </div>
   )

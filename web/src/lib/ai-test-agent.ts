@@ -1,26 +1,12 @@
 /**
  * AI Test Agent System
  *
- * Simulates realistic user behavior for load testing using Haiku.
+ * Simulates realistic user behavior for load testing.
+ * Uses fast batch operations without AI for speed.
  * Agents interact via actual API endpoints like real users.
  */
 
 import { prisma } from './prisma'
-
-// Lazy load Anthropic SDK to avoid build failures when not installed
-let anthropic: any = null
-async function getAnthropic() {
-  if (!anthropic) {
-    try {
-      // @ts-ignore - Dynamic import, SDK may not be installed
-      const Anthropic = (await import('@anthropic-ai/sdk')).default
-      anthropic = new Anthropic()
-    } catch {
-      throw new Error('Anthropic SDK not installed. Run: npm install @anthropic-ai/sdk')
-    }
-  }
-  return anthropic
-}
 
 export interface AgentConfig {
   totalAgents: number
@@ -171,129 +157,81 @@ export async function createTestAgents(count: number, _prefix: string = 'TestBot
   return userIds.slice(0, count)
 }
 
+// Idea templates for variety without AI
+const IDEA_TEMPLATES = [
+  'We should focus on community engagement and local participation to address this.',
+  'A phased approach starting with small pilots would help us learn and adapt.',
+  'Technology can streamline this process if we invest in the right tools.',
+  'Transparency and regular communication should be our top priorities.',
+  'Building partnerships with existing organizations could multiply our impact.',
+  'Education and awareness campaigns are essential for long-term success.',
+  'We need clear metrics and accountability measures from the start.',
+  'Grassroots organizing at the neighborhood level would be most effective.',
+  'A hybrid model combining traditional and innovative methods could work best.',
+  'Sustainable funding through diverse sources will ensure longevity.',
+  'Inclusive decision-making processes will build broader support.',
+  'Starting with quick wins will build momentum for bigger changes.',
+  'Regular feedback loops will help us course-correct as needed.',
+  'Leveraging volunteer networks can expand our reach significantly.',
+  'Data-driven approaches will help us target resources effectively.',
+  'Building coalitions across different groups strengthens our position.',
+  'Simplifying the process will encourage more participation.',
+  'Pilot programs in diverse areas will test different approaches.',
+  'Creating shared ownership increases long-term commitment.',
+  'Focusing on outcomes rather than activities keeps us on track.',
+]
+
 /**
- * Generate multiple ideas in a single batch using Haiku (much faster than individual calls)
+ * Generate ideas quickly without AI - uses templates with variation
  */
-export async function generateIdeasBatch(question: string, count: number, existingIdeas: string[] = []): Promise<string[]> {
-  try {
-    const client = await getAnthropic()
-    const existingContext = existingIdeas.length > 0
-      ? `\n\nIdeas already submitted (don't repeat these):\n${existingIdeas.slice(-10).map(i => `- ${i}`).join('\n')}`
-      : ''
-
-    const response = await client.messages.create({
-      model: 'claude-3-5-haiku-20241022',
-      max_tokens: 1500,
-      messages: [{
-        role: 'user',
-        content: `You are helping generate test ideas for a group deliberation. The question is: "${question}"${existingContext}
-
-Generate exactly ${count} different brief ideas (1-2 sentences each). Be creative and varied. Format as a numbered list:
-1. [idea]
-2. [idea]
-...`
-      }],
-    })
-
-    const text = response.content[0]
-    if (text.type === 'text') {
-      // Parse numbered list
-      const lines = text.text.split('\n')
-      const ideas: string[] = []
-      for (const line of lines) {
-        const match = line.match(/^\d+\.\s*(.+)$/)
-        if (match && match[1].trim()) {
-          ideas.push(match[1].trim())
-        }
-      }
-      // Return what we got, or fallback
-      if (ideas.length > 0) return ideas.slice(0, count)
-    }
-  } catch (err) {
-    addTestLog(`Haiku API error: ${err instanceof Error ? err.message : String(err)}`)
-    // Fall through to fallback
-  }
-
-  // Fallback: generate simple random ideas
-  return Array.from({ length: count }, (_, i) => `Test idea ${Date.now()}-${i}: A reasonable approach to consider for this question.`)
+export function generateIdeasBatch(_question: string, count: number, _existingIdeas: string[] = []): string[] {
+  const timestamp = Date.now()
+  return Array.from({ length: count }, (_, i) => {
+    const template = IDEA_TEMPLATES[i % IDEA_TEMPLATES.length]
+    // Add slight variation with index
+    return `${template} (Approach #${timestamp}-${i + 1})`
+  })
 }
 
 /**
- * Use Haiku to generate a realistic idea for a deliberation question (single)
+ * Generate a single idea (wrapper for batch)
  */
-export async function generateIdea(question: string, existingIdeas: string[] = []): Promise<string> {
-  const ideas = await generateIdeasBatch(question, 1, existingIdeas)
+export function generateIdea(question: string, existingIdeas: string[] = []): string {
+  const ideas = generateIdeasBatch(question, 1, existingIdeas)
   return ideas[0] || 'A reasonable approach to consider'
 }
 
 /**
- * Use Haiku to decide which idea to vote for
+ * Decide which idea to vote for - random selection for speed
  */
-export async function decideVote(question: string, ideas: { id: string; text: string }[]): Promise<string> {
-  const client = await getAnthropic()
-  const ideasList = ideas.map((idea, i) => `${i + 1}. ${idea.text}`).join('\n')
-
-  const response = await client.messages.create({
-    model: 'claude-3-5-haiku-20241022',
-    max_tokens: 50,
-    messages: [{
-      role: 'user',
-      content: `You are voting in a deliberation. The question is: "${question}"
-
-Options:
-${ideasList}
-
-Which number would you vote for? Consider quality, feasibility, and how well it answers the question. Respond with just the number (1-${ideas.length}).`
-    }],
-  })
-
-  const text = response.content[0]
-  if (text.type === 'text') {
-    const match = text.text.match(/\d+/)
-    if (match) {
-      const index = parseInt(match[0]) - 1
-      if (index >= 0 && index < ideas.length) {
-        return ideas[index].id
-      }
-    }
-  }
-  // Random fallback
+export function decideVote(_question: string, ideas: { id: string; text: string }[]): string {
+  // Random vote - simulates varied opinions
   return ideas[Math.floor(Math.random() * ideas.length)].id
 }
 
+// Comment templates for variety
+const COMMENT_TEMPLATES = [
+  'I think this approach has merit and deserves serious consideration.',
+  'This could work well if we plan the implementation carefully.',
+  'I have some concerns but overall this seems promising.',
+  'Great point - we should definitely explore this further.',
+  'How would this scale if we had more participants?',
+  'I agree with the general direction here.',
+  'This addresses the core issue effectively.',
+  'We should consider potential unintended consequences.',
+  'Building on this idea, we could also consider alternatives.',
+  'The practical aspects seem well thought out.',
+]
+
 /**
- * Use Haiku to generate a comment
+ * Generate a comment - uses templates for speed
  */
-export async function generateComment(
-  question: string,
-  ideas: { id: string; text: string }[],
-  existingComments: string[] = []
-): Promise<string> {
-  const client = await getAnthropic()
-  const ideasList = ideas.map(idea => `- ${idea.text}`).join('\n')
-  const commentsContext = existingComments.length > 0
-    ? `\n\nRecent comments:\n${existingComments.slice(-3).map(c => `- "${c}"`).join('\n')}`
-    : ''
-
-  const response = await client.messages.create({
-    model: 'claude-3-5-haiku-20241022',
-    max_tokens: 100,
-    messages: [{
-      role: 'user',
-      content: `You are in a group discussion about: "${question}"
-
-The ideas being considered:
-${ideasList}${commentsContext}
-
-Write a brief, constructive comment (1-2 sentences). You might support an idea, ask a question, or add a perspective. Just respond with the comment text.`
-    }],
-  })
-
-  const text = response.content[0]
-  if (text.type === 'text') {
-    return text.text.trim()
-  }
-  return 'Interesting points to consider here.'
+export function generateComment(
+  _question: string,
+  _ideas: { id: string; text: string }[],
+  _existingComments: string[] = []
+): string {
+  return COMMENT_TEMPLATES[Math.floor(Math.random() * COMMENT_TEMPLATES.length)]
 }
 
 /**
@@ -592,48 +530,56 @@ export async function runAgentTest(
 
     addTestLog(`Phase: ${deliberation.phase}, Members: ${deliberation.members.length}, Ideas: ${deliberation.ideas.length}`)
 
-    // If already in VOTING, skip agent creation - just vote for existing participants
+    // 2. Create test agents (for any phase)
+    addTestLog(`Creating ${config.totalAgents} test agents...`)
+    const agentIds = await createTestAgents(config.totalAgents, 'TestBot')
+    addTestLog(`Created ${agentIds.length} agents`)
+    reportProgress()
+
+    // Check for stop
+    if (shouldStopTest) {
+      addTestLog('Test stopped by user')
+      testProgress.phase = 'completed'
+      return getTestProgress()
+    }
+
+    // 3. Join all agents to the deliberation (batch for speed)
+    addTestLog('Joining agents to deliberation...')
+    await prisma.deliberationMember.createMany({
+      data: agentIds.map(userId => ({
+        deliberationId,
+        userId,
+        role: 'PARTICIPANT',
+      })),
+      skipDuplicates: true,
+    })
+    addTestLog('All agents joined as members')
+    reportProgress()
+
+    // If already in VOTING, add agents as late joiners to cells
     if (deliberation.phase === 'VOTING') {
-      addTestLog('Already in VOTING phase - skipping agent creation')
+      addTestLog('Already in VOTING phase - adding agents as late joiners to cells...')
       testProgress.phase = 'voting'
+
+      const { addLateJoinerToCell } = await import('./voting')
+      let lateJoinersAdded = 0
+
+      for (const agentId of agentIds) {
+        if (shouldStopTest) break
+        const result = await addLateJoinerToCell(deliberationId, agentId)
+        if (result.success) {
+          lateJoinersAdded++
+        }
+      }
+      addTestLog(`Added ${lateJoinersAdded} late joiners to cells`)
       // Will proceed directly to voting loop below
     }
 
-    // For other phases, create agents
-    let agentIds: string[] = []
-    if (deliberation.phase !== 'VOTING') {
-      // 2. Create test agents
-      addTestLog(`Creating ${config.totalAgents} test agents...`)
-      agentIds = await createTestAgents(config.totalAgents, 'TestBot')
-      addTestLog(`Created ${agentIds.length} agents`)
-      reportProgress()
-
-      // Check for stop
-      if (shouldStopTest) {
-        addTestLog('Test stopped by user')
-        testProgress.phase = 'completed'
-        return getTestProgress()
-      }
-
-      // 3. Join all agents to the deliberation (batch for speed)
-      addTestLog('Joining agents to deliberation...')
-      await prisma.deliberationMember.createMany({
-        data: agentIds.map(userId => ({
-          deliberationId,
-          userId,
-          role: 'PARTICIPANT',
-        })),
-        skipDuplicates: true,
-      })
-      addTestLog('All agents joined')
-      reportProgress()
-
-      // Check for stop
-      if (shouldStopTest) {
-        addTestLog('Test stopped by user')
-        testProgress.phase = 'completed'
-        return getTestProgress()
-      }
+    // Check for stop
+    if (shouldStopTest) {
+      addTestLog('Test stopped by user')
+      testProgress.phase = 'completed'
+      return getTestProgress()
     }
 
     // 4. Handle different phases
@@ -643,11 +589,11 @@ export async function runAgentTest(
 
       const existingIdeas = deliberation.ideas.map(i => i.text)
 
-      // Generate all ideas in one batch (much faster than individual calls)
+      // Generate all ideas in one batch (fast - no AI)
       const ideaCount = agentIds.length
-      addTestLog(`Generating ${ideaCount} ideas in batch via Haiku...`)
-      const generatedIdeas = await generateIdeasBatch(deliberation.question, ideaCount, existingIdeas)
-      addTestLog(`Got ${generatedIdeas.length} ideas, submitting...`)
+      addTestLog(`Generating ${ideaCount} ideas...`)
+      const generatedIdeas = generateIdeasBatch(deliberation.question, ideaCount, existingIdeas)
+      addTestLog(`Generated ${generatedIdeas.length} ideas, submitting...`)
 
       // Submit ideas for all agents (batch for speed)
       addTestLog('Batch submitting ideas...')
@@ -725,8 +671,8 @@ export async function runAgentTest(
       const existingIdeas = deliberation.ideas.map(i => i.text)
       const challengerCount = agentIds.length
 
-      addTestLog(`Generating ${challengerCount} challenger ideas in batch...`)
-      const generatedIdeas = await generateIdeasBatch(deliberation.question, challengerCount, existingIdeas)
+      addTestLog(`Generating ${challengerCount} challenger ideas...`)
+      const generatedIdeas = generateIdeasBatch(deliberation.question, challengerCount, existingIdeas)
 
       for (let i = 0; i < agentIds.length; i++) {
         const ideaText = generatedIdeas[i] || `Challenger idea ${i + 1}`
@@ -806,69 +752,84 @@ export async function runAgentTest(
 
       addTestLog(`Tier ${tierCount} - ${currentDelib.cells.length} cells`)
 
-      // Process each cell
+      // Check for stop
+      if (shouldStopTest) {
+        addTestLog('Test stopped by user during cell processing')
+        testProgress.phase = 'completed'
+        return getTestProgress()
+      }
+
+      // BATCH VOTING: Collect all votes across all cells, then create them in one operation
+      const allVotes: { cellId: string; userId: string; ideaId: string }[] = []
+      const ideaVoteCounts: Map<string, number> = new Map()
+      const participationUpdates: { cellId: string; userId: string }[] = []
+
       for (const cell of currentDelib.cells) {
-        // Check for stop during cell processing
-        if (shouldStopTest) {
-          addTestLog('Test stopped by user during cell processing')
-          testProgress.phase = 'completed'
-          return getTestProgress()
-        }
-
-        const allParticipantIds = cell.participants.map(p => p.userId)
-
         const ideas = cell.ideas.map(ci => ({
           id: ci.idea.id,
           text: ci.idea.text,
         }))
 
-        if (ideas.length === 0) {
-          addTestLog(`Skipping cell - no ideas`)
-          continue
-        }
+        if (ideas.length === 0) continue
 
-        addTestLog(`Voting in cell: ${allParticipantIds.length} participants, ${ideas.length} ideas`)
-
-        // Vote for ALL participants to ensure cell completes
-        // Use random voting for speed (AI voting is slow)
-        for (const participantId of allParticipantIds) {
-          // Check if this participant already voted
-          const existingVote = await prisma.vote.findFirst({
-            where: { cellId: cell.id, userId: participantId },
-          })
-          if (existingVote) continue
-
-          // Random vote for speed
-          const chosenIdeaId = ideas[Math.floor(Math.random() * ideas.length)].id
-          await castVote(cell.id, participantId, chosenIdeaId)
-        }
-
-        // Add comments based on commentRate
-        const numCommenters = Math.max(1, Math.floor(allParticipantIds.length * config.commentRate))
-        const commenters = allParticipantIds.slice(0, numCommenters)
-        for (const commenterId of commenters) {
-          const commentText = `Test comment on "${ideas[0].text.slice(0, 30)}..." - this is a thoughtful observation.`
-          await postComment(cell.id, commenterId, commentText)
-        }
-
-        // Upvote comments based on upvoteRate
-        const cellComments = await prisma.comment.findMany({
+        // Get existing votes to avoid duplicates
+        const existingVotes = await prisma.vote.findMany({
           where: { cellId: cell.id },
+          select: { userId: true },
         })
-        if (cellComments.length > 0 && config.upvoteRate > 0) {
-          // Each non-commenter may upvote based on rate
-          const potentialUpvoters = allParticipantIds.slice(numCommenters)
-          for (const upvoterId of potentialUpvoters) {
-            if (Math.random() < config.upvoteRate) {
-              // Pick a random comment to upvote
-              const randomComment = cellComments[Math.floor(Math.random() * cellComments.length)]
-              await upvoteComment(randomComment.id, upvoterId)
-            }
-          }
+        const votedUserIds = new Set(existingVotes.map(v => v.userId))
+
+        for (const participant of cell.participants) {
+          if (votedUserIds.has(participant.userId)) continue
+
+          // Random vote
+          const chosenIdea = ideas[Math.floor(Math.random() * ideas.length)]
+          allVotes.push({
+            cellId: cell.id,
+            userId: participant.userId,
+            ideaId: chosenIdea.id,
+          })
+
+          // Track vote counts per idea
+          ideaVoteCounts.set(chosenIdea.id, (ideaVoteCounts.get(chosenIdea.id) || 0) + 1)
+
+          participationUpdates.push({
+            cellId: cell.id,
+            userId: participant.userId,
+          })
+        }
+      }
+
+      addTestLog(`Batch creating ${allVotes.length} votes...`)
+
+      // Batch create all votes
+      if (allVotes.length > 0) {
+        await prisma.vote.createMany({
+          data: allVotes,
+          skipDuplicates: true,
+        })
+        testProgress.votescast += allVotes.length
+
+        // Batch update idea vote counts
+        for (const [ideaId, count] of ideaVoteCounts) {
+          await prisma.idea.update({
+            where: { id: ideaId },
+            data: { totalVotes: { increment: count } },
+          })
         }
 
-        reportProgress()
+        // Batch update participation status
+        const now = new Date()
+        for (const { cellId, userId } of participationUpdates) {
+          await prisma.cellParticipation.updateMany({
+            where: { cellId, userId },
+            data: { status: 'VOTED', votedAt: now },
+          })
+        }
       }
+
+      addTestLog(`Votes created, skipping comments/upvotes for speed`)
+      reportProgress()
 
       // Process cell results - force completion with timeout flag if needed
       addTestLog(`Processing tier ${tierCount} results...`)

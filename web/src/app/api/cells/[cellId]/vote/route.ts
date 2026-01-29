@@ -187,6 +187,15 @@ export async function POST(
       }
     }
 
+    // Handle serialization failures (concurrent transaction conflicts) - these are retryable
+    if (error instanceof Error &&
+        (error.message.includes('could not serialize') ||
+         error.message.includes('deadlock') ||
+         error.message.includes('concurrent'))) {
+      console.log('Vote transaction conflict, client should retry:', error.message)
+      return NextResponse.json({ error: 'Busy, please retry', retryable: true }, { status: 409 })
+    }
+
     console.error('Error casting vote:', error)
     return NextResponse.json({ error: 'Failed to cast vote' }, { status: 500 })
   }
