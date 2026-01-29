@@ -35,7 +35,14 @@ export async function DELETE(
     }
 
     // Delete in order due to foreign key constraints
-    // Delete notifications (no FK, but clean up to prevent orphans)
+
+    // Clear spawnedFromId references (other deliberations spawned from this one)
+    await prisma.deliberation.updateMany({
+      where: { spawnedFromId: id },
+      data: { spawnedFromId: null },
+    })
+
+    // Delete notifications
     await prisma.notification.deleteMany({
       where: { deliberationId: id },
     })
@@ -55,14 +62,24 @@ export async function DELETE(
       where: { cell: { deliberationId: id } },
     })
 
-    // Delete comment upvotes (before comments)
+    // Delete comment upvotes (before comments) - both cell-based and idea-based
     await prisma.commentUpvote.deleteMany({
-      where: { comment: { cell: { deliberationId: id } } },
+      where: {
+        OR: [
+          { comment: { cell: { deliberationId: id } } },
+          { comment: { idea: { deliberationId: id } } },
+        ]
+      },
     })
 
-    // Delete comments
+    // Delete comments (both cell-based and idea-based)
     await prisma.comment.deleteMany({
-      where: { cell: { deliberationId: id } },
+      where: {
+        OR: [
+          { cell: { deliberationId: id } },
+          { idea: { deliberationId: id } },
+        ]
+      },
     })
 
     // Delete cell ideas
