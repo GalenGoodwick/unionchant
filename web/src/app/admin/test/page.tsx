@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -441,7 +441,9 @@ export default function AdminTestPage() {
         <AccumulationTestSection addLog={addLog} refreshKey={refreshKey} />
 
         {/* AI Agent Testing */}
-        <AIAgentTestSection addLog={addLog} />
+        <Suspense fallback={<div className="animate-pulse bg-surface rounded-lg h-48" />}>
+          <AIAgentTestSection addLog={addLog} />
+        </Suspense>
       </div>
     </div>
   )
