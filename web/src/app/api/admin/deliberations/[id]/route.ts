@@ -72,6 +72,17 @@ export async function DELETE(
       },
     })
 
+    // Clear comment reply references (self-referencing FK) before deleting
+    await prisma.comment.updateMany({
+      where: {
+        OR: [
+          { cell: { deliberationId: id } },
+          { idea: { deliberationId: id } },
+        ]
+      },
+      data: { replyToId: null },
+    })
+
     // Delete comments (both cell-based and idea-based)
     await prisma.comment.deleteMany({
       where: {
