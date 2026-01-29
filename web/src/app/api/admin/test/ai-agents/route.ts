@@ -2,21 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isAdmin } from '@/lib/admin'
 import {
   runAgentTest,
   getTestProgress,
   cleanupTestAgents,
   AgentConfig,
 } from '@/lib/ai-test-agent'
-
-// Check if user is admin
-async function isAdmin(email: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { role: true },
-  })
-  return user?.role === 'ADMIN'
-}
 
 // GET /api/admin/test/ai-agents - Get current test progress
 export async function GET(req: NextRequest) {

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { startVotingPhase } from '@/lib/voting'
+import { startVotingPhase, addLateJoinerToCell } from '@/lib/voting'
 
 // POST /api/deliberations/[id]/join - Join a deliberation
 export async function POST(
@@ -56,8 +56,9 @@ export async function POST(
       },
     })
 
-    // Check if participant goal is met and auto-start voting
+    // Handle based on deliberation phase
     if (deliberation.phase === 'SUBMISSION' && deliberation.participantGoal) {
+      // Check if participant goal is met and auto-start voting
       const memberCount = await prisma.deliberationMember.count({
         where: { deliberationId: id }
       })
@@ -73,6 +74,17 @@ export async function POST(
         } catch (err) {
           console.error('Failed to auto-start voting on participant goal:', err)
         }
+      }
+    } else if (deliberation.phase === 'VOTING') {
+      // Late joiner - add them to an existing cell so they can participate
+      try {
+        const result = await addLateJoinerToCell(id, user.id)
+        if (result.success) {
+          console.log(`[JOIN] Late joiner ${user.id} added to cell ${result.cellId}`)
+        }
+      } catch (err) {
+        console.error('Failed to add late joiner to cell:', err)
+        // Don't fail the join - they're still a member, just not in a cell yet
       }
     }
 

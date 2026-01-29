@@ -2,15 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-
-// Check if user is admin
-async function isAdmin(email: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { role: true },
-  })
-  return user?.role === 'ADMIN'
-}
+import { isAdmin } from '@/lib/admin'
 
 // POST /api/admin/deliberation/[id]/reset - Reset deliberation to SUBMISSION phase
 export async function POST(

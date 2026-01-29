@@ -3,15 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
-
-// Check if user is admin
-async function isAdmin(email: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { role: true },
-  })
-  return user?.role === 'ADMIN'
-}
+import { isAdmin } from '@/lib/admin'
 
 // POST /api/admin/deliberation/[id]/force-end-voting
 // Force end all voting and pick a winner

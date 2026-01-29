@@ -353,9 +353,9 @@ model Vote {
   cellId          String
   cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
   userId          String
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   ideaId          String
-  idea            Idea     @relation(fields: [ideaId], references: [id])
+  idea            Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
 
   isSecondVote    Boolean  @default(false)
   votedAt         DateTime @default(now())

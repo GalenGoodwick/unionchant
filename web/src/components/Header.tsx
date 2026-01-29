@@ -17,9 +17,9 @@ export default function Header({ showSettings = true }: HeaderProps) {
 
   const navLinks = [
     { href: '/feed', label: 'Feed', authRequired: true, highlight: true },
-    { href: '/demo', label: 'Demo', highlight: true },
     { href: '/deliberations', label: 'Deliberations' },
     { href: '/how-it-works', label: 'How It Works' },
+    { href: '/demo', label: 'Demo', highlight: true },
     { href: '/whitepaper', label: 'Whitepaper' },
     { href: '/donate', label: 'Donate' },
   ]

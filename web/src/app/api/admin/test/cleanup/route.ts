@@ -18,62 +18,118 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Find test deliberations (tagged with 'test' or 'automated')
+    // Find test deliberations
     const testDeliberations = await prisma.deliberation.findMany({
       where: {
         OR: [
           { tags: { has: 'test' } },
           { tags: { has: 'automated' } },
           { question: { contains: 'Test Deliberation' } },
+          { question: { contains: '[TEST]' } },
         ],
       },
     })
 
+    console.log(`[CLEANUP] Found ${testDeliberations.length} test deliberations`)
     let deletedDeliberations = 0
 
     for (const delib of testDeliberations) {
-      // Delete in order due to foreign keys
-      // Delete votes
-      await prisma.vote.deleteMany({
-        where: { cell: { deliberationId: delib.id } },
-      })
+      const id = delib.id
+      console.log(`[CLEANUP] Deleting deliberation: ${delib.question.slice(0, 50)}...`)
 
-      // Delete comments
-      await prisma.comment.deleteMany({
-        where: { cell: { deliberationId: delib.id } },
-      })
+      try {
+        // Clear spawnedFromId refs
+        await prisma.deliberation.updateMany({
+          where: { spawnedFromId: id },
+          data: { spawnedFromId: null },
+        })
 
-      // Delete cell ideas
-      await prisma.cellIdea.deleteMany({
-        where: { cell: { deliberationId: delib.id } },
-      })
+        // Delete notifications
+        await prisma.notification.deleteMany({
+          where: { deliberationId: id },
+        })
 
-      // Delete cell participations
-      await prisma.cellParticipation.deleteMany({
-        where: { cell: { deliberationId: delib.id } },
-      })
+        // Delete predictions
+        await prisma.prediction.deleteMany({
+          where: { deliberationId: id },
+        })
 
-      // Delete cells
-      await prisma.cell.deleteMany({
-        where: { deliberationId: delib.id },
-      })
+        // Delete watches
+        await prisma.watch.deleteMany({
+          where: { deliberationId: id },
+        })
 
-      // Delete ideas
-      await prisma.idea.deleteMany({
-        where: { deliberationId: delib.id },
-      })
+        // Delete votes
+        await prisma.vote.deleteMany({
+          where: { cell: { deliberationId: id } },
+        })
 
-      // Delete memberships
-      await prisma.deliberationMember.deleteMany({
-        where: { deliberationId: delib.id },
-      })
+        // Delete comment upvotes
+        await prisma.commentUpvote.deleteMany({
+          where: {
+            OR: [
+              { comment: { cell: { deliberationId: id } } },
+              { comment: { idea: { deliberationId: id } } },
+            ]
+          },
+        })
 
-      // Delete deliberation
-      await prisma.deliberation.delete({
-        where: { id: delib.id },
-      })
+        // Clear comment reply refs
+        await prisma.comment.updateMany({
+          where: {
+            OR: [
+              { cell: { deliberationId: id } },
+              { idea: { deliberationId: id } },
+            ]
+          },
+          data: { replyToId: null },
+        })
 
-      deletedDeliberations++
+        // Delete comments
+        await prisma.comment.deleteMany({
+          where: {
+            OR: [
+              { cell: { deliberationId: id } },
+              { idea: { deliberationId: id } },
+            ]
+          },
+        })
+
+        // Delete cell ideas
+        await prisma.cellIdea.deleteMany({
+          where: { cell: { deliberationId: id } },
+        })
+
+        // Delete cell participations
+        await prisma.cellParticipation.deleteMany({
+          where: { cell: { deliberationId: id } },
+        })
+
+        // Delete cells
+        await prisma.cell.deleteMany({
+          where: { deliberationId: id },
+        })
+
+        // Delete ideas
+        await prisma.idea.deleteMany({
+          where: { deliberationId: id },
+        })
+
+        // Delete memberships
+        await prisma.deliberationMember.deleteMany({
+          where: { deliberationId: id },
+        })
+
+        // Delete deliberation
+        await prisma.deliberation.delete({
+          where: { id },
+        })
+
+        deletedDeliberations++
+        console.log(`[CLEANUP] Deleted deliberation ${id}`)
+      } catch (err) {
+        console.error(`[CLEANUP] Failed to delete ${id}:`, err)
+      }
     }
 
     // Delete test users (email contains @test.local)

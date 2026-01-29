@@ -4,6 +4,40 @@ import { handleMetaChampion } from './meta-deliberation'
 
 const CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
+const MAX_CELL_SIZE = 7  // Allow cells up to 7 for flexible sizing
+
+/**
+ * Flexible cell sizing algorithm (3-7 participants per cell)
+ * Avoids creating tiny cells (1-2 people) that can't have meaningful deliberation
+ * Ported from union-chant-engine.js
+ */
+function calculateCellSizes(totalParticipants: number): number[] {
+  if (totalParticipants < 3) return [totalParticipants] // Edge case: tiny group
+  if (totalParticipants === 3) return [3]
+  if (totalParticipants === 4) return [4]
+
+  let numCells = Math.floor(totalParticipants / 5)
+  let remainder = totalParticipants % 5
+
+  // Perfect division by 5
+  if (remainder === 0) return Array(numCells).fill(5)
+
+  // Remainder of 1 or 2: Absorb into larger cell (avoid 1-2 person cells)
+  if (remainder === 1 || remainder === 2) {
+    if (numCells > 0) {
+      numCells--
+      remainder += 5
+      // remainder is now 6 or 7
+      return [...Array(numCells).fill(5), remainder]
+    }
+  }
+
+  // Remainder of 3 or 4: Create a separate cell
+  if (remainder === 3) return [...Array(numCells).fill(5), 3]
+  if (remainder === 4) return [...Array(numCells).fill(5), 4]
+
+  return Array(numCells).fill(5)
+}
 
 /**
  * Resolve predictions when a cell completes
@@ -205,12 +239,9 @@ export async function startVotingPhase(deliberationId: string) {
   const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
   const shuffledMembers = [...members].sort(() => Math.random() - 0.5)
 
-  // Calculate number of cells based on ideas (max 5 ideas per cell)
-  const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
-
-  // Distribute members evenly across cells
-  const baseMembersPerCell = Math.floor(shuffledMembers.length / numCells)
-  const extraMembers = shuffledMembers.length % numCells
+  // Use flexible cell sizing algorithm to determine cell structure
+  const cellSizes = calculateCellSizes(shuffledMembers.length)
+  const numCells = cellSizes.length
 
   // Create cells
   const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
@@ -218,17 +249,19 @@ export async function startVotingPhase(deliberationId: string) {
   let memberIndex = 0
 
   for (let cellNum = 0; cellNum < numCells; cellNum++) {
+    const cellSize = cellSizes[cellNum]
+
     // Calculate ideas for this cell (distribute remaining ideas evenly)
     const ideasRemaining = shuffledIdeas.length - ideaIndex
     const cellsRemaining = numCells - cellNum
-    const ideasForThisCell = Math.min(IDEAS_PER_CELL, Math.ceil(ideasRemaining / cellsRemaining))
+    const maxIdeasForCell = Math.min(MAX_CELL_SIZE, cellSize) // Ideas can match cell size up to 7
+    const ideasForThisCell = Math.min(maxIdeasForCell, Math.ceil(ideasRemaining / cellsRemaining))
     const cellIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + ideasForThisCell)
     ideaIndex += ideasForThisCell
 
-    // Get members for this cell (even distribution, some cells get +1)
-    const membersForThisCell = baseMembersPerCell + (cellNum < extraMembers ? 1 : 0)
-    const cellMembers = shuffledMembers.slice(memberIndex, memberIndex + membersForThisCell)
-    memberIndex += membersForThisCell
+    // Get members for this cell based on flexible sizing
+    const cellMembers = shuffledMembers.slice(memberIndex, memberIndex + cellSize)
+    memberIndex += cellSize
 
     // Skip if no ideas or no members
     if (cellIdeas.length === 0 || cellMembers.length === 0) continue
@@ -687,4 +720,85 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       notifications.newTier(nextTier, deliberation.question, deliberationId)
     ).catch(err => console.error('Failed to send push notifications:', err))
   }
+}
+
+/**
+ * Add a late joiner to an existing cell in the current voting tier
+ * Finds the smallest cell (that hasn't exceeded MAX_CELL_SIZE) and adds them
+ * This allows everyone to participate even after voting has started
+ */
+export async function addLateJoinerToCell(deliberationId: string, userId: string) {
+  const deliberation = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+  })
+
+  if (!deliberation || deliberation.phase !== 'VOTING') {
+    return { success: false, reason: 'NOT_IN_VOTING_PHASE' }
+  }
+
+  // Check if user is already in a cell for current tier
+  const existingParticipation = await prisma.cellParticipation.findFirst({
+    where: {
+      userId,
+      cell: {
+        deliberationId,
+        tier: deliberation.currentTier,
+      },
+    },
+  })
+
+  if (existingParticipation) {
+    return { success: false, reason: 'ALREADY_IN_CELL', cellId: existingParticipation.cellId }
+  }
+
+  // Find all active cells in current tier, sorted by participant count (smallest first)
+  const cells = await prisma.cell.findMany({
+    where: {
+      deliberationId,
+      tier: deliberation.currentTier,
+      status: 'VOTING',
+    },
+    include: {
+      _count: { select: { participants: true } },
+    },
+    orderBy: {
+      participants: { _count: 'asc' },
+    },
+  })
+
+  if (cells.length === 0) {
+    return { success: false, reason: 'NO_ACTIVE_CELLS' }
+  }
+
+  // Find the smallest cell that can still accept members (under MAX_CELL_SIZE)
+  const targetCell = cells.find(c => c._count.participants < MAX_CELL_SIZE)
+
+  if (!targetCell) {
+    // All cells are at max size - add to the smallest one anyway
+    // This ensures everyone can participate
+    const smallestCell = cells[0]
+
+    await prisma.cellParticipation.create({
+      data: {
+        cellId: smallestCell.id,
+        userId,
+      },
+    })
+
+    return {
+      success: true,
+      cellId: smallestCell.id,
+      note: 'Added to full cell (overflow)'
+    }
+  }
+
+  // Add to the smallest cell under max size
+  await prisma.cellParticipation.create({
+    data: {
+      cellId: targetCell.id,
+      userId,
+    },
+  })
+
+  return { success: true, cellId: targetCell.id }
 }

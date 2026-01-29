@@ -68,14 +68,25 @@ export function NotificationSettings() {
   )
 }
 
+const NOTIFICATION_BANNER_DISMISSED_KEY = 'notification-banner-dismissed'
+
 export function NotificationBanner() {
   const { data: session } = useSession()
   const [error, setError] = useState<string | null>(null)
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return localStorage.getItem(NOTIFICATION_BANNER_DISMISSED_KEY) === 'true'
+  })
   const { isSupported, isSubscribed, isLoading, permission, subscribe } =
     usePushNotifications()
 
   // Don't show if not logged in or not supported
   if (!session || !isSupported) {
+    return null
+  }
+
+  // Don't show if user dismissed it
+  if (dismissed) {
     return null
   }
 
@@ -101,6 +112,11 @@ export function NotificationBanner() {
     }
   }
 
+  const handleDismiss = () => {
+    localStorage.setItem(NOTIFICATION_BANNER_DISMISSED_KEY, 'true')
+    setDismissed(true)
+  }
+
   return (
     <div className="bg-accent-light border border-accent rounded-lg p-4 mb-4">
       <div className="flex items-center justify-between gap-4">
@@ -110,13 +126,21 @@ export function NotificationBanner() {
             Get notified when it&apos;s your turn to vote
           </p>
         </div>
-        <button
-          onClick={handleSubscribe}
-          disabled={isLoading}
-          className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 shrink-0"
-        >
-          {isLoading ? 'Enabling...' : 'Enable'}
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={handleDismiss}
+            className="px-3 py-2 text-muted hover:text-foreground text-sm transition-colors"
+          >
+            Not now
+          </button>
+          <button
+            onClick={handleSubscribe}
+            disabled={isLoading}
+            className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50"
+          >
+            {isLoading ? 'Enabling...' : 'Enable'}
+          </button>
+        </div>
       </div>
       {error && <p className="text-error text-sm mt-2">{error}</p>}
     </div>

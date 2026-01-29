@@ -13,6 +13,13 @@ export async function GET(req: NextRequest) {
     const deliberations = await prisma.deliberation.findMany({
       where: {
         isPublic: true,
+        // Exclude test deliberations that may have large data
+        NOT: {
+          OR: [
+            { id: 'cmkyta0sm0000gwrq75mdepb3' },
+            { question: { contains: '[TEST]' } },
+          ],
+        },
         ...(tag ? { tags: { has: tag } } : {}),
       },
       orderBy: { createdAt: 'desc' },

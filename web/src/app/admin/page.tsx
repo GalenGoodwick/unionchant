@@ -211,7 +211,11 @@ export default function AdminPage() {
                 onChange={(e) => setTestUsers(parseInt(e.target.value) || 20)}
                 min={5}
                 max={100}
-                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+                className={`w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent ${
+                  creating || targetPhase === 'SUBMISSION'
+                    ? 'bg-surface/50 border-border/50 text-muted cursor-not-allowed'
+                    : 'bg-surface border-border text-foreground'
+                }`}
                 disabled={creating || targetPhase === 'SUBMISSION'}
               />
             </div>
@@ -524,40 +528,6 @@ export default function AdminPage() {
               className="bg-purple hover:bg-purple-hover text-white px-4 py-2 rounded transition-colors text-sm"
             >
               Wipe Duplicates
-            </button>
-            <button
-              onClick={async () => {
-                if (!confirm('Create stress test deliberation and go to test page?')) return
-                setCreating(true)
-                setCreateStatus('Creating deliberation...')
-                try {
-                  const createRes = await fetch('/api/deliberations', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      question: '[STRESS TEST] 1000 Bot Test ' + Date.now(),
-                      description: 'Stress test with AI bots - configure agents on test page',
-                      isPublic: true,
-                      tags: ['test', 'stress'],
-                      accumulationEnabled: true,
-                      votingTimeoutMs: 5 * 60 * 1000,
-                    }),
-                  })
-                  if (!createRes.ok) throw new Error('Failed to create deliberation')
-                  const deliberation = await createRes.json()
-
-                  setCreateStatus('Redirecting to test page...')
-                  router.push(`/admin/test?deliberationId=${deliberation.id}`)
-                } catch (err) {
-                  setCreateStatus(`Error: ${err instanceof Error ? err.message : 'Unknown'}`)
-                } finally {
-                  setCreating(false)
-                }
-              }}
-              disabled={creating}
-              className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-4 py-2 rounded transition-colors text-sm font-semibold"
-            >
-              Create Stress Test
             </button>
           </div>
         </div>
