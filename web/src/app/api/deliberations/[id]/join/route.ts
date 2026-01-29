@@ -57,25 +57,7 @@ export async function POST(
     })
 
     // Handle based on deliberation phase
-    if (deliberation.phase === 'SUBMISSION' && deliberation.participantGoal) {
-      // Check if participant goal is met and auto-start voting
-      const memberCount = await prisma.deliberationMember.count({
-        where: { deliberationId: id }
-      })
-
-      // Need at least 2 ideas to start voting
-      const ideaCount = await prisma.idea.count({
-        where: { deliberationId: id, status: 'SUBMITTED' }
-      })
-
-      if (memberCount >= deliberation.participantGoal && ideaCount >= 2) {
-        try {
-          await startVotingPhase(id)
-        } catch (err) {
-          console.error('Failed to auto-start voting on participant goal:', err)
-        }
-      }
-    } else if (deliberation.phase === 'VOTING') {
+    if (deliberation.phase === 'VOTING') {
       // Late joiner - add them to an existing cell so they can participate
       try {
         const result = await addLateJoinerToCell(id, user.id)

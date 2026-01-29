@@ -129,7 +129,6 @@ model Deliberation {
 
   // Goal-based auto-start (null = unlimited/manual start)
   ideaGoal        Int?     // Auto-start voting when this many ideas submitted
-  participantGoal Int?     // Auto-start voting when this many participants join
 
   // Meta-deliberation fields
   type              DeliberationType @default(STANDARD)

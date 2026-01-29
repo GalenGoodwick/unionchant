@@ -39,7 +39,7 @@
 
 ```
 Union-Rolling/
-├── web/                          # MAIN APP - Next.js 15 + Prisma + Supabase
+├── web/                          # MAIN APP - Next.js 15 + Prisma + Vercel Postgres
 │   ├── src/
 │   │   ├── app/                  # Next.js app router
 │   │   │   ├── api/              # API routes
@@ -208,8 +208,8 @@ POST /api/admin/test/cleanup          # Delete test data
 ### Required Environment Variables (web/.env.local)
 
 ```bash
-# Database (Supabase)
-DATABASE_URL="postgresql://...?pgbouncer=true"
+# Database (Vercel Postgres / Neon)
+DATABASE_URL="postgresql://neondb_owner:...@ep-xxx.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 # Auth (NextAuth + Google OAuth)
 NEXTAUTH_SECRET="..."
@@ -217,9 +217,28 @@ NEXTAUTH_URL="http://localhost:3000"
 GOOGLE_CLIENT_ID="..."
 GOOGLE_CLIENT_SECRET="..."
 
+# Admin emails (comma-separated)
+ADMIN_EMAILS="admin@example.com"
+
 # Push notifications (optional)
 VAPID_PUBLIC_KEY="..."
 VAPID_PRIVATE_KEY="..."
+```
+
+### Vercel Environment Variables
+
+Production environment variables are managed via Vercel CLI:
+```bash
+vercel env add DATABASE_URL production   # Add/update env vars
+vercel env ls                            # List all env vars
+```
+
+### Database Management (Neon CLI)
+
+```bash
+neonctl auth              # Authenticate with Neon
+neonctl projects list     # List projects
+neonctl branches list     # List database branches
 ```
 
 ### Google OAuth Setup
@@ -269,11 +288,18 @@ npx prisma db push    # Manually sync schema to database
 ## Deployment
 
 - **Host:** Vercel (auto-deploys from main branch)
-- **Database:** Supabase PostgreSQL
+- **Database:** Vercel Postgres (powered by Neon) - includes built-in connection pooling
 - **URL:** https://unionchant.vercel.app
 
 ```bash
 git push origin main   # Triggers Vercel deployment
+```
+
+### Manual Deployment
+
+```bash
+vercel --prod            # Deploy to production
+vercel                   # Deploy preview
 ```
 
 ---
@@ -391,7 +417,7 @@ git push origin main   # Triggers Vercel deployment
 
 1. **Why Next.js?** - Full-stack React with API routes, easy Vercel deploy
 2. **Why Prisma?** - Type-safe database access, easy schema migrations
-3. **Why Supabase?** - Free PostgreSQL with good connection pooling
+3. **Why Vercel Postgres/Neon?** - Free PostgreSQL with built-in connection pooling, seamless Vercel integration
 4. **Why 5-person cells?** - Balance between deliberation quality and scale
 5. **Why cross-cell tallying?** - Prevents small-group capture, statistical robustness
 
@@ -492,6 +518,29 @@ The voting engine creates MULTIPLE success moments per deliberation:
 - Your idea advances from Tier 1 → win
 - Your vote predicts cell winner → win
 - Rewards at every tier, not just championship
+
+---
+
+## Backlog / Legacy
+
+### Previous Database: Supabase (Deprecated Jan 2026)
+
+The project previously used Supabase for PostgreSQL hosting. This was migrated to Vercel Postgres (Neon) due to maintenance windows causing deployment issues.
+
+**Old Supabase Setup (for reference):**
+```bash
+# Old DATABASE_URL format
+DATABASE_URL="postgresql://postgres.xxx:password@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true"
+
+# Supabase used pgbouncer for connection pooling
+# Required ?pgbouncer=true parameter
+```
+
+**Why we migrated:**
+- Supabase maintenance windows blocked `prisma db push` during builds
+- Vercel Postgres integrates natively with Vercel deployments
+- Neon provides built-in connection pooling without extra configuration
+- Simpler environment variable management through Vercel CLI
 
 ---
 

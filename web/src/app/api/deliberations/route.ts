@@ -69,7 +69,6 @@ export async function POST(req: NextRequest) {
       accumulationEnabled,
       accumulationTimeoutMs,
       ideaGoal,
-      participantGoal,
       captchaToken,
       // Deliberation type
       type,
@@ -124,7 +123,6 @@ export async function POST(req: NextRequest) {
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
-        ...(participantGoal && { participantGoal }),
         // Deliberation type
         ...(type && { type }),
         // Spawn deliberation settings

@@ -14,7 +14,6 @@ interface Deliberation {
   currentTier: number
   createdAt: string
   ideaGoal: number | null
-  participantGoal: number | null
   submissionEndsAt: string | null
   _count: {
     ideas: number
@@ -344,8 +343,6 @@ export default function AdminDeliberationPage() {
               <span className="text-foreground">
                 {deliberation.ideaGoal ? (
                   `At ${deliberation.ideaGoal} ideas (${deliberation._count.ideas}/${deliberation.ideaGoal})`
-                ) : deliberation.participantGoal ? (
-                  `At ${deliberation.participantGoal} participants (${deliberation._count.members}/${deliberation.participantGoal})`
                 ) : deliberation.submissionEndsAt ? (
                   `Timer: ${new Date(deliberation.submissionEndsAt).toLocaleString()}`
                 ) : (

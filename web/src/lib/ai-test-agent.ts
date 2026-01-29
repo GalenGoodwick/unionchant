@@ -451,23 +451,15 @@ function randomDelay(baseMs: number, variance: number = 0.3): Promise<void> {
  * Check if voting should start based on deliberation trigger settings
  * Trigger is determined by which fields are set:
  * - ideaGoal set → trigger by ideas
- * - participantGoal set → trigger by participants
  * - Neither set → trigger by timer (submissionEndsAt)
  */
 function checkVotingTrigger(deliberation: {
   ideaGoal: number | null
-  participantGoal: number | null
   submissionEndsAt: Date | null
   ideas: unknown[]
-  members: unknown[]
 }): boolean {
   // Check idea goal trigger
   if (deliberation.ideaGoal && deliberation.ideas.length >= deliberation.ideaGoal) {
-    return true
-  }
-
-  // Check participant goal trigger
-  if (deliberation.participantGoal && deliberation.members.length >= deliberation.participantGoal) {
     return true
   }
 
@@ -619,10 +611,8 @@ export async function runAgentTest(
         where: { id: deliberationId },
         select: {
           ideaGoal: true,
-          participantGoal: true,
           submissionEndsAt: true,
           ideas: true,
-          members: true,
         },
       })
 
@@ -638,8 +628,7 @@ export async function runAgentTest(
             testProgress.errors.push(`Voting failed to start: ${result.reason} - ${result.message}`)
           }
         } else {
-          const triggerType = updatedDelib.ideaGoal ? 'ideas' :
-                              updatedDelib.participantGoal ? 'participants' : 'timer'
+          const triggerType = updatedDelib.ideaGoal ? 'ideas' : 'timer'
           addTestLog(`Trigger (${triggerType}) not met - Ideas: ${updatedDelib.ideas.length}/${updatedDelib.ideaGoal || 'N/A'}`)
 
           // For testing purposes, force-start if manual or waiting

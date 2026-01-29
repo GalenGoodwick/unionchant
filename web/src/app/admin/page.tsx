@@ -43,10 +43,9 @@ export default function AdminPage() {
   const [testUsers, setTestUsers] = useState(20)
   const [createStatus, setCreateStatus] = useState('')
   // Voting trigger options
-  const [votingTrigger, setVotingTrigger] = useState<'manual' | 'timer' | 'ideas' | 'participants'>('manual')
+  const [votingTrigger, setVotingTrigger] = useState<'manual' | 'timer' | 'ideas'>('manual')
   const [timerMinutes, setTimerMinutes] = useState(60)
   const [ideaGoal, setIdeaGoal] = useState(20)
-  const [participantGoal, setParticipantGoal] = useState(10)
   const [votingMinutes, setVotingMinutes] = useState(5)
   // Deliberation type
   const [delibType, setDelibType] = useState<'STANDARD' | 'META'>('STANDARD')
@@ -239,14 +238,13 @@ export default function AdminPage() {
               <label className="block text-xs text-muted mb-1">Voting Starts</label>
               <select
                 value={votingTrigger}
-                onChange={(e) => setVotingTrigger(e.target.value as 'manual' | 'timer' | 'ideas' | 'participants')}
+                onChange={(e) => setVotingTrigger(e.target.value as 'manual' | 'timer' | 'ideas')}
                 className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
                 disabled={creating || targetPhase !== 'SUBMISSION'}
               >
                 <option value="manual">Manual (facilitator)</option>
                 <option value="timer">Timer</option>
                 <option value="ideas">Idea goal</option>
-                <option value="participants">Participant goal</option>
               </select>
             </div>
             {votingTrigger === 'timer' && (
@@ -269,19 +267,6 @@ export default function AdminPage() {
                   type="number"
                   value={ideaGoal}
                   onChange={(e) => setIdeaGoal(parseInt(e.target.value) || 20)}
-                  min={2}
-                  className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
-                  disabled={creating || targetPhase !== 'SUBMISSION'}
-                />
-              </div>
-            )}
-            {votingTrigger === 'participants' && (
-              <div>
-                <label className="block text-xs text-muted mb-1">Participant Goal</label>
-                <input
-                  type="number"
-                  value={participantGoal}
-                  onChange={(e) => setParticipantGoal(parseInt(e.target.value) || 10)}
                   min={2}
                   className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
                   disabled={creating || targetPhase !== 'SUBMISSION'}
@@ -344,8 +329,6 @@ export default function AdminPage() {
                     createPayload.submissionDurationMs = timerMinutes * 60 * 1000 // Convert minutes to ms
                   } else if (votingTrigger === 'ideas') {
                     createPayload.ideaGoal = ideaGoal
-                  } else if (votingTrigger === 'participants') {
-                    createPayload.participantGoal = participantGoal
                   }
                   // 'manual' = no trigger fields set (relies on facilitator starting voting)
 

@@ -360,7 +360,6 @@ export async function GET(req: NextRequest) {
         views: true,
         submissionEndsAt: true,
         ideaGoal: true,
-        participantGoal: true,
         _count: { select: { members: true, ideas: true } },
       },
       orderBy: { createdAt: 'desc' },

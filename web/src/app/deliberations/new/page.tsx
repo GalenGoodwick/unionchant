@@ -118,8 +118,6 @@ export default function NewDeliberationPage() {
           accumulationTimeoutMs: formData.accumulationDays * 24 * 60 * 60 * 1000,
           // Goal settings
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
-          // Manual trigger mode - no participantGoal needed, creator triggers manually
-          participantGoal: null,
           // Spawn settings
           spawnsDeliberation: formData.winnerMode === 'spawns',
           spawnedStartMode: formData.winnerMode === 'spawns' ? formData.spawnedStartMode : null,
