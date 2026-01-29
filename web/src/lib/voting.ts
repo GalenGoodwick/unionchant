@@ -197,7 +197,7 @@ export async function startVotingPhase(deliberationId: string) {
     }
   }
 
-  // Create cells for Tier 1
+  // Create cells for Tier 1 - each cell gets UNIQUE ideas (no sharing)
   const ideas = deliberation.ideas
   const members = deliberation.members
 
@@ -205,64 +205,60 @@ export async function startVotingPhase(deliberationId: string) {
   const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
   const shuffledMembers = [...members].sort(() => Math.random() - 0.5)
 
-  // Group ideas into batches of 5. All members must be assigned to cells.
-  const numBatches = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+  // Calculate number of cells based on ideas (max 5 ideas per cell)
+  const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
 
-  // Distribute members evenly across batches
-  const baseMembersPerBatch = Math.floor(shuffledMembers.length / numBatches)
-  const extraMembers = shuffledMembers.length % numBatches
+  // Distribute members evenly across cells
+  const baseMembersPerCell = Math.floor(shuffledMembers.length / numCells)
+  const extraMembers = shuffledMembers.length % numCells
 
   // Create cells
   const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
+  let ideaIndex = 0
   let memberIndex = 0
 
-  for (let batch = 0; batch < numBatches; batch++) {
-    const batchIdeas = shuffledIdeas.slice(batch * IDEAS_PER_CELL, (batch + 1) * IDEAS_PER_CELL)
+  for (let cellNum = 0; cellNum < numCells; cellNum++) {
+    // Calculate ideas for this cell (distribute remaining ideas evenly)
+    const ideasRemaining = shuffledIdeas.length - ideaIndex
+    const cellsRemaining = numCells - cellNum
+    const ideasForThisCell = Math.min(IDEAS_PER_CELL, Math.ceil(ideasRemaining / cellsRemaining))
+    const cellIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + ideasForThisCell)
+    ideaIndex += ideasForThisCell
 
-    // This batch gets base members + 1 extra if batch < extraMembers (even distribution)
-    const batchMemberCount = baseMembersPerBatch + (batch < extraMembers ? 1 : 0)
-    const batchMembers = shuffledMembers.slice(memberIndex, memberIndex + batchMemberCount)
-    memberIndex += batchMemberCount
+    // Get members for this cell (even distribution, some cells get +1)
+    const membersForThisCell = baseMembersPerCell + (cellNum < extraMembers ? 1 : 0)
+    const cellMembers = shuffledMembers.slice(memberIndex, memberIndex + membersForThisCell)
+    memberIndex += membersForThisCell
 
-    // Skip batch if no ideas
-    if (batchIdeas.length === 0) continue
+    // Skip if no ideas or no members
+    if (cellIdeas.length === 0 || cellMembers.length === 0) continue
 
-    // Update idea statuses for this batch
+    // Update idea statuses for this cell
     await prisma.idea.updateMany({
-      where: { id: { in: batchIdeas.map((i: { id: string }) => i.id) } },
+      where: { id: { in: cellIdeas.map((i: { id: string }) => i.id) } },
       data: { status: 'IN_VOTING', tier: 1 },
     })
 
-    // Create cells for all members in this batch
-    // Allow cells up to 7 members to avoid tiny leftovers
-    let remainingMembers = [...batchMembers]
-    while (remainingMembers.length > 0) {
-      const cellSize = remainingMembers.length <= 7 ? remainingMembers.length : CELL_SIZE
-      const cellMembers = remainingMembers.slice(0, cellSize)
-      remainingMembers = remainingMembers.slice(cellSize)
-
-      if (cellMembers.length === 0) continue
-
-      const cell = await prisma.cell.create({
-        data: {
-          deliberationId,
-          tier: 1,
-          status: 'VOTING',
-          ideas: {
-            create: batchIdeas.map(idea => ({
-              ideaId: idea.id,
-            })),
-          },
-          participants: {
-            create: cellMembers.map(member => ({
-              userId: member.userId,
-            })),
-          },
+    // Create the cell with UNIQUE ideas
+    const cell = await prisma.cell.create({
+      data: {
+        deliberationId,
+        tier: 1,
+        status: 'VOTING',
+        ideas: {
+          create: cellIdeas.map(idea => ({
+            ideaId: idea.id,
+          })),
         },
-      })
+        participants: {
+          create: cellMembers.map(member => ({
+            userId: member.userId,
+          })),
+        },
+      },
+    })
 
-      cells.push(cell)
-    }
+    cells.push(cell)
   }
 
   // Update deliberation phase and start tier timer
