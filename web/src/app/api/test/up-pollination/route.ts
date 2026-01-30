@@ -3,6 +3,9 @@ import { prisma } from '@/lib/prisma'
 
 // POST /api/test/up-pollination - Create test data for up-pollination
 export async function POST() {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not available in production' }, { status: 404 })
+  }
   try {
     // Find or create a test user
     let testUser = await prisma.user.findFirst({
@@ -123,6 +126,9 @@ export async function POST() {
 
 // GET /api/test/up-pollination - Test up-pollination logic
 export async function GET() {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not available in production' }, { status: 404 })
+  }
   const results: string[] = []
 
   results.push('🧪 Testing up-pollination logic...')

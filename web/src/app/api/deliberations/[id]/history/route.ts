@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id]/history - Get voting history for a deliberation
 export async function GET(
@@ -10,23 +11,12 @@ export async function GET(
 ) {
   try {
     const { id } = await params
+    const session = await getServerSession(authOptions)
 
-    // Check if deliberation is public (public audit log)
-    const deliberation = await prisma.deliberation.findUnique({
-      where: { id },
-      select: { isPublic: true },
-    })
-
-    if (!deliberation) {
+    // Privacy gate: membership check for private deliberations
+    const access = await checkDeliberationAccess(id, session?.user?.email)
+    if (!access.allowed) {
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
-    }
-
-    // For private deliberations, require authentication
-    if (!deliberation.isPublic) {
-      const session = await getServerSession(authOptions)
-      if (!session?.user?.email) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
     }
 
     // Get all completed cells grouped by challenge round and tier

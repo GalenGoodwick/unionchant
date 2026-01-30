@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { startVotingPhase } from '@/lib/voting'
 import { moderateContent } from '@/lib/moderation'
 import { verifyCaptcha } from '@/lib/captcha'
+import { checkDeliberationAccess } from '@/lib/privacy'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 // POST /api/deliberations/[id]/ideas - Submit a new idea
 export async function POST(
@@ -17,6 +19,12 @@ export async function POST(
 
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Privacy gate
+    const access = await checkDeliberationAccess(id, session.user.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
     const user = await prisma.user.findUnique({
@@ -47,6 +55,20 @@ export async function POST(
 
     if (!membership) {
       return NextResponse.json({ error: 'Must be a member to submit ideas' }, { status: 403 })
+    }
+
+    // Email verification gate
+    if (!user.emailVerified && user.passwordHash) {
+      return NextResponse.json({
+        error: 'Please verify your email before submitting ideas',
+        code: 'EMAIL_NOT_VERIFIED',
+      }, { status: 403 })
+    }
+
+    // Rate limit
+    const limited = await checkRateLimit('idea', user.id)
+    if (limited) {
+      return NextResponse.json({ error: 'Too many submissions. Slow down.' }, { status: 429 })
     }
 
     // Check if deliberation is accepting submissions

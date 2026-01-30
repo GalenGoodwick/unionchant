@@ -10,6 +10,9 @@ const globalForPrisma = globalThis as unknown as {
 function createPrismaClient() {
   const pool = globalForPrisma.pool ?? new Pool({
     connectionString: process.env.DATABASE_URL,
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
   })
 
   if (!globalForPrisma.pool) {
@@ -22,6 +25,7 @@ function createPrismaClient() {
 
 export const prisma = globalForPrisma.prisma ?? createPrismaClient()
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+// Cache in all environments to reuse across warm invocations
+globalForPrisma.prisma = prisma
 
 export default prisma

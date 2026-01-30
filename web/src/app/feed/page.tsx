@@ -14,7 +14,9 @@ import DeliberationSheet from '@/components/sheets/DeliberationSheet'
 import Onboarding from '@/components/Onboarding'
 import { NotificationBanner } from '@/components/NotificationSettings'
 import { useOnboarding } from '@/hooks/useOnboarding'
+import { useAdaptivePolling } from '@/hooks/useAdaptivePolling'
 import UserGuide from '@/components/UserGuide'
+import Spinner from '@/components/Spinner'
 import type { FeedItem } from '@/types/feed'
 
 export default function FeedPage() {
@@ -25,6 +27,7 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
+
 
   // Show guide for first-time authenticated users
   useEffect(() => {
@@ -90,13 +93,10 @@ export default function FeedPage() {
 
       // Get cell IDs from new items to check which preserved cards are still valid
       const activeCellIds = new Set(newItems.filter(i => i.cell).map(i => i.cell!.id))
-      const activeDelibIds = new Set(newItems.map(i => i.deliberation.id))
 
       // Clean up stale preserved cards (cells that no longer exist in the API response)
-      // If a preserved card's cell isn't in the active cells, the cell has been completed/deleted
       const staleCardIds: string[] = []
       preservedVoteCards.forEach((card, cellId) => {
-        // Remove if cell no longer exists (tier completed) OR deliberation is gone
         if (!activeCellIds.has(cellId)) {
           staleCardIds.push(cellId)
         }
@@ -113,7 +113,6 @@ export default function FeedPage() {
       }
 
       // Get preserved cards from storage that should still be shown
-      // Only skip if there's already a vote_now card for this exact cell in new items
       const cardsToPreserve = Array.from(preservedVoteCards.values()).filter(p =>
         !staleCardIds.includes(p.cell?.id || '') &&
         !deduplicatedItems.some(n => n.cell?.id === p.cell?.id)
@@ -123,9 +122,7 @@ export default function FeedPage() {
       // don't also show a champion/predict card for the same deliberation
       const preservedDeliberationIds = new Set(cardsToPreserve.map(p => p.deliberation.id))
       const filteredNewItems = deduplicatedItems.filter(n =>
-        // Keep vote_now cards (they have cells)
         n.type === 'vote_now' ||
-        // Keep other cards only if we don't have a preserved card for this deliberation
         !preservedDeliberationIds.has(n.deliberation.id)
       )
 
@@ -134,7 +131,8 @@ export default function FeedPage() {
       setError(null)
     } catch (err) {
       console.error('Feed error:', err)
-      setError('Failed to load feed')
+      // Only show error on initial load, not during background polling
+      if (loading) setError('Failed to load feed')
     } finally {
       setLoading(false)
     }
@@ -164,15 +162,11 @@ export default function FeedPage() {
     setItems(prev => prev.filter(item => item.cell?.id !== cellId))
   }, [])
 
-  useEffect(() => {
-    // Wait for preserved cards to be loaded from localStorage before fetching
-    if (!preservedCardsLoaded) return
-
-    fetchFeed()
-    // Poll for updates every 5 seconds
-    const interval = setInterval(fetchFeed, 5000)
-    return () => clearInterval(interval)
-  }, [fetchFeed, preservedCardsLoaded])
+  // Adaptive polling: fast (3s) after user activity, slow (15s) when idle, pauses on hidden tab
+  const { signalActivity } = useAdaptivePolling(
+    () => { if (preservedCardsLoaded) fetchFeed() },
+    { slowInterval: 15000, fastInterval: 3000, fastModeDuration: 30000 }
+  )
 
   const openSheet = (item: FeedItem) => {
     setSelectedItem(item)
@@ -186,6 +180,7 @@ export default function FeedPage() {
 
   const handleAction = () => {
     // Refresh feed after an action (vote, predict, submit)
+    signalActivity() // Switch to fast polling
     fetchFeed()
   }
 
@@ -194,10 +189,13 @@ export default function FeedPage() {
       <div className="min-h-screen bg-background">
         <Header />
         <div className="max-w-lg mx-auto px-4 py-8">
-          <div className="animate-pulse space-y-4">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-48 bg-surface rounded-xl" />
-            ))}
+          <div className="flex flex-col items-center gap-6 py-12">
+            <Spinner size="lg" label="Loading feed" />
+            <div className="animate-pulse space-y-4 w-full">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-48 bg-surface rounded-xl" />
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -216,7 +214,7 @@ export default function FeedPage() {
 
       <div className="max-w-lg mx-auto px-4 py-6">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-center mb-4">
           <h1 className="text-xl font-bold text-foreground">
             {status === 'authenticated' ? 'Your Feed' : 'Active Deliberations'}
           </h1>

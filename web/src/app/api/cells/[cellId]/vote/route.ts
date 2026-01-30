@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { Prisma } from '@prisma/client'
 
 // POST /api/cells/[cellId]/vote - Cast a vote
@@ -25,6 +26,20 @@ export async function POST(
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Email verification gate: OAuth users auto-verified, password users must verify
+    if (!user.emailVerified && user.passwordHash) {
+      return NextResponse.json({
+        error: 'Please verify your email before voting',
+        code: 'EMAIL_NOT_VERIFIED',
+      }, { status: 403 })
+    }
+
+    // Rate limit
+    const limited = await checkRateLimit('vote', user.id)
+    if (limited) {
+      return NextResponse.json({ error: 'Too many votes. Slow down.' }, { status: 429 })
     }
 
     const body = await req.json()
@@ -153,6 +168,7 @@ export async function POST(
 
     // When all votes are in, start a 10-second grace period before finalizing.
     // Users can change their vote during this window but it doesn't extend it.
+    // Timer processor will pick up cells with finalizesAt <= now and finalize them.
     if (result.allVoted) {
       const GRACE_PERIOD_MS = 10_000
       // Only set finalizesAt if not already set (first time all votes land)
@@ -160,15 +176,8 @@ export async function POST(
         where: { id: cellId, finalizesAt: null, status: 'VOTING' },
         data: { finalizesAt: new Date(Date.now() + GRACE_PERIOD_MS) },
       })
-
-      // Schedule finalization after the grace period
-      setTimeout(async () => {
-        try {
-          await processCellResults(cellId, false)
-        } catch (err) {
-          console.error(`Grace period finalization failed for cell ${cellId}:`, err)
-        }
-      }, GRACE_PERIOD_MS)
+      // Note: No setTimeout — Vercel serverless functions terminate after response.
+      // Timer processor (cron + feed request throttle) handles finalization.
     }
 
     return NextResponse.json({

@@ -82,6 +82,9 @@ export async function POST(req: NextRequest) {
       spawnedStartMode,
       spawnedSubmissionHours,
       spawnedIdeaGoal,
+      // Community integration
+      communityId,
+      communityOnly,
     } = body
 
     // Verify CAPTCHA (checks if user verified in last 24h, or verifies token)
@@ -97,6 +100,25 @@ export async function POST(req: NextRequest) {
     // Validate mutual exclusivity
     if (spawnsDeliberation && accumulationEnabled) {
       return NextResponse.json({ error: 'Cannot enable both spawns deliberation and rolling mode' }, { status: 400 })
+    }
+
+    // Verify community membership and posting permission if communityId provided
+    if (communityId) {
+      const [membership, community] = await Promise.all([
+        prisma.communityMember.findUnique({
+          where: { communityId_userId: { communityId, userId: user.id } },
+        }),
+        prisma.community.findUnique({
+          where: { id: communityId },
+          select: { postingPermission: true },
+        }),
+      ])
+      if (!membership) {
+        return NextResponse.json({ error: 'You must be a member of this community' }, { status: 403 })
+      }
+      if (community?.postingPermission === 'admins' && membership.role === 'MEMBER') {
+        return NextResponse.json({ error: 'Only community admins and owners can create deliberations in this community' }, { status: 403 })
+      }
     }
 
     // Clean and validate tags
@@ -135,6 +157,9 @@ export async function POST(req: NextRequest) {
         ...(spawnedStartMode && { spawnedStartMode }),
         ...(spawnedSubmissionHours && { spawnedSubmissionHours }),
         ...(spawnedIdeaGoal && { spawnedIdeaGoal }),
+        // Community integration
+        ...(communityId && { communityId }),
+        ...(communityOnly && communityId && { isPublic: false }),
         members: {
           create: {
             userId: user.id,

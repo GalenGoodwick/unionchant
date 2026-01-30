@@ -7,6 +7,7 @@ import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
 import Turnstile from '@/components/Turnstile'
 import ShareMenu from '@/components/ShareMenu'
+import { useToast } from '@/components/Toast'
 
 type Props = {
   item: FeedItem
@@ -15,6 +16,7 @@ type Props = {
 }
 
 export default function ChampionCard({ item, onAction, onExplore }: Props) {
+  const { showToast } = useToast()
   const { data: session } = useSession()
   const router = useRouter()
   const [idea, setIdea] = useState('')
@@ -63,12 +65,12 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
         if (data.error?.includes('CAPTCHA')) {
           setShowCaptchaModal(true)
         } else {
-          alert(data.error || 'Failed to submit challenger')
+          showToast(data.error || 'Failed to submit challenger', 'error')
         }
       }
     } catch (err) {
       console.error('Submit error:', err)
-      alert('Failed to submit challenger')
+      showToast('Failed to submit challenger', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -108,11 +110,11 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
         onAction()
       } else {
         const data = await res.json()
-        alert(data.error || 'No spots available')
+        showToast(data.error || 'No spots available', 'error')
       }
     } catch (err) {
       console.error('Join error:', err)
-      alert('Failed to join')
+      showToast('Failed to join', 'error')
     } finally {
       setJoining(false)
     }
@@ -150,8 +152,17 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
         )}
-        {item.deliberation.organization && (
-          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        {(item.deliberation.organization || item.community) && (
+          <p className="text-muted-light text-xs mt-1">
+            {item.deliberation.organization}
+            {item.deliberation.organization && item.community && ' · '}
+            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+          </p>
+        )}
+        {item.deliberation.creator && (
+          <p className="text-muted text-xs mt-1">
+            Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
+          </p>
         )}
         <div className="mb-4" />
 

@@ -8,6 +8,7 @@ import type { FeedItem } from '@/types/feed'
 import CountdownTimer from '@/components/CountdownTimer'
 import ShareMenu from '@/components/ShareMenu'
 import Turnstile from '@/components/Turnstile'
+import { useToast } from '@/components/Toast'
 
 type Props = {
   item: FeedItem
@@ -16,6 +17,7 @@ type Props = {
 }
 
 export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
+  const { showToast } = useToast()
   const { data: session } = useSession()
   const router = useRouter()
   const [idea, setIdea] = useState('')
@@ -64,12 +66,12 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
         if (data.error?.includes('CAPTCHA')) {
           setShowCaptchaModal(true)
         } else {
-          alert(data.error || 'Failed to submit idea')
+          showToast(data.error || 'Failed to submit idea', 'error')
         }
       }
     } catch (err) {
       console.error('Submit error:', err)
-      alert('Failed to submit idea')
+      showToast('Failed to submit idea', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -126,8 +128,17 @@ export default function SubmitIdeasCard({ item, onAction, onExplore }: Props) {
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
         )}
-        {item.deliberation.organization && (
-          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        {(item.deliberation.organization || item.community) && (
+          <p className="text-muted-light text-xs mt-1">
+            {item.deliberation.organization}
+            {item.deliberation.organization && item.community && ' · '}
+            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+          </p>
+        )}
+        {item.deliberation.creator && (
+          <p className="text-muted text-xs mt-1">
+            Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
+          </p>
         )}
         <div className="mb-4" />
 

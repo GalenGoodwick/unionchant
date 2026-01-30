@@ -81,6 +81,26 @@ export async function startChallengeRound(deliberationId: string) {
     throw new Error('Deliberation is not in accumulation phase')
   }
 
+  // ATOMIC GUARD: Claim the challenge round transition.
+  // Only one concurrent caller can succeed — others get count=0 and bail out.
+  const claimed = await prisma.deliberation.updateMany({
+    where: {
+      id: deliberationId,
+      phase: 'ACCUMULATING',
+      challengeRound: deliberation.challengeRound,
+    },
+    data: {
+      // Temporarily mark as transitioning by bumping challengeRound
+      // Phase stays ACCUMULATING until cells are created (updated at end)
+      challengeRound: deliberation.challengeRound + 1,
+    },
+  })
+
+  if (claimed.count === 0) {
+    console.log(`startChallengeRound: another caller already claimed challenge for ${deliberationId}`)
+    return null
+  }
+
   // Get the current champion
   const champion = await prisma.idea.findFirst({
     where: {
@@ -110,12 +130,30 @@ export async function startChallengeRound(deliberationId: string) {
   const championTier = deliberation.championEnteredTier || 2
   const minNeeded = getMinPoolSize(championTier)
 
-  // If no challengers at all, extend accumulation period
+  // If no challengers at all, extend or complete
   if (pendingIdeas.length === 0 && benchedIdeas.length === 0) {
-    // No challengers - extend accumulation
+    // Check if we've already extended too many times (max 3 extensions with no challengers)
+    // After 3 challenge rounds with no challengers, the champion stands and deliberation completes
+    const maxExtensions = 3
+    if (deliberation.challengeRound >= maxExtensions) {
+      console.log(`startChallengeRound: ${maxExtensions} rounds with no challengers, completing deliberation ${deliberationId}`)
+      await prisma.deliberation.update({
+        where: { id: deliberationId },
+        data: {
+          challengeRound: deliberation.challengeRound, // revert
+          phase: 'COMPLETED',
+          completedAt: new Date(),
+          accumulationEndsAt: null,
+        },
+      })
+      return { completed: true, reason: `No challengers after ${maxExtensions} rounds` }
+    }
+
+    // Revert challengeRound bump (no actual round starting) and extend
     await prisma.deliberation.update({
       where: { id: deliberationId },
       data: {
+        challengeRound: deliberation.challengeRound, // revert
         accumulationEndsAt: new Date(Date.now() + deliberation.accumulationTimeoutMs),
       },
     })
@@ -146,9 +184,11 @@ export async function startChallengeRound(deliberationId: string) {
 
   // If not enough challengers after retirement, extend
   if (toCompete.length < 1) {
+    // Revert challengeRound bump and extend
     await prisma.deliberation.update({
       where: { id: deliberationId },
       data: {
+        challengeRound: deliberation.challengeRound, // revert
         accumulationEndsAt: new Date(Date.now() + deliberation.accumulationTimeoutMs),
       },
     })
@@ -193,6 +233,7 @@ export async function startChallengeRound(deliberationId: string) {
   }
 
   // Update deliberation state and start tier timer
+  // challengeRound already incremented by atomic guard above
   const newChallengeRound = deliberation.challengeRound + 1
   await prisma.deliberation.update({
     where: { id: deliberationId },
@@ -200,7 +241,6 @@ export async function startChallengeRound(deliberationId: string) {
       phase: 'VOTING',
       currentTier: 1,
       currentTierStartedAt: new Date(),
-      challengeRound: newChallengeRound,
       accumulationEndsAt: null,
     },
   })

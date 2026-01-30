@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import Spinner from '@/components/Spinner'
 
 type Notification = {
   id: string
@@ -145,10 +146,8 @@ export default function NotificationsPage() {
       <div className="min-h-screen bg-background">
         <Header />
         <div className="max-w-2xl mx-auto px-4 py-8">
-          <div className="animate-pulse space-y-4">
-            {[1, 2, 3, 4, 5].map(i => (
-              <div key={i} className="h-20 bg-surface rounded-lg" />
-            ))}
+          <div className="flex flex-col items-center gap-6 py-12">
+            <Spinner size="lg" label="Loading notifications" />
           </div>
         </div>
       </div>

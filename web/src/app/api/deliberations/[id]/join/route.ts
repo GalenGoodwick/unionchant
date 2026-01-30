@@ -33,6 +33,11 @@ export async function POST(
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
+    // Private deliberations cannot be joined directly — must use invite link
+    if (!deliberation.isPublic) {
+      return NextResponse.json({ error: 'This deliberation requires an invite link to join' }, { status: 403 })
+    }
+
     // Check if already a member
     const existingMembership = await prisma.deliberationMember.findUnique({
       where: {

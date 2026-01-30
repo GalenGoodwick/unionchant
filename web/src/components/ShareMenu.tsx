@@ -24,9 +24,8 @@ export default function ShareMenu({ url, text, variant = 'button' }: ShareMenuPr
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [open])
 
-  const fullUrl = typeof window !== 'undefined'
-    ? url.startsWith('http') ? url : `${window.location.origin}${url}`
-    : url
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unionchant.org'
+  const fullUrl = url.startsWith('http') ? url : `${appUrl}${url}`
 
   const encodedUrl = encodeURIComponent(fullUrl)
   const encodedText = encodeURIComponent(text)

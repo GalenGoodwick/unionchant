@@ -5,6 +5,8 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import { FullPageSpinner } from '@/components/Spinner'
+import AgreementLeaderboard from '@/components/AgreementLeaderboard'
 
 interface UserProfile {
   id: string
@@ -12,18 +14,30 @@ interface UserProfile {
   image: string | null
   bio: string | null
   joinedAt: string
+  followersCount: number
+  followingCount: number
+  isFollowing: boolean
   stats: {
     ideas: number
     votes: number
     comments: number
     deliberationsCreated: number
     deliberationsJoined: number
+    deliberationsVotedIn: number
     totalPredictions: number
     correctPredictions: number
     accuracy: number | null
     championPicks: number
     currentStreak: number
     bestStreak: number
+    ideasWon: number
+    winRate: number | null
+    highestTierReached: number
+    ideasAdvanced: number
+    tierBreakdown: Array<{ tier: number; count: number }>
+    highestUpPollinateTier: number
+    totalUpvotesReceived: number
+    totalCommentUpvotes: number
   }
   recentActivity: Array<{
     deliberationId: string
@@ -87,22 +101,21 @@ export default function ProfilePage() {
 
     async function fetchProfile() {
       try {
-        // First get current user's ID
+        // Fetch user ID and full profile in sequence (me -> profile)
         const meRes = await fetch('/api/user/me')
         if (!meRes.ok) {
           const errData = await meRes.json().catch(() => ({}))
-          console.error('Failed to fetch /api/user/me:', meRes.status, errData)
           throw new Error(errData.error || `Failed to load profile (${meRes.status})`)
         }
         const meData = await meRes.json()
-        console.log('User me data:', meData)
-        const userId = meData.user.id
+        const userId = meData.user?.id
+        if (!userId) {
+          throw new Error('Could not determine user ID')
+        }
 
-        // Then fetch full profile
         const response = await fetch(`/api/user/${userId}`)
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}))
-          console.error('Failed to fetch /api/user/[id]:', response.status, errData)
           throw new Error(errData.error || `Failed to load profile (${response.status})`)
         }
         const data = await response.json()
@@ -124,9 +137,7 @@ export default function ProfilePage() {
     return (
       <div className="min-h-screen bg-surface">
         <Header />
-        <div className="flex items-center justify-center py-20">
-          <div className="text-muted">Loading profile...</div>
-        </div>
+        <FullPageSpinner label="Loading profile" />
       </div>
     )
   }
@@ -184,7 +195,12 @@ export default function ProfilePage() {
                 <p className="text-muted mt-2">{profile.bio}</p>
               )}
 
-              <p className="text-sm text-subtle mt-2">
+              <div className="flex items-center gap-4 mt-2 text-sm">
+                <span className="text-foreground"><strong>{profile.followersCount}</strong> <span className="text-muted">followers</span></span>
+                <span className="text-foreground"><strong>{profile.followingCount}</strong> <span className="text-muted">following</span></span>
+              </div>
+
+              <p className="text-sm text-subtle mt-1">
                 Joined {formatDate(profile.joinedAt)}
               </p>
             </div>
@@ -206,34 +222,60 @@ export default function ProfilePage() {
           />
         </div>
 
+        {/* Win Record */}
+        {profile.stats.ideasWon > 0 && (
+          <>
+            <h2 className="text-lg font-semibold text-foreground mb-3">Win Record</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <StatCard label="Ideas Won" value={profile.stats.ideasWon} icon="🏆" />
+              <StatCard label="Win Rate" value={profile.stats.winRate !== null ? `${profile.stats.winRate}%` : '-'} icon="📊" />
+              <StatCard label="Highest Tier" value={profile.stats.highestTierReached || '-'} icon="⬆️" />
+              <StatCard label="Advanced" value={profile.stats.ideasAdvanced} icon="🚀" />
+            </div>
+            {profile.stats.tierBreakdown.length > 0 && (
+              <div className="bg-background rounded-xl border border-border p-4 mb-6">
+                <div className="text-sm text-muted mb-2">Tier breakdown</div>
+                <div className="flex gap-2 flex-wrap">
+                  {profile.stats.tierBreakdown.map(t => (
+                    <span key={t.tier} className="bg-surface border border-border rounded px-2 py-1 text-sm font-mono">
+                      T{t.tier}: {t.count}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Comment & Up-Pollinate Stats */}
+        {profile.stats.comments > 0 && (
+          <>
+            <h2 className="text-lg font-semibold text-foreground mb-3">Comments</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+              <StatCard label="Comments" value={profile.stats.comments} icon="💬" />
+              <StatCard label="Upvotes" value={profile.stats.totalUpvotesReceived} icon="👍" />
+              <StatCard label="Up-Pollinate" value={`Tier ${profile.stats.highestUpPollinateTier}`} icon="🌸" />
+            </div>
+          </>
+        )}
+
         {/* Prediction Stats */}
         {profile.stats.totalPredictions > 0 && (
           <>
             <h2 className="text-lg font-semibold text-foreground mb-3">Predictions</h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <StatCard
-                label="Total"
-                value={profile.stats.totalPredictions}
-                icon="🔮"
-              />
-              <StatCard
-                label="Correct"
-                value={profile.stats.correctPredictions}
-                icon="✅"
-              />
-              <StatCard
-                label="Champions"
-                value={profile.stats.championPicks}
-                icon="👑"
-              />
-              <StatCard
-                label="Best Streak"
-                value={profile.stats.bestStreak}
-                icon="🔥"
-              />
+              <StatCard label="Total" value={profile.stats.totalPredictions} icon="🔮" />
+              <StatCard label="Correct" value={profile.stats.correctPredictions} icon="✅" />
+              <StatCard label="Champions" value={profile.stats.championPicks} icon="👑" />
+              <StatCard label="Best Streak" value={profile.stats.bestStreak} icon="🔥" />
             </div>
           </>
         )}
+
+        {/* Agreement Leaderboard */}
+        <div className="mb-6">
+          <AgreementLeaderboard />
+        </div>
 
         {/* Recent Ideas */}
         {profile.recentIdeas.length > 0 && (

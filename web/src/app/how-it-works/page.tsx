@@ -13,8 +13,8 @@ export default function HowItWorksPage() {
       <Header />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
-          &larr; Back to home
+        <Link href="/about" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
+          &larr; Back to About
         </Link>
 
         <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">How Union Chant Works</h1>

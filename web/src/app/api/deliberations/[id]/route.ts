@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id] - Get a single deliberation
 export async function GET(
@@ -12,6 +13,12 @@ export async function GET(
   try {
     const { id } = await params
     const session = await getServerSession(authOptions)
+
+    // Privacy gate: check access before returning any data
+    const access = await checkDeliberationAccess(id, session?.user?.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
 
     // Lazy evaluation: check for any pending timer transitions
     await checkAndTransitionDeliberation(id)

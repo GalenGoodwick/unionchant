@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // POST /api/deliberations/[id]/enter - Join a voting cell
 export async function POST(
@@ -15,6 +16,12 @@ export async function POST(
     }
 
     const { id: deliberationId } = await params
+
+    // Privacy gate
+    const access = await checkDeliberationAccess(deliberationId, session.user.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },

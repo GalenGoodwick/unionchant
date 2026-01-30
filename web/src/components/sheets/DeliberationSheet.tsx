@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
+import { useToast } from '@/components/Toast'
 import type { FeedItem } from '@/types/feed'
 
 type Prediction = {
@@ -40,6 +41,7 @@ type Props = {
 
 export default function DeliberationSheet({ item, onAction, onClose }: Props) {
   const { data: session } = useSession()
+  const { showToast } = useToast()
   const [predictions, setPredictions] = useState<Prediction[]>([])
   const [localComments, setLocalComments] = useState<Comment[]>([])
   const [upPollinatedComments, setUpPollinatedComments] = useState<Comment[]>([])
@@ -171,11 +173,11 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
         }, 100)
       } else {
         const data = await res.json()
-        alert(data.error || 'Failed to post comment')
+        showToast(data.error || 'Failed to post comment', 'error')
       }
     } catch (err) {
       console.error('Failed to post comment:', err)
-      alert('Failed to post comment: ' + (err instanceof Error ? err.message : String(err)))
+      showToast('Failed to post comment: ' + (err instanceof Error ? err.message : String(err)), 'error')
     } finally {
       setSubmittingComment(false)
     }

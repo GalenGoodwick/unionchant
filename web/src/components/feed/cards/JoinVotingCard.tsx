@@ -62,8 +62,17 @@ export default function JoinVotingCard({ item, onAction, onExplore }: Props) {
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1 line-clamp-2">{item.deliberation.description}</p>
         )}
-        {item.deliberation.organization && (
-          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        {(item.deliberation.organization || item.community) && (
+          <p className="text-muted-light text-xs mt-1">
+            {item.deliberation.organization}
+            {item.deliberation.organization && item.community && ' · '}
+            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+          </p>
+        )}
+        {item.deliberation.creator && (
+          <p className="text-muted text-xs mt-1">
+            Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
+          </p>
         )}
         <div className="mb-4" />
 

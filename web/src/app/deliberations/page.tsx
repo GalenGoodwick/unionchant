@@ -7,6 +7,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
 import { useAdmin } from '@/hooks/useAdmin'
 import Header from '@/components/Header'
+import Spinner from '@/components/Spinner'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -231,7 +232,7 @@ function DeliberationsList() {
       {/* Table - Desktop / Card list - Mobile */}
       <div className="bg-background rounded-lg border border-border overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-muted">Loading...</div>
+          <div className="p-8 flex justify-center"><Spinner label="Loading deliberations" /></div>
         ) : filteredDeliberations.length === 0 ? (
           <div className="p-8 text-center text-muted">No deliberations found</div>
         ) : (

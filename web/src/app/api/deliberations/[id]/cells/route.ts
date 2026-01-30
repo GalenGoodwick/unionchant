@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id]/cells - Get user's cells in this deliberation
 export async function GET(
@@ -21,6 +22,12 @@ export async function GET(
 
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Privacy gate
+    const access = await checkDeliberationAccess(id, session.user.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
     const user = await prisma.user.findUnique({

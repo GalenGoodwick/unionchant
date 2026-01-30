@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
@@ -8,12 +8,26 @@ import { getDisplayName } from '@/lib/user'
 import Header from '@/components/Header'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
+type AdminTab = 'deliberations' | 'users'
+
+interface AdminUser {
+  id: string
+  email: string
+  name: string | null
+  status: UserStatus
+  image: string | null
+  createdAt: string
+  bannedAt: string | null
+  banReason: string | null
+  _count: { ideas: number; votes: number; comments: number; deliberationsCreated: number }
+}
 
 interface Deliberation {
   id: string
   question: string
   phase: string
   isPublic: boolean
+  organization: string | null
   tags: string[]
   createdAt: string
   submissionEndsAt: string | null
@@ -58,6 +72,26 @@ export default function AdminPage() {
   // Deliberation type
   const [delibType, setDelibType] = useState<'STANDARD' | 'META'>('STANDARD')
 
+  // Tab state
+  const [activeTab, setActiveTab] = useState<AdminTab>('deliberations')
+
+  // User management state
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [usersTotal, setUsersTotal] = useState(0)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersSearch, setUsersSearch] = useState('')
+  const [usersStatus, setUsersStatus] = useState<'' | UserStatus>('')
+  const [usersPage, setUsersPage] = useState(1)
+  const [userActioning, setUserActioning] = useState<string | null>(null)
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Rate limit config
+  const [rateLimits, setRateLimits] = useState<Array<{
+    id?: string; endpoint: string; maxRequests: number; windowMs: number; keyType: string; enabled: boolean
+  }>>([])
+  const [rateLimitsLoading, setRateLimitsLoading] = useState(false)
+  const [rateLimitsSaving, setRateLimitsSaving] = useState<string | null>(null)
+
   const fetchDeliberations = async () => {
     try {
       const res = await fetch('/api/admin/deliberations')
@@ -76,6 +110,74 @@ export default function AdminPage() {
     }
   }
 
+  const fetchUsers = useCallback(async (search = usersSearch, statusFilter = usersStatus, page = usersPage) => {
+    setUsersLoading(true)
+    try {
+      const params = new URLSearchParams()
+      if (search) params.set('q', search)
+      if (statusFilter) params.set('status', statusFilter)
+      params.set('page', String(page))
+      params.set('limit', '20')
+      const res = await fetch(`/api/admin/users?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        setUsers(data.users || [])
+        setUsersTotal(data.total || 0)
+      }
+    } catch (error) {
+      console.error('Failed to fetch users:', error)
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [usersSearch, usersStatus, usersPage])
+
+  // Debounced search for users
+  useEffect(() => {
+    if (activeTab !== 'users') return
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      setUsersPage(1)
+      fetchUsers(usersSearch, usersStatus, 1)
+    }, 300)
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [usersSearch, usersStatus, activeTab, fetchUsers])
+
+  // Page change for users
+  useEffect(() => {
+    if (activeTab === 'users' && usersPage > 1) {
+      fetchUsers(usersSearch, usersStatus, usersPage)
+    }
+  }, [usersPage, activeTab, fetchUsers, usersSearch, usersStatus])
+
+  const handleUserAction = async (userId: string, action: 'ban' | 'unban' | 'delete') => {
+    let reason = ''
+    if (action === 'ban') {
+      reason = window.prompt('Ban reason:') || ''
+      if (!reason) return
+    }
+    if (action === 'delete') {
+      if (!window.confirm('Permanently delete this user? This cannot be undone.')) return
+    }
+    setUserActioning(userId)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason }),
+      })
+      if (res.ok) {
+        fetchUsers()
+      } else {
+        const err = await res.json()
+        alert(`Failed: ${err.error}`)
+      }
+    } catch {
+      alert('Action failed')
+    } finally {
+      setUserActioning(null)
+    }
+  }
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/auth/signin')
@@ -90,6 +192,13 @@ export default function AdminPage() {
           setIsAdmin(data.isAdmin)
           if (data.isAdmin) {
             fetchDeliberations()
+            // Fetch rate limits
+            setRateLimitsLoading(true)
+            fetch('/api/admin/rate-limits')
+              .then(r => r.json())
+              .then(d => setRateLimits(Array.isArray(d) ? d : []))
+              .catch(() => {})
+              .finally(() => setRateLimitsLoading(false))
           }
         })
         .catch(() => setIsAdmin(false))
@@ -179,6 +288,170 @@ export default function AdminPage() {
             Advanced Test Page →
           </Link>
         </div>
+
+        {/* Tab Switcher */}
+        <div className="flex gap-1 mb-6 bg-background rounded-lg border border-border p-1 w-fit">
+          <button
+            onClick={() => setActiveTab('deliberations')}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+              activeTab === 'deliberations' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
+            }`}
+          >
+            Deliberations
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+              activeTab === 'users' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
+            }`}
+          >
+            Users
+          </button>
+        </div>
+
+        {/* Users Tab */}
+        {activeTab === 'users' && (
+          <div>
+            {/* Search & Filter */}
+            <div className="bg-background rounded-lg border border-border p-4 mb-6 flex gap-4 items-center flex-wrap">
+              <input
+                type="text"
+                placeholder="Search by name or email..."
+                value={usersSearch}
+                onChange={(e) => setUsersSearch(e.target.value)}
+                className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-[200px] focus:outline-none focus:border-accent"
+              />
+              <select
+                value={usersStatus}
+                onChange={(e) => setUsersStatus(e.target.value as '' | UserStatus)}
+                className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+              >
+                <option value="">All Statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="BANNED">Banned</option>
+                <option value="DELETED">Deleted</option>
+              </select>
+              <span className="text-muted text-sm">{usersTotal} users</span>
+            </div>
+
+            {/* Users Table */}
+            <div className="bg-background rounded-lg border border-border overflow-hidden mb-6">
+              {usersLoading ? (
+                <div className="p-8 text-center text-muted">Loading...</div>
+              ) : users.length === 0 ? (
+                <div className="p-8 text-center text-muted">No users found</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-surface border-b border-border">
+                    <tr>
+                      <th className="text-left p-4 text-muted font-medium text-sm">User</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Status</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Joined</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Ideas</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Votes</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u) => (
+                      <tr key={u.id} className="border-t border-border hover:bg-surface">
+                        <td className="p-4">
+                          <div className="flex items-center gap-3">
+                            {u.image && (
+                              <img src={u.image} alt="" className="w-8 h-8 rounded-full" />
+                            )}
+                            <div>
+                              <div className="text-foreground font-medium text-sm">
+                                {u.name || 'No name'}
+                              </div>
+                              <div className="text-muted text-xs">{u.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            u.status === 'ACTIVE' ? 'bg-success-bg text-success' :
+                            u.status === 'BANNED' ? 'bg-error-bg text-error' :
+                            'bg-surface text-muted'
+                          }`}>
+                            {u.status}
+                          </span>
+                          {u.banReason && (
+                            <div className="text-xs text-muted mt-1" title={u.banReason}>
+                              {u.banReason.length > 30 ? u.banReason.slice(0, 30) + '...' : u.banReason}
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-4 text-muted text-sm font-mono">
+                          {new Date(u.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="p-4 text-muted font-mono text-sm">{u._count.ideas}</td>
+                        <td className="p-4 text-muted font-mono text-sm">{u._count.votes}</td>
+                        <td className="p-4">
+                          <div className="flex gap-2">
+                            {u.status === 'ACTIVE' && (
+                              <button
+                                onClick={() => handleUserAction(u.id, 'ban')}
+                                disabled={userActioning === u.id}
+                                className="text-warning hover:text-warning-hover text-sm disabled:opacity-50"
+                              >
+                                Ban
+                              </button>
+                            )}
+                            {u.status === 'BANNED' && (
+                              <button
+                                onClick={() => handleUserAction(u.id, 'unban')}
+                                disabled={userActioning === u.id}
+                                className="text-success hover:text-success-hover text-sm disabled:opacity-50"
+                              >
+                                Unban
+                              </button>
+                            )}
+                            {u.status !== 'DELETED' && (
+                              <button
+                                onClick={() => handleUserAction(u.id, 'delete')}
+                                disabled={userActioning === u.id}
+                                className="text-error hover:text-error-hover text-sm disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Pagination */}
+            {usersTotal > 20 && (
+              <div className="flex items-center justify-center gap-4 mb-6">
+                <button
+                  onClick={() => setUsersPage(p => Math.max(1, p - 1))}
+                  disabled={usersPage <= 1}
+                  className="px-3 py-1.5 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-muted text-sm">
+                  Page {usersPage} of {Math.ceil(usersTotal / 20)}
+                </span>
+                <button
+                  onClick={() => setUsersPage(p => p + 1)}
+                  disabled={usersPage >= Math.ceil(usersTotal / 20)}
+                  className="px-3 py-1.5 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Deliberations Tab */}
+        {activeTab === 'deliberations' && (<>
 
         {/* Test Tools */}
         <div className="bg-background rounded-lg border border-border p-4 mb-6">
@@ -529,6 +802,30 @@ export default function AdminPage() {
             </button>
             <button
               onClick={async () => {
+                setCreating(true)
+                setCreateStatus('Creating private demo deliberation...')
+                try {
+                  const res = await fetch('/api/admin/test/create-private-demo', { method: 'POST' })
+                  const data = await res.json()
+                  if (res.ok) {
+                    setCreateStatus(`Private demo created! Invite: ${window.location.origin}${data.inviteUrl}`)
+                    router.push(`/admin/deliberation/${data.deliberationId}`)
+                  } else {
+                    setCreateStatus(`Error: ${data.error}`)
+                  }
+                } catch {
+                  setCreateStatus('Error: Failed to create')
+                } finally {
+                  setCreating(false)
+                }
+              }}
+              disabled={creating}
+              className="bg-header hover:bg-header/80 disabled:bg-muted text-white px-4 py-2 rounded transition-colors text-sm"
+            >
+              Private Demo
+            </button>
+            <button
+              onClick={async () => {
                 if (!confirm('Delete ALL test bot users (TestBot, Test User, @test.bot, etc)?')) return
                 setCreateStatus('Wiping test bots...')
                 try {
@@ -668,6 +965,9 @@ export default function AdminPage() {
                       <Link href={`/admin/deliberation/${d.id}`} className="text-foreground hover:text-accent font-medium">
                         {d.question.length > 50 ? d.question.slice(0, 50) + '...' : d.question}
                       </Link>
+                      {d.organization && (
+                        <div className="text-xs text-muted mt-0.5">{d.organization}</div>
+                      )}
                       <div className="flex gap-1 mt-1">
                         {!d.isPublic && (
                           <span className="text-xs bg-surface text-muted px-1.5 py-0.5 rounded border border-border">
@@ -741,6 +1041,109 @@ export default function AdminPage() {
             </table>
           )}
         </div>
+
+        {/* Rate Limits Section */}
+        <div className="bg-background rounded-xl p-6 border border-border">
+          <h2 className="text-xl font-bold text-foreground mb-4">Rate Limits</h2>
+          <p className="text-muted text-sm mb-4">Configure rate limiting for different endpoints. Changes take effect within 60 seconds.</p>
+
+          {rateLimitsLoading ? (
+            <div className="text-muted text-sm">Loading rate limits...</div>
+          ) : rateLimits.length === 0 ? (
+            <div className="text-muted text-sm">No rate limit configs found. They will be created with defaults on first use.</div>
+          ) : (
+            <div className="space-y-4">
+              {rateLimits.map((rl) => (
+                <div key={rl.endpoint} className="bg-surface border border-border rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-foreground font-semibold">{rl.endpoint}</span>
+                      <span className="text-xs text-muted px-2 py-0.5 bg-background rounded">key: {rl.keyType}</span>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        setRateLimitsSaving(rl.endpoint)
+                        try {
+                          const res = await fetch('/api/admin/rate-limits', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ endpoint: rl.endpoint, enabled: !rl.enabled }),
+                          })
+                          if (res.ok) {
+                            setRateLimits(prev => prev.map(r =>
+                              r.endpoint === rl.endpoint ? { ...r, enabled: !r.enabled } : r
+                            ))
+                          }
+                        } catch {}
+                        setRateLimitsSaving(null)
+                      }}
+                      disabled={rateLimitsSaving === rl.endpoint}
+                      className={`text-sm font-medium px-3 py-1 rounded ${rl.enabled ? 'bg-success-bg text-success' : 'bg-error-bg text-error'}`}
+                    >
+                      {rl.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs text-muted mb-1 block">Max requests</label>
+                      <input
+                        type="number"
+                        value={rl.maxRequests}
+                        min={1}
+                        onChange={e => {
+                          const val = parseInt(e.target.value) || 1
+                          setRateLimits(prev => prev.map(r =>
+                            r.endpoint === rl.endpoint ? { ...r, maxRequests: val } : r
+                          ))
+                        }}
+                        className="w-full bg-background border border-border rounded px-3 py-1.5 text-foreground text-sm font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted mb-1 block">Window (seconds)</label>
+                      <input
+                        type="number"
+                        value={Math.round(rl.windowMs / 1000)}
+                        min={1}
+                        onChange={e => {
+                          const val = (parseInt(e.target.value) || 1) * 1000
+                          setRateLimits(prev => prev.map(r =>
+                            r.endpoint === rl.endpoint ? { ...r, windowMs: val } : r
+                          ))
+                        }}
+                        className="w-full bg-background border border-border rounded px-3 py-1.5 text-foreground text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setRateLimitsSaving(rl.endpoint)
+                      try {
+                        await fetch('/api/admin/rate-limits', {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            endpoint: rl.endpoint,
+                            maxRequests: rl.maxRequests,
+                            windowMs: rl.windowMs,
+                            enabled: rl.enabled,
+                          }),
+                        })
+                      } catch {}
+                      setRateLimitsSaving(null)
+                    }}
+                    disabled={rateLimitsSaving === rl.endpoint}
+                    className="mt-3 bg-accent hover:bg-accent-hover text-white text-sm px-4 py-1.5 rounded transition-colors disabled:opacity-50"
+                  >
+                    {rateLimitsSaving === rl.endpoint ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        </>)}
       </div>
     </div>
   )

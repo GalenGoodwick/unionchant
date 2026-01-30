@@ -1,0 +1,350 @@
+'use client'
+
+import { useSession } from 'next-auth/react'
+import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import Header from '@/components/Header'
+import { getDisplayName } from '@/lib/user'
+
+type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
+
+type Member = {
+  id: string
+  role: string
+  userId: string
+  joinedAt: string
+  user: { id: string; name: string | null; image: string | null; status: UserStatus }
+}
+
+type Community = {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  isPublic: boolean
+  inviteCode: string | null
+  userRole: string | null
+  members: Member[]
+  _count: { members: number; deliberations: number }
+}
+
+export default function CommunitySettingsPage() {
+  const { data: session, status } = useSession()
+  const params = useParams()
+  const router = useRouter()
+  const slug = params.slug as string
+
+  const [community, setCommunity] = useState<Community | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [formData, setFormData] = useState({ name: '', description: '', isPublic: true, postingPermission: 'anyone' })
+
+  // Invite form
+  const [inviteEmails, setInviteEmails] = useState('')
+  const [inviteSending, setInviteSending] = useState(false)
+  const [inviteResult, setInviteResult] = useState('')
+
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.push('/auth/signin')
+      return
+    }
+    if (status === 'authenticated') {
+      fetch(`/api/communities/${slug}`)
+        .then(res => {
+          if (!res.ok) throw new Error('Not found')
+          return res.json()
+        })
+        .then(data => {
+          setCommunity(data)
+          setFormData({
+            name: data.name,
+            description: data.description || '',
+            isPublic: data.isPublic,
+            postingPermission: data.postingPermission || 'anyone',
+          })
+        })
+        .catch(err => setError(err.message))
+        .finally(() => setLoading(false))
+    }
+  }, [status, slug, router])
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      const res = await fetch(`/api/communities/${slug}/settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to save')
+      }
+      setSuccess('Settings saved')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRoleChange = async (userId: string, newRole: 'ADMIN' | 'MEMBER') => {
+    try {
+      const res = await fetch(`/api/communities/${slug}/members/${userId}/role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: newRole }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      // Refresh
+      const updated = await fetch(`/api/communities/${slug}`).then(r => r.json())
+      setCommunity(updated)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to change role')
+    }
+  }
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!confirm('Remove this member?')) return
+    try {
+      const res = await fetch(`/api/communities/${slug}/members/${userId}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      const updated = await fetch(`/api/communities/${slug}`).then(r => r.json())
+      setCommunity(updated)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove')
+    }
+  }
+
+  const handleSendInvites = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setInviteSending(true)
+    setInviteResult('')
+
+    const emails = inviteEmails.split(/[,\n]/).map(e => e.trim()).filter(e => e)
+    if (emails.length === 0) {
+      setInviteResult('Enter at least one email')
+      setInviteSending(false)
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/communities/${slug}/invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      const data = await res.json()
+      setInviteResult(`Sent ${data.sent} invite(s)${data.failed ? `, ${data.failed} failed` : ''}`)
+      setInviteEmails('')
+    } catch (err) {
+      setInviteResult(err instanceof Error ? err.message : 'Failed to send')
+    } finally {
+      setInviteSending(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="max-w-4xl mx-auto px-4 py-8">
+          <div className="animate-pulse h-8 bg-surface rounded w-1/3" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!community || (community.userRole !== 'OWNER' && community.userRole !== 'ADMIN')) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <div className="max-w-4xl mx-auto px-4 py-8 text-center">
+          <h1 className="text-2xl font-bold text-foreground mb-4">Access Denied</h1>
+          <p className="text-muted">Only owners and admins can access settings.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <Link href={`/communities/${slug}`} className="text-muted hover:text-foreground text-sm mb-4 inline-block">
+          &larr; Back to community
+        </Link>
+
+        <h1 className="text-2xl font-bold text-foreground mb-6">Settings: {community.name}</h1>
+
+        {error && <div className="bg-error-bg text-error p-4 rounded-lg mb-4">{error}</div>}
+        {success && <div className="bg-success-bg text-success p-4 rounded-lg mb-4">{success}</div>}
+
+        {/* Community Info */}
+        <div className="bg-surface border border-border rounded-lg p-6 mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Community Info</h2>
+          <form onSubmit={handleSave} className="space-y-4">
+            <div>
+              <label className="block text-foreground font-medium mb-1">Name</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                className="w-full bg-background border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="block text-foreground font-medium mb-1">Description</label>
+              <textarea
+                rows={3}
+                value={formData.description}
+                onChange={e => setFormData({ ...formData, description: e.target.value })}
+                className="w-full bg-background border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.isPublic}
+                  onChange={e => setFormData({ ...formData, isPublic: e.target.checked })}
+                  className="w-4 h-4 text-accent"
+                />
+                <span className="text-foreground text-sm">Public community</span>
+              </label>
+            </div>
+            <div>
+              <label className="block text-foreground font-medium mb-2">Who can create deliberations?</label>
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="postingPermission"
+                    checked={formData.postingPermission === 'anyone'}
+                    onChange={() => setFormData({ ...formData, postingPermission: 'anyone' })}
+                    className="w-4 h-4 text-accent"
+                  />
+                  <span className="text-foreground text-sm">Any member</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="postingPermission"
+                    checked={formData.postingPermission === 'admins'}
+                    onChange={() => setFormData({ ...formData, postingPermission: 'admins' })}
+                    className="w-4 h-4 text-accent"
+                  />
+                  <span className="text-foreground text-sm">Owners and admins only</span>
+                </label>
+              </div>
+            </div>
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </form>
+        </div>
+
+        {/* Email Invites */}
+        <div className="bg-surface border border-border rounded-lg p-6 mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Invite Members</h2>
+          <form onSubmit={handleSendInvites} className="space-y-4">
+            <div>
+              <label className="block text-foreground font-medium mb-1">Email addresses</label>
+              <textarea
+                rows={3}
+                placeholder="Enter emails separated by commas or new lines"
+                value={inviteEmails}
+                onChange={e => setInviteEmails(e.target.value)}
+                className="w-full bg-background border border-border rounded-lg px-4 py-2 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+              />
+            </div>
+            {inviteResult && <p className="text-sm text-muted">{inviteResult}</p>}
+            <button
+              type="submit"
+              disabled={inviteSending}
+              className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50"
+            >
+              {inviteSending ? 'Sending...' : 'Send Invites'}
+            </button>
+          </form>
+        </div>
+
+        {/* Members */}
+        <div className="bg-surface border border-border rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">
+            Members ({community._count.members})
+          </h2>
+          <div className="divide-y divide-border">
+            {community.members.map(m => (
+              <div key={m.id} className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  {m.user.image ? (
+                    <img src={m.user.image} alt="" className="w-8 h-8 rounded-full" />
+                  ) : (
+                    <span className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-sm font-medium text-accent">
+                      {(m.user.name || '?').charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <div>
+                    <span className="text-foreground text-sm">{getDisplayName(m.user)}</span>
+                    <span className="text-muted text-xs ml-2">{m.role}</span>
+                  </div>
+                </div>
+                {m.role !== 'OWNER' && community.userRole === 'OWNER' && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleRoleChange(m.user.id, m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN')}
+                      className="text-xs text-accent hover:text-accent-hover transition-colors"
+                    >
+                      {m.role === 'ADMIN' ? 'Demote' : 'Promote'}
+                    </button>
+                    <button
+                      onClick={() => handleRemoveMember(m.user.id)}
+                      className="text-xs text-error hover:text-error-hover transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+                {m.role === 'MEMBER' && community.userRole === 'ADMIN' && (
+                  <button
+                    onClick={() => handleRemoveMember(m.user.id)}
+                    className="text-xs text-error hover:text-error-hover transition-colors"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

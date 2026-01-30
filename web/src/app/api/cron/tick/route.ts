@@ -1,9 +1,12 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { processAllTimers } from '@/lib/timer-processor'
 
-// GET /api/cron/tick - Public endpoint for external cron services
-// Can be called by services like cron-job.org, EasyCron, etc.
-export async function GET() {
+// GET /api/cron/tick - Protected endpoint for external cron services
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get('authorization')
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const result = await processAllTimers()
 

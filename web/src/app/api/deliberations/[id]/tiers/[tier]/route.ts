@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id]/tiers/[tier] - Get batch/tier information for spectators
 export async function GET(
@@ -12,6 +15,13 @@ export async function GET(
 
     if (isNaN(tier) || tier < 1) {
       return NextResponse.json({ error: 'Invalid tier' }, { status: 400 })
+    }
+
+    // Privacy gate
+    const session = await getServerSession(authOptions)
+    const access = await checkDeliberationAccess(deliberationId, session?.user?.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
     // Get deliberation for tier deadline calculation

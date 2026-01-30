@@ -1,19 +1,26 @@
 'use client'
 
 import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Header from '@/components/Header'
+import { FullPageSpinner } from '@/components/Spinner'
 import Turnstile from '@/components/Turnstile'
+
+type CommunityOption = { id: string; name: string; slug: string }
 
 export default function NewDeliberationPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const communitySlug = searchParams.get('community')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
-  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [communities, setCommunities] = useState<CommunityOption[]>([])
+  const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
+  const [communityOnly, setCommunityOnly] = useState(false)
 
   const handleCaptchaVerify = useCallback((token: string) => {
     setCaptchaToken(token)
@@ -26,8 +33,6 @@ export default function NewDeliberationPage() {
   const [formData, setFormData] = useState({
     question: '',
     description: '',
-    organization: '',
-    isPublic: true,
     tagsInput: '',
     // Timer settings
     submissionHours: 24,
@@ -44,10 +49,27 @@ export default function NewDeliberationPage() {
     spawnedIdeaGoal: 10,
   })
 
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetch('/api/communities/mine')
+        .then(res => res.json())
+        .then((data: CommunityOption[]) => {
+          if (Array.isArray(data)) {
+            setCommunities(data)
+            if (communitySlug) {
+              const match = data.find((c: CommunityOption) => c.slug === communitySlug)
+              if (match) setSelectedCommunityId(match.id)
+            }
+          }
+        })
+        .catch(() => {})
+    }
+  }, [status, communitySlug])
+
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
+      <div className="min-h-screen bg-surface">
+        <FullPageSpinner />
       </div>
     )
   }
@@ -108,8 +130,7 @@ export default function NewDeliberationPage() {
         body: JSON.stringify({
           question: formData.question,
           description: formData.description,
-          organization: formData.organization || null,
-          isPublic: formData.isPublic,
+          isPublic: true,
           tags,
           // Timer settings (only for timer mode)
           submissionDurationMs: formData.startMode === 'timer' ? formData.submissionHours * 60 * 60 * 1000 : null,
@@ -123,6 +144,8 @@ export default function NewDeliberationPage() {
           spawnedStartMode: formData.winnerMode === 'spawns' ? formData.spawnedStartMode : null,
           spawnedSubmissionHours: formData.winnerMode === 'spawns' ? formData.spawnedSubmissionHours : null,
           spawnedIdeaGoal: formData.winnerMode === 'spawns' && formData.spawnedStartMode === 'ideas' ? formData.spawnedIdeaGoal : null,
+          communityId: selectedCommunityId || undefined,
+          communityOnly: selectedCommunityId ? communityOnly : undefined,
           captchaToken,
         }),
       })
@@ -186,19 +209,6 @@ export default function NewDeliberationPage() {
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 />
                 <p className="text-muted-light text-xs mt-1 text-right">{formData.description.length}/500</p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="isPublic"
-                  checked={formData.isPublic}
-                  onChange={(e) => setFormData({ ...formData, isPublic: e.target.checked })}
-                  className="w-4 h-4 rounded border-border-strong bg-background text-accent focus:ring-accent"
-                />
-                <label htmlFor="isPublic" className="text-muted">
-                  Make this deliberation public (anyone can join)
-                </label>
               </div>
 
               {/* Voting Start Mode */}
@@ -453,53 +463,52 @@ export default function NewDeliberationPage() {
               </div>
             </div>
 
-            {/* ADVANCED SECTION */}
-            <div className="border-t border-border pt-6">
-              <button
-                type="button"
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                className="flex items-center gap-2 text-muted hover:text-foreground transition-colors"
-              >
-                <span className={`transform transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>
-                  ▶
-                </span>
-                <span className="font-medium">Advanced Settings</span>
-              </button>
-
-              {showAdvanced && (
-                <div className="mt-4 space-y-6 pl-6 border-l-2 border-border">
-                  <div>
-                    <label htmlFor="organization" className="block text-foreground font-medium mb-2">
-                      Organization (optional)
-                    </label>
-                    <input
-                      type="text"
-                      id="organization"
-                      placeholder="e.g., Minneapolis Teachers Union"
-                      className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
-                      value={formData.organization}
-                      onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
-                    />
-                    <p className="text-muted-light text-sm mt-1">Help members find deliberations from their organization</p>
-                  </div>
-
-                  <div>
-                    <label htmlFor="tags" className="block text-foreground font-medium mb-2">
-                      Tags (optional)
-                    </label>
-                    <input
-                      type="text"
-                      id="tags"
-                      placeholder="climate, policy, local (comma separated, max 5)"
-                      className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
-                      value={formData.tagsInput}
-                      onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
-                    />
-                    <p className="text-muted-light text-sm mt-1">Help others find your deliberation</p>
-                  </div>
-                </div>
-              )}
+            {/* Tags */}
+            <div>
+              <label htmlFor="tags" className="block text-foreground font-medium mb-2">
+                Tags (optional)
+              </label>
+              <input
+                type="text"
+                id="tags"
+                placeholder="climate, policy, local (comma separated, max 5)"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.tagsInput}
+                onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
+              />
+              <p className="text-muted-light text-sm mt-1">Help others find your deliberation</p>
             </div>
+
+            {/* Community Selector */}
+            {communities.length > 0 && (
+              <div className="border-t border-border pt-6 mt-6">
+                <h2 className="text-lg font-semibold text-foreground mb-4">Community (optional)</h2>
+                <select
+                  value={selectedCommunityId || ''}
+                  onChange={e => {
+                    setSelectedCommunityId(e.target.value || null)
+                    if (!e.target.value) setCommunityOnly(false)
+                  }}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="">No community</option>
+                  {communities.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                {selectedCommunityId && (
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={communityOnly}
+                      onChange={e => setCommunityOnly(e.target.checked)}
+                      className="w-4 h-4 text-accent"
+                    />
+                    <span className="text-foreground text-sm">Community only (not visible in public feed)</span>
+                  </label>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="bg-error-bg border border-error-border text-error px-4 py-3 rounded-lg">

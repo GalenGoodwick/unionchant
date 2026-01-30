@@ -67,7 +67,15 @@ export async function POST(req: NextRequest) {
     logs.push('Starting challenge round...')
     const challengeResult = await startChallengeRound(deliberationId)
 
-    if (challengeResult.extended) {
+    if (!challengeResult) {
+      return NextResponse.json({
+        success: false,
+        logs,
+        error: 'Challenge round already started by another caller',
+      })
+    }
+
+    if ('extended' in challengeResult && challengeResult.extended) {
       return NextResponse.json({
         success: false,
         logs,
@@ -75,9 +83,11 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    logs.push(`Challenge round ${challengeResult.challengeRound} started`)
-    logs.push(`Challengers competing: ${challengeResult.challengers}`)
-    logs.push(`Retired: ${challengeResult.retired}, Benched: ${challengeResult.benched}`)
+    if ('challengeRound' in challengeResult) {
+      logs.push(`Challenge round ${challengeResult.challengeRound} started`)
+      logs.push(`Challengers competing: ${challengeResult.challengers}`)
+      logs.push(`Retired: ${challengeResult.retired}, Benched: ${challengeResult.benched}`)
+    }
 
     // Step 3: Simulate voting through all tiers
     let votesCreated = 0
@@ -165,7 +175,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       logs,
-      challengeRound: challengeResult.challengeRound,
+      challengeRound: challengeResult && 'challengeRound' in challengeResult ? challengeResult.challengeRound : null,
       votesCreated,
       tiersProcessed,
       finalPhase: finalDeliberation?.phase,

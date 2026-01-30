@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
 import CountdownTimer from '@/components/CountdownTimer'
 import ShareMenu from '@/components/ShareMenu'
+import Spinner from '@/components/Spinner'
+import { useToast } from '@/components/Toast'
 
 function CellIdeasCollapsible({ ideas, winnerId, votedIdeaId, tier }: {
   ideas: { id: string; text: string; author: string }[]
@@ -81,6 +83,7 @@ type CellResult = {
 }
 
 export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDismiss }: Props) {
+  const { showToast } = useToast()
   const cell = item.cell!
 
   // Initialize state from pre-fetched data
@@ -93,34 +96,47 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
   const isInitiallyCompleted = cell.status === 'COMPLETED'
 
   // Poll for cell status after voting OR if cell is already completed
+  const pollStatus = useCallback(async () => {
+    // Don't poll when tab hidden
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+
+    try {
+      const res = await fetch(`/api/cells/${cell.id}`)
+      if (res.ok) {
+        const data = await res.json()
+        setCellResult({
+          status: data.status,
+          winner: data.winner,
+          champion: data.champion,
+          votedCount: data.votedCount || 0,
+          participantCount: data.participantCount || cell.participantCount,
+          secondVotesEnabled: data.secondVotesEnabled,
+          secondVoteDeadline: data.secondVoteDeadline,
+          deliberation: data.deliberation,
+        })
+      }
+    } catch (err) {
+      console.error('Failed to fetch cell status:', err)
+    }
+  }, [cell.id, cell.participantCount])
+
   useEffect(() => {
     if (!voted && !isInitiallyCompleted) return
 
-    const pollStatus = async () => {
-      try {
-        const res = await fetch(`/api/cells/${cell.id}`)
-        if (res.ok) {
-          const data = await res.json()
-          setCellResult({
-            status: data.status,
-            winner: data.winner,
-            champion: data.champion,
-            votedCount: data.votedCount || 0,
-            participantCount: data.participantCount || cell.participantCount,
-            secondVotesEnabled: data.secondVotesEnabled,
-            secondVoteDeadline: data.secondVoteDeadline,
-            deliberation: data.deliberation,
-          })
-        }
-      } catch (err) {
-        console.error('Failed to fetch cell status:', err)
-      }
-    }
-
     pollStatus()
     const interval = setInterval(pollStatus, 3000)
-    return () => clearInterval(interval)
-  }, [voted, cell.id, cell.participantCount, isInitiallyCompleted])
+
+    // Re-fetch when tab becomes visible
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') pollStatus()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [voted, isInitiallyCompleted, pollStatus])
 
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -141,11 +157,11 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         onAction() // Trigger feed refresh
       } else {
         const data = await res.json()
-        alert(data.error || 'Failed to vote')
+        showToast(data.error || 'Failed to vote', 'error')
       }
     } catch (err) {
       console.error('Vote error:', err)
-      alert('Failed to vote')
+      showToast('Failed to vote', 'error')
     } finally {
       setVoting(null)
       setIsProcessing(false)
@@ -168,12 +184,12 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
     return (
       <div className="bg-surface border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border">
-          <span className="font-bold text-sm uppercase tracking-wide text-muted">Loading results...</span>
+          <span className="font-bold text-sm uppercase tracking-wide text-muted">Loading results</span>
         </div>
         <div className="p-4">
           <p className="text-lg font-semibold text-foreground">&quot;{item.deliberation.question}&quot;</p>
           <div className="mt-4 flex justify-center">
-            <div className="animate-spin w-6 h-6 border-3 border-accent border-t-transparent rounded-full" />
+            <Spinner size="sm" />
           </div>
         </div>
       </div>
@@ -218,8 +234,17 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
           {item.deliberation.description && (
             <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
           )}
-          {item.deliberation.organization && (
-            <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+          {(item.deliberation.organization || item.community) && (
+            <p className="text-muted-light text-xs mt-1">
+              {item.deliberation.organization}
+              {item.deliberation.organization && item.community && ' · '}
+              {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+            </p>
+          )}
+          {item.deliberation.creator && (
+            <p className="text-muted text-xs mt-1">
+              Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
+            </p>
           )}
           <div className="mb-4" />
 
@@ -369,8 +394,17 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
         )}
-        {item.deliberation.organization && (
-          <p className="text-muted-light text-xs mt-1">{item.deliberation.organization}</p>
+        {(item.deliberation.organization || item.community) && (
+          <p className="text-muted-light text-xs mt-1">
+            {item.deliberation.organization}
+            {item.deliberation.organization && item.community && ' · '}
+            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+          </p>
+        )}
+        {item.deliberation.creator && (
+          <p className="text-muted text-xs mt-1">
+            Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
+          </p>
         )}
         <div className="mb-4" />
 

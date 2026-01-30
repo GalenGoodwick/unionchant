@@ -36,11 +36,24 @@ export default function NotificationBell() {
     }
   }
 
-  // Initial fetch and polling
+  // Initial fetch and polling with visibility check
   useEffect(() => {
     fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30000) // Poll every 30s
-    return () => clearInterval(interval)
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      fetchNotifications()
+    }, 30000)
+
+    // Re-fetch when tab becomes visible
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchNotifications()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   // Close dropdown when clicking outside

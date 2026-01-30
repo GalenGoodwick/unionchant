@@ -58,12 +58,23 @@ model User {
   predictions          Prediction[]
   notifications        Notification[]
 
+  // Community relations
+  communitiesCreated   Community[]        @relation("CommunityCreator")
+  communityMemberships CommunityMember[]
+
+  // Auth
+  passwordHash  String?
+
   // Prediction stats (denormalized for fast leaderboard queries)
   totalPredictions     Int @default(0)
   correctPredictions   Int @default(0)
   championPicks        Int @default(0)  // Predicted idea that became champion
   currentStreak        Int @default(0)
   bestStreak           Int @default(0)
+
+  // Follow relations
+  followers     Follow[] @relation("Followers")
+  following     Follow[] @relation("Following")
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -164,6 +175,10 @@ model Deliberation {
   completedAt         DateTime?
   accumulationEndsAt  DateTime? // When the accumulation period ends
 
+  // Community FK
+  communityId   String?
+  community     Community?  @relation(fields: [communityId], references: [id], onDelete: SetNull)
+
   // Relations
   members       DeliberationMember[]
   ideas         Idea[]
@@ -175,6 +190,10 @@ model Deliberation {
   @@index([isPublic, phase])
   @@index([type])
   @@index([organization])
+  @@index([communityId])
+  @@index([submissionEndsAt])
+  @@index([currentTierStartedAt])
+  @@index([phase, createdAt])
 }
 
 enum Phase {
@@ -336,6 +355,7 @@ model CellParticipation {
   @@index([cellId])
   @@index([userId])
   @@index([cellId, status])
+  @@index([userId, status])
 }
 
 enum ParticipantStatus {
@@ -497,6 +517,7 @@ model Notification {
   cellId          String?
   commentId       String?
   ideaId          String?
+  communityId     String?
 
   // State
   read            Boolean  @default(false)
@@ -517,4 +538,98 @@ enum NotificationType {
   IDEA_WON             // Your idea won
   VOTE_NEEDED          // Your cell needs your vote
   DELIBERATION_UPDATE  // General deliberation update
+  COMMUNITY_INVITE     // Invited to a community
+  COMMUNITY_NEW_DELIB  // New deliberation in a community you belong to
+  FOLLOW               // Someone followed you
+}
+
+// ============ COMMUNITIES ============
+
+enum CommunityRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model Community {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  image       String?
+  isPublic    Boolean  @default(true)
+  inviteCode  String?  @unique
+
+  // Who can create deliberations: "anyone" (any member) or "admins" (owner+admin only)
+  postingPermission String @default("anyone")
+
+  creatorId   String
+  creator     User     @relation("CommunityCreator", fields: [creatorId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members       CommunityMember[]
+  deliberations Deliberation[]
+
+  @@index([creatorId])
+  @@index([isPublic])
+}
+
+model CommunityMember {
+  id            String         @id @default(cuid())
+  communityId   String
+  community     Community      @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          CommunityRole  @default(MEMBER)
+  joinedAt      DateTime       @default(now())
+  lastActiveAt  DateTime       @default(now())
+
+  @@unique([communityId, userId])
+  @@index([communityId])
+  @@index([userId])
+}
+
+// ============ FOLLOWS ============
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  followingId String
+  following   User     @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+// ============ AGREEMENT SCORES ============
+
+model AgreementScore {
+  id            String   @id @default(cuid())
+  userAId       String
+  userBId       String
+  agreeCount    Int      @default(0)
+  disagreeCount Int      @default(0)
+  totalCells    Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+// ============ RATE LIMIT CONFIG ============
+
+model RateLimitConfig {
+  id          String   @id @default(cuid())
+  endpoint    String   @unique  // e.g. "vote", "idea", "signup", "deliberation"
+  maxRequests Int      @default(10)
+  windowMs    Int      @default(60000)  // Window in milliseconds
+  keyType     String   @default("userId")  // "userId" or "ip"
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
 }

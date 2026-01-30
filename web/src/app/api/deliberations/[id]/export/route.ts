@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { jsPDF } from 'jspdf'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id]/export - Export deliberation data
 export async function GET(
@@ -14,6 +15,12 @@ export async function GET(
     const session = await getServerSession(authOptions)
     const { searchParams } = new URL(req.url)
     const format = searchParams.get('format') || 'json'
+
+    // Privacy gate: membership check for private deliberations
+    const access = await checkDeliberationAccess(id, session?.user?.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
 
     // Get deliberation with all related data
     const deliberation = await prisma.deliberation.findUnique({
@@ -79,22 +86,6 @@ export async function GET(
 
     if (!deliberation) {
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
-    }
-
-    // Check access - must be public or user must be a member
-    if (!deliberation.isPublic) {
-      if (!session?.user?.email) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
-
-      const user = await prisma.user.findUnique({
-        where: { email: session.user.email },
-      })
-
-      const isMember = deliberation.members.some(m => m.userId === user?.id)
-      if (!isMember) {
-        return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-      }
     }
 
     // Build export data

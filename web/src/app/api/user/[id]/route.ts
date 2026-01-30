@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 // GET /api/user/[id] - Get public user profile
@@ -9,6 +11,16 @@ export async function GET(
   try {
     const { id } = await params
 
+    const session = await getServerSession(authOptions)
+    let viewerId: string | null = null
+    if (session?.user?.email) {
+      const viewer = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { id: true },
+      })
+      viewerId = viewer?.id || null
+    }
+
     const user = await prisma.user.findUnique({
       where: { id },
     })
@@ -18,6 +30,7 @@ export async function GET(
     }
 
     // Get counts separately for reliability
+    // Core stats (these tables always exist)
     const [ideasCount, votesCount, commentsCount, deliberationsCreatedCount, membershipsCount] = await Promise.all([
       prisma.idea.count({ where: { authorId: id } }),
       prisma.vote.count({ where: { userId: id } }),
@@ -25,6 +38,64 @@ export async function GET(
       prisma.deliberation.count({ where: { creatorId: id } }),
       prisma.deliberationMember.count({ where: { userId: id } }),
     ])
+
+    // Enhanced stats - wrapped in try/catch so profile still loads if any query fails
+    let followersCount = 0
+    let followingCount = 0
+    let isFollowingRecord: any = null
+    let ideasWonCount = 0
+    let upPollinateStats: any = { _max: { reachTier: null }, _sum: { upvoteCount: null } }
+    let commentUpvoteTotal = 0
+    let deliberationsVotedIn: any[] = []
+    let highestTierIdea: any = { _max: { tier: null } }
+    let tierBreakdown: any[] = []
+
+    try {
+      const results = await Promise.all([
+        prisma.follow.count({ where: { followingId: id } }),
+        prisma.follow.count({ where: { followerId: id } }),
+        viewerId && viewerId !== id
+          ? prisma.follow.findUnique({
+              where: { followerId_followingId: { followerId: viewerId, followingId: id } },
+            })
+          : Promise.resolve(null),
+        prisma.idea.count({ where: { authorId: id, status: 'WINNER' } }),
+        prisma.comment.aggregate({
+          where: { userId: id },
+          _max: { reachTier: true },
+          _sum: { upvoteCount: true },
+        }),
+        prisma.commentUpvote.count({
+          where: { comment: { userId: id } },
+        }),
+        prisma.vote.findMany({
+          where: { userId: id },
+          select: { cell: { select: { deliberationId: true } } },
+          distinct: ['cellId'],
+        }),
+        prisma.idea.aggregate({
+          where: { authorId: id },
+          _max: { tier: true },
+        }),
+        prisma.idea.groupBy({
+          by: ['tier'],
+          where: { authorId: id, tier: { gt: 0 } },
+          _count: true,
+          orderBy: { tier: 'asc' },
+        }),
+      ])
+      followersCount = results[0]
+      followingCount = results[1]
+      isFollowingRecord = results[2]
+      ideasWonCount = results[3]
+      upPollinateStats = results[4]
+      commentUpvoteTotal = results[5]
+      deliberationsVotedIn = results[6]
+      highestTierIdea = results[7]
+      tierBreakdown = results[8]
+    } catch (err) {
+      console.error('Error fetching enhanced stats (using defaults):', err)
+    }
 
     // Get recent activity (last 10 deliberations participated in)
     const recentMemberships = await prisma.deliberationMember.findMany({
@@ -64,6 +135,11 @@ export async function GET(
         ? Math.round((user.correctPredictions / user.totalPredictions) * 100)
         : null
 
+    // Compute enhanced stats
+    const distinctDelibsVotedIn = new Set(deliberationsVotedIn.map(v => v.cell.deliberationId)).size
+    const winRate = ideasCount > 0 ? Math.round((ideasWonCount / ideasCount) * 100) : null
+    const ideasAdvanced = tierBreakdown.filter(t => t.tier > 1).reduce((sum, t) => sum + t._count, 0)
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -71,12 +147,16 @@ export async function GET(
         image: user.image,
         bio: (user as any).bio || null,
         joinedAt: user.createdAt,
+        followersCount,
+        followingCount,
+        isFollowing: !!isFollowingRecord,
         stats: {
           ideas: ideasCount,
           votes: votesCount,
           comments: commentsCount,
           deliberationsCreated: deliberationsCreatedCount,
           deliberationsJoined: membershipsCount,
+          deliberationsVotedIn: distinctDelibsVotedIn,
           // Prediction stats
           totalPredictions: user.totalPredictions,
           correctPredictions: user.correctPredictions,
@@ -84,6 +164,16 @@ export async function GET(
           championPicks: user.championPicks,
           currentStreak: user.currentStreak,
           bestStreak: user.bestStreak,
+          // Win record
+          ideasWon: ideasWonCount,
+          winRate,
+          highestTierReached: highestTierIdea._max.tier || 0,
+          ideasAdvanced,
+          tierBreakdown: tierBreakdown.map(t => ({ tier: t.tier, count: t._count })),
+          // Up-pollinate & comment stats
+          highestUpPollinateTier: upPollinateStats._max.reachTier || 1,
+          totalUpvotesReceived: commentUpvoteTotal,
+          totalCommentUpvotes: upPollinateStats._sum.upvoteCount || 0,
         },
         recentActivity: recentMemberships.map((m) => ({
           deliberationId: m.deliberation.id,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id]/comments - Get all comments organized by cell
 export async function GET(
@@ -11,6 +12,12 @@ export async function GET(
   try {
     const { id } = await params
     const session = await getServerSession(authOptions)
+
+    // Privacy gate: membership check for private deliberations
+    const access = await checkDeliberationAccess(id, session?.user?.email)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
 
     // Get current user ID if logged in
     let currentUserId: string | null = null
@@ -58,13 +65,6 @@ export async function GET(
 
     if (!deliberation) {
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
-    }
-
-    // For private deliberations, require authentication
-    if (!deliberation.isPublic) {
-      if (!session?.user?.email) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-      }
     }
 
     // Organize comments by tier and cell

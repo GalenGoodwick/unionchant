@@ -20,7 +20,9 @@ export type FeedItem = {
     createdAt: string
     views: number
     _count: { members: number; ideas: number }
+    creator?: { id: string; name: string }
   }
+  community?: { name: string; slug: string } | null
   // Type-specific data
   cell?: {
     id: string

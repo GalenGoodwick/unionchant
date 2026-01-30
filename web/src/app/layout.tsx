@@ -43,20 +43,11 @@ export const metadata: Metadata = {
     siteName: 'Union Chant',
     title: 'Union Chant - Collective Decision Making',
     description: 'Scale is not achieved by enlarging a conversation. It is achieved by multiplying conversations.',
-    images: [
-      {
-        url: '/og-image.png',
-        width: 1200,
-        height: 630,
-        alt: 'Union Chant - Collective Decision Making',
-      },
-    ],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Union Chant - Collective Decision Making',
     description: 'Small group deliberation at any scale. True democracy through structured conversation.',
-    images: ['/og-image.png'],
   },
   robots: {
     index: true,

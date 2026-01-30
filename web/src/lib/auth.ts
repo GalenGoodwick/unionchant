@@ -2,7 +2,8 @@ import { NextAuthOptions } from 'next-auth'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 import GoogleProvider from 'next-auth/providers/google'
 import GitHubProvider from 'next-auth/providers/github'
-import EmailProvider from 'next-auth/providers/email'
+import CredentialsProvider from 'next-auth/providers/credentials'
+import bcrypt from 'bcryptjs'
 import prisma from './prisma'
 
 export const authOptions: NextAuthOptions = {
@@ -28,17 +29,39 @@ export const authOptions: NextAuthOptions = {
         ]
       : []),
 
-    // Email magic links (requires email server config)
-    // EmailProvider({
-    //   server: process.env.EMAIL_SERVER,
-    //   from: process.env.EMAIL_FROM,
-    // }),
+    // Email/password credentials
+    CredentialsProvider({
+      name: 'Email',
+      credentials: {
+        email: { label: 'Email', type: 'email' },
+        password: { label: 'Password', type: 'password' },
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) return null
+
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email },
+          select: { id: true, email: true, name: true, image: true, passwordHash: true, status: true },
+        })
+
+        if (!user || !user.passwordHash) return null
+        if (user.status === 'BANNED' || user.status === 'DELETED') return null
+
+        const valid = await bcrypt.compare(credentials.password, user.passwordHash)
+        if (!valid) return null
+
+        return { id: user.id, email: user.email, name: user.name, image: user.image }
+      },
+    }),
   ],
   session: {
     strategy: 'jwt',
   },
   callbacks: {
-    async signIn({ user }) {
+    async signIn({ user, account }) {
+      // Skip status check for credentials (already handled in authorize)
+      if (account?.provider === 'credentials') return true
+
       // Check if user is banned or deleted
       try {
         if (user?.email) {
@@ -47,18 +70,16 @@ export const authOptions: NextAuthOptions = {
             select: { status: true },
           })
           if (dbUser?.status === 'BANNED' || dbUser?.status === 'DELETED') {
-            return false // Prevent sign in
+            return false
           }
         }
       } catch (error) {
-        // Don't block sign in if database check fails
         console.error('Error checking user status:', error)
       }
       return true
     },
     async session({ session, token }) {
       if (session.user) {
-        // token.sub contains the user ID from the database
         session.user.id = (token.sub || token.id) as string
       }
       return session
@@ -73,7 +94,5 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: '/auth/signin',
-    // signOut: '/auth/signout',
-    // error: '/auth/error',
   },
 }

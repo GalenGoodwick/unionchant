@@ -10,6 +10,8 @@ interface Deliberation {
   id: string
   question: string
   description: string | null
+  organization: string | null
+  inviteCode: string | null
   phase: string
   currentTier: number
   createdAt: string
@@ -78,6 +80,12 @@ export default function AdminDeliberationPage() {
   const [deliberation, setDeliberation] = useState<Deliberation | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // Email invite state
+  const [inviteEmails, setInviteEmails] = useState('')
+  const [sendingInvites, setSendingInvites] = useState(false)
+  const [inviteResult, setInviteResult] = useState<{ sent: number; failed: number } | null>(null)
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false)
 
   // AI Test state
   const [testRunning, setTestRunning] = useState(false)
@@ -334,9 +342,15 @@ export default function AdminDeliberationPage() {
         <div className="flex items-start justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{deliberation.question}</h1>
+            {deliberation.organization && (
+              <div className="text-sm text-muted mt-1">{deliberation.organization}</div>
+            )}
             <div className="flex items-center gap-3 mt-2">
               <span className={`px-2 py-1 rounded text-white text-sm ${phaseColors[deliberation.phase] || 'bg-muted'}`}>
                 {deliberation.phase}
+              </span>
+              <span className={`px-2 py-1 rounded text-sm ${deliberation.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-error-bg text-error border border-error'}`}>
+                {deliberation.isPublic ? 'Public' : 'Private'}
               </span>
               <span className="text-muted">Tier {deliberation.currentTier}</span>
               <span className="text-muted">{deliberation._count.members} members</span>
@@ -629,6 +643,86 @@ export default function AdminDeliberationPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Email Invites */}
+            <div className="bg-surface border border-border rounded-lg p-4">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Invite Members</h2>
+
+              {/* Invite link */}
+              {deliberation.inviteCode && (
+                <div className="mb-4">
+                  <label className="text-xs text-muted block mb-1">Invite link</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${deliberation.inviteCode}`}
+                      className="flex-1 bg-background border border-border text-foreground rounded px-3 py-2 text-sm font-mono"
+                    />
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/invite/${deliberation.inviteCode}`)
+                        setCopiedInviteLink(true)
+                        setTimeout(() => setCopiedInviteLink(false), 2000)
+                      }}
+                      className="bg-accent hover:bg-accent-hover text-white px-3 py-2 rounded text-sm transition-colors"
+                    >
+                      {copiedInviteLink ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Email invites */}
+              <form onSubmit={async (e) => {
+                e.preventDefault()
+                const emails = inviteEmails.split(/[,\n]/).map(e => e.trim()).filter(Boolean)
+                if (emails.length === 0) return
+                setSendingInvites(true)
+                setInviteResult(null)
+                try {
+                  const res = await fetch(`/api/deliberations/${deliberationId}/invite`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ emails }),
+                  })
+                  const data = await res.json()
+                  if (res.ok) {
+                    setInviteResult({ sent: data.sent, failed: data.failed })
+                    setInviteEmails('')
+                  } else {
+                    addLog(`Invite error: ${data.error || 'Failed to send'}`)
+                  }
+                } catch {
+                  addLog('Failed to send invites')
+                } finally {
+                  setSendingInvites(false)
+                }
+              }}>
+                <label className="text-xs text-muted block mb-1">Send email invites</label>
+                <textarea
+                  placeholder="Enter emails, separated by commas or newlines"
+                  value={inviteEmails}
+                  onChange={(e) => setInviteEmails(e.target.value)}
+                  rows={3}
+                  className="w-full bg-background border border-border text-foreground rounded px-3 py-2 text-sm mb-2 resize-none"
+                />
+                <div className="flex items-center gap-3">
+                  <button
+                    type="submit"
+                    disabled={sendingInvites || !inviteEmails.trim()}
+                    className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-4 py-2 rounded text-sm transition-colors"
+                  >
+                    {sendingInvites ? 'Sending...' : 'Send Invites'}
+                  </button>
+                  {inviteResult && (
+                    <span className="text-sm text-success">
+                      {inviteResult.sent} sent{inviteResult.failed > 0 ? `, ${inviteResult.failed} failed` : ''}
+                    </span>
+                  )}
+                </div>
+              </form>
             </div>
           </div>
 
