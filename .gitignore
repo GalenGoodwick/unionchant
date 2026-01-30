@@ -1,3 +1,29 @@
 .vercel
 .env*.local
+.DS_Store
+
+# Backlog
 docs/backlog/
+
+# Legacy (pre-web app)
+core/
+frontend/
+legacy/
+server/
+v7-stable/
+tests/
+planning/
+EXECUTION-PLAN.md
+PHASE-2-COMPLETE.md
+PHASE-3-COMPLETE.md
+PROGRESS.md
+START-HERE.md
+SPEC.md
+WHITEPAPER.md
+Whitepaper.pages
+test-dropout-simulation.js
+
+# Root node_modules (app is in web/)
+node_modules/
+package.json
+package-lock.json
