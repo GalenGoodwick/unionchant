@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
 import NotificationBell from '@/components/NotificationBell'
@@ -13,30 +14,25 @@ export default function Header() {
 
   const navLinks = [
     { href: '/feed', label: 'Feed', authRequired: true, highlight: true },
+    { href: '/communities', label: 'Communities', authRequired: true },
     { href: '/deliberations', label: 'Deliberations' },
-    { href: '/how-it-works', label: 'How It Works' },
-    { href: '/demo', label: 'Demo', highlight: true },
-    { href: '/whitepaper', label: 'Whitepaper' },
+    { href: '/about', label: 'About' },
     { href: '/donate', label: 'Donate' },
   ]
 
   return (
     <header className="bg-header text-white relative">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
-        <Link href="/" className="text-xl font-semibold font-serif hover:text-accent-light transition-colors">
-          Union Chant
+        <Link href="/" className="flex items-center gap-2.5 hover:text-accent-light transition-colors">
+          <Image src="/logo.svg" alt="" width={32} height={32} />
+          <div className="flex flex-col leading-none">
+            <span className="text-xl font-semibold font-serif">Union Chant</span>
+            <span className="text-[10px] text-white/50 tracking-wider uppercase">continuous consensus</span>
+          </div>
         </Link>
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-4 text-sm">
-          {session && (
-            <Link
-              href="/deliberations/new"
-              className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg font-medium transition-colors"
-            >
-              + Create
-            </Link>
-          )}
           {navLinks.map(link => (
             (!link.authRequired || session) && (
               <Link
@@ -51,6 +47,11 @@ export default function Header() {
           {isAdmin && (
             <Link href="/admin" className="text-orange-300 hover:text-orange-200 transition-colors">
               Admin
+            </Link>
+          )}
+          {session && (
+            <Link href="/dashboard" className="hover:text-accent-light transition-colors">
+              Manage
             </Link>
           )}
           {session && <NotificationBell />}
@@ -104,15 +105,6 @@ export default function Header() {
       {menuOpen && (
         <div className="md:hidden absolute top-full left-0 right-0 bg-header border-t border-white/10 z-50">
           <nav className="flex flex-col p-4 space-y-3 text-sm">
-            {session && (
-              <Link
-                href="/deliberations/new"
-                onClick={() => setMenuOpen(false)}
-                className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors text-center"
-              >
-                + Create Deliberation
-              </Link>
-            )}
             {navLinks.map(link => (
               (!link.authRequired || session) && (
                 <Link
@@ -132,6 +124,15 @@ export default function Header() {
                 className="py-2 px-4 rounded-lg text-orange-300 hover:bg-white/10 transition-colors"
               >
                 Admin
+              </Link>
+            )}
+            {session && (
+              <Link
+                href="/dashboard"
+                onClick={() => setMenuOpen(false)}
+                className="py-2 px-4 rounded-lg hover:bg-white/10 transition-colors"
+              >
+                Dashboard
               </Link>
             )}
             <div className="border-t border-white/10 pt-3 mt-2">

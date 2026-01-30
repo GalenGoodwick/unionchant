@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Union Chant Logo — Icon only, no text -->
+
+  <g transform="translate(100,100)">
+    <!-- Figure 1 — teal green (top, 12 o'clock) -->
+    <g transform="rotate(0)">
+      <g transform="translate(0,-72)">
+        <circle cx="0" cy="-20" r="11" fill="#6aab9a"/>
+        <path d="M-12,0 Q-16,28 -34,40 Q-12,34 0,20 Q12,34 34,40 Q16,28 12,0 Z" fill="#6aab9a" opacity="0.85"/>
+      </g>
+    </g>
+
+    <!-- Figure 2 — warm gold (upper right) -->
+    <g transform="rotate(72)">
+      <g transform="translate(0,-72)">
+        <circle cx="0" cy="-20" r="11" fill="#c4a855"/>
+        <path d="M-12,0 Q-16,28 -34,40 Q-12,34 0,20 Q12,34 34,40 Q16,28 12,0 Z" fill="#c4a855" opacity="0.85"/>
+      </g>
+    </g>
+
+    <!-- Figure 3 — terra cotta (lower right) -->
+    <g transform="rotate(144)">
+      <g transform="translate(0,-72)">
+        <circle cx="0" cy="-20" r="11" fill="#d4895a"/>
+        <path d="M-12,0 Q-16,28 -34,40 Q-12,34 0,20 Q12,34 34,40 Q16,28 12,0 Z" fill="#d4895a" opacity="0.85"/>
+      </g>
+    </g>
+
+    <!-- Figure 4 — dusty rose (lower left) -->
+    <g transform="rotate(216)">
+      <g transform="translate(0,-72)">
+        <circle cx="0" cy="-20" r="11" fill="#c47a7a"/>
+        <path d="M-12,0 Q-16,28 -34,40 Q-12,34 0,20 Q12,34 34,40 Q16,28 12,0 Z" fill="#c47a7a" opacity="0.85"/>
+      </g>
+    </g>
+
+    <!-- Figure 5 — muted blue (upper left) -->
+    <g transform="rotate(288)">
+      <g transform="translate(0,-72)">
+        <circle cx="0" cy="-20" r="11" fill="#7a9eb8"/>
+        <path d="M-12,0 Q-16,28 -34,40 Q-12,34 0,20 Q12,34 34,40 Q16,28 12,0 Z" fill="#7a9eb8" opacity="0.85"/>
+      </g>
+    </g>
+  </g>
+</svg>
