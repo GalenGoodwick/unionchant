@@ -1,6 +1,8 @@
 import { prisma } from './prisma'
 import { sendPushToDeliberation, notifications } from './push'
 import { handleMetaChampion } from './meta-deliberation'
+import { sendEmailToDeliberation } from './email'
+import { updateAgreementScores } from './agreement'
 
 const CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
@@ -69,45 +71,48 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
   // Get all predictions for this cell
   const predictions = await prisma.prediction.findMany({
     where: { cellId },
+    include: { user: { select: { id: true, currentStreak: true, bestStreak: true } } },
   })
 
+  if (predictions.length === 0) return
+
+  // Batch all updates in a single transaction to prevent partial stat corruption
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ops: any[] = []
   for (const prediction of predictions) {
     const won = winnerIds.includes(prediction.predictedIdeaId)
 
-    await prisma.prediction.update({
-      where: { id: prediction.id },
-      data: {
-        wonImmediate: won,
-        resolvedAt: new Date(),
-      },
-    })
+    ops.push(
+      prisma.prediction.update({
+        where: { id: prediction.id },
+        data: { wonImmediate: won, resolvedAt: new Date() },
+      })
+    )
 
-    // Update user streak
-    const user = await prisma.user.findUnique({
-      where: { id: prediction.userId },
-    })
-
-    if (user) {
+    if (prediction.user) {
       if (won) {
-        await prisma.user.update({
-          where: { id: prediction.userId },
-          data: {
-            correctPredictions: { increment: 1 },
-            currentStreak: { increment: 1 },
-            bestStreak: Math.max(user.bestStreak, user.currentStreak + 1),
-          },
-        })
+        ops.push(
+          prisma.user.update({
+            where: { id: prediction.userId },
+            data: {
+              correctPredictions: { increment: 1 },
+              currentStreak: { increment: 1 },
+              bestStreak: Math.max(prediction.user.bestStreak, prediction.user.currentStreak + 1),
+            },
+          })
+        )
       } else {
-        // Reset streak on loss
-        await prisma.user.update({
-          where: { id: prediction.userId },
-          data: {
-            currentStreak: 0,
-          },
-        })
+        ops.push(
+          prisma.user.update({
+            where: { id: prediction.userId },
+            data: { currentStreak: 0 },
+          })
+        )
       }
     }
   }
+
+  await prisma.$transaction(ops)
 }
 
 /**
@@ -115,57 +120,55 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
  * Updates ideaBecameChampion and ideaFinalTier for all predictions on that idea
  */
 async function resolveChampionPredictions(deliberationId: string, championId: string) {
-  // Get the champion idea to know its final tier
   const champion = await prisma.idea.findUnique({
     where: { id: championId },
   })
 
   if (!champion) return
 
-  // Update all predictions for this champion idea
-  const championPredictions = await prisma.prediction.findMany({
-    where: {
-      deliberationId,
-      predictedIdeaId: championId,
-    },
-  })
-
-  for (const prediction of championPredictions) {
-    await prisma.prediction.update({
-      where: { id: prediction.id },
-      data: {
-        ideaBecameChampion: true,
-        ideaFinalTier: champion.tier,
-      },
-    })
-
-    // Update user's champion picks count
-    await prisma.user.update({
-      where: { id: prediction.userId },
-      data: {
-        championPicks: { increment: 1 },
-      },
-    })
-  }
-
-  // Update non-champion predictions with final tier info
+  // Get all ideas to update final tier info
   const allIdeas = await prisma.idea.findMany({
     where: { deliberationId },
   })
 
+  // Get champion predictions for user stat updates
+  const championPredictions = await prisma.prediction.findMany({
+    where: { deliberationId, predictedIdeaId: championId },
+  })
+
+  // Batch all updates in a single transaction
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ops: any[] = []
+
+  // Mark champion predictions
+  for (const prediction of championPredictions) {
+    ops.push(
+      prisma.prediction.update({
+        where: { id: prediction.id },
+        data: { ideaBecameChampion: true, ideaFinalTier: champion.tier },
+      })
+    )
+    ops.push(
+      prisma.user.update({
+        where: { id: prediction.userId },
+        data: { championPicks: { increment: 1 } },
+      })
+    )
+  }
+
+  // Mark non-champion predictions with final tier info
   for (const idea of allIdeas) {
     if (idea.id === championId) continue
+    ops.push(
+      prisma.prediction.updateMany({
+        where: { deliberationId, predictedIdeaId: idea.id },
+        data: { ideaBecameChampion: false, ideaFinalTier: idea.tier },
+      })
+    )
+  }
 
-    await prisma.prediction.updateMany({
-      where: {
-        deliberationId,
-        predictedIdeaId: idea.id,
-      },
-      data: {
-        ideaBecameChampion: false,
-        ideaFinalTier: idea.tier,
-      },
-    })
+  if (ops.length > 0) {
+    await prisma.$transaction(ops)
   }
 }
 
@@ -273,23 +276,67 @@ export async function startVotingPhase(deliberationId: string) {
 
   const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, actualNumCells)
 
+  // Build a map of which ideas go into which cell (by index)
+  const cellIdeaGroups: typeof shuffledIdeas[] = []
+  let ideaIndex = 0
+  for (let cellNum = 0; cellNum < actualNumCells; cellNum++) {
+    const count = ideaSizes[cellNum] || 0
+    cellIdeaGroups.push(shuffledIdeas.slice(ideaIndex, ideaIndex + count))
+    ideaIndex += count
+  }
+
+  // Build a map of idea authorId -> set of cell indices containing their idea
+  const authorToCells = new Map<string, Set<number>>()
+  for (const idea of shuffledIdeas) {
+    if (!idea.authorId) continue
+    if (!authorToCells.has(idea.authorId)) authorToCells.set(idea.authorId, new Set())
+  }
+  cellIdeaGroups.forEach((group, cellIdx) => {
+    for (const idea of group) {
+      if (idea.authorId) {
+        authorToCells.get(idea.authorId)?.add(cellIdx)
+      }
+    }
+  })
+
+  // Assign members to cells, avoiding cells that contain their own idea when possible
+  const cellMemberGroups: typeof shuffledMembers[] = Array.from({ length: actualNumCells }, () => [])
+  const cellCapacities = [...actualCellSizes]
+
+  for (const member of shuffledMembers) {
+    const conflictCells = authorToCells.get(member.userId)
+
+    // Prefer a cell with space that doesn't contain this member's idea
+    let assigned = false
+    for (let c = 0; c < actualNumCells; c++) {
+      if (cellMemberGroups[c].length >= cellCapacities[c]) continue
+      if (cellIdeaGroups[c].length === 0) continue
+      if (conflictCells && conflictCells.has(c)) continue
+      cellMemberGroups[c].push(member)
+      assigned = true
+      break
+    }
+
+    // Fallback: accept conflict if no conflict-free cell has space
+    if (!assigned) {
+      for (let c = 0; c < actualNumCells; c++) {
+        if (cellMemberGroups[c].length >= cellCapacities[c]) continue
+        if (cellIdeaGroups[c].length === 0) continue
+        cellMemberGroups[c].push(member)
+        assigned = true
+        break
+      }
+    }
+  }
+
   // Create cells
   const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
-  let ideaIndex = 0
-  let memberIndex = 0
 
   for (let cellNum = 0; cellNum < actualNumCells; cellNum++) {
-    // Get ideas for this cell
-    const ideasForThisCell = ideaSizes[cellNum] || 0
-    const cellIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + ideasForThisCell)
-    ideaIndex += ideasForThisCell
+    const cellIdeas = cellIdeaGroups[cellNum]
+    const cellMembers = cellMemberGroups[cellNum]
 
-    // Get members - NO wrap around, each participant only in ONE cell
-    const cellSize = actualCellSizes[cellNum % actualCellSizes.length]
-    const cellMembers = shuffledMembers.slice(memberIndex, memberIndex + cellSize)
-    memberIndex += cellSize
-
-    // Skip if no ideas or no members (ran out of participants)
+    // Skip if no ideas or no members
     if (cellIdeas.length === 0 || cellMembers.length === 0) continue
 
     // Update idea statuses for this cell
@@ -335,6 +382,10 @@ export async function startVotingPhase(deliberationId: string) {
     deliberationId,
     notifications.votingStarted(deliberation.question, deliberationId)
   ).catch(err => console.error('Failed to send push notifications:', err))
+
+  // Send email notifications to all members
+  sendEmailToDeliberation(deliberationId, 'cell_ready', { tier: 1 })
+    .catch(err => console.error('Failed to send email notifications:', err))
 
   return {
     success: true,
@@ -445,6 +496,11 @@ export async function processCellResults(cellId: string, isTimeout = false) {
   }
 
   // Cell already marked COMPLETED by atomic guard above.
+  // Update agreement scores (fire-and-forget)
+  updateAgreementScores(cellId).catch(err =>
+    console.error('Agreement score update failed:', err)
+  )
+
   // Check if all cells in this tier are complete
   await checkTierCompletion(cell.deliberationId, cell.tier)
 
@@ -652,6 +708,11 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
               notifications.championDeclared(completedDeliberation.question, deliberationId)
             ).catch(err => console.error('Failed to send push notifications:', err))
 
+            // Email: champion declared
+            sendEmailToDeliberation(deliberationId, 'champion_declared', {
+              championText: completedDeliberation.ideas[0]?.text || 'Unknown',
+            }).catch(err => console.error('Failed to send champion email:', err))
+
             // Handle META or spawnsDeliberation - spawn new deliberation from champion
             if ((completedDeliberation.type === 'META' || completedDeliberation.spawnsDeliberation) && completedDeliberation.ideas[0]) {
               handleMetaChampion(deliberationId, completedDeliberation.ideas[0])
@@ -746,6 +807,11 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           deliberationId,
           notifications.championDeclared(deliberation.question, deliberationId)
         ).catch(err => console.error('Failed to send push notifications:', err))
+
+        // Email: champion declared
+        sendEmailToDeliberation(deliberationId, 'champion_declared', {
+          championText: advancingIdeas[0]?.text || 'Unknown',
+        }).catch(err => console.error('Failed to send champion email:', err))
 
         // Handle META or spawnsDeliberation - spawn new deliberation from champion
         if (deliberation.type === 'META' || deliberation.spawnsDeliberation) {
@@ -895,6 +961,10 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       deliberationId,
       notifications.newTier(nextTier, deliberation.question, deliberationId)
     ).catch(err => console.error('Failed to send push notifications:', err))
+
+    // Email: new tier started
+    sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
+      .catch(err => console.error('Failed to send new tier email:', err))
   }
 }
 
