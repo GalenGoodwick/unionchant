@@ -314,6 +314,9 @@ export default function Home() {
             <LandingCTA variant="footer" />
           </div>
           <div className="mt-12 flex flex-wrap gap-8 justify-center text-sm text-white/40">
+            <Link href="/pitch" className="hover:text-white/70 transition-colors">
+              Full Pitch
+            </Link>
             <Link href="/whitepaper" className="hover:text-white/70 transition-colors">
               Whitepaper
             </Link>
@@ -329,6 +332,13 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* ── Footer ── */}
+      <footer className="bg-foreground text-white/40 py-6">
+        <div className="max-w-5xl mx-auto px-6 text-center text-sm">
+          &copy; 2026 Union Chant. All rights reserved.
+        </div>
+      </footer>
     </div>
   )
 }
