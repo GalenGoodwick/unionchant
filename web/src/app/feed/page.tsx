@@ -162,9 +162,14 @@ export default function FeedPage() {
     setItems(prev => prev.filter(item => item.cell?.id !== cellId))
   }, [])
 
+  // Fetch immediately on mount once preserved cards are loaded
+  useEffect(() => {
+    if (preservedCardsLoaded) fetchFeed()
+  }, [preservedCardsLoaded]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Adaptive polling: fast (3s) after user activity, slow (15s) when idle, pauses on hidden tab
   const { signalActivity } = useAdaptivePolling(
-    () => { if (preservedCardsLoaded) fetchFeed() },
+    () => { if (preservedCardsLoaded && !loading) fetchFeed() },
     { slowInterval: 15000, fastInterval: 3000, fastModeDuration: 30000 }
   )
 
