@@ -14,7 +14,7 @@ export default function WhitepaperPage() {
 
       <div className="max-w-3xl mx-auto px-6 py-12">
         <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
-          &larr; Back to home
+          &larr; Home
         </Link>
 
         <article className="bg-background rounded-lg border border-border p-8">
