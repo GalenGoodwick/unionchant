@@ -1,6 +1,5 @@
 import { prisma } from './prisma'
 import { sendPushToDeliberation, notifications } from './push'
-import { handleMetaChampion } from './meta-deliberation'
 import { sendEmailToDeliberation } from './email'
 import { updateAgreementScores } from './agreement'
 
@@ -232,12 +231,6 @@ export async function startVotingPhase(deliberationId: string) {
 
     // Resolve predictions for champion
     await resolveChampionPredictions(deliberationId, winningIdea.id)
-
-    // Handle META or spawnsDeliberation - spawn new deliberation from champion
-    if ((deliberation.type === 'META' || deliberation.spawnsDeliberation) && !deliberation.accumulationEnabled) {
-      handleMetaChampion(deliberationId, winningIdea)
-        .catch(err => console.error('Failed to handle meta champion:', err))
-    }
 
     return {
       success: true,
@@ -744,11 +737,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
               championText: completedDeliberation.ideas[0]?.text || 'Unknown',
             }).catch(err => console.error('Failed to send champion email:', err))
 
-            // Handle META or spawnsDeliberation - spawn new deliberation from champion
-            if ((completedDeliberation.type === 'META' || completedDeliberation.spawnsDeliberation) && completedDeliberation.ideas[0]) {
-              handleMetaChampion(deliberationId, completedDeliberation.ideas[0])
-                .catch(err => console.error('Failed to handle meta champion:', err))
-            }
           }
         }
       }
@@ -844,12 +832,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           championText: advancingIdeas[0]?.text || 'Unknown',
         }).catch(err => console.error('Failed to send champion email:', err))
 
-        // Handle META or spawnsDeliberation - spawn new deliberation from champion
-        if (deliberation.type === 'META' || deliberation.spawnsDeliberation) {
-          const championIdea = advancingIdeas[0]
-          handleMetaChampion(deliberationId, championIdea)
-            .catch(err => console.error('Failed to handle meta champion:', err))
-        }
       }
     }
 

@@ -49,12 +49,8 @@ function NewDeliberationForm() {
     // Goal settings
     startMode: 'timer' as 'timer' | 'ideas' | 'manual',
     ideaGoal: 10,
-    // Winner mode: 'ends' | 'spawns' | 'rolling'
-    winnerMode: 'ends' as 'ends' | 'spawns' | 'rolling',
-    // Spawn settings
-    spawnedStartMode: 'timer' as 'timer' | 'ideas' | 'manual',
-    spawnedSubmissionHours: 24,
-    spawnedIdeaGoal: 10,
+    // Winner mode: 'ends' | 'rolling'
+    winnerMode: 'ends' as 'ends' | 'rolling',
   })
 
   useEffect(() => {
@@ -113,19 +109,6 @@ function NewDeliberationForm() {
       setLoading(false)
       return
     }
-    if (formData.winnerMode === 'spawns') {
-      if (formData.spawnedStartMode === 'timer' && (!formData.spawnedSubmissionHours || formData.spawnedSubmissionHours < 1)) {
-        setError('Spawned deliberation submission period must be at least 1 hour')
-        setLoading(false)
-        return
-      }
-      if (formData.spawnedStartMode === 'ideas' && (!formData.spawnedIdeaGoal || formData.spawnedIdeaGoal < 2)) {
-        setError('Spawned deliberation idea goal must be at least 2')
-        setLoading(false)
-        return
-      }
-    }
-
     try {
       const tags = formData.tagsInput
         .split(',')
@@ -147,11 +130,6 @@ function NewDeliberationForm() {
           accumulationTimeoutMs: formData.accumulationDays * 24 * 60 * 60 * 1000,
           // Goal settings
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
-          // Spawn settings
-          spawnsDeliberation: formData.winnerMode === 'spawns',
-          spawnedStartMode: formData.winnerMode === 'spawns' ? formData.spawnedStartMode : null,
-          spawnedSubmissionHours: formData.winnerMode === 'spawns' ? formData.spawnedSubmissionHours : null,
-          spawnedIdeaGoal: formData.winnerMode === 'spawns' && formData.spawnedStartMode === 'ideas' ? formData.spawnedIdeaGoal : null,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
           captchaToken,
@@ -344,96 +322,7 @@ function NewDeliberationForm() {
                     </div>
                   </label>
 
-                  {/* Option 2: Winner becomes a new question */}
-                  <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                    formData.winnerMode === 'spawns' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="winnerMode"
-                      value="spawns"
-                      checked={formData.winnerMode === 'spawns'}
-                      onChange={() => setFormData({ ...formData, winnerMode: 'spawns' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">Winner becomes a new question</div>
-                      <div className="text-muted text-sm">The winning idea spawns a new deliberation for people to submit ideas to</div>
-
-                      {formData.winnerMode === 'spawns' && (
-                        <div className="mt-4 pl-0 border-l-2 border-accent/30 ml-0 space-y-4">
-                          <div className="pl-4">
-                            <div className="text-foreground text-sm font-medium mb-2">How should the new deliberation start voting?</div>
-                            <div className="space-y-2">
-                              <label className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  name="spawnedStartMode"
-                                  value="timer"
-                                  checked={formData.spawnedStartMode === 'timer'}
-                                  onChange={() => setFormData({ ...formData, spawnedStartMode: 'timer' })}
-                                  className="w-4 h-4 text-accent"
-                                />
-                                <span className="text-muted text-sm">After a set time</span>
-                              </label>
-                              <label className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  name="spawnedStartMode"
-                                  value="ideas"
-                                  checked={formData.spawnedStartMode === 'ideas'}
-                                  onChange={() => setFormData({ ...formData, spawnedStartMode: 'ideas' })}
-                                  className="w-4 h-4 text-accent"
-                                />
-                                <span className="text-muted text-sm">After enough ideas</span>
-                              </label>
-                              <label className="flex items-center gap-2">
-                                <input
-                                  type="radio"
-                                  name="spawnedStartMode"
-                                  value="manual"
-                                  checked={formData.spawnedStartMode === 'manual'}
-                                  onChange={() => setFormData({ ...formData, spawnedStartMode: 'manual' })}
-                                  className="w-4 h-4 text-accent"
-                                />
-                                <span className="text-muted text-sm">Manual trigger by winner</span>
-                              </label>
-                            </div>
-                          </div>
-
-                          {formData.spawnedStartMode === 'timer' && (
-                            <div className="pl-4">
-                              <label className="block text-muted text-sm mb-1">Submission period (hours)</label>
-                              <input
-                                type="number"
-                                min={1}
-                                max={168}
-                                value={formData.spawnedSubmissionHours || ''}
-                                onChange={(e) => setFormData({ ...formData, spawnedSubmissionHours: parseInt(e.target.value) || 0 })}
-                                className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono text-sm"
-                              />
-                            </div>
-                          )}
-
-                          {formData.spawnedStartMode === 'ideas' && (
-                            <div className="pl-4">
-                              <label className="block text-muted text-sm mb-1">Number of ideas</label>
-                              <input
-                                type="number"
-                                min={2}
-                                max={1000}
-                                value={formData.spawnedIdeaGoal || ''}
-                                onChange={(e) => setFormData({ ...formData, spawnedIdeaGoal: parseInt(e.target.value) || 0 })}
-                                className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono text-sm"
-                              />
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </label>
-
-                  {/* Option 3: Rolling Mode */}
+                  {/* Option 2: Rolling Mode */}
                   <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
                     formData.winnerMode === 'rolling' ? 'border-purple bg-purple/5' : 'border-border hover:border-purple'
                   }`}>

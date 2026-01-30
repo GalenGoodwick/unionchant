@@ -69,9 +69,6 @@ export default function AdminPage() {
   const [timerMinutes, setTimerMinutes] = useState(60)
   const [ideaGoal, setIdeaGoal] = useState(20)
   const [votingMinutes, setVotingMinutes] = useState(5)
-  // Deliberation type
-  const [delibType, setDelibType] = useState<'STANDARD' | 'META'>('STANDARD')
-
   // Tab state
   const [activeTab, setActiveTab] = useState<AdminTab>('deliberations')
 
@@ -499,18 +496,6 @@ export default function AdminPage() {
                 disabled={creating || targetPhase === 'SUBMISSION'}
               />
             </div>
-            <div>
-              <label className="block text-xs text-muted mb-1">Type</label>
-              <select
-                value={delibType}
-                onChange={(e) => setDelibType(e.target.value as 'STANDARD' | 'META')}
-                className="w-full bg-surface border border-border text-foreground rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
-                disabled={creating}
-              >
-                <option value="STANDARD">Standard</option>
-                <option value="META">Meta (daily question picker)</option>
-              </select>
-            </div>
           </div>
 
           {/* Row 2: Voting trigger settings */}
@@ -602,7 +587,6 @@ export default function AdminPage() {
                     tags: ['test'],
                     accumulationEnabled: enableRolling || targetPhase === 'ACCUMULATING',
                     votingTimeoutMs: votingMinutes * 60 * 1000, // Convert minutes to ms
-                    type: delibType,
                   }
 
                   // Add voting trigger based on selection
@@ -660,7 +644,6 @@ export default function AdminPage() {
                     tags: ['test'],
                     accumulationEnabled: enableRolling || targetPhase === 'ACCUMULATING',
                     votingTimeoutMs: votingMinutes * 60 * 1000,
-                    type: delibType,
                   }
 
                   // Step 1: Create deliberation

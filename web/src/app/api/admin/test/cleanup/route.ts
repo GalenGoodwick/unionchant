@@ -38,11 +38,6 @@ export async function POST(req: NextRequest) {
       console.log(`[CLEANUP] Deleting deliberation: ${delib.question.slice(0, 50)}...`)
 
       try {
-        // Clear spawnedFromId refs
-        await prisma.deliberation.updateMany({
-          where: { spawnedFromId: id },
-          data: { spawnedFromId: null },
-        })
 
         // Delete notifications
         await prisma.notification.deleteMany({

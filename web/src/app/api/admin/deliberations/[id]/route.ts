@@ -37,15 +37,8 @@ export async function DELETE(
     // Delete in order due to foreign key constraints
     console.log(`[DELETE] Starting delete for deliberation ${id}`)
 
-    // Clear spawnedFromId references (other deliberations spawned from this one)
-    console.log('[DELETE] 1. Clearing spawnedFromId refs...')
-    await prisma.deliberation.updateMany({
-      where: { spawnedFromId: id },
-      data: { spawnedFromId: null },
-    })
-
     // Delete notifications
-    console.log('[DELETE] 2. Deleting notifications...')
+    console.log('[DELETE] 1. Deleting notifications...')
     await prisma.notification.deleteMany({
       where: { deliberationId: id },
     })

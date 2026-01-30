@@ -141,24 +141,6 @@ model Deliberation {
   // Goal-based auto-start (null = unlimited/manual start)
   ideaGoal        Int?     // Auto-start voting when this many ideas submitted
 
-  // Meta-deliberation fields
-  type              DeliberationType @default(STANDARD)
-  spawnedFromId     String?          // Parent meta-deliberation
-  spawnedFrom       Deliberation?    @relation("SpawnedFrom", fields: [spawnedFromId], references: [id])
-  spawnedChildren   Deliberation[]   @relation("SpawnedFrom")
-  autoJoinVoters    Boolean          @default(false)  // Join voters for winning idea
-
-  // For recurring meta-deliberations
-  isRecurring       Boolean          @default(false)
-  recurringSchedule String?          // e.g., "daily", "weekly"
-  nextOccurrence    DateTime?
-
-  // Spawn deliberation from winner
-  spawnsDeliberation       Boolean  @default(false)  // Winner becomes new deliberation question
-  spawnedStartMode         String?  // "timer", "ideas", "manual" - how spawned deliberation starts
-  spawnedSubmissionHours   Int?     // Submission period for spawned deliberation
-  spawnedIdeaGoal          Int?     // Idea goal for spawned deliberation (if ideas mode)
-
   // State
   phase               Phase    @default(SUBMISSION)
   currentTier         Int      @default(1)
@@ -188,7 +170,6 @@ model Deliberation {
 
   @@index([creatorId])
   @@index([isPublic, phase])
-  @@index([type])
   @@index([organization])
   @@index([communityId])
   @@index([submissionEndsAt])
@@ -201,12 +182,6 @@ enum Phase {
   VOTING
   COMPLETED
   ACCUMULATING
-}
-
-enum DeliberationType {
-  STANDARD      // Normal deliberation
-  META          // "What should we decide next?"
-  SPAWNED       // Auto-created from meta winner
 }
 
 // ============ DELIBERATION MEMBERSHIP ============

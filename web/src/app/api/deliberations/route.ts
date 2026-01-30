@@ -75,13 +75,6 @@ export async function POST(req: NextRequest) {
       accumulationTimeoutMs,
       ideaGoal,
       captchaToken,
-      // Deliberation type
-      type,
-      // Spawn deliberation settings
-      spawnsDeliberation,
-      spawnedStartMode,
-      spawnedSubmissionHours,
-      spawnedIdeaGoal,
       // Community integration
       communityId,
       communityOnly,
@@ -95,11 +88,6 @@ export async function POST(req: NextRequest) {
 
     if (!question?.trim()) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
-    }
-
-    // Validate mutual exclusivity
-    if (spawnsDeliberation && accumulationEnabled) {
-      return NextResponse.json({ error: 'Cannot enable both spawns deliberation and rolling mode' }, { status: 400 })
     }
 
     // Verify community membership and posting permission if communityId provided
@@ -150,13 +138,6 @@ export async function POST(req: NextRequest) {
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
-        // Deliberation type
-        ...(type && { type }),
-        // Spawn deliberation settings
-        ...(spawnsDeliberation !== undefined && { spawnsDeliberation }),
-        ...(spawnedStartMode && { spawnedStartMode }),
-        ...(spawnedSubmissionHours && { spawnedSubmissionHours }),
-        ...(spawnedIdeaGoal && { spawnedIdeaGoal }),
         // Community integration
         ...(communityId && { communityId }),
         ...(communityOnly && communityId && { isPublic: false }),

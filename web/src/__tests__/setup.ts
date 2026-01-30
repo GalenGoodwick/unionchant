@@ -34,7 +34,3 @@ vi.mock('@/lib/push', () => ({
   },
 }))
 
-// Mock meta-deliberation — don't spawn real deliberations
-vi.mock('@/lib/meta-deliberation', () => ({
-  handleMetaChampion: vi.fn().mockResolvedValue(null),
-}))
