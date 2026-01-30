@@ -299,33 +299,64 @@ export async function startVotingPhase(deliberationId: string) {
     }
   })
 
-  // Assign members to cells, avoiding cells that contain their own idea when possible
+  // Assign members to cells, avoiding cells that contain their own idea when possible.
+  // Priority: get every cell to 3 members first (minimum for deliberation),
+  // then fill remaining slots in least-full cells.
+  const MIN_CELL_MEMBERS = 3
   const cellMemberGroups: typeof shuffledMembers[] = Array.from({ length: actualNumCells }, () => [])
   const cellCapacities = [...actualCellSizes]
 
   for (const member of shuffledMembers) {
     const conflictCells = authorToCells.get(member.userId)
 
-    // Prefer a cell with space that doesn't contain this member's idea
-    let assigned = false
+    // Find best cell: prefer cells below minimum first, then least-full
+    let bestCell = -1
+    let bestFill = Infinity
+    let bestBelowMin = false
+
     for (let c = 0; c < actualNumCells; c++) {
       if (cellMemberGroups[c].length >= cellCapacities[c]) continue
       if (cellIdeaGroups[c].length === 0) continue
       if (conflictCells && conflictCells.has(c)) continue
-      cellMemberGroups[c].push(member)
-      assigned = true
-      break
+
+      const fill = cellMemberGroups[c].length
+      const belowMin = fill < MIN_CELL_MEMBERS
+
+      // Cells below minimum always beat cells at/above minimum
+      if (belowMin && !bestBelowMin) {
+        bestCell = c
+        bestFill = fill
+        bestBelowMin = true
+      } else if (belowMin === bestBelowMin && fill < bestFill) {
+        bestCell = c
+        bestFill = fill
+      }
     }
 
-    // Fallback: accept conflict if no conflict-free cell has space
-    if (!assigned) {
+    // Fallback: accept conflict, same priority logic
+    if (bestCell === -1) {
+      bestFill = Infinity
+      bestBelowMin = false
       for (let c = 0; c < actualNumCells; c++) {
         if (cellMemberGroups[c].length >= cellCapacities[c]) continue
         if (cellIdeaGroups[c].length === 0) continue
-        cellMemberGroups[c].push(member)
-        assigned = true
-        break
+
+        const fill = cellMemberGroups[c].length
+        const belowMin = fill < MIN_CELL_MEMBERS
+
+        if (belowMin && !bestBelowMin) {
+          bestCell = c
+          bestFill = fill
+          bestBelowMin = true
+        } else if (belowMin === bestBelowMin && fill < bestFill) {
+          bestCell = c
+          bestFill = fill
+        }
       }
+    }
+
+    if (bestCell !== -1) {
+      cellMemberGroups[bestCell].push(member)
     }
   }
 
