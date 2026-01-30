@@ -11,7 +11,7 @@ const MAX_CELL_SIZE = 7  // Allow cells up to 7 for flexible sizing
  * Avoids creating tiny cells (1-2 people) that can't have meaningful deliberation
  * Ported from union-chant-engine.js
  */
-function calculateCellSizes(totalParticipants: number): number[] {
+export function calculateCellSizes(totalParticipants: number): number[] {
   if (totalParticipants < 3) return [totalParticipants] // Edge case: tiny group
   if (totalParticipants === 3) return [3]
   if (totalParticipants === 4) return [4]
@@ -37,6 +37,28 @@ function calculateCellSizes(totalParticipants: number): number[] {
   if (remainder === 4) return [...Array(numCells).fill(5), 4]
 
   return Array(numCells).fill(5)
+}
+
+/**
+ * Distribute ideas evenly across cells.
+ * Earlier cells get one extra idea if there's a remainder.
+ */
+export function calculateIdeaSizes(totalIdeas: number, totalCells: number): number[] {
+  if (totalIdeas <= 0) return []
+
+  const basePerCell = Math.floor(totalIdeas / totalCells)
+  let remainder = totalIdeas % totalCells
+
+  const sizes: number[] = []
+  for (let i = 0; i < totalCells; i++) {
+    if (remainder > 0) {
+      sizes.push(basePerCell + 1)
+      remainder--
+    } else {
+      sizes.push(basePerCell)
+    }
+  }
+  return sizes
 }
 
 /**
@@ -249,26 +271,6 @@ export async function startVotingPhase(deliberationId: string) {
   const actualNumCells = numCells
   const actualCellSizes = cellSizes
 
-  // Calculate ideas per cell using flexible sizing (target 5, allow 3-7)
-  function calculateIdeaSizes(totalIdeas: number, totalCells: number): number[] {
-    if (totalIdeas <= 0) return []
-
-    const basePerCell = Math.floor(totalIdeas / totalCells)
-    let remainder = totalIdeas % totalCells
-
-    // Distribute: some cells get basePerCell+1, rest get basePerCell
-    const sizes: number[] = []
-    for (let i = 0; i < totalCells; i++) {
-      if (remainder > 0) {
-        sizes.push(basePerCell + 1)
-        remainder--
-      } else {
-        sizes.push(basePerCell)
-      }
-    }
-    return sizes
-  }
-
   const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, actualNumCells)
 
   // Create cells
@@ -447,6 +449,75 @@ export async function processCellResults(cellId: string, isTimeout = false) {
   await checkTierCompletion(cell.deliberationId, cell.tier)
 
   return { winnerIds, loserIds }
+}
+
+/**
+ * Promote top comments when a tier completes and ideas advance.
+ * - Idea-linked: top 1 comment per advancing idea (ties allowed), min 1 upvote
+ * - Unlinked: top 1 comment per completed cell (ties allowed), min 1 upvote
+ */
+async function promoteTopComments(deliberationId: string, completedTier: number, advancingIdeaIds: string[]) {
+  const nextTier = completedTier + 1
+
+  // Idea-linked comments: promote top 1 per idea (ties allowed)
+  // Query by reachTier (not origin cell tier) so previously-promoted comments can climb further
+  for (const ideaId of advancingIdeaIds) {
+    const topComments = await prisma.comment.findMany({
+      where: {
+        ideaId,
+        cell: { deliberationId },
+        upvoteCount: { gte: 1 },
+        reachTier: completedTier,
+      },
+      orderBy: { upvoteCount: 'desc' },
+      take: 2,
+    })
+
+    if (topComments.length === 0) continue
+
+    // Always promote the top comment; promote second only if tied
+    const toPromote = topComments.length === 2 && topComments[0].upvoteCount === topComments[1].upvoteCount
+      ? [topComments[0].id, topComments[1].id]
+      : [topComments[0].id]
+
+    await prisma.comment.updateMany({
+      where: { id: { in: toPromote } },
+      data: { reachTier: nextTier },
+    })
+  }
+
+  // Unlinked comments: top 1 per completed cell (ties allowed)
+  // Also query by reachTier so previously-promoted unlinked comments can climb
+  const completedCells = await prisma.cell.findMany({
+    where: { deliberationId, tier: completedTier, status: 'COMPLETED' },
+    select: { id: true },
+  })
+
+  for (const cell of completedCells) {
+    const topComments = await prisma.comment.findMany({
+      where: {
+        cellId: cell.id,
+        ideaId: null,
+        upvoteCount: { gte: 1 },
+        reachTier: completedTier,
+      },
+      orderBy: { upvoteCount: 'desc' },
+      take: 2,
+    })
+
+    if (topComments.length === 0) continue
+
+    const toPromote = topComments.length === 2 && topComments[0].upvoteCount === topComments[1].upvoteCount
+      ? [topComments[0].id, topComments[1].id]
+      : [topComments[0].id]
+
+    await prisma.comment.updateMany({
+      where: { id: { in: toPromote } },
+      data: { reachTier: nextTier },
+    })
+  }
+
+  console.log(`promoteTopComments: promoted comments for ${advancingIdeaIds.length} ideas from tier ${completedTier}→${nextTier}`)
 }
 
 /**
@@ -731,6 +802,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       data: { status: 'IN_VOTING', tier: nextTier },
     })
 
+    // Promote top comments from completed tier to next tier
+    await promoteTopComments(deliberationId, tier, advancingIdeas.map(i => i.id))
+
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
     // Multiple cells for up-pollination of comments between cells
     console.log(`Creating tier ${nextTier}: ${shuffledIdeas.length} ideas, ${shuffledMembers.length} members, final showdown: ${shuffledIdeas.length <= 5}`)
@@ -787,18 +861,12 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         if (batchIdeas.length === 0) continue
 
         // Create cells for all members in this batch.
-        // Calculate cell count and sizes upfront to distribute evenly.
-        const targetCellSize = Math.max(CELL_SIZE, batchIdeas.length)
-        const effectiveCellSize = Math.min(targetCellSize, MAX_CELL_SIZE)
-        const numCellsInBatch = Math.max(1, Math.ceil(batchMembers.length / effectiveCellSize))
-        // Distribute members as evenly as possible across cells
-        const baseSizePerCell = Math.floor(batchMembers.length / numCellsInBatch)
-        const extraCount = batchMembers.length % numCellsInBatch
+        // Reuse calculateCellSizes to get proper 3-7 sizing with no tiny cells.
+        const cellSizesForBatch = calculateCellSizes(batchMembers.length)
 
         let memberOffset = 0
-        for (let c = 0; c < numCellsInBatch; c++) {
-          // Earlier cells get one extra member to absorb remainder
-          const cellSize = baseSizePerCell + (c < extraCount ? 1 : 0)
+        for (let c = 0; c < cellSizesForBatch.length; c++) {
+          const cellSize = cellSizesForBatch[c]
           if (cellSize === 0) continue
 
           const cellMembers = batchMembers.slice(memberOffset, memberOffset + cellSize)

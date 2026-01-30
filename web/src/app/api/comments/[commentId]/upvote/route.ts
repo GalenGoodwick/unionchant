@@ -85,24 +85,19 @@ export async function POST(
     ])
 
     // Check if comment should up-pollinate (reach new tier)
-    // Threshold: needs upvotes from X% of cell participants
-    const cellParticipantCount = comment.cell.participants.length
-    const currentUpvotes = comment.upvoteCount + 1 // +1 for the new upvote
+    // Uses tierUpvotes (fresh per-tier engagement) not lifetime upvoteCount
+    const currentTierUpvotes = comment.tierUpvotes + 1 // +1 for the new upvote
     const currentTier = comment.reachTier
 
-    // Up-pollinate threshold: 60% of current reach level
-    // Tier 1 = 5 people, need 3 upvotes (60%)
-    // Tier 2 = 25 people, need 15 upvotes
-    // etc.
-    const tierSizes = [5, 25, 125, 625, 3125, 15625, 78125, 390625, 1953125]
-    const currentTierSize = tierSizes[currentTier - 1] || 5
-    const threshold = Math.ceil(currentTierSize * 0.6)
+    // Decreasing thresholds: comment already proved quality at lower tiers
+    const thresholds = [3, 2, 2, 1, 1, 1, 1, 1, 1]
+    const threshold = thresholds[currentTier - 1] || 1
 
     // Allow comments to up-pollinate one tier beyond their cell's tier
     // so they're ready when the next tier's cells load comments
     const maxReachTier = comment.cell.deliberation.currentTier + 1
 
-    if (currentUpvotes >= threshold && currentTier < 9 && currentTier < maxReachTier) {
+    if (currentTierUpvotes >= threshold && currentTier < 9 && currentTier < maxReachTier) {
       // Up-pollinate to next tier!
       const newTier = Math.min(currentTier + 1, maxReachTier)
       await prisma.comment.update({
