@@ -3,7 +3,7 @@
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, Suspense } from 'react'
 import Header from '@/components/Header'
 import { FullPageSpinner } from '@/components/Spinner'
 import Turnstile from '@/components/Turnstile'
@@ -11,6 +11,14 @@ import Turnstile from '@/components/Turnstile'
 type CommunityOption = { id: string; name: string; slug: string }
 
 export default function NewDeliberationPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-surface"><FullPageSpinner /></div>}>
+      <NewDeliberationForm />
+    </Suspense>
+  )
+}
+
+function NewDeliberationForm() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
