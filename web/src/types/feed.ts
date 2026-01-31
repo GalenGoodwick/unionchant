@@ -1,3 +1,100 @@
+// === Feed Tabs ===
+export type FeedTab = 'for-you' | 'activity' | 'following' | 'done' | 'results'
+
+// === Activity Feed Types ===
+export type ActivityItemType =
+  | 'voting_active'
+  | 'challenge_started'
+  | 'new_deliberation'
+  | 'tier_completed'
+  | 'platform_stats'
+
+export type ActivityItem = {
+  type: ActivityItemType
+  id: string
+  timestamp: string
+  deliberation?: {
+    id: string
+    question: string
+    currentTier: number
+    challengeRound: number
+    phase: string
+    community?: { name: string; slug: string } | null
+  }
+  // voting_active
+  voterCount?: number
+  tier?: number
+  // challenge_started
+  challengeRound?: number
+  // tier_completed
+  completedTier?: number
+  advancingCount?: number
+  // platform_stats
+  stats?: {
+    activeVoters: number
+    inProgressDelibs: number
+    ideasToday: number
+    votesToday: number
+  }
+}
+
+// === Results Feed Types ===
+export type ResultItemType =
+  | 'champion_crowned'
+  | 'idea_advanced'
+  | 'deliberation_completed'
+  | 'prediction_correct'
+
+export type ResultItem = {
+  type: ResultItemType
+  id: string
+  timestamp: string
+  deliberation: {
+    id: string
+    question: string
+    phase: string
+    currentTier: number
+    community?: { name: string; slug: string } | null
+  }
+  // champion_crowned
+  champion?: { id: string; text: string; author: string; totalVotes: number }
+  // idea_advanced
+  idea?: { id: string; text: string; tier: number }
+  isPersonal?: boolean
+  // deliberation_completed
+  totalParticipants?: number
+  totalIdeas?: number
+  totalTiers?: number
+  // prediction_correct
+  prediction?: { tier: number; ideaText: string }
+}
+
+// === Following Feed Types ===
+export type FollowingItemType =
+  | 'idea_submitted'
+  | 'idea_won'
+  | 'deliberation_created'
+  | 'joined_deliberation'
+
+export type FollowingItem = {
+  type: FollowingItemType
+  id: string
+  timestamp: string
+  user: {
+    id: string
+    name: string
+    image: string | null
+  }
+  deliberation: {
+    id: string
+    question: string
+    phase: string
+    community?: { name: string; slug: string } | null
+  }
+  idea?: { id: string; text: string }
+}
+
+// === Existing For You Types (unchanged) ===
 export type FeedItemType =
   | 'vote_now'
   | 'join_voting'

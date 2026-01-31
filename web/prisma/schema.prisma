@@ -516,6 +516,8 @@ enum NotificationType {
   COMMUNITY_INVITE     // Invited to a community
   COMMUNITY_NEW_DELIB  // New deliberation in a community you belong to
   FOLLOW               // Someone followed you
+  FOLLOWED_NEW_DELIB   // Someone you follow created a new deliberation
+  FOLLOWED_VOTED       // Someone you follow voted in a deliberation you're not in
 }
 
 // ============ COMMUNITIES ============

@@ -7,9 +7,11 @@ type ShareMenuProps = {
   text: string
   /** 'button' shows full Share button, 'icon' shows just the share icon */
   variant?: 'button' | 'icon'
+  /** Open dropdown upward (use in card footers where overflow is clipped) */
+  dropUp?: boolean
 }
 
-export default function ShareMenu({ url, text, variant = 'button' }: ShareMenuProps) {
+export default function ShareMenu({ url, text, variant = 'button', dropUp = false }: ShareMenuProps) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -80,6 +82,24 @@ export default function ShareMenu({ url, text, variant = 'button' }: ShareMenuPr
         </svg>
       ),
     },
+    {
+      label: 'Email',
+      href: `mailto:?subject=${encodedText}&body=${encodedText}%0A%0A${encodedUrl}`,
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      ),
+    },
+    {
+      label: 'Text message',
+      href: `sms:?&body=${encodedText}%20${encodedUrl}`,
+      icon: (
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+      ),
+    },
   ]
 
   const shareIcon = (
@@ -109,7 +129,7 @@ export default function ShareMenu({ url, text, variant = 'button' }: ShareMenuPr
       )}
 
       {open && (
-        <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded-lg shadow-lg z-50 min-w-[180px] py-1">
+        <div className={`absolute right-0 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} bg-background border border-border rounded-lg shadow-lg z-50 min-w-[180px] py-1`}>
           {shareOptions.map((option) =>
             'href' in option && option.href ? (
               <a

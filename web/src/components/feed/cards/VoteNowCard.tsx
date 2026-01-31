@@ -213,6 +213,14 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
 
     return (
       <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden`}>
+        {/* Creator / Community meta */}
+        {(item.deliberation.creator || item.community) && (
+          <div className="px-4 py-2 text-xs text-muted">
+            {item.deliberation.creator && <>Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link></>}
+            {item.deliberation.creator && item.community && ' · '}
+            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+          </div>
+        )}
         {/* Header */}
         <div className="px-4 py-3 border-b border-border flex justify-between items-center">
           <span className={`font-bold text-sm uppercase tracking-wide ${headerColor}`}>
@@ -233,18 +241,6 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
           </Link>
           {item.deliberation.description && (
             <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
-          )}
-          {(item.deliberation.organization || item.community) && (
-            <p className="text-muted-light text-xs mt-1">
-              {item.deliberation.organization}
-              {item.deliberation.organization && item.community && ' · '}
-              {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
-            </p>
-          )}
-          {item.deliberation.creator && (
-            <p className="text-muted text-xs mt-1">
-              Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
-            </p>
           )}
           <div className="mb-4" />
 
@@ -320,12 +316,13 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
               url={`/deliberations/${item.deliberation.id}`}
               text={item.deliberation.question}
               variant="icon"
+              dropUp
             />
             <button
               onClick={onExplore}
               className="text-muted hover:text-foreground text-sm transition-colors"
             >
-              Comments
+              Discuss
             </button>
             <Link
               href={`/deliberations/${item.deliberation.id}`}
@@ -354,6 +351,14 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
             <div className="animate-spin w-8 h-8 border-4 border-warning border-t-transparent rounded-full mx-auto mb-2" />
             <p className="text-muted text-sm">Submitting vote...</p>
           </div>
+        </div>
+      )}
+      {/* Creator / Community meta */}
+      {(item.deliberation.creator || item.community) && (
+        <div className="px-4 py-2 text-xs text-muted">
+          {item.deliberation.creator && <>Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link></>}
+          {item.deliberation.creator && item.community && ' · '}
+          {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
         </div>
       )}
       {/* Header */}
@@ -393,18 +398,6 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         </Link>
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
-        )}
-        {(item.deliberation.organization || item.community) && (
-          <p className="text-muted-light text-xs mt-1">
-            {item.deliberation.organization}
-            {item.deliberation.organization && item.community && ' · '}
-            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
-          </p>
-        )}
-        {item.deliberation.creator && (
-          <p className="text-muted text-xs mt-1">
-            Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
-          </p>
         )}
         <div className="mb-4" />
 
@@ -478,6 +471,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
             url={`/deliberations/${item.deliberation.id}`}
             text={item.deliberation.question}
             variant="icon"
+              dropUp
           />
           <button
             onClick={onExplore}

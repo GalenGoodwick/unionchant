@@ -13,9 +13,10 @@ type Props = {
   item: FeedItem
   onAction: () => void
   onExplore: () => void
+  onSubmitted?: (text: string) => void
 }
 
-export default function ChampionCard({ item, onAction, onExplore }: Props) {
+export default function ChampionCard({ item, onAction, onExplore, onSubmitted }: Props) {
   const { showToast } = useToast()
   const { data: session } = useSession()
   const router = useRouter()
@@ -55,6 +56,7 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
       })
 
       if (res.ok) {
+        onSubmitted?.(idea)
         setSubmittedText(idea)
         setIdea('')
         setSubmitted(true)
@@ -127,6 +129,14 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
 
   return (
     <div className={`bg-surface border ${borderColor} rounded-xl overflow-hidden`}>
+      {/* Creator / Community meta */}
+      {(item.deliberation.creator || item.community) && (
+        <div className="px-4 py-2 text-xs text-muted">
+          {item.deliberation.creator && <>Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link></>}
+          {item.deliberation.creator && item.community && ' · '}
+          {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
+        </div>
+      )}
       {/* Header */}
       <div className="px-4 py-3 border-b border-border flex justify-between items-center">
         <span className={`${headerBg} font-bold text-sm uppercase tracking-wide`}>
@@ -151,18 +161,6 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
         </Link>
         {item.deliberation.description && (
           <p className="text-muted text-sm mt-1">{item.deliberation.description}</p>
-        )}
-        {(item.deliberation.organization || item.community) && (
-          <p className="text-muted-light text-xs mt-1">
-            {item.deliberation.organization}
-            {item.deliberation.organization && item.community && ' · '}
-            {item.community && <Link href={`/communities/${item.community.slug}`} className="text-accent hover:text-accent-hover">{item.community.name}</Link>}
-          </p>
-        )}
-        {item.deliberation.creator && (
-          <p className="text-muted text-xs mt-1">
-            Created by <Link href={`/user/${item.deliberation.creator.id}`} className="text-accent hover:text-accent-hover">{item.deliberation.creator.name}</Link>
-          </p>
         )}
         <div className="mb-4" />
 
@@ -299,12 +297,13 @@ export default function ChampionCard({ item, onAction, onExplore }: Props) {
             url={`/deliberations/${item.deliberation.id}`}
             text={item.deliberation.question}
             variant="icon"
+              dropUp
           />
           <button
             onClick={onExplore}
             className="text-muted hover:text-foreground transition-colors"
           >
-            Comments
+            Discuss
           </button>
           <Link
             href={`/deliberations/${item.deliberation.id}`}

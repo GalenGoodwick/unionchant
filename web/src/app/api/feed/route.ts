@@ -398,18 +398,19 @@ export async function GET(req: NextRequest) {
     }
 
     // Merge: user's vote_now cards + global discovery items (skip duplicates)
+    // IMPORTANT: clone discovery items — never mutate the shared global cache
     const userDelibIds = new Set(items.map(i => i.deliberation.id))
     for (const item of globalFeedCache!.items) {
       if (!userDelibIds.has(item.deliberation.id)) {
-        items.push(item)
+        items.push({ ...item })
       }
     }
 
-    // Enrich discovery items with user's submitted ideas (lightweight query)
-    const discoveryDelibIds = globalFeedCache!.items.map((i: FeedItem) => i.deliberation.id)
-    if (userId && discoveryDelibIds.length > 0) {
+    // Enrich items with user's submitted ideas (lightweight query)
+    const allDelibIds = items.map(i => i.deliberation.id)
+    if (userId && allDelibIds.length > 0) {
       const userIdeas = await prisma.idea.findMany({
-        where: { deliberationId: { in: discoveryDelibIds }, authorId: userId },
+        where: { deliberationId: { in: allDelibIds }, authorId: userId },
         select: { id: true, text: true, deliberationId: true, isNew: true },
       })
       for (const idea of userIdeas) {

@@ -54,6 +54,9 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
   const [upPollinationEvent, setUpPollinationEvent] = useState<{ commentId: string; newTier: number } | null>(null)
   const commentsEndRef = useRef<HTMLDivElement>(null)
 
+  // Deliberation-level comments for no-cell cards
+  const [delibComments, setDelibComments] = useState<Comment[]>([])
+
   // Fetch user's predictions and comments
   useEffect(() => {
     const fetchData = async () => {
@@ -67,14 +70,35 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
           }
         }
 
-        // Fetch comments if user is in a cell
         if (item.cell) {
+          // Fetch cell-level comments
           const commentsRes = await fetch(`/api/cells/${item.cell.id}/comments`)
           if (commentsRes.ok) {
             const commentsData = await commentsRes.json()
             setLocalComments(commentsData.local || [])
             setUpPollinatedComments(commentsData.upPollinated || [])
             setCellTier(commentsData.cellTier || 1)
+          }
+        } else {
+          // Fetch deliberation-level comments (flat list from all tiers)
+          const commentsRes = await fetch(`/api/deliberations/${item.deliberation.id}/comments`)
+          if (commentsRes.ok) {
+            const data = await commentsRes.json()
+            const flat: Comment[] = []
+            for (const tier of data.tiers || []) {
+              for (const cell of tier.cells || []) {
+                for (const c of cell.comments || []) {
+                  flat.push({
+                    ...c,
+                    views: 0,
+                    isUpPollinated: false,
+                    sourceTier: tier.tier,
+                    createdAt: typeof c.createdAt === 'string' ? c.createdAt : new Date(c.createdAt).toISOString(),
+                  })
+                }
+              }
+            }
+            setDelibComments(flat)
           }
         }
       } catch (err) {
@@ -350,6 +374,38 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
               <Link href="/auth/signin" className="text-accent hover:underline">Sign in</Link> to chat
             </p>
           )}
+        </div>
+      )}
+
+      {/* Discussion for non-cell cards (submit_ideas, join_voting, etc.) */}
+      {!item.cell && (
+        <div>
+          <div className="text-xs text-muted mb-1.5">
+            Discussion {delibComments.length > 0 && `(${delibComments.length})`}
+          </div>
+
+          {loading ? (
+            <p className="text-muted text-xs mb-2">Loading...</p>
+          ) : delibComments.length > 0 ? (
+            <div className="bg-background rounded border border-border mb-2 max-h-40 overflow-y-auto divide-y divide-border">
+              {delibComments.map((c) => (
+                <div key={c.id} className="px-2 py-1.5">
+                  <div className="flex items-center gap-1.5 text-xs text-muted">
+                    <span className="text-accent font-medium">{c.user.name || 'Anon'}</span>
+                    <span>·</span>
+                    <span>{timeAgo(c.createdAt)}</span>
+                  </div>
+                  <p className="text-foreground text-sm">{c.text}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted text-xs mb-2">No comments yet</p>
+          )}
+
+          <p className="text-muted text-xs">
+            Join the deliberation to discuss
+          </p>
         </div>
       )}
 
