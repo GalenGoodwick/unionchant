@@ -28,6 +28,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
   const [submittedText, setSubmittedText] = useState(item.userSubmittedIdea?.text || '')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [showCaptchaModal, setShowCaptchaModal] = useState(false)
+  const [ideaCount, setIdeaCount] = useState(item.votingTrigger?.currentIdeas ?? item.deliberation._count.ideas)
 
   // Check if submission deadline has passed
   const isExpired = item.submissionDeadline ? new Date(item.submissionDeadline) < new Date() : false
@@ -61,6 +62,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
         setSubmittedText(idea)
         setIdea('')
         setSubmitted(true)
+        setIdeaCount(prev => prev + 1)
         onAction()
       } else {
         const data = await res.json()
@@ -114,7 +116,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
         </span>
         <span className="text-sm text-muted font-mono">
           {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
-            <>Idea Goal {item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal}</>
+            <>Idea Goal {ideaCount}/{item.votingTrigger.ideaGoal}</>
           ) : item.submissionDeadline ? (
             <>Timed <CountdownTimer
               deadline={item.submissionDeadline}
@@ -148,7 +150,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
             {/* Voting trigger info */}
             <div className="text-muted text-xs mb-3">
               {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
-                <span>Voting starts at {item.votingTrigger.ideaGoal} ideas ({item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal})</span>
+                <span>Voting starts at {item.votingTrigger.ideaGoal} ideas ({ideaCount}/{item.votingTrigger.ideaGoal})</span>
               ) : item.submissionDeadline ? (
                 <span>Voting starts in <CountdownTimer deadline={item.submissionDeadline} onExpire={onAction} compact /></span>
               ) : (
@@ -215,7 +217,7 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
       {/* Footer */}
       <div className="px-4 py-3 border-t border-border flex justify-between items-center text-sm">
         <div className="flex items-center gap-3 text-muted">
-          <span>{item.deliberation._count.ideas} ideas • {item.deliberation._count.members} participants</span>
+          <span>{ideaCount} ideas • {item.deliberation._count.members} participants</span>
           {item.deliberation.views > 0 && (
             <span className="flex items-center gap-1">
               <span>👁</span> {item.deliberation.views}
