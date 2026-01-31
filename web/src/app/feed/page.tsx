@@ -67,6 +67,7 @@ export default function FeedPage() {
   // Optimistic action tracking — refs are immune to stale closures
   const votedCellIdsRef = useRef<Set<string>>(new Set())
   const submittedDelibsRef = useRef<Map<string, string>>(new Map()) // deliberationId -> text
+  const resolvedAtRef = useRef<Map<string, number>>(new Map()) // itemKey -> timestamp
 
   // Tab states
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([])
@@ -96,6 +97,11 @@ export default function FeedPage() {
       if (isDoneItem(item)) {
         done.push(item)
         doneDelibIds.add(item.deliberation.id)
+        // Seed timestamp for server-known done items (if not already tracked)
+        const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || 'no-cell'}`
+        if (!resolvedAtRef.current.has(key)) {
+          resolvedAtRef.current.set(key, new Date(item.deliberation.createdAt).getTime())
+        }
       }
     }
 
@@ -105,6 +111,15 @@ export default function FeedPage() {
         actionable.push(item)
       }
     }
+
+    // Sort done items: most recently resolved first
+    done.sort((a, b) => {
+      const keyA = `${a.type}-${a.deliberation.id}-${a.cell?.id || 'no-cell'}`
+      const keyB = `${b.type}-${b.deliberation.id}-${b.cell?.id || 'no-cell'}`
+      const timeA = resolvedAtRef.current.get(keyA) || 0
+      const timeB = resolvedAtRef.current.get(keyB) || 0
+      return timeB - timeA // newest first
+    })
 
     return { actionableItems: actionable, doneItems: done }
   }, [items])
@@ -224,6 +239,7 @@ export default function FeedPage() {
   const preserveVoteCard = useCallback((item: FeedItem) => {
     if (!item.cell) return
     votedCellIdsRef.current.add(item.cell.id)
+    resolvedAtRef.current.set(`vote_now-${item.deliberation.id}-${item.cell.id}`, Date.now())
     // Update items locally — card reclassifies as done THIS render
     setItems(prev => prev.map(i =>
       i.cell?.id === item.cell!.id
@@ -242,6 +258,7 @@ export default function FeedPage() {
 
   const markIdeaSubmitted = useCallback((deliberationId: string, text: string) => {
     submittedDelibsRef.current.set(deliberationId, text)
+    resolvedAtRef.current.set(`submit_ideas-${deliberationId}-no-cell`, Date.now())
     // Update items locally — card reclassifies as done THIS render
     setItems(prev => prev.map(i =>
       i.deliberation.id === deliberationId && i.type === 'submit_ideas'
