@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { FeedItem } from '@/types/feed'
 import CountdownTimer from '@/components/CountdownTimer'
@@ -84,6 +86,8 @@ type CellResult = {
 
 export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDismiss }: Props) {
   const { showToast } = useToast()
+  const { data: session } = useSession()
+  const router = useRouter()
   const cell = item.cell!
 
   // Initialize state from pre-fetched data
@@ -91,6 +95,41 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
   const [voted, setVoted] = useState(cell.userHasVoted || false)
   const [votedIdeaId, setVotedIdeaId] = useState<string | null>(cell.userVotedIdeaId || null)
   const [cellResult, setCellResult] = useState<CellResult | null>(null)
+
+  // Challenger submission state
+  const [challengerText, setChallengerText] = useState('')
+  const [submittingChallenger, setSubmittingChallenger] = useState(false)
+  const [challengerSubmitted, setChallengerSubmitted] = useState(Boolean(item.userSubmittedIdea))
+
+  // Submit challenger idea
+  const handleSubmitChallenger = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!challengerText.trim()) return
+    if (!session) { router.push('/auth/signin'); return }
+
+    setSubmittingChallenger(true)
+    try {
+      await fetch(`/api/deliberations/${item.deliberation.id}/join`, { method: 'POST' })
+      const res = await fetch(`/api/deliberations/${item.deliberation.id}/ideas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: challengerText }),
+      })
+      if (res.ok) {
+        setChallengerSubmitted(true)
+        setChallengerText('')
+        onAction()
+      } else {
+        const data = await res.json()
+        showToast(data.error || 'Failed to submit challenger', 'error')
+      }
+    } catch (err) {
+      console.error('Submit challenger error:', err)
+      showToast('Failed to submit challenger', 'error')
+    } finally {
+      setSubmittingChallenger(false)
+    }
+  }
 
   // Check if cell is already completed on initial render
   const isInitiallyCompleted = cell.status === 'COMPLETED'
@@ -289,14 +328,30 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
 
           {/* Challenge option when in ACCUMULATING phase */}
           {isAccumulating && cellResult.deliberation?.accumulationEnabled && (
-            <div className="mt-4 p-3 bg-purple-bg border border-purple rounded-lg text-center">
-              <p className="text-purple text-sm font-medium mb-2">Think you have a better idea?</p>
-              <button
-                onClick={onExplore}
-                className="bg-purple hover:bg-purple-hover text-white px-4 py-1.5 rounded text-sm font-semibold transition-colors"
-              >
-                Submit a Challenger →
-              </button>
+            <div className="mt-4 p-3 bg-purple-bg border border-purple rounded-lg">
+              {challengerSubmitted ? (
+                <p className="text-purple text-sm font-medium text-center">Challenger submitted!</p>
+              ) : (
+                <>
+                  <p className="text-purple text-sm font-medium mb-2 text-center">Think you have a better idea?</p>
+                  <form onSubmit={handleSubmitChallenger} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={challengerText}
+                      onChange={(e) => setChallengerText(e.target.value)}
+                      placeholder="Your challenger idea..."
+                      className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-foreground placeholder-muted focus:outline-none focus:border-purple text-sm"
+                    />
+                    <button
+                      type="submit"
+                      disabled={submittingChallenger || !challengerText.trim()}
+                      className="bg-purple hover:bg-purple-hover text-white px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {submittingChallenger ? '...' : 'Challenge'}
+                    </button>
+                  </form>
+                </>
+              )}
             </div>
           )}
         </div>
