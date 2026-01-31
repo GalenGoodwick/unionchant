@@ -231,18 +231,18 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
           )}
         </div>
         <div className="flex items-center gap-4">
+          <ShareMenu
+            url={`/deliberations/${item.deliberation.id}`}
+            text={item.deliberation.question}
+            variant="icon"
+            dropUp
+          />
           <button
             onClick={onExplore}
             className="text-muted hover:text-foreground transition-colors"
           >
             Discuss
           </button>
-          <ShareMenu
-            url={`/deliberations/${item.deliberation.id}`}
-            text={item.deliberation.question}
-            variant="icon"
-              dropUp
-          />
           <Link
             href={`/deliberations/${item.deliberation.id}`}
             className="text-accent hover:text-accent-hover transition-colors"

@@ -10,6 +10,7 @@ import Header from '@/components/Header'
 import ShareMenu from '@/components/ShareMenu'
 import { FullPageSpinner } from '@/components/Spinner'
 import { useToast } from '@/components/Toast'
+import FollowButton from '@/components/FollowButton'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -21,7 +22,7 @@ type Idea = {
   totalVotes: number
   losses: number
   isNew: boolean
-  author: { name: string | null; status?: UserStatus }
+  author: { id: string; name: string | null; status?: UserStatus }
 }
 
 type CellIdea = {
@@ -187,7 +188,7 @@ function StatsRow({ items }: { items: { label: string; value: string | number; c
 }
 
 // Champion Box - Always visible, shows TBD until winner, with runner-ups
-function ChampionBox({ winner, phase, ideas }: { winner: Idea | undefined; phase: string; ideas: Idea[] }) {
+function ChampionBox({ winner, phase, ideas, creatorId }: { winner: Idea | undefined; phase: string; ideas: Idea[]; creatorId: string }) {
   const hasWinner = !!winner
   // Only show accumulating state if we actually have a champion
   // This prevents flickering during phase transitions
@@ -226,6 +227,14 @@ function ChampionBox({ winner, phase, ideas }: { winner: Idea | undefined; phase
           {hasWinner && winner.author && (
             <div className={`text-sm ${isAccumulating ? 'text-purple' : 'text-success'}`}>
               {getDisplayName(winner.author)} · {winner.totalVotes} votes
+            </div>
+          )}
+          {hasWinner && (
+            <div className="flex items-center gap-2 mt-2">
+              <FollowButton userId={winner.author.id} initialFollowing={false} />
+              {winner.author.id !== creatorId && (
+                <FollowButton userId={creatorId} initialFollowing={false} />
+              )}
             </div>
           )}
           {isAccumulating && hasWinner && (
@@ -1659,7 +1668,7 @@ export default function DeliberationPageClient() {
         </div>
 
         {/* Champion Box - Always visible */}
-        <ChampionBox winner={winner} phase={effectivePhase} ideas={deliberation.ideas} />
+        <ChampionBox winner={winner} phase={effectivePhase} ideas={deliberation.ideas} creatorId={deliberation.creatorId} />
 
         {/* Phase-specific banners */}
         {deliberation.phase === 'SUBMISSION' && deliberation.submissionEndsAt && (

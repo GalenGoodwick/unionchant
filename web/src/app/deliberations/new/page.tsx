@@ -46,6 +46,7 @@ function NewDeliberationForm() {
     submissionHours: 24,
     votingMinutes: 60,
     accumulationDays: 1,
+    accumulationMode: 'timer' as 'timer' | 'manual',
     // Goal settings
     startMode: 'timer' as 'timer' | 'ideas' | 'manual',
     ideaGoal: 10,
@@ -104,7 +105,7 @@ function NewDeliberationForm() {
       setLoading(false)
       return
     }
-    if (formData.winnerMode === 'rolling' && (!formData.accumulationDays || formData.accumulationDays < 1)) {
+    if (formData.winnerMode === 'rolling' && formData.accumulationMode === 'timer' && (!formData.accumulationDays || formData.accumulationDays < 1)) {
       setError('Accumulation period must be at least 1 day')
       setLoading(false)
       return
@@ -127,7 +128,9 @@ function NewDeliberationForm() {
           submissionDurationMs: formData.startMode === 'timer' ? formData.submissionHours * 60 * 60 * 1000 : null,
           votingTimeoutMs: formData.votingMinutes * 60 * 1000,
           accumulationEnabled: formData.winnerMode === 'rolling',
-          accumulationTimeoutMs: formData.accumulationDays * 24 * 60 * 60 * 1000,
+          accumulationTimeoutMs: formData.winnerMode === 'rolling' && formData.accumulationMode === 'timer'
+            ? formData.accumulationDays * 24 * 60 * 60 * 1000
+            : null,
           // Goal settings
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
           communityId: selectedCommunityId || undefined,
@@ -339,19 +342,48 @@ function NewDeliberationForm() {
                       <div className="text-muted text-sm">Winner becomes champion that challengers can compete against</div>
 
                       {formData.winnerMode === 'rolling' && (
-                        <div className="mt-3">
-                          <label className="block text-muted text-sm mb-1">Accumulation period (days)</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={30}
-                            value={formData.accumulationDays || ''}
-                            onChange={(e) => setFormData({ ...formData, accumulationDays: parseInt(e.target.value) || 0 })}
-                            className="w-32 bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-purple font-mono"
-                          />
-                          <p className="text-muted-light text-xs mt-1">
-                            Time to collect challengers before each challenge round
-                          </p>
+                        <div className="mt-3 space-y-2">
+                          <label className="block text-muted text-sm mb-1">When to start challenge rounds</label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="accumulationMode"
+                              value="timer"
+                              checked={formData.accumulationMode === 'timer'}
+                              onChange={() => setFormData({ ...formData, accumulationMode: 'timer' })}
+                              className="mt-1 w-3.5 h-3.5 text-purple"
+                            />
+                            <div>
+                              <span className="text-foreground text-sm">After a set period</span>
+                              {formData.accumulationMode === 'timer' && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={30}
+                                    value={formData.accumulationDays || ''}
+                                    onChange={(e) => setFormData({ ...formData, accumulationDays: parseInt(e.target.value) || 0 })}
+                                    className="w-20 bg-surface border border-border rounded px-3 py-1.5 text-foreground focus:outline-none focus:border-purple font-mono text-sm"
+                                  />
+                                  <span className="text-muted text-sm">days to collect challengers</span>
+                                </div>
+                              )}
+                            </div>
+                          </label>
+                          <label className="flex items-start gap-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="accumulationMode"
+                              value="manual"
+                              checked={formData.accumulationMode === 'manual'}
+                              onChange={() => setFormData({ ...formData, accumulationMode: 'manual' })}
+                              className="mt-1 w-3.5 h-3.5 text-purple"
+                            />
+                            <div>
+                              <span className="text-foreground text-sm">When I trigger it</span>
+                              <p className="text-muted-light text-xs">You decide when to start each challenge round</p>
+                            </div>
+                          </label>
                         </div>
                       )}
                     </div>

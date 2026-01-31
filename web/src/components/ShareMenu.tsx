@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 
 type ShareMenuProps = {
   url: string
@@ -14,17 +15,36 @@ type ShareMenuProps = {
 export default function ShareMenu({ url, text, variant = 'button', dropUp = false }: ShareMenuProps) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    if (dropUp) {
+      setPos({ top: rect.top + window.scrollY, left: rect.right + window.scrollX })
+    } else {
+      setPos({ top: rect.bottom + window.scrollY, left: rect.right + window.scrollX })
+    }
+  }, [dropUp])
 
   useEffect(() => {
+    if (!open) return
+    updatePosition()
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node) &&
+          buttonRef.current && !buttonRef.current.contains(e.target as Node)) {
         setOpen(false)
       }
     }
-    if (open) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [open, updatePosition])
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unionchant.org'
   const fullUrl = url.startsWith('http') ? url : `${appUrl}${url}`
@@ -108,10 +128,51 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
     </svg>
   )
 
+  const dropdown = open && typeof document !== 'undefined' ? createPortal(
+    <div
+      ref={menuRef}
+      className="fixed bg-background border border-border rounded-lg shadow-lg z-[9999] min-w-[180px] py-1"
+      style={{
+        top: dropUp ? undefined : pos.top,
+        bottom: dropUp ? `calc(100vh - ${pos.top}px + 4px)` : undefined,
+        left: pos.left,
+        transform: 'translateX(-100%)',
+        position: 'absolute',
+      }}
+    >
+      {shareOptions.map((option) =>
+        'href' in option && option.href ? (
+          <a
+            key={option.label}
+            href={option.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-surface transition-colors"
+            onClick={() => setOpen(false)}
+          >
+            <span className="text-muted">{option.icon}</span>
+            {option.label}
+          </a>
+        ) : (
+          <button
+            key={option.label}
+            onClick={option.onClick}
+            className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-surface transition-colors w-full text-left"
+          >
+            <span className={copied && option.label === 'Copied!' ? 'text-success' : 'text-muted'}>{option.icon}</span>
+            <span className={copied && option.label === 'Copied!' ? 'text-success' : ''}>{option.label}</span>
+          </button>
+        )
+      )}
+    </div>,
+    document.body
+  ) : null
+
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       {variant === 'icon' ? (
         <button
+          ref={buttonRef}
           onClick={handleShare}
           className="text-muted hover:text-foreground transition-colors p-1"
           title="Share"
@@ -120,6 +181,7 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
         </button>
       ) : (
         <button
+          ref={buttonRef}
           onClick={handleShare}
           className="border border-border hover:border-muted text-foreground px-4 py-2 rounded text-sm flex items-center gap-2"
         >
@@ -128,34 +190,7 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
         </button>
       )}
 
-      {open && (
-        <div className={`absolute right-0 ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} bg-background border border-border rounded-lg shadow-lg z-50 min-w-[180px] py-1`}>
-          {shareOptions.map((option) =>
-            'href' in option && option.href ? (
-              <a
-                key={option.label}
-                href={option.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-surface transition-colors"
-                onClick={() => setOpen(false)}
-              >
-                <span className="text-muted">{option.icon}</span>
-                {option.label}
-              </a>
-            ) : (
-              <button
-                key={option.label}
-                onClick={option.onClick}
-                className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-surface transition-colors w-full text-left"
-              >
-                <span className={copied && option.label === 'Copied!' ? 'text-success' : 'text-muted'}>{option.icon}</span>
-                <span className={copied && option.label === 'Copied!' ? 'text-success' : ''}>{option.label}</span>
-              </button>
-            )
-          )}
-        </div>
-      )}
+      {dropdown}
     </div>
   )
 }

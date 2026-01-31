@@ -15,12 +15,13 @@ type Notification = {
   createdAt: string
 }
 
-export default function NotificationBell() {
+export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {}) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Fetch notifications
   const fetchNotifications = async () => {
@@ -67,6 +68,18 @@ export default function NotificationBell() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  // Auto-read when dropdown opens
+  useEffect(() => {
+    if (isOpen && unreadCount > 0) {
+      autoReadTimerRef.current = setTimeout(() => {
+        markAllRead()
+      }, 1000)
+    }
+    return () => {
+      if (autoReadTimerRef.current) clearTimeout(autoReadTimerRef.current)
+    }
+  }, [isOpen, unreadCount])
+
   // Mark all as read
   const markAllRead = async () => {
     setLoading(true)
@@ -85,21 +98,6 @@ export default function NotificationBell() {
     }
   }
 
-  // Mark single notification as read
-  const markOneRead = async (id: string) => {
-    try {
-      await fetch('/api/notifications', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notificationIds: [id] }),
-      })
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
-      setUnreadCount(prev => Math.max(0, prev - 1))
-    } catch (err) {
-      console.error('Failed to mark as read:', err)
-    }
-  }
-
   // Get icon for notification type
   const getIcon = (type: string) => {
     switch (type) {
@@ -110,15 +108,19 @@ export default function NotificationBell() {
       case 'IDEA_WON': return '🏆'
       case 'VOTE_NEEDED': return '🗳️'
       case 'DELIBERATION_UPDATE': return '📢'
+      case 'FOLLOW': return '👤'
+      case 'COMMUNITY_INVITE': return '📨'
+      case 'COMMUNITY_NEW_DELIB': return '🆕'
+      case 'FOLLOWED_NEW_DELIB': return '📝'
+      case 'FOLLOWED_VOTED': return '🗳️'
       default: return '🔔'
     }
   }
 
   // Get link for notification
   const getLink = (n: Notification) => {
-    if (n.deliberationId) {
-      return `/deliberations/${n.deliberationId}`
-    }
+    if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
+    if (n.deliberationId) return `/deliberations/${n.deliberationId}`
     return '/feed'
   }
 
@@ -138,7 +140,11 @@ export default function NotificationBell() {
     <div className="relative" ref={dropdownRef}>
       {/* Bell button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const next = !isOpen
+          setIsOpen(next)
+          if (next) onOpen?.()
+        }}
         className="relative p-1 text-gray-300 hover:text-white transition-colors"
         aria-label="Notifications"
       >
@@ -192,7 +198,6 @@ export default function NotificationBell() {
                   key={n.id}
                   href={getLink(n)}
                   onClick={() => {
-                    if (!n.read) markOneRead(n.id)
                     setIsOpen(false)
                   }}
                   className={`block px-4 py-3 border-b border-border hover:bg-background transition-colors ${
@@ -205,7 +210,7 @@ export default function NotificationBell() {
                       <p className={`text-sm ${!n.read ? 'font-medium text-foreground' : 'text-muted'}`}>
                         {n.title}
                       </p>
-                      {n.body && (
+                      {n.body && n.type !== 'FOLLOW' && (
                         <p className="text-xs text-muted truncate mt-0.5">{n.body}</p>
                       )}
                       <span className="text-xs text-subtle">{timeAgo(n.createdAt)}</span>

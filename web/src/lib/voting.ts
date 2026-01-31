@@ -222,7 +222,7 @@ export async function startVotingPhase(deliberationId: string) {
           phase: deliberation.accumulationEnabled ? 'ACCUMULATING' : 'COMPLETED',
           championId: winningIdea.id,
           completedAt: deliberation.accumulationEnabled ? null : new Date(),
-          accumulationEndsAt: deliberation.accumulationEnabled
+          accumulationEndsAt: deliberation.accumulationEnabled && deliberation.accumulationTimeoutMs
             ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
             : null,
         },
@@ -692,7 +692,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       })
 
       if (deliberation?.accumulationEnabled) {
-        const accumulationEndsAt = new Date(Date.now() + deliberation.accumulationTimeoutMs)
+        const accumulationEndsAt = deliberation.accumulationTimeoutMs
+          ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
+          : null
         // Atomic: only transition if still in VOTING phase
         const updated = await prisma.deliberation.updateMany({
           where: { id: deliberationId, phase: 'VOTING' },
@@ -792,7 +794,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // Check if accumulation is enabled
     if (deliberation.accumulationEnabled) {
       // Atomic: only transition if still in VOTING phase
-      const accumulationEndsAt = new Date(Date.now() + deliberation.accumulationTimeoutMs)
+      const accumulationEndsAt = deliberation.accumulationTimeoutMs
+        ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
+        : null
 
       const updated = await prisma.deliberation.updateMany({
         where: { id: deliberationId, phase: 'VOTING' },

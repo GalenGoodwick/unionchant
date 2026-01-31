@@ -377,35 +377,91 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
         </div>
       )}
 
-      {/* Discussion for non-cell cards (submit_ideas, join_voting, etc.) */}
+      {/* Content for non-cell cards (submit_ideas, join_voting, etc.) */}
       {!item.cell && (
-        <div>
-          <div className="text-xs text-muted mb-1.5">
-            Discussion {delibComments.length > 0 && `(${delibComments.length})`}
-          </div>
-
-          {loading ? (
-            <p className="text-muted text-xs mb-2">Loading...</p>
-          ) : delibComments.length > 0 ? (
-            <div className="bg-background rounded border border-border mb-2 max-h-40 overflow-y-auto divide-y divide-border">
-              {delibComments.map((c) => (
-                <div key={c.id} className="px-2 py-1.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted">
-                    <span className="text-accent font-medium">{c.user.name || 'Anon'}</span>
-                    <span>·</span>
-                    <span>{timeAgo(c.createdAt)}</span>
-                  </div>
-                  <p className="text-foreground text-sm">{c.text}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted text-xs mb-2">No comments yet</p>
+        <div className="space-y-4">
+          {/* Description */}
+          {item.deliberation.description && (
+            <p className="text-muted text-sm">{item.deliberation.description}</p>
           )}
 
-          <p className="text-muted text-xs">
-            Join the deliberation to discuss
-          </p>
+          {/* Stats */}
+          <div className="flex gap-4 text-sm text-muted">
+            <span>{item.deliberation._count.ideas} ideas</span>
+            <span>{item.deliberation._count.members} participants</span>
+            {item.deliberation.views > 0 && <span>{item.deliberation.views} views</span>}
+          </div>
+
+          {/* Voting trigger info */}
+          {item.votingTrigger && (
+            <div className="bg-surface border border-border rounded-lg p-3">
+              <p className="text-xs text-muted uppercase tracking-wide mb-1">Voting starts</p>
+              {item.votingTrigger.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
+                <p className="text-foreground text-sm">
+                  When {item.votingTrigger.ideaGoal} ideas submitted
+                  <span className="text-muted"> ({item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal})</span>
+                </p>
+              ) : item.submissionDeadline ? (
+                <p className="text-foreground text-sm">When timer ends</p>
+              ) : (
+                <p className="text-muted text-sm">Facilitator controlled</p>
+              )}
+            </div>
+          )}
+
+          {/* Ideas competing (for join_voting cards) */}
+          {item.tierInfo?.ideas && item.tierInfo.ideas.length > 0 && (
+            <div>
+              <div className="text-xs text-muted uppercase tracking-wide mb-2">
+                Ideas competing ({item.tierInfo.ideas.length})
+              </div>
+              <div className="space-y-1">
+                {item.tierInfo.ideas.slice(0, 5).map((idea) => (
+                  <div
+                    key={idea.id}
+                    className="p-2 bg-background border border-border rounded text-sm text-foreground truncate"
+                  >
+                    {idea.text}
+                  </div>
+                ))}
+                {item.tierInfo.ideas.length > 5 && (
+                  <p className="text-muted text-xs text-center py-1">
+                    +{item.tierInfo.ideas.length - 5} more
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Deliberation-level comments */}
+          <div>
+            <div className="text-xs text-muted mb-1.5">
+              Discussion {delibComments.length > 0 && `(${delibComments.length})`}
+            </div>
+
+            {loading ? (
+              <p className="text-muted text-xs mb-2">Loading...</p>
+            ) : delibComments.length > 0 ? (
+              <div className="bg-background rounded border border-border mb-2 max-h-40 overflow-y-auto divide-y divide-border">
+                {delibComments.map((c) => (
+                  <div key={c.id} className="px-2 py-1.5">
+                    <div className="flex items-center gap-1.5 text-xs text-muted">
+                      <span className="text-accent font-medium">{c.user.name || 'Anon'}</span>
+                      <span>·</span>
+                      <span>{timeAgo(c.createdAt)}</span>
+                    </div>
+                    <p className="text-foreground text-sm">{c.text}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-muted text-xs mb-2">
+                {item.deliberation.phase === 'SUBMISSION'
+                  ? 'Discussion begins when voting starts'
+                  : 'No comments yet'}
+              </p>
+            )}
+          </div>
         </div>
       )}
 

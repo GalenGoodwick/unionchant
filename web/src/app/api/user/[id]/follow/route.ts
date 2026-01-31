@@ -70,14 +70,20 @@ export async function POST(
       data: { followerId: user.id, followingId: targetId },
     })
 
-    // Create notification for the followed user
-    await prisma.notification.create({
-      data: {
-        userId: targetId,
-        type: 'FOLLOW',
-        title: `${user.name || 'Someone'} started following you`,
-      },
-    }).catch(() => {}) // Don't fail if notification fails
+    // Create notification only if we haven't already notified for this follow
+    const existingNotif = await prisma.notification.findFirst({
+      where: { userId: targetId, type: 'FOLLOW', body: user.id },
+    })
+    if (!existingNotif) {
+      await prisma.notification.create({
+        data: {
+          userId: targetId,
+          type: 'FOLLOW',
+          title: `${user.name || 'Someone'} started following you`,
+          body: user.id, // Store follower ID for profile linking
+        },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

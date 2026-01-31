@@ -82,7 +82,7 @@ export default function Header() {
 
         {/* Mobile: notification + burger */}
         <div className="flex items-center gap-3 md:hidden">
-          {session && <NotificationBell />}
+          {session && <NotificationBell onOpen={() => setMenuOpen(false)} />}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="p-2 hover:bg-white/10 rounded-lg transition-colors"

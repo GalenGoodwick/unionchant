@@ -215,6 +215,30 @@ export function passwordResetEmail(params: {
   }
 }
 
+export function followedNewDelibEmail(params: {
+  userName: string
+  question: string
+  deliberationId: string
+}) {
+  const delibUrl = `${baseUrl}/deliberations/${params.deliberationId}`
+
+  return {
+    subject: `"${params.userName}" started a new deliberation`,
+    html: layout(`
+      <h2 style="margin:0 0 8px;color:#18181b;font-size:20px;">New deliberation from someone you follow</h2>
+      <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
+        <strong>${params.userName}</strong> just created a new deliberation:
+      </p>
+      <div style="background:#f4f4f5;border-radius:6px;padding:16px;margin:16px 0;">
+        <p style="margin:0;color:#18181b;font-size:16px;font-weight:600;">&ldquo;${params.question}&rdquo;</p>
+      </div>
+      <div style="text-align:center;">
+        ${button(delibUrl, 'View Deliberation')}
+      </div>
+    `),
+  }
+}
+
 export function newTierEmail(params: {
   question: string
   deliberationId: string

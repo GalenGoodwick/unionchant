@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 
-export default function FollowButton({ userId, initialFollowing }: {
+export default function FollowButton({ userId, initialFollowing, followLabel = 'Follow', followingLabel = 'Following' }: {
   userId: string
   initialFollowing: boolean
+  followLabel?: string
+  followingLabel?: string
 }) {
   const { data: session } = useSession()
   const router = useRouter()
@@ -47,7 +49,7 @@ export default function FollowButton({ userId, initialFollowing }: {
           : 'bg-accent hover:bg-accent-hover text-white'
       }`}
     >
-      {following ? 'Following' : 'Follow'}
+      {following ? followingLabel : followLabel}
     </button>
   )
 }

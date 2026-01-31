@@ -33,7 +33,7 @@ export async function GET(
           orderBy: { createdAt: 'desc' },
           include: {
             author: {
-              select: { name: true, status: true },
+              select: { id: true, name: true, status: true },
             },
           },
         },
@@ -58,6 +58,7 @@ export async function GET(
     let isCreator = false
     let userSubmittedIdea: { id: string; text: string } | null = null
     let userSubmittedChallenger: { id: string; text: string } | null = null
+    let followedUserIds: string[] = []
 
     if (session?.user?.email) {
       const user = await prisma.user.findUnique({
@@ -66,42 +67,55 @@ export async function GET(
       if (user) {
         isCreator = user.id === deliberation.creatorId
 
-        const membership = await prisma.deliberationMember.findUnique({
-          where: {
-            deliberationId_userId: {
-              deliberationId: id,
-              userId: user.id,
+        // Collect all relevant user IDs (creator + idea authors)
+        const relevantUserIds = new Set<string>()
+        relevantUserIds.add(deliberation.creatorId)
+        for (const idea of deliberation.ideas) {
+          if (idea.authorId) relevantUserIds.add(idea.authorId)
+        }
+        relevantUserIds.delete(user.id) // can't follow yourself
+
+        const [membership, existingIdea, existingChallenger, follows] = await Promise.all([
+          prisma.deliberationMember.findUnique({
+            where: {
+              deliberationId_userId: {
+                deliberationId: id,
+                userId: user.id,
+              },
             },
-          },
-        })
+          }),
+          prisma.idea.findFirst({
+            where: {
+              deliberationId: id,
+              authorId: user.id,
+              isNew: false,
+            },
+            select: { id: true, text: true },
+          }),
+          prisma.idea.findFirst({
+            where: {
+              deliberationId: id,
+              authorId: user.id,
+              isNew: true,
+              status: 'PENDING',
+            },
+            select: { id: true, text: true },
+          }),
+          relevantUserIds.size > 0
+            ? prisma.follow.findMany({
+                where: {
+                  followerId: user.id,
+                  followingId: { in: [...relevantUserIds] },
+                },
+                select: { followingId: true },
+              })
+            : Promise.resolve([]),
+        ])
+
         isMember = !!membership
-
-        // Check if user has submitted an idea (regular submission)
-        const existingIdea = await prisma.idea.findFirst({
-          where: {
-            deliberationId: id,
-            authorId: user.id,
-            isNew: false,
-          },
-          select: { id: true, text: true },
-        })
-        if (existingIdea) {
-          userSubmittedIdea = existingIdea
-        }
-
-        // Check if user has submitted a challenger (pending)
-        const existingChallenger = await prisma.idea.findFirst({
-          where: {
-            deliberationId: id,
-            authorId: user.id,
-            isNew: true,
-            status: 'PENDING',
-          },
-          select: { id: true, text: true },
-        })
-        if (existingChallenger) {
-          userSubmittedChallenger = existingChallenger
-        }
+        if (existingIdea) userSubmittedIdea = existingIdea
+        if (existingChallenger) userSubmittedChallenger = existingChallenger
+        followedUserIds = follows.map(f => f.followingId)
       }
     }
 
@@ -113,6 +127,7 @@ export async function GET(
       inviteCode: (isMember || isCreator) ? deliberation.inviteCode : undefined,
       userSubmittedIdea,
       userSubmittedChallenger,
+      followedUserIds,
     }
 
     return NextResponse.json(response)

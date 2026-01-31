@@ -2,7 +2,7 @@
 
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import Spinner from '@/components/Spinner'
@@ -27,6 +27,8 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [marking, setMarking] = useState(false)
+  const pendingReadsRef = useRef<Set<string>>(new Set())
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (status === 'unauthenticated') {
@@ -71,18 +73,82 @@ export default function NotificationsPage() {
     }
   }
 
-  const markOneRead = async (id: string) => {
+  // Batch mark-read: collect IDs and flush after a short window
+  const flushPendingReads = useCallback(async () => {
+    const ids = Array.from(pendingReadsRef.current)
+    if (ids.length === 0) return
+    pendingReadsRef.current.clear()
+
     try {
       await fetch('/api/notifications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notificationIds: [id] }),
+        body: JSON.stringify({ notificationIds: ids }),
       })
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
     } catch (err) {
-      console.error('Failed to mark read:', err)
+      console.error('Failed to batch mark read:', err)
     }
-  }
+  }, [])
+
+  const scheduleRead = useCallback((id: string) => {
+    pendingReadsRef.current.add(id)
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current)
+    flushTimerRef.current = setTimeout(flushPendingReads, 800)
+  }, [flushPendingReads])
+
+  // Flush on unmount
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current)
+      flushPendingReads()
+    }
+  }, [flushPendingReads])
+
+  // IntersectionObserver to auto-mark unread notifications as read
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const timerMapRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+
+  useEffect(() => {
+    observerRef.current = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).dataset.notifId
+        if (!id) continue
+
+        if (entry.isIntersecting) {
+          // Start timer when visible
+          if (!timerMapRef.current.has(id)) {
+            const timer = setTimeout(() => {
+              scheduleRead(id)
+              timerMapRef.current.delete(id)
+            }, 500)
+            timerMapRef.current.set(id, timer)
+          }
+        } else {
+          // Cancel timer if scrolled away
+          const timer = timerMapRef.current.get(id)
+          if (timer) {
+            clearTimeout(timer)
+            timerMapRef.current.delete(id)
+          }
+        }
+      }
+    }, { threshold: 0.5 })
+
+    return () => {
+      observerRef.current?.disconnect()
+      for (const timer of timerMapRef.current.values()) clearTimeout(timer)
+      timerMapRef.current.clear()
+    }
+  }, [scheduleRead])
+
+  // Ref callback to observe unread notification elements
+  const observeRef = useCallback((el: HTMLElement | null) => {
+    if (el && observerRef.current) {
+      observerRef.current.observe(el)
+    }
+  }, [])
 
   const getIcon = (type: string) => {
     switch (type) {
@@ -94,6 +160,11 @@ export default function NotificationsPage() {
       case 'IDEA_ELIMINATED': return '❌'
       case 'CELL_READY': return '🗳️'
       case 'DELIBERATION_COMPLETE': return '✅'
+      case 'FOLLOW': return '👤'
+      case 'COMMUNITY_INVITE': return '📨'
+      case 'COMMUNITY_NEW_DELIB': return '🆕'
+      case 'FOLLOWED_NEW_DELIB': return '📝'
+      case 'FOLLOWED_VOTED': return '🗳️'
       default: return '🔔'
     }
   }
@@ -108,6 +179,11 @@ export default function NotificationsPage() {
       case 'IDEA_ELIMINATED': return 'Eliminated'
       case 'CELL_READY': return 'Vote Ready'
       case 'DELIBERATION_COMPLETE': return 'Complete'
+      case 'FOLLOW': return 'New Follower'
+      case 'COMMUNITY_INVITE': return 'Invite'
+      case 'COMMUNITY_NEW_DELIB': return 'Community'
+      case 'FOLLOWED_NEW_DELIB': return 'Following'
+      case 'FOLLOWED_VOTED': return 'Following'
       default: return 'Notification'
     }
   }
@@ -119,6 +195,11 @@ export default function NotificationsPage() {
       case 'IDEA_WON': return 'bg-success text-white'
       case 'IDEA_ELIMINATED': return 'bg-error text-white'
       case 'CELL_READY': return 'bg-warning text-black'
+      case 'FOLLOW': return 'bg-accent text-white'
+      case 'COMMUNITY_INVITE':
+      case 'COMMUNITY_NEW_DELIB': return 'bg-purple text-white'
+      case 'FOLLOWED_NEW_DELIB': return 'bg-accent text-white'
+      case 'FOLLOWED_VOTED': return 'bg-warning text-black'
       default: return 'bg-accent text-white'
     }
   }
@@ -135,6 +216,7 @@ export default function NotificationsPage() {
   }
 
   const getLink = (n: Notification) => {
+    if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
     if (n.deliberationId) return `/deliberations/${n.deliberationId}`
     return null
   }
@@ -197,12 +279,13 @@ export default function NotificationsPage() {
             const link = getLink(n)
             const content = (
               <div
+                ref={!n.read ? observeRef : undefined}
+                data-notif-id={n.id}
                 className={`p-4 rounded-lg border transition-colors ${
                   n.read
                     ? 'bg-surface border-border'
                     : 'bg-surface border-accent'
                 }`}
-                onClick={() => !n.read && markOneRead(n.id)}
               >
                 <div className="flex gap-3">
                   {/* Icon */}
@@ -220,7 +303,7 @@ export default function NotificationsPage() {
                       )}
                     </div>
                     <p className="text-foreground font-medium">{n.title}</p>
-                    {n.body && (
+                    {n.body && n.type !== 'FOLLOW' && (
                       <p className="text-muted text-sm mt-1 line-clamp-2">{n.body}</p>
                     )}
                   </div>
@@ -230,7 +313,7 @@ export default function NotificationsPage() {
 
             if (link) {
               return (
-                <Link key={n.id} href={link} onClick={() => !n.read && markOneRead(n.id)}>
+                <Link key={n.id} href={link}>
                   {content}
                 </Link>
               )

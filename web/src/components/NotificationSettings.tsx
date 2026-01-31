@@ -91,13 +91,7 @@ export function NotificationBanner() {
   }
 
   if (permission === 'denied') {
-    return (
-      <div className="bg-error-bg border border-error rounded-lg p-4 mb-4">
-        <p className="text-sm text-error">
-          Notifications blocked. Enable in browser settings to receive voting alerts.
-        </p>
-      </div>
-    )
+    return null
   }
 
   if (isSubscribed) {

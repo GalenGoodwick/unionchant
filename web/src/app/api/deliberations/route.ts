@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { verifyCaptcha } from '@/lib/captcha'
+import { sendEmail } from '@/lib/email'
+import { followedNewDelibEmail } from '@/lib/email-templates'
 
 // GET /api/deliberations - List all public deliberations
 export async function GET(req: NextRequest) {
@@ -149,6 +151,36 @@ export async function POST(req: NextRequest) {
         },
       },
     })
+
+    // Notify followers (fire-and-forget)
+    prisma.follow.findMany({
+      where: { followingId: user.id },
+      select: { followerId: true, follower: { select: { email: true } } },
+    }).then(async (followers) => {
+      if (followers.length === 0) return
+      const userName = user.name || 'Someone'
+
+      // Create in-app notifications
+      await prisma.notification.createMany({
+        data: followers.map(f => ({
+          userId: f.followerId,
+          type: 'FOLLOWED_NEW_DELIB',
+          title: `${userName} created a new deliberation`,
+          body: deliberation.question,
+          deliberationId: deliberation.id,
+        })),
+      })
+
+      // Send emails
+      const template = followedNewDelibEmail({
+        userName,
+        question: deliberation.question,
+        deliberationId: deliberation.id,
+      })
+      await Promise.allSettled(
+        followers.map(f => sendEmail({ to: f.follower.email, ...template }))
+      )
+    }).catch(() => {})
 
     return NextResponse.json(deliberation, { status: 201 })
   } catch (error) {
