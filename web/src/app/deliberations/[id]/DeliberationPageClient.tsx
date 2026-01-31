@@ -188,7 +188,7 @@ function StatsRow({ items }: { items: { label: string; value: string | number; c
 }
 
 // Champion Box - Always visible, shows TBD until winner, with runner-ups
-function ChampionBox({ winner, phase, ideas, creatorId }: { winner: Idea | undefined; phase: string; ideas: Idea[]; creatorId: string }) {
+function ChampionBox({ winner, phase, ideas, creatorId, currentUserId }: { winner: Idea | undefined; phase: string; ideas: Idea[]; creatorId: string; currentUserId?: string }) {
   const hasWinner = !!winner
   // Only show accumulating state if we actually have a champion
   // This prevents flickering during phase transitions
@@ -229,12 +229,9 @@ function ChampionBox({ winner, phase, ideas, creatorId }: { winner: Idea | undef
               {getDisplayName(winner.author)} · {winner.totalVotes} votes
             </div>
           )}
-          {hasWinner && (
+          {hasWinner && currentUserId && currentUserId !== winner.author.id && (
             <div className="flex items-center gap-2 mt-2">
-              <FollowButton userId={winner.author.id} initialFollowing={false} />
-              {winner.author.id !== creatorId && (
-                <FollowButton userId={creatorId} initialFollowing={false} />
-              )}
+              <FollowButton userId={winner.author.id} initialFollowing={false} followLabel="Follow Winner" followingLabel="Winner Followed" />
             </div>
           )}
           {isAccumulating && hasWinner && (
@@ -1668,7 +1665,7 @@ export default function DeliberationPageClient() {
         </div>
 
         {/* Champion Box - Always visible */}
-        <ChampionBox winner={winner} phase={effectivePhase} ideas={deliberation.ideas} creatorId={deliberation.creatorId} />
+        <ChampionBox winner={winner} phase={effectivePhase} ideas={deliberation.ideas} creatorId={deliberation.creatorId} currentUserId={session?.user?.id} />
 
         {/* Phase-specific banners */}
         {deliberation.phase === 'SUBMISSION' && deliberation.submissionEndsAt && (

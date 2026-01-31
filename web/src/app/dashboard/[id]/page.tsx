@@ -158,6 +158,7 @@ export default function DashboardDetailPage() {
         const messages: Record<string, string> = {
           'start-voting': 'Voting started!',
           'force-next-tier': `Processed ${data.cellsProcessed || 0} cells`,
+          'release-extra-votes': `Extra votes released! ${data.eligibleUsers || 0} users eligible (${data.windowMinutes || 15}min window)`,
           'start-challenge': 'Challenge round started!',
         }
         setActionMessage(messages[action] || 'Done!')
@@ -302,7 +303,7 @@ export default function DashboardDetailPage() {
                 <button
                   onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
                   disabled={deliberation.phase !== 'SUBMISSION' || actionLoading === 'start-voting'}
-                  className="w-full bg-warning hover:bg-warning/80 disabled:bg-muted disabled:text-muted-light text-black font-medium px-4 py-2 rounded transition-colors"
+                  className="w-full bg-warning hover:bg-warning/80 disabled:opacity-40 disabled:cursor-not-allowed text-black font-medium px-4 py-2 rounded transition-colors"
                 >
                   {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting Now'}
                 </button>
@@ -310,7 +311,7 @@ export default function DashboardDetailPage() {
                 <button
                   onClick={() => handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`)}
                   disabled={deliberation.phase !== 'VOTING' || actionLoading === 'force-next-tier'}
-                  className="w-full bg-orange hover:bg-orange/80 disabled:bg-muted disabled:text-muted-light text-white font-medium px-4 py-2 rounded transition-colors"
+                  className="w-full bg-orange hover:bg-orange/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
                 >
                   {actionLoading === 'force-next-tier' ? 'Processing...' : 'Force Complete Current Round'}
                 </button>
@@ -319,9 +320,20 @@ export default function DashboardDetailPage() {
                 </p>
 
                 <button
+                  onClick={() => handleAction('release-extra-votes', `/api/deliberations/${deliberationId}/release-extra-votes`)}
+                  disabled={deliberation.phase !== 'VOTING' || actionLoading === 'release-extra-votes'}
+                  className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
+                >
+                  {actionLoading === 'release-extra-votes' ? 'Releasing...' : 'Release Extra Votes'}
+                </button>
+                <p className="text-xs text-muted">
+                  Opens a window for participants whose cells completed to vote in another batch.
+                </p>
+
+                <button
                   onClick={() => handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`)}
                   disabled={deliberation.phase !== 'ACCUMULATING' || actionLoading === 'start-challenge'}
-                  className="w-full bg-purple hover:bg-purple/80 disabled:bg-muted disabled:text-muted-light text-white font-medium px-4 py-2 rounded transition-colors"
+                  className="w-full bg-purple hover:bg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
                 >
                   {actionLoading === 'start-challenge' ? 'Starting...' : 'Start Challenge Round'}
                 </button>
