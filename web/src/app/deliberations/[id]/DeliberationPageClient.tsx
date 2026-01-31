@@ -1330,6 +1330,7 @@ function CommentsPanel({ deliberationId }: { deliberationId: string }) {
                       <span>from Tier {comment.sourceTier}</span>
                       <span className="text-purple">reached Tier {comment.reachTier}</span>
                       <span>{comment.upvoteCount} upvotes</span>
+                      <ReportButton targetType="COMMENT" targetId={comment.id} />
                     </div>
                   </div>
                 </div>
@@ -1363,6 +1364,7 @@ function CommentsPanel({ deliberationId }: { deliberationId: string }) {
                         {comment.isUpPollinated && (
                           <span className="text-purple">reached Tier {comment.reachTier}</span>
                         )}
+                        <ReportButton targetType="COMMENT" targetId={comment.id} />
                       </div>
                     </div>
                   ))}
