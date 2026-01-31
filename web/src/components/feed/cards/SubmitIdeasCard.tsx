@@ -116,11 +116,11 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
           {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
             <>Idea Goal {item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal}</>
           ) : item.submissionDeadline ? (
-            <>Timed (<CountdownTimer
+            <>Timed <CountdownTimer
               deadline={item.submissionDeadline}
               onExpire={onAction}
               compact
-            />)</>
+            /></>
           ) : (
             <>Facilitator controlled</>
           )}
