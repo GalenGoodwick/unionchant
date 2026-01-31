@@ -297,14 +297,16 @@ export default function ChampionCard({ item, onAction, onExplore, onSubmitted }:
             url={`/deliberations/${item.deliberation.id}`}
             text={item.deliberation.question}
             variant="icon"
-              dropUp
+            dropUp
           />
-          <button
-            onClick={onExplore}
-            className="text-muted hover:text-foreground transition-colors"
-          >
-            Discuss
-          </button>
+          {isChallenge && (
+            <button
+              onClick={onExplore}
+              className="text-muted hover:text-foreground transition-colors"
+            >
+              Discuss
+            </button>
+          )}
           <Link
             href={`/deliberations/${item.deliberation.id}`}
             className="text-accent hover:text-accent-hover transition-colors"
