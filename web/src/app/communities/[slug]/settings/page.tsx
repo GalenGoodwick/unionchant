@@ -7,6 +7,28 @@ import { useEffect, useState } from 'react'
 import Header from '@/components/Header'
 import { getDisplayName } from '@/lib/user'
 
+function MemberAvatar({ image, name }: { image: string | null; name: string | null }) {
+  const [imgError, setImgError] = useState(false)
+  const initial = (name || '?').charAt(0).toUpperCase()
+
+  if (image && !imgError) {
+    return (
+      <img
+        src={image}
+        alt=""
+        className="w-9 h-9 rounded-full"
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+
+  return (
+    <span className="w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center text-sm font-medium text-accent">
+      {initial}
+    </span>
+  )
+}
+
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
 type Member = {
@@ -300,48 +322,57 @@ export default function CommunitySettingsPage() {
           <h2 className="text-lg font-semibold text-foreground mb-4">
             Members ({community._count.members})
           </h2>
-          <div className="divide-y divide-border">
-            {community.members.map(m => (
-              <div key={m.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  {m.user.image ? (
-                    <img src={m.user.image} alt="" className="w-8 h-8 rounded-full" />
-                  ) : (
-                    <span className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-sm font-medium text-accent">
-                      {(m.user.name || '?').charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <div>
-                    <span className="text-foreground text-sm">{getDisplayName(m.user)}</span>
-                    <span className="text-muted text-xs ml-2">{m.role}</span>
+          <div className="space-y-2">
+            {community.members.map(m => {
+              const roleStyles: Record<string, string> = {
+                OWNER: 'bg-warning/15 text-warning border border-warning/30',
+                ADMIN: 'bg-accent/15 text-accent border border-accent/30',
+                MEMBER: 'bg-surface text-muted border border-border',
+              }
+              return (
+                <div key={m.id} className="flex items-center justify-between p-3 bg-background rounded-lg border border-border">
+                  <div className="flex items-center gap-3">
+                    <MemberAvatar image={m.user.image} name={m.user.name} />
+                    <div>
+                      <div className="text-foreground text-sm font-medium">{getDisplayName(m.user)}</div>
+                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-0.5 ${roleStyles[m.role] || roleStyles.MEMBER}`}>
+                        {m.role}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {m.role !== 'OWNER' && community.userRole === 'OWNER' && (
+                      <>
+                        <button
+                          onClick={() => handleRoleChange(m.user.id, m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN')}
+                          className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                            m.role === 'ADMIN'
+                              ? 'bg-muted/10 text-muted border border-border hover:border-muted'
+                              : 'bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20'
+                          }`}
+                        >
+                          {m.role === 'ADMIN' ? 'Demote to Member' : 'Make Admin'}
+                        </button>
+                        <button
+                          onClick={() => handleRemoveMember(m.user.id)}
+                          className="text-xs px-3 py-1.5 rounded-lg font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
+                    {m.role === 'MEMBER' && community.userRole === 'ADMIN' && (
+                      <button
+                        onClick={() => handleRemoveMember(m.user.id)}
+                        className="text-xs px-3 py-1.5 rounded-lg font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
-                {m.role !== 'OWNER' && community.userRole === 'OWNER' && (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleRoleChange(m.user.id, m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN')}
-                      className="text-xs text-accent hover:text-accent-hover transition-colors"
-                    >
-                      {m.role === 'ADMIN' ? 'Demote' : 'Promote'}
-                    </button>
-                    <button
-                      onClick={() => handleRemoveMember(m.user.id)}
-                      className="text-xs text-error hover:text-error-hover transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-                {m.role === 'MEMBER' && community.userRole === 'ADMIN' && (
-                  <button
-                    onClick={() => handleRemoveMember(m.user.id)}
-                    className="text-xs text-error hover:text-error-hover transition-colors"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
