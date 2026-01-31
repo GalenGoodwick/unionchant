@@ -1,6 +1,6 @@
 import { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
-import DeliberationPageClient from './DeliberationPageClientNew'
+import DeliberationPageClient from './DeliberationPageClient'
 
 export async function generateMetadata({
   params,

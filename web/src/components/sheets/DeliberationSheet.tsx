@@ -455,11 +455,7 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
                 ))}
               </div>
             ) : (
-              <p className="text-muted text-xs mb-2">
-                {item.deliberation.phase === 'SUBMISSION'
-                  ? 'Discussion begins when voting starts'
-                  : 'No comments yet'}
-              </p>
+              <p className="text-muted text-xs mb-2">No comments yet</p>
             )}
           </div>
         </div>
