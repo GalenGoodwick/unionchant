@@ -155,6 +155,7 @@ export type FeedItem = {
   challengersCount?: number
   userPredictions?: Record<number, string> // tier -> predictedIdeaId
   userSubmittedIdea?: { id: string; text: string } | null // User's submitted idea if any
+  resolvedAt?: string | null // When user acted (voted/submitted)
   votingTrigger?: {
     type: 'timer' | 'idea_goal' | 'manual'
     ideaGoal?: number | null

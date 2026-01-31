@@ -75,6 +75,7 @@ export type FeedItem = {
   challengersCount?: number
   userPredictions?: Record<number, string> // tier -> predictedIdeaId
   userSubmittedIdea?: { id: string; text: string } | null
+  resolvedAt?: string | null
   votingTrigger?: {
     type: 'timer' | 'idea_goal' | 'manual'
     ideaGoal?: number | null
@@ -361,6 +362,7 @@ export async function GET(req: NextRequest) {
       const cell = cp.cell
       const votedCount = cell.participants.filter(p => p.status === 'VOTED').length
       const userHasVoted = cp.status === 'VOTED'
+      const votedAt = cp.votedAt
       const isCompleted = cell.status === 'COMPLETED'
       const userVotedIdeaId = votesByCell.get(cell.id) || null
       const deadline = cell.deliberation.currentTierStartedAt
@@ -394,6 +396,7 @@ export async function GET(req: NextRequest) {
           participantCount: cell.participants.length, votedCount, userHasVoted, userVotedIdeaId,
           urgency, timeRemainingMs: timeRemainingMs ?? undefined, votesNeeded,
         },
+        resolvedAt: votedAt?.toISOString() || null,
       })
     }
 
@@ -411,12 +414,13 @@ export async function GET(req: NextRequest) {
     if (userId && allDelibIds.length > 0) {
       const userIdeas = await prisma.idea.findMany({
         where: { deliberationId: { in: allDelibIds }, authorId: userId },
-        select: { id: true, text: true, deliberationId: true, isNew: true },
+        select: { id: true, text: true, deliberationId: true, isNew: true, createdAt: true },
       })
       for (const idea of userIdeas) {
         const item = items.find(i => i.deliberation.id === idea.deliberationId)
         if (item) {
           item.userSubmittedIdea = { id: idea.id, text: idea.text }
+          item.resolvedAt = idea.createdAt.toISOString()
         }
       }
     }

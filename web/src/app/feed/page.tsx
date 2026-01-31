@@ -100,7 +100,8 @@ export default function FeedPage() {
         // Seed timestamp for server-known done items (if not already tracked)
         const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || 'no-cell'}`
         if (!resolvedAtRef.current.has(key)) {
-          resolvedAtRef.current.set(key, new Date(item.deliberation.createdAt).getTime())
+          const serverTime = item.resolvedAt ? new Date(item.resolvedAt).getTime() : 0
+          resolvedAtRef.current.set(key, serverTime)
         }
       }
     }
