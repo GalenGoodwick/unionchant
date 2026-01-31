@@ -84,10 +84,15 @@ export const authOptions: NextAuthOptions = {
       }
       return session
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.id = user.id
         token.sub = user.id
+      }
+      // When session is updated (e.g. onboarding name change), persist to token
+      if (trigger === 'update' && session) {
+        if (session.name) token.name = session.name
+        if (session.image) token.picture = session.image
       }
       return token
     },

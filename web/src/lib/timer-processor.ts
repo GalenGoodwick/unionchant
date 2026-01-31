@@ -84,6 +84,9 @@ export async function processExpiredTiers(): Promise<string[]> {
   })
 
   for (const deliberation of expiredDeliberations) {
+    // Skip no-timer deliberations (advance only when all vote or facilitator forces)
+    if (deliberation.votingTimeoutMs === 0) continue
+
     // Calculate if tier has expired: startedAt + timeoutMs < now
     const tierStarted = deliberation.currentTierStartedAt!
     const tierDeadline = new Date(tierStarted.getTime() + deliberation.votingTimeoutMs)
@@ -203,10 +206,11 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     }
   }
 
-  // Check tier deadline
+  // Check tier deadline (skip no-timer deliberations)
   if (
     deliberation.phase === 'VOTING' &&
-    deliberation.currentTierStartedAt
+    deliberation.currentTierStartedAt &&
+    deliberation.votingTimeoutMs > 0
   ) {
     const tierDeadline = new Date(
       deliberation.currentTierStartedAt.getTime() + deliberation.votingTimeoutMs

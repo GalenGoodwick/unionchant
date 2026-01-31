@@ -52,6 +52,8 @@ function NewDeliberationForm() {
     ideaGoal: 10,
     // Winner mode: 'ends' | 'rolling'
     winnerMode: 'ends' as 'ends' | 'rolling',
+    // Tier advance mode: 'timer' = auto-advance after X min, 'natural' = advance when all votes are in or facilitator forces
+    tierAdvanceMode: 'timer' as 'timer' | 'natural',
   })
 
   useEffect(() => {
@@ -90,7 +92,7 @@ function NewDeliberationForm() {
     setError('')
 
     // Validate required number fields
-    if (!formData.votingMinutes || formData.votingMinutes < 5) {
+    if (formData.tierAdvanceMode === 'timer' && (!formData.votingMinutes || formData.votingMinutes < 5)) {
       setError('Voting time must be at least 5 minutes')
       setLoading(false)
       return
@@ -126,7 +128,7 @@ function NewDeliberationForm() {
           tags,
           // Timer settings (only for timer mode)
           submissionDurationMs: formData.startMode === 'timer' ? formData.submissionHours * 60 * 60 * 1000 : null,
-          votingTimeoutMs: formData.votingMinutes * 60 * 1000,
+          votingTimeoutMs: formData.tierAdvanceMode === 'natural' ? 0 : formData.votingMinutes * 60 * 1000,
           accumulationEnabled: formData.winnerMode === 'rolling',
           accumulationTimeoutMs: formData.winnerMode === 'rolling' && formData.accumulationMode === 'timer'
             ? formData.accumulationDays * 24 * 60 * 60 * 1000
@@ -280,25 +282,51 @@ function NewDeliberationForm() {
 
               {/* Voting Time Per Tier */}
               <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Voting Time Per Tier</h2>
+                <h2 className="text-lg font-semibold text-foreground mb-4">Tier Advancement</h2>
+
                 <div className="space-y-3">
-                  <div>
-                    <label htmlFor="votingMinutes" className="block text-muted text-sm mb-2">
-                      Time limit for each voting tier (minutes)
-                    </label>
+                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
                     <input
-                      type="number"
-                      id="votingMinutes"
-                      min={5}
-                      max={1440}
-                      value={formData.votingMinutes || ''}
-                      onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 0 })}
-                      className="w-32 bg-surface border border-border rounded-lg px-4 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                      type="radio"
+                      name="tierAdvanceMode"
+                      value="timer"
+                      checked={formData.tierAdvanceMode === 'timer'}
+                      onChange={() => setFormData({ ...formData, tierAdvanceMode: 'timer' })}
+                      className="mt-1 w-4 h-4 text-accent"
                     />
-                  </div>
-                  <p className="text-muted-light text-sm">
-                    Each tier has its own timer. The round ends when all participants vote (immediate) or the timer expires.
-                  </p>
+                    <div className="flex-1">
+                      <div className="text-foreground font-medium">Timer per tier</div>
+                      <div className="text-muted text-sm">Each tier has a time limit. Ends when all vote or the timer expires.</div>
+                      {formData.tierAdvanceMode === 'timer' && (
+                        <div className="mt-3">
+                          <label className="block text-muted text-sm mb-1">Time limit (minutes)</label>
+                          <input
+                            type="number"
+                            min={5}
+                            max={1440}
+                            value={formData.votingMinutes || ''}
+                            onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 0 })}
+                            className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
+                    <input
+                      type="radio"
+                      name="tierAdvanceMode"
+                      value="natural"
+                      checked={formData.tierAdvanceMode === 'natural'}
+                      onChange={() => setFormData({ ...formData, tierAdvanceMode: 'natural' })}
+                      className="mt-1 w-4 h-4 text-accent"
+                    />
+                    <div className="flex-1">
+                      <div className="text-foreground font-medium">No timer</div>
+                      <div className="text-muted text-sm">Tiers advance when all participants have voted, or when you force the next round from the manage page.</div>
+                    </div>
+                  </label>
                 </div>
               </div>
 

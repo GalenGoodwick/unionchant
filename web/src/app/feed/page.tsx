@@ -14,8 +14,6 @@ import ResultCard from '@/components/feed/cards/ResultCard'
 import FollowingCard from '@/components/feed/cards/FollowingCard'
 import BottomSheet from '@/components/sheets/BottomSheet'
 import DeliberationSheet from '@/components/sheets/DeliberationSheet'
-import Onboarding from '@/components/Onboarding'
-import { useOnboarding } from '@/hooks/useOnboarding'
 import { useAdaptivePolling } from '@/hooks/useAdaptivePolling'
 import UserGuide from '@/components/UserGuide'
 import Spinner from '@/components/Spinner'
@@ -59,7 +57,6 @@ function isDoneItem(item: FeedItem): boolean {
 export default function FeedPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
-  const { needsOnboarding, completeOnboarding } = useOnboarding()
   const [activeTab, setActiveTab] = useState<FeedTab>('for-you')
   const [rightTab, setRightTab] = useState<RightTab>('complete')
 
@@ -398,7 +395,6 @@ export default function FeedPage() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      {needsOnboarding && <Onboarding onComplete={completeOnboarding} />}
       {showGuide && <UserGuide onClose={closeGuide} />}
 
       <div className="max-w-5xl mx-auto px-4 py-6">

@@ -84,6 +84,8 @@ export default function DashboardDetailPage() {
   // Action state
   const [actionLoading, setActionLoading] = useState('')
   const [actionMessage, setActionMessage] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const fetchDeliberation = useCallback(async () => {
     try {
@@ -143,6 +145,25 @@ export default function DashboardDetailPage() {
       return false
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/admin/deliberations/${deliberationId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        setActionMessage(`Error: ${data.error || 'Failed to delete'}`)
+        setDeleting(false)
+        setConfirmDelete(false)
+        return
+      }
+      router.push('/dashboard')
+    } catch {
+      setActionMessage('Failed to delete deliberation')
+      setDeleting(false)
+      setConfirmDelete(false)
     }
   }
 
@@ -238,17 +259,27 @@ export default function DashboardDetailPage() {
               <span className="text-muted">{deliberation._count.ideas} ideas</span>
             </div>
             {/* Voting trigger info */}
-            <div className="mt-2 text-sm">
-              <span className="text-muted">Voting starts: </span>
-              <span className="text-foreground">
-                {deliberation.ideaGoal ? (
-                  `At ${deliberation.ideaGoal} ideas (${deliberation._count.ideas}/${deliberation.ideaGoal})`
-                ) : deliberation.submissionEndsAt ? (
-                  `Timer: ${new Date(deliberation.submissionEndsAt).toLocaleString()}`
-                ) : (
-                  'Facilitator-controlled (manual)'
-                )}
-              </span>
+            <div className="mt-2 text-sm space-y-0.5">
+              <div>
+                <span className="text-muted">Voting starts: </span>
+                <span className="text-foreground">
+                  {deliberation.ideaGoal ? (
+                    `At ${deliberation.ideaGoal} ideas (${deliberation._count.ideas}/${deliberation.ideaGoal})`
+                  ) : deliberation.submissionEndsAt ? (
+                    `Timer: ${new Date(deliberation.submissionEndsAt).toLocaleString()}`
+                  ) : (
+                    'Facilitator-controlled (manual)'
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className="text-muted">Tier advancement: </span>
+                <span className="text-foreground">
+                  {deliberation.votingTimeoutMs === 0
+                    ? 'No timer (all vote or facilitator forces)'
+                    : `${Math.round(deliberation.votingTimeoutMs / 60000)}min per tier`}
+                </span>
+              </div>
             </div>
           </div>
           <Link
@@ -404,6 +435,19 @@ export default function DashboardDetailPage() {
                         className="text-muted hover:text-foreground text-sm transition-colors"
                       >
                         Cancel
+                      </button>
+                    </div>
+                  ) : deliberation.votingTimeoutMs === 0 ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted">No timer (natural completion)</span>
+                      <button
+                        onClick={() => {
+                          setTimerValue(60)
+                          setEditingTimer(true)
+                        }}
+                        className="text-sm text-accent hover:underline"
+                      >
+                        (set timer)
                       </button>
                     </div>
                   ) : (
@@ -572,6 +616,40 @@ export default function DashboardDetailPage() {
                   )}
                 </div>
               </form>
+            </div>
+            {/* Danger Zone */}
+            <div className="bg-surface border border-error/30 rounded-lg p-4">
+              <h2 className="text-lg font-semibold text-error mb-2">Danger Zone</h2>
+              {!confirmDelete ? (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="w-full border border-error text-error hover:bg-error hover:text-white font-medium px-4 py-2 rounded transition-colors"
+                >
+                  Delete Deliberation
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-foreground">
+                    This will permanently delete this deliberation and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleDelete}
+                      disabled={deleting}
+                      className="flex-1 bg-error hover:bg-error-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                    >
+                      {deleting ? 'Deleting...' : 'Yes, Delete Forever'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={deleting}
+                      className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

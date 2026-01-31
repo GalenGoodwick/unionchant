@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
         creatorId: user.id,
         submissionEndsAt,
         ...(submissionDurationMs && { submissionDurationMs }),
-        ...(votingTimeoutMs && { votingTimeoutMs }),
+        ...(votingTimeoutMs !== undefined && { votingTimeoutMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         // Goal-based auto-start

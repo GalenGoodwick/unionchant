@@ -289,12 +289,12 @@ function DeliberationsList() {
               </table>
             </div>
             {/* Mobile card list */}
-            <div className="md:hidden divide-y divide-border">
+            <div className="md:hidden space-y-3 p-3">
               {filteredDeliberations.map((d) => (
                 <div
                   key={d.id}
                   onClick={() => handleRowClick(d.id)}
-                  className="p-4 hover:bg-surface cursor-pointer"
+                  className="bg-surface border border-border rounded-lg p-4 hover:border-accent cursor-pointer transition-colors"
                 >
                   <div className="flex justify-between items-start gap-2 mb-2">
                     <Link href={`/deliberations/${d.id}`} className="text-foreground hover:text-accent font-medium text-sm flex-1">
@@ -309,7 +309,7 @@ function DeliberationsList() {
                       Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}
                     </p>
                   )}
-                  <div className="flex gap-3 text-xs text-muted">
+                  <div className="flex gap-3 text-xs text-muted flex-wrap">
                     <span>{getVotingTrigger(d)}</span>
                     <span className="font-mono">{d._count.members} members</span>
                     <span className="font-mono">{d._count.ideas} ideas</span>
@@ -318,7 +318,7 @@ function DeliberationsList() {
                   {d.tags && d.tags.length > 0 && (
                     <div className="flex gap-1 mt-2">
                       {d.tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="text-xs bg-surface text-muted px-1.5 py-0.5 rounded border border-border">
+                        <span key={tag} className="text-xs bg-background text-muted px-1.5 py-0.5 rounded border border-border">
                           {tag}
                         </span>
                       ))}

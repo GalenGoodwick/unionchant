@@ -116,7 +116,7 @@ export default function DashboardPage() {
             {deliberations.map(d => (
               <Link
                 key={d.id}
-                href={`/deliberations/${d.id}`}
+                href={`/dashboard/${d.id}`}
                 className="block bg-surface border border-border rounded-lg p-4 hover:border-accent transition-colors"
               >
                 <div className="flex items-start justify-between gap-4">

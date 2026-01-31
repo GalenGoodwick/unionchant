@@ -2,9 +2,19 @@
 
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
 export default function LandingCTA({ variant = 'hero' }: { variant?: 'hero' | 'footer' }) {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
+  const router = useRouter()
+
+  // Redirect authenticated users to feed — don't show landing page
+  useEffect(() => {
+    if (status === 'authenticated' && variant === 'hero') {
+      router.replace('/feed')
+    }
+  }, [status, variant, router])
 
   if (variant === 'footer') {
     return session ? (

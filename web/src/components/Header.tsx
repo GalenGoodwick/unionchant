@@ -7,6 +7,36 @@ import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
 import NotificationBell from '@/components/NotificationBell'
 
+function ProfileAvatar({ image, name, size, className, textClass }: {
+  image?: string | null
+  name?: string | null
+  size: number
+  className: string
+  textClass: string
+}) {
+  const [imgError, setImgError] = useState(false)
+  const initial = (name || 'U').charAt(0).toUpperCase()
+
+  if (image && !imgError) {
+    return (
+      <img
+        src={image}
+        alt=""
+        width={size}
+        height={size}
+        className={`${className} rounded-full`}
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+
+  return (
+    <span className={`${className} rounded-full bg-accent/30 flex items-center justify-center ${textClass} font-medium`}>
+      {initial}
+    </span>
+  )
+}
+
 export default function Header() {
   const { data: session } = useSession()
   const { isAdmin } = useAdmin()
@@ -14,7 +44,7 @@ export default function Header() {
 
   const navLinks = [
     { href: '/feed', label: 'Feed', authRequired: true, highlight: true },
-    { href: '/communities', label: 'Communities', authRequired: true },
+    { href: '/communities', label: 'Communities' },
     { href: '/deliberations', label: 'Deliberations' },
     { href: '/about', label: 'About' },
     { href: '/donate', label: 'Donate' },
@@ -60,17 +90,13 @@ export default function Header() {
               href="/profile"
               className="flex items-center gap-2 hover:text-accent-light transition-colors"
             >
-              {session.user.image ? (
-                <img
-                  src={session.user.image}
-                  alt=""
-                  className="w-6 h-6 rounded-full"
-                />
-              ) : (
-                <span className="w-6 h-6 rounded-full bg-accent/30 flex items-center justify-center text-xs font-medium">
-                  {(session.user.name || 'U').charAt(0).toUpperCase()}
-                </span>
-              )}
+              <ProfileAvatar
+                image={session.user.image}
+                name={session.user.name}
+                size={24}
+                className="w-6 h-6"
+                textClass="text-xs"
+              />
               <span className="hidden sm:inline">{session.user.name || 'Profile'}</span>
             </Link>
           ) : (
@@ -142,13 +168,13 @@ export default function Header() {
                   onClick={() => setMenuOpen(false)}
                   className="flex items-center gap-3 py-2 px-4 rounded-lg hover:bg-white/10 transition-colors"
                 >
-                  {session.user.image ? (
-                    <img src={session.user.image} alt="" className="w-8 h-8 rounded-full" />
-                  ) : (
-                    <span className="w-8 h-8 rounded-full bg-accent/30 flex items-center justify-center text-sm font-medium">
-                      {(session.user.name || 'U').charAt(0).toUpperCase()}
-                    </span>
-                  )}
+                  <ProfileAvatar
+                    image={session.user.image}
+                    name={session.user.name}
+                    size={32}
+                    className="w-8 h-8"
+                    textClass="text-sm"
+                  />
                   <span>{session.user.name || 'Profile'}</span>
                 </Link>
               ) : (
