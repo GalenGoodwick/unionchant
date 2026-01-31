@@ -44,11 +44,18 @@ const MOBILE_TABS: { id: FeedTab; label: string; authRequired: boolean }[] = [
 
 /** Is this item "done" — user has already taken action? */
 function isDoneItem(item: FeedItem): boolean {
-  if (item.type === 'vote_now' && item.cell?.userHasVoted) {
-    // If deliberation is accumulating and user hasn't submitted a challenger,
-    // keep it actionable (left column) — they can still submit a challenger
-    if (item.deliberation.phase === 'ACCUMULATING' && !item.userSubmittedIdea) return false
-    return true
+  // Deliberation fully completed — nothing left to do
+  if (item.deliberation.phase === 'COMPLETED') return true
+
+  if (item.type === 'vote_now') {
+    // Cell already completed (e.g. timeout) — done regardless
+    if (item.cell?.status === 'COMPLETED') return true
+    if (item.cell?.userHasVoted) {
+      // If deliberation is accumulating and user hasn't submitted a challenger,
+      // keep it actionable (left column) — they can still submit a challenger
+      if (item.deliberation.phase === 'ACCUMULATING' && !item.userSubmittedIdea) return false
+      return true
+    }
   }
   if (item.type === 'submit_ideas' && item.userSubmittedIdea) return true
   // Champion card: done if user already submitted a challenger
