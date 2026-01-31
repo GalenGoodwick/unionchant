@@ -141,35 +141,27 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
         <div className="mb-4" />
 
         {submitted ? (
-          <div className="bg-success-bg border border-success rounded-lg p-4">
-            <p className="text-success font-medium mb-2">Idea submitted!</p>
+          <div className="bg-success-bg border border-success rounded-lg p-4 text-center">
+            <p className="text-success font-medium mb-1">Idea submitted!</p>
             <p className="text-foreground text-sm mb-3 italic">"{submittedText}"</p>
 
             {/* Voting trigger info */}
-            <div className="bg-surface border border-border rounded-lg p-3 mb-3 text-center">
-              <p className="text-muted text-xs uppercase tracking-wide mb-1">Voting starts</p>
+            <div className="text-muted text-xs mb-3">
               {item.votingTrigger?.type === 'idea_goal' && item.votingTrigger.ideaGoal ? (
-                <p className="text-foreground text-sm">
-                  Idea Goal {item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal}
-                  <span className="text-muted"> ({item.votingTrigger.ideaGoal - item.votingTrigger.currentIdeas} more needed)</span>
-                </p>
+                <span>Voting starts at {item.votingTrigger.ideaGoal} ideas ({item.votingTrigger.currentIdeas}/{item.votingTrigger.ideaGoal})</span>
               ) : item.submissionDeadline ? (
-                <span className="text-foreground text-sm">
-                  Timed (<CountdownTimer deadline={item.submissionDeadline} onExpire={onAction} compact />)
-                </span>
+                <span>Voting starts in <CountdownTimer deadline={item.submissionDeadline} onExpire={onAction} compact /></span>
               ) : (
-                <p className="text-muted text-sm">Facilitator controlled</p>
+                <span>Voting starts when facilitator is ready</span>
               )}
             </div>
 
-            <div className="text-center">
-              <Link
-                href={`/deliberations/${item.deliberation.id}`}
-                className="text-accent text-sm hover:underline"
-              >
-                See all ideas →
-              </Link>
-            </div>
+            <Link
+              href={`/deliberations/${item.deliberation.id}`}
+              className="text-accent text-sm hover:underline"
+            >
+              See all ideas →
+            </Link>
           </div>
         ) : isExpired ? (
           <div className="bg-surface border border-border rounded-lg p-4 text-center">

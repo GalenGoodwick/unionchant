@@ -66,10 +66,10 @@ export default function CountdownTimer({
 
   if (hasExpired || timeRemaining.total <= 0) {
     return (
-      <div className={`text-red-400 ${className}`}>
+      <span className={`text-red-400 ${className}`}>
         {label && <span className="text-slate-400 mr-2">{label}</span>}
         <span>Expired</span>
-      </div>
+      </span>
     )
   }
 
@@ -99,10 +99,10 @@ export default function CountdownTimer({
     }
 
     return (
-      <div className={`${urgencyClass} ${className}`}>
+      <span className={`${urgencyClass} ${className}`}>
         {label && <span className="text-slate-400 mr-1">{label}</span>}
         <span className="font-mono">{display}</span>
-      </div>
+      </span>
     )
   }
 
