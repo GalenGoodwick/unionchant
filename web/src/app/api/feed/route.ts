@@ -370,6 +370,11 @@ export async function GET(req: NextRequest) {
         : null
       const timeRemainingMs = deadline ? deadline.getTime() - nowMs : null
       if (!isCompleted && deadline && deadline.getTime() < nowMs) continue
+
+      // If deliberation is accumulating and user's cell is done, skip vote_now —
+      // the discovery 'champion' card will be used instead for a consistent experience
+      if (cell.deliberation.phase === 'ACCUMULATING' && isCompleted && userHasVoted) continue
+
       const votesNeeded = cell.participants.length - votedCount
 
       let urgency: 'critical' | 'warning' | 'normal' = 'normal'
