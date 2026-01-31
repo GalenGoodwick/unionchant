@@ -1393,6 +1393,7 @@ export default function DeliberationPageClient() {
   const [startingChallenge, setStartingChallenge] = useState(false)
   const [voting, setVoting] = useState<string | null>(null)
   const [enteringVoting, setEnteringVoting] = useState(false)
+  const [actionLoading, setActionLoading] = useState('')
   const [cellsLoaded, setCellsLoaded] = useState(false)
   const [inviteEmails, setInviteEmails] = useState('')
   const [sendingInvites, setSendingInvites] = useState(false)
@@ -1537,6 +1538,24 @@ export default function DeliberationPageClient() {
   const handleRefresh = () => {
     fetchCells()
     fetchDeliberation()
+  }
+
+  const handleAction = async (action: string, endpoint: string) => {
+    setActionLoading(action)
+    try {
+      const res = await fetch(endpoint, { method: 'POST' })
+      if (res.ok) {
+        fetchDeliberation()
+        fetchCells()
+      } else {
+        const data = await res.json()
+        showToast(data.error || 'Action failed', 'error')
+      }
+    } catch {
+      showToast('Action failed', 'error')
+    } finally {
+      setActionLoading('')
+    }
   }
 
   const handleSendInvites = async (e: React.FormEvent) => {
@@ -1715,27 +1734,6 @@ export default function DeliberationPageClient() {
             </button>
           )}
 
-          {/* Only show Start Voting if manual triggering (no ideaGoal and no submissionEndsAt) */}
-          {isCreator && deliberation.phase === 'SUBMISSION' && !deliberation.ideaGoal && !deliberation.submissionEndsAt && (
-            <button
-              onClick={handleStartVoting}
-              disabled={startingVote || deliberation.ideas.length < 2}
-              className="bg-warning hover:bg-warning-hover disabled:opacity-50 text-black px-4 py-2 rounded text-sm font-medium"
-            >
-              {startingVote ? '...' : 'Start Voting'}
-            </button>
-          )}
-
-          {isCreator && effectivePhase === 'ACCUMULATING' && winner && (
-            <button
-              onClick={handleStartChallenge}
-              disabled={startingChallenge || deliberation.ideas.filter(i => i.status === 'PENDING' && i.isNew).length === 0}
-              className="bg-orange hover:bg-orange-hover disabled:opacity-50 text-white px-4 py-2 rounded text-sm font-medium"
-            >
-              {startingChallenge ? '...' : 'Start Challenge'}
-            </button>
-          )}
-
           {!session && (
             <Link href="/auth/signin" className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded text-sm font-medium">
               Sign in
@@ -1777,6 +1775,48 @@ export default function DeliberationPageClient() {
             </div>
           </div>
         </div>
+
+        {/* Facilitator Controls - always visible for creator, greyed when not applicable */}
+        {isCreator && (
+          <div className="bg-surface border border-border rounded-lg p-3 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-foreground">Facilitator Controls</h3>
+              <Link href={`/dashboard/${deliberation.id}`} className="text-xs text-accent hover:underline">
+                Full manage page
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleStartVoting}
+                disabled={deliberation.phase !== 'SUBMISSION' || startingVote || deliberation.ideas.length < 2}
+                className="bg-warning hover:bg-warning-hover text-black px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {startingVote ? '...' : 'Start Voting'}
+              </button>
+              <button
+                onClick={() => handleAction('force-next-tier', `/api/deliberations/${id}/force-next-tier`)}
+                disabled={deliberation.phase !== 'VOTING' || actionLoading === 'force-next-tier'}
+                className="bg-orange hover:bg-orange-hover text-white px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {actionLoading === 'force-next-tier' ? '...' : 'Force Complete Round'}
+              </button>
+              <button
+                onClick={() => handleAction('release-extra-votes', `/api/deliberations/${id}/release-extra-votes`)}
+                disabled={deliberation.phase !== 'VOTING' || actionLoading === 'release-extra-votes'}
+                className="bg-accent hover:bg-accent-hover text-white px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {actionLoading === 'release-extra-votes' ? '...' : 'Release Extra Votes'}
+              </button>
+              <button
+                onClick={handleStartChallenge}
+                disabled={effectivePhase !== 'ACCUMULATING' || startingChallenge || !winner}
+                className="bg-purple hover:bg-purple-hover text-white px-3 py-2 rounded text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                {startingChallenge ? '...' : 'Start Challenge'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Invite Members - Creator only */}
         {isCreator && deliberation.phase !== 'COMPLETED' && (
