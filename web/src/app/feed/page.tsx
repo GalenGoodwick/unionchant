@@ -1,7 +1,6 @@
 'use client'
 
 import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -67,7 +66,6 @@ function isDoneItem(item: FeedItem): boolean {
 
 export default function FeedPage() {
   const { data: session, status } = useSession()
-  const router = useRouter()
   const [activeTab, setActiveTab] = useState<FeedTab>('for-you')
   const [rightTab, setRightTab] = useState<RightTab>('complete')
 
@@ -408,7 +406,7 @@ export default function FeedPage() {
     setSelectedItem(null)
   }
 
-  const userId = (session?.user as any)?.id
+  const userId = (session?.user as Record<string, string>)?.id
 
   if (loading) {
     return (
@@ -742,7 +740,7 @@ function FeedCards({
 // === Sub-components ===
 
 function TabButton({
-  id,
+  id: _id,
   label,
   isActive,
   disabled,

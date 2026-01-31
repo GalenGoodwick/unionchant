@@ -9,11 +9,10 @@ import Spinner from '@/components/Spinner'
 import { useToast } from '@/components/Toast'
 import CardShell from './CardShell'
 
-function CellIdeasCollapsible({ ideas, winnerId, votedIdeaId, tier }: {
+function CellIdeasCollapsible({ ideas, winnerId, votedIdeaId }: {
   ideas: { id: string; text: string; author: string }[]
   winnerId: string | null
   votedIdeaId: string | null
-  tier: number
 }) {
   const [open, setOpen] = useState(false)
 
@@ -291,7 +290,6 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
           ideas={cell.ideas}
           winnerId={cellResult.winner?.id || null}
           votedIdeaId={votedIdeaId}
-          tier={cell.tier}
         />
 
         {/* Challenge option when in ACCUMULATING phase */}

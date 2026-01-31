@@ -18,7 +18,7 @@ type Props = {
   onDismiss?: () => void
 }
 
-export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted, onDismiss }: Props) {
+export default function SubmitIdeasCard({ item, onAction, onSubmitted, onDismiss }: Props) {
   const { showToast } = useToast()
   const { data: session } = useSession()
   const router = useRouter()
@@ -31,10 +31,6 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
   const [ideaCount, setIdeaCount] = useState(item.votingTrigger?.currentIdeas ?? item.deliberation._count.ideas)
 
   const isExpired = item.submissionDeadline ? new Date(item.submissionDeadline) < new Date() : false
-
-  const handleCaptchaVerify = useCallback((token: string) => {
-    setCaptchaToken(token)
-  }, [])
 
   const handleCaptchaExpire = useCallback(() => {
     setCaptchaToken(null)
