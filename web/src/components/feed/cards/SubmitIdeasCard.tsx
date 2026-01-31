@@ -237,12 +237,6 @@ export default function SubmitIdeasCard({ item, onAction, onExplore, onSubmitted
             variant="icon"
             dropUp
           />
-          <button
-            onClick={onExplore}
-            className="text-muted hover:text-foreground transition-colors"
-          >
-            Discuss
-          </button>
           <Link
             href={`/deliberations/${item.deliberation.id}`}
             className="text-accent hover:text-accent-hover transition-colors"
