@@ -1967,11 +1967,21 @@ export default function DeliberationPageClient() {
         {deliberation.phase === 'VOTING' && hasVotedInCurrentTier && activeCells.length === 0 && session && (
           <Section
             title="Vote Submitted"
-            badge={<span className="text-success">✓</span>}
+            badge={
+              <span className="text-success">
+                {currentTierCells.filter(c => c.votes.length > 0).length > 1
+                  ? `${currentTierCells.filter(c => c.votes.length > 0).length} votes ✓`
+                  : '✓'}
+              </span>
+            }
             variant="default"
           >
             <div className="text-center py-4">
-              <p className="text-success font-medium mb-2">You've voted in Tier {deliberation.currentTier}!</p>
+              <p className="text-success font-medium mb-2">
+                {currentTierCells.filter(c => c.votes.length > 0).length > 1
+                  ? `You've voted in ${currentTierCells.filter(c => c.votes.length > 0).length} cells in Tier ${deliberation.currentTier}!`
+                  : `You've voted in Tier ${deliberation.currentTier}!`}
+              </p>
               <p className="text-muted text-sm">Waiting for other voters to complete this tier...</p>
             </div>
           </Section>
@@ -1998,11 +2008,29 @@ export default function DeliberationPageClient() {
 
         {/* Previous/Completed Cells */}
         {votedCells.length > 0 && (
-          <Section title="Your Cells" defaultOpen={activeCells.length === 0}>
+          <Section
+            title="Your Cells"
+            badge={votedCells.length > 1 ? <span className="text-xs text-muted font-mono">{votedCells.length} cells</span> : undefined}
+            defaultOpen={activeCells.length === 0}
+          >
             <div className="space-y-3">
-              {votedCells.map(cell => (
-                <VotingCell key={cell.id} cell={cell} onVote={handleVote} voting={voting} onRefresh={handleRefresh} />
-              ))}
+              {votedCells.map((cell, index) => {
+                // Label cells in the same tier (1st vote, 2nd vote, etc.)
+                const sameTierCells = votedCells.filter(c => c.tier === cell.tier)
+                const cellIndex = sameTierCells.indexOf(cell)
+                const showLabel = sameTierCells.length > 1
+
+                return (
+                  <div key={cell.id}>
+                    {showLabel && (
+                      <div className="text-xs text-accent font-medium mb-1">
+                        {cellIndex === 0 ? 'Primary vote' : `Extra vote ${cellIndex}`} - Tier {cell.tier}
+                      </div>
+                    )}
+                    <VotingCell cell={cell} onVote={handleVote} voting={voting} onRefresh={handleRefresh} />
+                  </div>
+                )
+              })}
             </div>
           </Section>
         )}

@@ -77,10 +77,26 @@ export async function POST(
 
     const eligibleUserIds = new Set(completedCells.flatMap(c => c.participants.map(p => p.userId)))
 
+    // Send notifications to eligible users (exclude the facilitator)
+    const notificationUserIds = [...eligibleUserIds].filter(uid => uid !== user.id)
+    if (notificationUserIds.length > 0) {
+      const windowMinutes = Math.round(deliberation.secondVoteTimeoutMs / 60000)
+      await prisma.notification.createMany({
+        data: notificationUserIds.map(userId => ({
+          userId,
+          type: 'DELIBERATION_UPDATE' as const,
+          title: 'Extra vote released!',
+          body: `You can now vote in another cell for "${deliberation.question.slice(0, 60)}". ${windowMinutes}min window.`,
+          deliberationId,
+        })),
+      })
+    }
+
     return NextResponse.json({
       success: true,
       cellsUpdated: updated.count,
       eligibleUsers: eligibleUserIds.size,
+      notified: notificationUserIds.length,
       deadline: deadline.toISOString(),
       windowMinutes: Math.round(deliberation.secondVoteTimeoutMs / 60000),
     })
