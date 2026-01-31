@@ -350,7 +350,7 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
                 </div>
               )}
               {linkedIdeaId && (
-                <p className="text-xs text-warning">Replying to idea (comment will follow it across tiers)</p>
+                <p className="text-xs text-warning">Replying to idea (top comments will follow winning ideas)</p>
               )}
               <form onSubmit={handleCommentSubmit} className="flex gap-1.5">
                 <input

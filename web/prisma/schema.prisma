@@ -62,6 +62,14 @@ model User {
   communitiesCreated   Community[]        @relation("CommunityCreator")
   communityMemberships CommunityMember[]
 
+  // Agreement score relations
+  agreementScoresA     AgreementScore[]   @relation("AgreementUserA")
+  agreementScoresB     AgreementScore[]   @relation("AgreementUserB")
+
+  // Moderation relations
+  reportsCreated       Report[]           @relation("ReportsCreated")
+  reportsResolved      Report[]           @relation("ReportsResolved")
+
   // Auth
   passwordHash  String?
 
@@ -215,7 +223,7 @@ model Idea {
   deliberationId  String
   deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
   authorId        String
-  author          User     @relation(fields: [authorId], references: [id])
+  author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   text            String
 
@@ -316,7 +324,7 @@ model CellParticipation {
   cellId          String
   cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
   userId          String
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   status          ParticipantStatus @default(ACTIVE)
   replacedById    String?  // If replaced, who took their spot
@@ -367,13 +375,13 @@ model Comment {
   cellId          String
   cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
   userId          String
-  user            User     @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   ideaId          String?  // Optional: link comment to specific idea (follows idea across tiers)
   idea            Idea?    @relation(fields: [ideaId], references: [id], onDelete: SetNull)
 
   text            String
   replyToId       String?  // For threading
-  replyTo         Comment? @relation("Replies", fields: [replyToId], references: [id])
+  replyTo         Comment? @relation("Replies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies         Comment[] @relation("Replies")
 
   // Up-pollinate tracking
@@ -381,6 +389,11 @@ model Comment {
   reachTier       Int      @default(1)       // Current up-pollinate tier (1-9)
   upvoteCount     Int      @default(0)       // Denormalized for fast queries
   tierUpvotes     Int      @default(0)       // Upvotes in current reach tier (resets on tier change)
+
+  // Moderation
+  isRemoved       Boolean  @default(false)   // Soft-deleted by author or moderator
+  removedAt       DateTime?
+  removedBy       String?                    // userId of who removed it
 
   createdAt       DateTime @default(now())
 
@@ -518,6 +531,7 @@ enum NotificationType {
   FOLLOW               // Someone followed you
   FOLLOWED_NEW_DELIB   // Someone you follow created a new deliberation
   FOLLOWED_VOTED       // Someone you follow voted in a deliberation you're not in
+  CONTENT_REMOVED      // Your content was removed by a moderator
 }
 
 // ============ COMMUNITIES ============
@@ -588,7 +602,9 @@ model Follow {
 model AgreementScore {
   id            String   @id @default(cuid())
   userAId       String
+  userA         User     @relation("AgreementUserA", fields: [userAId], references: [id], onDelete: Cascade)
   userBId       String
+  userB         User     @relation("AgreementUserB", fields: [userBId], references: [id], onDelete: Cascade)
   agreeCount    Int      @default(0)
   disagreeCount Int      @default(0)
   totalCells    Int      @default(0)
@@ -597,6 +613,56 @@ model AgreementScore {
   @@unique([userAId, userBId])
   @@index([userAId])
   @@index([userBId])
+}
+
+// ============ REPORTS / MODERATION ============
+
+model Report {
+  id            String       @id @default(cuid())
+  reporterId    String
+  reporter      User         @relation("ReportsCreated", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  // What's being reported
+  targetType    ReportTarget
+  targetId      String       // ID of the reported entity
+
+  reason        ReportReason
+  details       String?      // Optional description from reporter
+
+  // Resolution
+  status        ReportStatus @default(PENDING)
+  resolvedById  String?
+  resolvedBy    User?        @relation("ReportsResolved", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt    DateTime?
+  resolution    String?      // What action was taken
+
+  createdAt     DateTime     @default(now())
+
+  @@index([status])
+  @@index([targetType, targetId])
+  @@index([reporterId])
+}
+
+enum ReportTarget {
+  COMMENT
+  IDEA
+  DELIBERATION
+  USER
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  MISINFORMATION
+  INAPPROPRIATE
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  RESOLVED
+  DISMISSED
 }
 
 // ============ RATE LIMIT CONFIG ============

@@ -108,20 +108,67 @@ export async function POST(
         break
 
       case 'delete':
+        // Soft-delete: wipe PII, keep content for integrity
         await prisma.user.update({
           where: { id },
           data: {
             status: 'DELETED',
             deletedAt: new Date(),
-            name: null,
+            name: 'Deleted User',
             image: null,
+            bio: null,
+            email: `deleted-${id}@deleted.local`, // Free up email for re-registration
           },
         })
-        // Clean up auth
+
+        // Soft-delete all their comments (replace text, keep rows for thread integrity)
+        await prisma.comment.updateMany({
+          where: { userId: id },
+          data: {
+            text: '[removed]',
+            isRemoved: true,
+            removedAt: new Date(),
+            removedBy: session.user.id as string,
+          },
+        })
+
+        // Get comment IDs they upvoted before deleting upvotes
+        const upvotedCommentIds = (await prisma.commentUpvote.findMany({
+          where: { userId: id },
+          select: { commentId: true },
+        })).map(u => u.commentId)
+
+        // Clear upvotes they gave
+        await prisma.commentUpvote.deleteMany({ where: { userId: id } })
+
+        // Recalculate upvote counts only on affected comments
+        if (upvotedCommentIds.length > 0) {
+          const affectedComments = await prisma.comment.findMany({
+            where: { id: { in: upvotedCommentIds } },
+            select: { id: true, _count: { select: { upvotes: true } } },
+          })
+          for (const c of affectedComments) {
+            await prisma.comment.update({
+              where: { id: c.id },
+              data: { upvoteCount: c._count.upvotes },
+            })
+          }
+        }
+
+        // Clean up social graph
+        await prisma.follow.deleteMany({
+          where: { OR: [{ followerId: id }, { followingId: id }] },
+        })
+        await prisma.agreementScore.deleteMany({
+          where: { OR: [{ userAId: id }, { userBId: id }] },
+        })
+
+        // Clean up auth & subscriptions
         await prisma.session.deleteMany({ where: { userId: id } })
         await prisma.account.deleteMany({ where: { userId: id } })
         await prisma.pushSubscription.deleteMany({ where: { userId: id } })
         await prisma.watch.deleteMany({ where: { userId: id } })
+        await prisma.notification.deleteMany({ where: { userId: id } })
         break
 
       default:

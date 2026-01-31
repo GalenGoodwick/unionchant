@@ -11,6 +11,7 @@ import ShareMenu from '@/components/ShareMenu'
 import { FullPageSpinner } from '@/components/Spinner'
 import { useToast } from '@/components/Toast'
 import FollowButton from '@/components/FollowButton'
+import ReportButton from '@/components/ReportButton'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -555,22 +556,25 @@ function CellDiscussion({ cellId, isParticipant, ideas }: {
                       )}
                       <p className="text-foreground">{c.text}</p>
                     </div>
-                    {/* Upvote button */}
-                    <button
-                      onClick={() => handleUpvote(c.id)}
-                      disabled={upvoting === c.id || c.userHasUpvoted}
-                      className={`ml-2 flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-                        c.userHasUpvoted
-                          ? 'bg-purple-bg text-purple'
-                          : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
-                      }`}
-                      title={c.userHasUpvoted ? 'You upvoted this' : 'Upvote to help this comment reach more people'}
-                    >
-                      <svg className="w-3 h-3" fill={c.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                      </svg>
-                      <span className="font-mono">{c.upvoteCount || 0}</span>
-                    </button>
+                    <div className="flex items-center gap-1 ml-2">
+                      {/* Upvote button */}
+                      <button
+                        onClick={() => handleUpvote(c.id)}
+                        disabled={upvoting === c.id || c.userHasUpvoted}
+                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                          c.userHasUpvoted
+                            ? 'bg-purple-bg text-purple'
+                            : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
+                        }`}
+                        title={c.userHasUpvoted ? 'You upvoted this' : 'Upvote to help this comment reach more people'}
+                      >
+                        <svg className="w-3 h-3" fill={c.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                        </svg>
+                        <span className="font-mono">{c.upvoteCount || 0}</span>
+                      </button>
+                      <ReportButton targetType="COMMENT" targetId={c.id} />
+                    </div>
                   </div>
                 </div>
               ))
@@ -600,7 +604,7 @@ function CellDiscussion({ cellId, isParticipant, ideas }: {
                 </div>
               )}
               {selectedIdeaId && (
-                <p className="text-xs text-warning">Replying to idea (follows across tiers)</p>
+                <p className="text-xs text-warning">Replying to idea (top comments will follow winning ideas)</p>
               )}
               <form onSubmit={handleSubmit} className="flex gap-2">
                 <input
@@ -1645,13 +1649,14 @@ export default function DeliberationPageClient() {
         <div className="mb-4">
           <div className="flex justify-between items-start gap-2 mb-2">
             <h1 className="text-xl font-bold text-foreground leading-tight">{deliberation.question}</h1>
-            <div className="flex gap-1.5 shrink-0">
+            <div className="flex gap-1.5 shrink-0 items-center">
               <span className={`text-xs font-semibold px-2 py-1 rounded ${phaseColor} bg-surface`}>
                 {effectivePhase}
               </span>
               <span className={`text-xs font-semibold px-2 py-1 rounded ${deliberation.isPublic ? 'text-success bg-success-bg' : 'text-error bg-error-bg'}`}>
                 {deliberation.isPublic ? 'Public' : 'Private'}
               </span>
+              <ReportButton targetType="DELIBERATION" targetId={deliberation.id} />
             </div>
           </div>
 

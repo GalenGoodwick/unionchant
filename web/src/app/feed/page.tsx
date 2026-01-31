@@ -51,6 +51,10 @@ function isDoneItem(item: FeedItem): boolean {
     return true
   }
   if (item.type === 'submit_ideas' && item.userSubmittedIdea) return true
+  // Champion card: done if user already submitted a challenger
+  if (item.type === 'champion' && item.userSubmittedIdea) return true
+  // Challenge card: done if user has voted
+  if (item.type === 'challenge' && item.cell?.userHasVoted) return true
   return false
 }
 
@@ -87,6 +91,9 @@ export default function FeedPage() {
   const [followingError, setFollowingError] = useState<string | null>(null)
   const followingLoaded = useRef(false)
 
+  // Dismissed deliberation IDs (persisted to localStorage, 24h expiry)
+  const dismissedDelibsRef = useRef<Set<string>>(new Set())
+
   // Split items: actionable (left) vs done (right)
   // Dedup: if a deliberation appears as done, remove it from actionable
   const { actionableItems, doneItems } = useMemo(() => {
@@ -108,9 +115,9 @@ export default function FeedPage() {
       }
     }
 
-    // Second pass: actionable items, skip deliberations already in done
+    // Second pass: actionable items, skip deliberations already in done or dismissed
     for (const item of items) {
-      if (!isDoneItem(item) && !doneDelibIds.has(item.deliberation.id)) {
+      if (!isDoneItem(item) && !doneDelibIds.has(item.deliberation.id) && !dismissedDelibsRef.current.has(item.deliberation.id)) {
         actionable.push(item)
       }
     }
@@ -278,6 +285,29 @@ export default function FeedPage() {
       return updated
     })
     setItems(prev => prev.filter(item => item.cell?.id !== cellId))
+  }, [])
+
+  // Generic dismiss by deliberation ID (for non-cell cards)
+  const dismissCard = useCallback((deliberationId: string) => {
+    dismissedDelibsRef.current.add(deliberationId)
+    // Save dismissed IDs to localStorage (expire after 24h on next load)
+    const saved = JSON.parse(localStorage.getItem('dismissedDelibs') || '[]') as [string, number][]
+    saved.push([deliberationId, Date.now()])
+    localStorage.setItem('dismissedDelibs', JSON.stringify(saved))
+    setItems(prev => prev.filter(item => item.deliberation.id !== deliberationId))
+  }, [])
+
+  // Load dismissed deliberations on mount
+  useEffect(() => {
+    const saved = JSON.parse(localStorage.getItem('dismissedDelibs') || '[]') as [string, number][]
+    const now = Date.now()
+    const valid = saved.filter(([, ts]) => now - ts < 24 * 60 * 60 * 1000)
+    if (valid.length !== saved.length) {
+      localStorage.setItem('dismissedDelibs', JSON.stringify(valid))
+    }
+    for (const [id] of valid) {
+      dismissedDelibsRef.current.add(id)
+    }
   }, [])
 
   useEffect(() => {
@@ -453,6 +483,7 @@ export default function FeedPage() {
                       openSheet={openSheet}
                       preserveVoteCard={preserveVoteCard}
                       dismissVoteCard={dismissVoteCard}
+                      dismissCard={dismissCard}
                       markIdeaSubmitted={markIdeaSubmitted}
                     />
                   </div>
@@ -501,6 +532,7 @@ export default function FeedPage() {
                       openSheet={openSheet}
                       preserveVoteCard={preserveVoteCard}
                       dismissVoteCard={dismissVoteCard}
+                      dismissCard={dismissCard}
                       markIdeaSubmitted={markIdeaSubmitted}
                     />
                     {userId && <SeeAllLink userId={userId} />}
@@ -580,6 +612,7 @@ export default function FeedPage() {
                         preserveVoteCard={preserveVoteCard}
                         dismissVoteCard={dismissVoteCard}
                         markIdeaSubmitted={markIdeaSubmitted}
+                        dismissCard={dismissCard}
                       />
                       {userId && <SeeAllLink userId={userId} />}
                     </div>
@@ -631,6 +664,7 @@ function FeedCards({
   openSheet,
   preserveVoteCard,
   dismissVoteCard,
+  dismissCard,
   markIdeaSubmitted,
 }: {
   items: FeedItem[]
@@ -638,6 +672,7 @@ function FeedCards({
   openSheet: (item: FeedItem) => void
   preserveVoteCard: (item: FeedItem) => void
   dismissVoteCard: (cellId: string) => void
+  dismissCard: (deliberationId: string) => void
   markIdeaSubmitted: (deliberationId: string, text: string) => void
 }) {
   return (
@@ -663,6 +698,7 @@ function FeedCards({
                 item={item}
                 onAction={handleAction}
                 onExplore={() => openSheet(item)}
+                onDismiss={() => dismissCard(item.deliberation.id)}
               />
             )
           case 'submit_ideas':
@@ -673,6 +709,7 @@ function FeedCards({
                 onAction={handleAction}
                 onExplore={() => openSheet(item)}
                 onSubmitted={(text) => markIdeaSubmitted(item.deliberation.id, text)}
+                onDismiss={() => dismissCard(item.deliberation.id)}
               />
             )
           case 'champion':
@@ -684,6 +721,7 @@ function FeedCards({
                 onAction={handleAction}
                 onExplore={() => openSheet(item)}
                 onSubmitted={(text) => markIdeaSubmitted(item.deliberation.id, text)}
+                onDismiss={() => dismissCard(item.deliberation.id)}
               />
             )
           default:

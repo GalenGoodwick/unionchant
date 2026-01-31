@@ -36,6 +36,7 @@ export async function GET() {
           where: {
             phase: 'COMPLETED',
             isPublic: true,
+            creator: { email: { not: { endsWith: '@test.local' } } },
             OR: [
               { completedAt: { gte: thirtyDaysAgo } },
               { completedAt: null },
@@ -65,6 +66,7 @@ export async function GET() {
           where: {
             phase: 'ACCUMULATING',
             isPublic: true,
+            creator: { email: { not: { endsWith: '@test.local' } } },
           },
           select: {
             id: true,

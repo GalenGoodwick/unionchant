@@ -334,7 +334,7 @@ export default function CommunitySettingsPage() {
                   <div className="flex items-center gap-3">
                     <MemberAvatar image={m.user.image} name={m.user.name} />
                     <div>
-                      <div className="text-foreground text-sm font-medium">{getDisplayName(m.user)}</div>
+                      <Link href={`/user/${m.user.id}`} className="text-foreground hover:text-accent text-sm font-medium">{getDisplayName(m.user)}</Link>
                       <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-0.5 ${roleStyles[m.role] || roleStyles.MEMBER}`}>
                         {m.role}
                       </span>

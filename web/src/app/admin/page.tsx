@@ -7,8 +7,44 @@ import { useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
 import Header from '@/components/Header'
 
+function UserAvatar({ image, name }: { image: string | null; name: string | null }) {
+  const [imgError, setImgError] = useState(false)
+  const initial = (name || '?').charAt(0).toUpperCase()
+
+  if (image && !imgError) {
+    return (
+      <img
+        src={image}
+        alt=""
+        className="w-8 h-8 rounded-full"
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+
+  return (
+    <span className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-sm font-medium text-accent">
+      {initial}
+    </span>
+  )
+}
+
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
-type AdminTab = 'deliberations' | 'users'
+type AdminTab = 'deliberations' | 'users' | 'moderation'
+
+interface AdminReport {
+  id: string
+  targetType: string
+  targetId: string
+  reason: string
+  details: string | null
+  status: string
+  resolution: string | null
+  createdAt: string
+  resolvedAt: string | null
+  reporter: { id: string; name: string | null; email: string; image: string | null }
+  resolvedBy: { id: string; name: string | null } | null
+}
 
 interface AdminUser {
   id: string
@@ -82,12 +118,64 @@ export default function AdminPage() {
   const [userActioning, setUserActioning] = useState<string | null>(null)
   const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Moderation state
+  const [reports, setReports] = useState<AdminReport[]>([])
+  const [reportsTotal, setReportsTotal] = useState(0)
+  const [reportsLoading, setReportsLoading] = useState(false)
+  const [reportsFilter, setReportsFilter] = useState<'PENDING' | 'RESOLVED' | 'DISMISSED'>('PENDING')
+  const [reportsPage, setReportsPage] = useState(1)
+  const [reportActioning, setReportActioning] = useState<string | null>(null)
+
   // Rate limit config
   const [rateLimits, setRateLimits] = useState<Array<{
     id?: string; endpoint: string; maxRequests: number; windowMs: number; keyType: string; enabled: boolean
   }>>([])
   const [rateLimitsLoading, setRateLimitsLoading] = useState(false)
   const [rateLimitsSaving, setRateLimitsSaving] = useState<string | null>(null)
+
+  const fetchReports = useCallback(async (statusFilter = reportsFilter, page = reportsPage) => {
+    setReportsLoading(true)
+    try {
+      const params = new URLSearchParams({ status: statusFilter, page: String(page) })
+      const res = await fetch(`/api/reports?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        setReports(data.reports || [])
+        setReportsTotal(data.total || 0)
+      }
+    } catch (error) {
+      console.error('Failed to fetch reports:', error)
+    } finally {
+      setReportsLoading(false)
+    }
+  }, [reportsFilter, reportsPage])
+
+  useEffect(() => {
+    if (activeTab === 'moderation') {
+      fetchReports(reportsFilter, reportsPage)
+    }
+  }, [activeTab, reportsFilter, reportsPage, fetchReports])
+
+  const handleReportAction = async (reportId: string, status: 'RESOLVED' | 'DISMISSED', action?: string) => {
+    setReportActioning(reportId)
+    try {
+      const res = await fetch(`/api/reports/${reportId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, action }),
+      })
+      if (res.ok) {
+        fetchReports()
+      } else {
+        const data = await res.json()
+        alert(data.error || 'Failed to resolve report')
+      }
+    } catch {
+      alert('Failed to resolve report')
+    } finally {
+      setReportActioning(null)
+    }
+  }
 
   const fetchDeliberations = async () => {
     try {
@@ -304,6 +392,14 @@ export default function AdminPage() {
           >
             Users
           </button>
+          <button
+            onClick={() => setActiveTab('moderation')}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+              activeTab === 'moderation' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
+            }`}
+          >
+            Moderation
+          </button>
         </div>
 
         {/* Users Tab */}
@@ -354,13 +450,11 @@ export default function AdminPage() {
                       <tr key={u.id} className="border-t border-border hover:bg-surface">
                         <td className="p-4">
                           <div className="flex items-center gap-3">
-                            {u.image && (
-                              <img src={u.image} alt="" className="w-8 h-8 rounded-full" />
-                            )}
+                            <UserAvatar image={u.image} name={u.name} />
                             <div>
-                              <div className="text-foreground font-medium text-sm">
+                              <Link href={`/user/${u.id}`} className="text-foreground hover:text-accent font-medium text-sm">
                                 {u.name || 'No name'}
-                              </div>
+                              </Link>
                               <div className="text-muted text-xs">{u.email}</div>
                             </div>
                           </div>
@@ -438,6 +532,141 @@ export default function AdminPage() {
                 <button
                   onClick={() => setUsersPage(p => p + 1)}
                   disabled={usersPage >= Math.ceil(usersTotal / 20)}
+                  className="px-3 py-1.5 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Moderation Tab */}
+        {activeTab === 'moderation' && (
+          <div>
+            {/* Filter */}
+            <div className="bg-background rounded-lg border border-border p-4 mb-6 flex gap-4 items-center flex-wrap">
+              <span className="text-muted text-sm">Status:</span>
+              {(['PENDING', 'RESOLVED', 'DISMISSED'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => { setReportsFilter(s); setReportsPage(1) }}
+                  className={`px-3 py-1.5 rounded text-sm transition-colors ${
+                    reportsFilter === s ? 'bg-header text-white' : 'bg-surface text-muted border border-border hover:text-foreground'
+                  }`}
+                >
+                  {s.charAt(0) + s.slice(1).toLowerCase()}
+                </button>
+              ))}
+              <span className="text-muted text-sm ml-auto font-mono">{reportsTotal} report{reportsTotal !== 1 ? 's' : ''}</span>
+            </div>
+
+            {/* Reports List */}
+            <div className="bg-background rounded-lg border border-border overflow-hidden">
+              {reportsLoading ? (
+                <div className="p-8 text-center text-muted">Loading reports...</div>
+              ) : reports.length === 0 ? (
+                <div className="p-8 text-center text-muted">
+                  {reportsFilter === 'PENDING' ? 'No pending reports' : 'No reports found'}
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {reports.map(r => (
+                    <div key={r.id} className="p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs px-2 py-0.5 rounded font-medium ${
+                              r.reason === 'SPAM' ? 'bg-warning/15 text-warning' :
+                              r.reason === 'HARASSMENT' || r.reason === 'HATE_SPEECH' ? 'bg-error/15 text-error' :
+                              'bg-surface text-muted'
+                            }`}>
+                              {r.reason.replace('_', ' ')}
+                            </span>
+                            <span className="text-xs text-muted">
+                              {r.targetType.toLowerCase()} &middot; {new Date(r.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-sm text-foreground mb-1">
+                            <span className="text-muted">Reported by:</span>{' '}
+                            <Link href={`/user/${r.reporter.id}`} className="text-accent hover:underline">
+                              {r.reporter.name || r.reporter.email}
+                            </Link>
+                          </p>
+                          {r.details && (
+                            <p className="text-sm text-muted italic">&quot;{r.details}&quot;</p>
+                          )}
+                          <p className="text-xs text-muted mt-1 font-mono">
+                            Target ID: {r.targetId}
+                          </p>
+                          {r.resolvedBy && (
+                            <p className="text-xs text-success mt-1">
+                              Resolved by {r.resolvedBy.name || 'Admin'}: {r.resolution || 'No details'}
+                            </p>
+                          )}
+                        </div>
+
+                        {r.status === 'PENDING' && (
+                          <div className="flex flex-col gap-1 shrink-0">
+                            {r.targetType === 'COMMENT' && (
+                              <button
+                                onClick={() => handleReportAction(r.id, 'RESOLVED', 'remove_comment')}
+                                disabled={reportActioning === r.id}
+                                className="text-xs px-3 py-1.5 rounded bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors disabled:opacity-50"
+                              >
+                                Remove Comment
+                              </button>
+                            )}
+                            {r.targetType === 'IDEA' && (
+                              <button
+                                onClick={() => handleReportAction(r.id, 'RESOLVED', 'remove_idea')}
+                                disabled={reportActioning === r.id}
+                                className="text-xs px-3 py-1.5 rounded bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors disabled:opacity-50"
+                              >
+                                Remove Idea
+                              </button>
+                            )}
+                            {r.targetType === 'USER' && (
+                              <button
+                                onClick={() => handleReportAction(r.id, 'RESOLVED', 'ban_user')}
+                                disabled={reportActioning === r.id}
+                                className="text-xs px-3 py-1.5 rounded bg-warning/10 text-warning border border-warning/30 hover:bg-warning/20 transition-colors disabled:opacity-50"
+                              >
+                                Ban User
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleReportAction(r.id, 'DISMISSED')}
+                              disabled={reportActioning === r.id}
+                              className="text-xs px-3 py-1.5 rounded bg-surface text-muted border border-border hover:text-foreground transition-colors disabled:opacity-50"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Pagination */}
+            {reportsTotal > 20 && (
+              <div className="flex items-center justify-center gap-4 mt-4">
+                <button
+                  onClick={() => setReportsPage(p => Math.max(1, p - 1))}
+                  disabled={reportsPage <= 1}
+                  className="px-3 py-1.5 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <span className="text-muted text-sm">
+                  Page {reportsPage} of {Math.ceil(reportsTotal / 20)}
+                </span>
+                <button
+                  onClick={() => setReportsPage(p => p + 1)}
+                  disabled={reportsPage >= Math.ceil(reportsTotal / 20)}
                   className="px-3 py-1.5 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
                 >
                   Next

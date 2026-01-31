@@ -27,7 +27,7 @@ export async function GET() {
     ] = await Promise.all([
       // Voting-active deliberations with voter counts
       prisma.deliberation.findMany({
-        where: { phase: 'VOTING', isPublic: true },
+        where: { phase: 'VOTING', isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
         select: {
           id: true,
           question: true,
@@ -52,6 +52,7 @@ export async function GET() {
           phase: 'VOTING',
           challengeRound: { gt: 0 },
           isPublic: true,
+          creator: { email: { not: { endsWith: '@test.local' } } },
           currentTierStartedAt: { gte: twentyFourHoursAgo },
         },
         select: {
@@ -70,6 +71,7 @@ export async function GET() {
       prisma.deliberation.findMany({
         where: {
           isPublic: true,
+          creator: { email: { not: { endsWith: '@test.local' } } },
           createdAt: { gte: fortyEightHoursAgo },
         },
         select: {
@@ -90,6 +92,7 @@ export async function GET() {
         where: {
           status: 'COMPLETED',
           completedAt: { gte: twentyFourHoursAgo },
+          deliberation: { isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
         },
         select: {
           tier: true,
@@ -124,7 +127,7 @@ export async function GET() {
         }),
         // In-progress deliberations
         prisma.deliberation.count({
-          where: { phase: { in: ['VOTING', 'SUBMISSION', 'ACCUMULATING'] }, isPublic: true },
+          where: { phase: { in: ['VOTING', 'SUBMISSION', 'ACCUMULATING'] }, isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
         }),
         // Ideas submitted today
         prisma.idea.count({
