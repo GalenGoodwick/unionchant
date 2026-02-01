@@ -142,7 +142,7 @@ export async function GET(req: NextRequest) {
     if (!globalFeedCache || (ts - globalFeedCache.ts) > GLOBAL_FEED_TTL) {
       const [votingDelibs, submissionDelibs, accumulatingDelibs, challengeDelibs] = await Promise.all([
         prisma.deliberation.findMany({
-          where: { phase: 'VOTING', isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
+          where: { phase: 'VOTING', isPublic: true,  },
           include: {
             _count: { select: { members: true, ideas: true } },
             community: { select: { name: true, slug: true } },
@@ -162,7 +162,7 @@ export async function GET(req: NextRequest) {
           take: 20,
         }),
         prisma.deliberation.findMany({
-          where: { phase: 'SUBMISSION', isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
+          where: { phase: 'SUBMISSION', isPublic: true,  },
           select: {
             id: true, question: true, description: true, organization: true,
             phase: true, currentTier: true, challengeRound: true, createdAt: true,
@@ -175,7 +175,7 @@ export async function GET(req: NextRequest) {
           take: 10,
         }),
         prisma.deliberation.findMany({
-          where: { phase: 'ACCUMULATING', isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
+          where: { phase: 'ACCUMULATING', isPublic: true,  },
           include: {
             _count: { select: { members: true, ideas: true } },
             community: { select: { name: true, slug: true } },
@@ -190,7 +190,7 @@ export async function GET(req: NextRequest) {
           take: 10,
         }),
         prisma.deliberation.findMany({
-          where: { phase: 'VOTING', challengeRound: { gt: 0 }, isPublic: true, creator: { email: { not: { endsWith: '@test.local' } } } },
+          where: { phase: 'VOTING', challengeRound: { gt: 0 }, isPublic: true,  },
           include: {
             _count: { select: { members: true, ideas: true } },
             community: { select: { name: true, slug: true } },
