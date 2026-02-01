@@ -273,8 +273,8 @@ export default function SettingsPage() {
               Push notifications are not supported in this browser.
             </p>
           ) : permission === 'denied' ? (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <p className="text-red-700 text-sm">
+            <div className="bg-error-bg border border-error rounded-lg p-4">
+              <p className="text-error text-sm">
                 Notifications are blocked. To enable, click the lock icon in your browser&apos;s address bar and allow notifications.
               </p>
             </div>

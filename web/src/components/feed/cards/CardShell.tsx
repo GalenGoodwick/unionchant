@@ -56,7 +56,7 @@ export default function CardShell({
       <div className="p-4">
         <Link
           href={`/deliberations/${item.deliberation.id}`}
-          className="block text-lg font-semibold text-foreground hover:text-accent transition-colors"
+          className="block text-xl font-semibold text-foreground hover:text-accent transition-colors"
         >
           &quot;{item.deliberation.question}&quot;
         </Link>

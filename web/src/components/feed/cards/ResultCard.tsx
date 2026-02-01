@@ -20,13 +20,13 @@ export default function ResultCard({ item, compact = false }: { item: ResultItem
               <div className={`${compact ? 'text-xs' : 'text-sm'} font-semibold text-foreground truncate`}>
                 {item.champion?.text || 'Champion'}
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-muted mt-0.5`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-muted mt-0.5`}>
                 by {item.champion?.author}
                 {item.champion?.totalVotes != null && (
                   <span className="font-mono"> · {item.champion.totalVotes} votes</span>
                 )}
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-subtle mt-1 truncate`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-subtle mt-1 truncate`}>
                 {item.deliberation.question}
               </div>
               {!compact && (
@@ -55,10 +55,10 @@ export default function ResultCard({ item, compact = false }: { item: ResultItem
               <div className={`${compact ? 'text-xs' : 'text-sm'} text-foreground`}>
                 Your idea → <span className="font-mono font-semibold text-accent">Tier {item.idea.tier}</span>
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-muted mt-0.5 truncate`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-muted mt-0.5 truncate`}>
                 &ldquo;{item.idea.text}&rdquo;
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-subtle mt-1 truncate`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-subtle mt-1 truncate`}>
                 {item.deliberation.question}
               </div>
             </div>
@@ -80,7 +80,7 @@ export default function ResultCard({ item, compact = false }: { item: ResultItem
               <div className={`${compact ? 'text-xs' : 'text-sm'} font-medium text-foreground truncate`}>
                 {item.deliberation.question}
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-muted mt-0.5`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-muted mt-0.5`}>
                 Completed
                 {!compact && item.totalParticipants != null && <span> · {item.totalParticipants} participants</span>}
                 {!compact && item.totalIdeas != null && <span> · {item.totalIdeas} ideas</span>}
@@ -110,10 +110,10 @@ export default function ResultCard({ item, compact = false }: { item: ResultItem
               <div className={`${compact ? 'text-xs' : 'text-sm'} text-foreground`}>
                 Correct at <span className="font-mono font-semibold text-success">Tier {item.prediction.tier}</span>
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-muted mt-0.5 truncate`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-muted mt-0.5 truncate`}>
                 &ldquo;{item.prediction.ideaText}&rdquo;
               </div>
-              <div className={`${compact ? 'text-[11px]' : 'text-xs'} text-subtle mt-1 truncate`}>
+              <div className={`${compact ? 'text-xs' : 'text-xs'} text-subtle mt-1 truncate`}>
                 {item.deliberation.question}
               </div>
             </div>

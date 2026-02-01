@@ -720,7 +720,7 @@ function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'e
                   <p className="text-sm text-foreground truncate">{d.question}</p>
                   <span className={`text-xs px-1.5 py-0.5 rounded ${
                     d.phase === 'VOTING' ? 'bg-warning/20 text-warning' :
-                    d.phase === 'SUBMISSION' ? 'bg-blue-500/20 text-blue-400' :
+                    d.phase === 'SUBMISSION' ? 'bg-accent/20 text-accent' :
                     d.phase === 'ACCUMULATING' ? 'bg-purple/20 text-purple' :
                     d.phase === 'COMPLETED' ? 'bg-success/20 text-success' :
                     'bg-muted/20 text-muted'

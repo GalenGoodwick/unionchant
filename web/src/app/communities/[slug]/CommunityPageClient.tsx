@@ -117,7 +117,7 @@ export default function CommunityPageClient() {
   }
 
   const phaseColors: Record<string, string> = {
-    SUBMISSION: 'bg-blue-500',
+    SUBMISSION: 'bg-accent',
     VOTING: 'bg-warning',
     ACCUMULATING: 'bg-purple',
     COMPLETED: 'bg-success',

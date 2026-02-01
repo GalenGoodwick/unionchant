@@ -69,7 +69,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               onChange={(e) => setName(e.target.value)}
               placeholder="How should we call you?"
               maxLength={50}
-              className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent"
+              className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-foreground placeholder:text-muted focus:outline-none focus:border-accent"
             />
             <p className="text-xs text-muted mt-1">This will be shown with your ideas and votes</p>
           </div>
@@ -85,7 +85,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
               placeholder="Tell us a bit about yourself..."
               maxLength={200}
               rows={3}
-              className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+              className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-foreground placeholder:text-muted focus:outline-none focus:border-accent resize-none"
             />
             <p className="text-xs text-muted mt-1">{bio.length}/200 characters</p>
           </div>

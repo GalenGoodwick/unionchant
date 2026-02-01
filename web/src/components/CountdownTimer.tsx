@@ -66,8 +66,8 @@ export default function CountdownTimer({
 
   if (hasExpired || timeRemaining.total <= 0) {
     return (
-      <span className={`text-red-400 ${className}`}>
-        {label && <span className="text-slate-400 mr-2">{label}</span>}
+      <span className={`text-error ${className}`}>
+        {label && <span className="text-muted mr-2">{label}</span>}
         <span>Expired</span>
       </span>
     )
@@ -78,12 +78,12 @@ export default function CountdownTimer({
   // Determine urgency color
   const urgencyClass =
     timeRemaining.total < 60000 // Less than 1 minute
-      ? 'text-red-400'
+      ? 'text-error'
       : timeRemaining.total < 300000 // Less than 5 minutes
-        ? 'text-orange-400'
+        ? 'text-orange'
         : timeRemaining.total < 3600000 // Less than 1 hour
-          ? 'text-yellow-400'
-          : 'text-green-400'
+          ? 'text-warning'
+          : 'text-success'
 
   if (compact) {
     // Compact format: "2d 5h" or "23m 45s"
@@ -100,7 +100,7 @@ export default function CountdownTimer({
 
     return (
       <span className={`${urgencyClass} ${className}`}>
-        {label && <span className="text-slate-400 mr-1">{label}</span>}
+        {label && <span className="text-muted mr-1">{label}</span>}
         <span className="font-mono">{display}</span>
       </span>
     )
@@ -109,26 +109,26 @@ export default function CountdownTimer({
   // Full format
   return (
     <div className={`${className}`}>
-      {label && <div className="text-slate-400 text-sm mb-1">{label}</div>}
+      {label && <div className="text-muted text-sm mb-1">{label}</div>}
       <div className={`font-mono ${urgencyClass} flex gap-2`}>
         {days > 0 && (
           <div className="text-center">
             <div className="text-2xl font-bold">{days}</div>
-            <div className="text-xs text-slate-500">days</div>
+            <div className="text-xs text-subtle">days</div>
           </div>
         )}
         <div className="text-center">
           <div className="text-2xl font-bold">{String(hours).padStart(2, '0')}</div>
-          <div className="text-xs text-slate-500">hrs</div>
+          <div className="text-xs text-subtle">hrs</div>
         </div>
         <div className="text-center">
           <div className="text-2xl font-bold">{String(minutes).padStart(2, '0')}</div>
-          <div className="text-xs text-slate-500">min</div>
+          <div className="text-xs text-subtle">min</div>
         </div>
         {showSeconds && (
           <div className="text-center">
             <div className="text-2xl font-bold">{String(seconds).padStart(2, '0')}</div>
-            <div className="text-xs text-slate-500">sec</div>
+            <div className="text-xs text-subtle">sec</div>
           </div>
         )}
       </div>

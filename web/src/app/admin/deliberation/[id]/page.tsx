@@ -318,7 +318,7 @@ export default function AdminDeliberationPage() {
   }
 
   const phaseColors: Record<string, string> = {
-    SUBMISSION: 'bg-blue-500',
+    SUBMISSION: 'bg-accent',
     VOTING: 'bg-warning',
     ACCUMULATING: 'bg-purple',
     COMPLETED: 'bg-success',
@@ -555,11 +555,11 @@ export default function AdminDeliberationPage() {
                 {/* Logs - combine client and server logs */}
                 <div className="bg-black rounded p-3 h-48 overflow-y-auto font-mono text-xs">
                   {logs.length === 0 && (!testProgress?.logs || testProgress.logs.length === 0) ? (
-                    <span className="text-gray-500">Logs will appear here...</span>
+                    <span className="text-muted">Logs will appear here...</span>
                   ) : (
                     <>
                       {logs.map((log, i) => (
-                        <div key={`client-${i}`} className="text-green-400">{log}</div>
+                        <div key={`client-${i}`} className="text-success">{log}</div>
                       ))}
                       {testProgress?.logs?.map((log, i) => (
                         <div key={`server-${i}`} className="text-cyan-400">{log}</div>

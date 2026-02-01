@@ -145,7 +145,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
           setIsOpen(next)
           if (next) onOpen?.()
         }}
-        className="relative p-1 text-gray-300 hover:text-white transition-colors"
+        className="relative p-1 text-muted-light hover:text-foreground transition-colors"
         aria-label="Notifications"
       >
         <svg
@@ -171,7 +171,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-80 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex justify-between items-center">
             <span className="font-semibold text-foreground">Notifications</span>
