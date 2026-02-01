@@ -84,6 +84,22 @@ export type FeedItem = {
   }
 }
 
+/** Check if feed items have meaningfully changed (for incremental updates) */
+function hasFeedChanged(prev: FeedItem[], next: FeedItem[]): boolean {
+  if (prev.length !== next.length) return true
+  const prevMap = new Map(prev.map(i => [`${i.type}-${i.deliberation.id}-${i.cell?.id || ''}`, i]))
+  for (const item of next) {
+    const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || ''}`
+    const old = prevMap.get(key)
+    if (!old) return true // new item
+    if (item.cell?.votedCount !== old.cell?.votedCount) return true
+    if (item.cell?.status !== old.cell?.status) return true
+    if (item.cell?.userHasVoted !== old.cell?.userHasVoted) return true
+    if (item.deliberation._count.ideas !== old.deliberation._count.ideas) return true
+  }
+  return false
+}
+
 // GET /api/feed - Get personalized feed
 export async function GET(req: NextRequest) {
   try {
@@ -98,6 +114,8 @@ export async function GET(req: NextRequest) {
 
     const session = await getServerSession(authOptions)
     const filterType = req.nextUrl.searchParams.get('filter') // 'following' or null
+    const sinceParam = req.nextUrl.searchParams.get('since')
+    const sinceTs = sinceParam ? parseInt(sinceParam, 10) : null
 
     // Get user if logged in
     let userId: string | null = null
@@ -113,7 +131,11 @@ export async function GET(req: NextRequest) {
     const cacheKey = `${userId || 'anon'}|${filterType || 'all'}`
     const userCached = userFeedCache.get(cacheKey)
     if (userCached && (ts - userCached.ts) < USER_FEED_TTL) {
-      return NextResponse.json(userCached.data)
+      // If client sent since and cache hasn't changed, return unchanged
+      if (sinceTs && userCached.ts <= sinceTs) {
+        return NextResponse.json({ items: [], unchanged: true, ts: userCached.ts })
+      }
+      return NextResponse.json({ ...userCached.data, ts: userCached.ts })
     }
 
     // --- GLOBAL DISCOVERY FEED (shared across all users, 30s cache) ---
@@ -127,10 +149,13 @@ export async function GET(req: NextRequest) {
             creator: { select: { id: true, name: true } },
             cells: {
               where: { status: 'VOTING' },
-              include: {
-                ideas: { include: { idea: { select: { id: true, text: true } } } },
-                participants: { select: { id: true } },
+              select: {
+                id: true,
+                status: true,
+                ideas: { select: { idea: { select: { id: true, text: true } } } },
+                _count: { select: { participants: true } },
               },
+              take: 3,
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -203,7 +228,7 @@ export async function GET(req: NextRequest) {
         if (votingCells.length === 0) continue
         const ideas = votingCells[0]?.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })) || []
         if (ideas.length === 0) continue
-        const totalSpots = votingCells.reduce((sum, c) => sum + (5 - c.participants.length), 0)
+        const totalSpots = votingCells.reduce((sum, c) => sum + (5 - c._count.participants), 0)
         const votingProgress = votingCells.length > 0 ?
           Math.round((votingCells.filter(c => c.status === 'COMPLETED').length / votingCells.length) * 100) : 0
         const isChallenge = delib.challengeRound > 0
@@ -321,31 +346,35 @@ export async function GET(req: NextRequest) {
       },
       include: {
         cell: {
-          include: {
+          select: {
+            id: true, tier: true, status: true,
+            deliberationId: true,
             deliberation: {
-              include: {
+              select: {
+                id: true, question: true, description: true, organization: true,
+                phase: true, currentTier: true, challengeRound: true, createdAt: true,
+                views: true, currentTierStartedAt: true, votingTimeoutMs: true,
                 _count: { select: { members: true, ideas: true } },
                 community: { select: { name: true, slug: true } },
                 creator: { select: { id: true, name: true } },
               },
             },
             ideas: {
-              include: {
-                idea: { select: { id: true, text: true, author: { select: { name: true } } } },
-              },
+              select: { idea: { select: { id: true, text: true, author: { select: { name: true } } } } },
             },
             participants: { select: { status: true } },
+            votes: { where: { userId: userId! }, select: { ideaId: true }, take: 1 },
           },
         },
       },
     }) : []
 
-    // User votes for voted cells
-    const votedCellIds = userCells.filter(cp => cp.status === 'VOTED').map(cp => cp.cell.id)
-    const userVotes = votedCellIds.length > 0 && userId
-      ? await prisma.vote.findMany({ where: { cellId: { in: votedCellIds }, userId }, select: { cellId: true, ideaId: true } })
-      : []
-    const votesByCell = new Map(userVotes.map(v => [v.cellId, v.ideaId] as const))
+    // Extract votes from cells (batched into the query above)
+    const votesByCell = new Map(
+      userCells
+        .filter(cp => cp.cell.votes.length > 0)
+        .map(cp => [cp.cell.id, cp.cell.votes[0].ideaId] as const)
+    )
 
     // Process user cells into vote_now items
     const nowMs = Date.now()
@@ -467,14 +496,23 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const responseData = { items: filteredItems, hasMore: false }
+    const nowCacheTs = Date.now()
+    const responseData = { items: filteredItems, hasMore: false, ts: nowCacheTs }
 
     // Cache the response
-    userFeedCache.set(cacheKey, { data: responseData, ts: Date.now() })
+    userFeedCache.set(cacheKey, { data: responseData, ts: nowCacheTs })
     if (userFeedCache.size > 100) {
       const cutoff = Date.now() - USER_FEED_TTL * 10
       for (const [k, v] of userFeedCache) {
         if (v.ts < cutoff) userFeedCache.delete(k)
+      }
+    }
+
+    // If client sent since, check if anything meaningfully changed
+    if (sinceTs) {
+      const prevCached = userCached?.data as { items: FeedItem[] } | undefined
+      if (prevCached && !hasFeedChanged(prevCached.items, filteredItems)) {
+        return NextResponse.json({ items: [], unchanged: true, ts: nowCacheTs })
       }
     }
 

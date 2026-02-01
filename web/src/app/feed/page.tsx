@@ -75,6 +75,9 @@ export default function FeedPage() {
   const [error, setError] = useState<string | null>(null)
   const [showGuide, setShowGuide] = useState(false)
 
+  // Incremental update tracking
+  const lastFetchTsRef = useRef<number>(0)
+
   // Optimistic action tracking — refs are immune to stale closures
   const votedCellIdsRef = useRef<Set<string>>(new Set())
   const submittedDelibsRef = useRef<Map<string, string>>(new Map()) // deliberationId -> text
@@ -187,9 +190,20 @@ export default function FeedPage() {
   // === For You fetch (existing logic, unchanged) ===
   const fetchFeed = useCallback(async () => {
     try {
-      const res = await fetch('/api/feed')
+      const sinceParam = lastFetchTsRef.current ? `?since=${lastFetchTsRef.current}` : ''
+      const res = await fetch(`/api/feed${sinceParam}`)
       if (!res.ok) throw new Error('Failed to fetch feed')
       const data = await res.json()
+
+      // Track server timestamp for incremental updates
+      if (data.ts) lastFetchTsRef.current = data.ts
+
+      // If nothing changed, skip state updates entirely
+      if (data.unchanged) {
+        setLoading(false)
+        return
+      }
+
       const newItems = data.items as FeedItem[]
 
       const seenKeys = new Set<string>()
