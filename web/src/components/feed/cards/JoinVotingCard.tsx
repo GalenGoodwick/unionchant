@@ -13,6 +13,7 @@ type Props = {
 
 export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }: Props) {
   const [joining, setJoining] = useState(false)
+  const [joined, setJoined] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const tierInfo = item.tierInfo
@@ -26,6 +27,7 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
       })
 
       if (res.ok) {
+        setJoined(true)
         onAction() // Refresh feed to get vote_now card
       } else {
         const data = await res.json()
@@ -38,6 +40,8 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
       setJoining(false)
     }
   }
+
+  if (joined) return null
 
   return (
     <CardShell

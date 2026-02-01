@@ -437,6 +437,16 @@ export async function GET(req: NextRequest) {
     // Merge: user's vote_now cards + global discovery items (skip duplicates)
     // IMPORTANT: clone discovery items — never mutate the shared global cache
     const userDelibIds = new Set(items.map(i => i.deliberation.id))
+
+    // Also exclude deliberations the user has already joined (even if no active cell yet)
+    if (userId) {
+      const memberships = await prisma.deliberationMember.findMany({
+        where: { userId },
+        select: { deliberationId: true },
+      })
+      for (const m of memberships) userDelibIds.add(m.deliberationId)
+    }
+
     for (const item of globalFeedCache!.items) {
       if (!userDelibIds.has(item.deliberation.id)) {
         items.push({ ...item })

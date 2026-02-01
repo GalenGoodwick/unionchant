@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -168,7 +168,6 @@ export async function POST(
 
     // When all votes are in, start a 10-second grace period before finalizing.
     // Users can change their vote during this window but it doesn't extend it.
-    // Timer processor will pick up cells with finalizesAt <= now and finalize them.
     if (result.allVoted) {
       const GRACE_PERIOD_MS = 10_000
       // Only set finalizesAt if not already set (first time all votes land)
@@ -176,8 +175,21 @@ export async function POST(
         where: { id: cellId, finalizesAt: null, status: 'VOTING' },
         data: { finalizesAt: new Date(Date.now() + GRACE_PERIOD_MS) },
       })
-      // Note: No setTimeout — Vercel serverless functions terminate after response.
-      // Timer processor (cron + feed request throttle) handles finalization.
+      // Schedule finalization after grace period using Next.js after() —
+      // runs after the response is sent, keeps the function alive on Vercel.
+      after(async () => {
+        await new Promise(resolve => setTimeout(resolve, GRACE_PERIOD_MS))
+        // Re-check the cell is still VOTING (hasn't been processed by timer-processor)
+        const cell = await prisma.cell.findUnique({
+          where: { id: cellId },
+          select: { status: true, finalizesAt: true },
+        })
+        if (cell?.status === 'VOTING' && cell.finalizesAt && cell.finalizesAt <= new Date()) {
+          await processCellResults(cellId, false).catch(err => {
+            console.error(`after() finalization failed for cell ${cellId}:`, err)
+          })
+        }
+      })
     }
 
     // Notify followers about the vote (fire-and-forget, no email)
