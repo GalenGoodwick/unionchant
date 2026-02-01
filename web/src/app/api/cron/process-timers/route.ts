@@ -5,14 +5,17 @@ import { processAllTimers } from '@/lib/timer-processor'
 export async function GET(req: NextRequest) {
   try {
     // Verify the request is from Vercel Cron
-    const authHeader = req.headers.get('authorization')
     const cronSecret = process.env.CRON_SECRET
-
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret) {
+      console.error('CRON_SECRET not configured')
+      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 })
+    }
+    const authHeader = req.headers.get('authorization')
+    if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const result = await processAllTimers()
+    const result = await processAllTimers('vercel_cron')
 
     return NextResponse.json({
       success: true,

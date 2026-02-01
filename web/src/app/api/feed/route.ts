@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { processExpiredTiers } from '@/lib/timer-processor'
+import { processAllTimers } from '@/lib/timer-processor'
 
 // Throttle processExpiredTiers - run at most once every 30 seconds
 let lastTimerProcessed = 0
@@ -87,12 +87,12 @@ export type FeedItem = {
 // GET /api/feed - Get personalized feed
 export async function GET(req: NextRequest) {
   try {
-    // Process expired tiers in background, throttled to once per 30s
+    // Process all timers in background, throttled to once per 30s
     const ts = Date.now()
     if (ts - lastTimerProcessed > 30000) {
       lastTimerProcessed = ts
-      processExpiredTiers().catch(err => {
-        console.error('Error processing expired tiers:', err)
+      processAllTimers('feed_api').catch(err => {
+        console.error('Error processing timers:', err)
       })
     }
 

@@ -296,6 +296,7 @@ model Cell {
 
   @@index([deliberationId, tier])
   @@index([deliberationId, status])
+  @@index([status, finalizesAt])
 }
 
 enum CellStatus {
@@ -675,4 +676,19 @@ model RateLimitConfig {
   keyType     String   @default("userId")  // "userId" or "ip"
   enabled     Boolean  @default(true)
   updatedAt   DateTime @updatedAt
+}
+
+// ============ CRON EXECUTION LOG ============
+
+model CronLog {
+  id          String    @id @default(cuid())
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  trigger     String    // 'vercel_cron' | 'external_cron' | 'feed_api' | 'lazy_eval'
+  success     Boolean   @default(true)
+  error       String?
+  processed   Int       @default(0)
+  durationMs  Int?
+
+  @@index([startedAt])
 }

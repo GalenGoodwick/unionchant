@@ -254,19 +254,112 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
 
 
 /**
- * Run all timer processors
+ * Detect and self-heal cells stuck in VOTING beyond their deadline.
+ * Only runs from cron triggers to avoid overhead on feed requests.
  */
-export async function processAllTimers() {
-  const [submissions, tiers, accumulations] = await Promise.all([
-    processExpiredSubmissions(),
-    processExpiredTiers(),
-    processExpiredAccumulations(),
-  ])
+async function processStuckCells(): Promise<string[]> {
+  const now = new Date()
+  const FIVE_MINUTES = 5 * 60 * 1000
 
-  return {
-    submissions,
-    tiers,
-    accumulations,
-    total: submissions.length + tiers.length + accumulations.length,
+  // Find cells still in VOTING status
+  const stuckCandidates = await prisma.cell.findMany({
+    where: {
+      status: 'VOTING',
+    },
+    select: {
+      id: true,
+      createdAt: true,
+      finalizesAt: true,
+      deliberation: {
+        select: {
+          currentTierStartedAt: true,
+          votingTimeoutMs: true,
+        },
+      },
+    },
+  })
+
+  const processed: string[] = []
+
+  for (const cell of stuckCandidates) {
+    const delib = cell.deliberation
+    if (!delib.currentTierStartedAt || delib.votingTimeoutMs === 0) continue
+
+    const tierDeadline = new Date(delib.currentTierStartedAt.getTime() + delib.votingTimeoutMs)
+
+    // Only self-heal if deadline passed more than 5 minutes ago
+    if (tierDeadline.getTime() + FIVE_MINUTES > now.getTime()) continue
+
+    try {
+      console.warn(`SELF-HEAL: Processing stuck cell ${cell.id} (deadline was ${tierDeadline.toISOString()})`)
+      await processCellResults(cell.id, true)
+      processed.push(cell.id)
+    } catch (err) {
+      console.error(`SELF-HEAL failed for cell ${cell.id}:`, err)
+    }
+  }
+
+  if (processed.length > 0) {
+    console.warn(`SELF-HEAL: Fixed ${processed.length} stuck cells`)
+  }
+
+  return processed
+}
+
+/**
+ * Run all timer processors
+ * @param trigger - Source that triggered this run (for logging)
+ */
+export async function processAllTimers(trigger?: string) {
+  const startedAt = Date.now()
+
+  try {
+    const [submissions, tiers, accumulations] = await Promise.all([
+      processExpiredSubmissions(),
+      processExpiredTiers(),
+      processExpiredAccumulations(),
+    ])
+
+    // Self-healing only runs from cron triggers (not feed API)
+    let stuckHealed: string[] = []
+    if (trigger === 'external_cron' || trigger === 'vercel_cron') {
+      stuckHealed = await processStuckCells()
+    }
+
+    const total = submissions.length + tiers.length + accumulations.length + stuckHealed.length
+
+    // Log execution: always for cron, only when work done for feed
+    if (trigger === 'external_cron' || trigger === 'vercel_cron' || total > 0) {
+      prisma.cronLog.create({
+        data: {
+          trigger: trigger || 'unknown',
+          processed: total,
+          completedAt: new Date(),
+          durationMs: Date.now() - startedAt,
+        },
+      }).catch(err => console.error('Failed to log cron execution:', err))
+    }
+
+    return {
+      submissions,
+      tiers,
+      accumulations,
+      stuckHealed,
+      total,
+    }
+  } catch (error) {
+    // Log failure
+    if (trigger) {
+      prisma.cronLog.create({
+        data: {
+          trigger,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          completedAt: new Date(),
+          durationMs: Date.now() - startedAt,
+        },
+      }).catch(() => {})
+    }
+    throw error
   }
 }

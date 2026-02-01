@@ -22,6 +22,7 @@ type Comment = {
   views: number
   reachTier: number
   upvoteCount: number
+  tierUpvotes: number
   userHasUpvoted: boolean
   isUpPollinated: boolean
   sourceTier: number
@@ -127,6 +128,7 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
             ...c,
             userHasUpvoted: data.upvoted,
             upvoteCount: c.upvoteCount + (data.upvoted ? 1 : -1),
+            tierUpvotes: data.upPollinated ? 0 : c.tierUpvotes + (data.upvoted ? 1 : -1),
             reachTier: data.newTier || c.reachTier,
           } : c)
         setLocalComments(prev => updateComments(prev))
@@ -146,14 +148,12 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
     }
   }
 
-  // Calculate up-pollination progress
+  // Calculate up-pollination progress (thresholds match API: /api/comments/[commentId]/upvote)
   const getUpPollinationProgress = (comment: Comment) => {
-    const tierSizes = [5, 25, 125, 625, 3125]
-    const currentTierSize = tierSizes[comment.reachTier - 1] || 5
-    const threshold = Math.ceil(currentTierSize * 0.6)
-    const progress = Math.min(100, (comment.upvoteCount / threshold) * 100)
-    const remaining = Math.max(0, threshold - comment.upvoteCount)
-    return { progress, remaining, threshold }
+    const thresholds = [3, 2, 2, 1, 1, 1, 1, 1, 1]
+    const threshold = thresholds[comment.reachTier - 1] || 1
+    const remaining = Math.max(0, threshold - comment.tierUpvotes)
+    return { remaining, threshold }
   }
 
   const handleCommentSubmit = async (e: React.FormEvent) => {
@@ -287,8 +287,7 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
           {localComments.length > 0 ? (
             <div className="bg-background rounded border border-border mb-2 max-h-40 overflow-y-auto divide-y divide-border">
               {localComments.map((c) => {
-                const { remaining } = getUpPollinationProgress(c)
-                const canSpread = c.reachTier < cellTier && remaining > 0
+                const { remaining, threshold } = getUpPollinationProgress(c)
                 return (
                   <div key={c.id} className="px-2 py-1.5">
                     <div className="flex items-center gap-1.5 text-xs text-muted">
@@ -304,9 +303,9 @@ export default function DeliberationSheet({ item, onAction, onClose }: Props) {
                         >
                           👍 {c.upvoteCount}
                         </button>
-                        {canSpread && (
-                          <span className="text-purple font-medium">
-                            {c.upvoteCount}/{c.upvoteCount + remaining} 🌸
+                        {c.reachTier < cellTier && (
+                          <span className={`font-medium ${remaining > 0 ? 'text-purple' : 'text-success'}`}>
+                            {Math.min(c.tierUpvotes, threshold)}/{threshold} 🌸
                           </span>
                         )}
                       </span>
