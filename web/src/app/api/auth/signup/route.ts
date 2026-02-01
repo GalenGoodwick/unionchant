@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { verifyCaptcha } from '@/lib/captcha'
 import { sendEmail } from '@/lib/email'
 import { verificationEmail } from '@/lib/email-templates'
 
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Too many signup attempts. Try again later.' }, { status: 429 })
     }
 
-    const { name, email, password } = await req.json()
+    const { name, email, password, captchaToken } = await req.json()
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
@@ -23,6 +24,12 @@ export async function POST(req: NextRequest) {
 
     if (password.length < 8) {
       return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+    }
+
+    // Verify CAPTCHA
+    const captchaResult = await verifyCaptcha(captchaToken)
+    if (!captchaResult.success) {
+      return NextResponse.json({ error: captchaResult.error || 'CAPTCHA verification required' }, { status: 400 })
     }
 
     // Check if user exists

@@ -25,9 +25,7 @@ export function useOnboarding() {
           // User needs onboarding if:
           // 1. onboardedAt is null/undefined AND
           // 2. name is null/undefined or matches email prefix (auto-generated)
-          const hasOnboarded = data.user.onboardedAt != null
-          const hasCustomName = data.user.name && !data.user.email?.startsWith(data.user.name)
-          setNeedsOnboarding(!hasOnboarded && !hasCustomName)
+          setNeedsOnboarding(data.user.onboardedAt == null)
         }
       } catch (error) {
         console.error('Error checking onboarding status:', error)
@@ -45,5 +43,9 @@ export function useOnboarding() {
     setNeedsOnboarding(false)
   }
 
-  return { needsOnboarding, loading, completeOnboarding }
+  const openOnboarding = () => {
+    setNeedsOnboarding(true)
+  }
+
+  return { needsOnboarding, loading, completeOnboarding, openOnboarding }
 }

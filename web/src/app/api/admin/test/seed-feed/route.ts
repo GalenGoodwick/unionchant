@@ -9,6 +9,11 @@ import { isAdminEmail } from '@/lib/admin'
 // - additionalUserEmails: string[] - Additional user emails to add to voting cells
 export async function POST(req: NextRequest) {
   try {
+    // Block test endpoints in production
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+    }
+
     let user
     let body: { additionalUserEmails?: string[] } = {}
     try {

@@ -7,6 +7,11 @@ import { isAdminEmail } from '@/lib/admin'
 // POST /api/admin/test/wipe-duplicates - Delete duplicate deliberations (keep oldest)
 export async function POST() {
   try {
+    // Block test endpoints in production
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+    }
+
     const session = await getServerSession(authOptions)
 
     if (!session?.user?.email || !isAdminEmail(session.user.email)) {

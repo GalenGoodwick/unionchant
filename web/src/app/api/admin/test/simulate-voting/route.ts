@@ -9,6 +9,11 @@ import { isAdminEmail } from '@/lib/admin'
 // Client should loop calling this endpoint until isComplete=true.
 export async function POST(req: NextRequest) {
   try {
+    // Block test endpoints in production
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+    }
+
     const session = await getServerSession(authOptions)
 
     if (!session?.user?.email) {

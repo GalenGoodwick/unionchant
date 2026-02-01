@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import Turnstile from '@/components/Turnstile'
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -12,6 +13,8 @@ export default function SignUpPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const handleCaptchaExpire = useCallback(() => setCaptchaToken(null), [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,7 +25,7 @@ export default function SignUpPage() {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ name, email, password, captchaToken }),
       })
 
       const data = await res.json()
@@ -106,9 +109,14 @@ export default function SignUpPage() {
               placeholder="At least 8 characters"
             />
           </div>
+          <Turnstile
+            onVerify={setCaptchaToken}
+            onExpire={handleCaptchaExpire}
+            className="flex justify-center"
+          />
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || !captchaToken}
             className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
           >
             {loading ? 'Creating account...' : 'Sign Up'}

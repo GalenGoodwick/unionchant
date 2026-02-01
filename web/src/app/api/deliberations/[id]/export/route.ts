@@ -16,9 +16,22 @@ export async function GET(
     const { searchParams } = new URL(req.url)
     const format = searchParams.get('format') || 'json'
 
-    // Privacy gate: membership check for private deliberations
-    const access = await checkDeliberationAccess(id, session?.user?.email)
-    if (!access.allowed) {
+    // Creator-only: export restricted to deliberation creator
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const requestingUser = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
+
+    const deliberationCheck = await prisma.deliberation.findUnique({
+      where: { id },
+      select: { creatorId: true },
+    })
+
+    if (!deliberationCheck || !requestingUser || deliberationCheck.creatorId !== requestingUser.id) {
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
@@ -53,16 +66,7 @@ export async function GET(
                 },
               },
             },
-            votes: {
-              include: {
-                user: {
-                  select: { name: true },
-                },
-                idea: {
-                  select: { text: true },
-                },
-              },
-            },
+            _count: { select: { votes: true } },
             participants: {
               include: {
                 user: {
@@ -107,7 +111,7 @@ export async function GET(
         totalParticipants: deliberation.members.length,
         totalIdeas: deliberation.ideas.length,
         totalCells: deliberation.cells.length,
-        totalVotes: deliberation.cells.reduce((sum, cell) => sum + cell.votes.length, 0),
+        totalVotes: deliberation.cells.reduce((sum, cell) => sum + cell._count.votes, 0),
       },
       champion: deliberation.ideas.find(i => i.status === 'WINNER')
         ? {
@@ -132,19 +136,7 @@ export async function GET(
         completedAt: cell.completedAt,
         participants: cell.participants.map(p => p.user.name || 'Anonymous'),
         ideas: cell.ideas.map(ci => ci.idea.text),
-        votes: cell.votes.map(v => ({
-          voter: v.user.name || 'Anonymous',
-          votedFor: v.idea.text,
-        })),
-        results: (() => {
-          const counts: Record<string, number> = {}
-          cell.votes.forEach(v => {
-            counts[v.idea.text] = (counts[v.idea.text] || 0) + 1
-          })
-          return Object.entries(counts)
-            .sort(([, a], [, b]) => b - a)
-            .map(([idea, votes]) => ({ idea, votes }))
-        })(),
+        voteCount: cell._count.votes,
         discussion: cell.comments.map(c => ({
           author: c.user.name || 'Anonymous',
           message: c.text,

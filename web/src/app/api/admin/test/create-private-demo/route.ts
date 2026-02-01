@@ -5,6 +5,11 @@ import { prisma } from '@/lib/prisma'
 import { isAdmin } from '@/lib/admin'
 
 export async function POST() {
+    // Block test endpoints in production
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+    }
+
   const session = await getServerSession(authOptions)
   if (!session?.user?.email || !(await isAdmin(session.user.email))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

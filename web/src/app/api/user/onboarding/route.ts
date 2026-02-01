@@ -12,7 +12,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name, bio } = await request.json()
+    const { name, bio, skip } = await request.json()
+
+    // Skip just marks onboarding as done without requiring name
+    if (skip) {
+      const user = await prisma.user.findUnique({ where: { email: session.user.email } })
+      if (user) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { onboardedAt: new Date() },
+        })
+      }
+      return NextResponse.json({ success: true })
+    }
 
     // Validate name
     if (!name || typeof name !== 'string' || name.trim().length < 1) {
@@ -47,18 +59,14 @@ export async function POST(request: Request) {
       data: { name: name.trim() },
     })
 
-    // Try to update bio and onboardedAt if columns exist
-    try {
-      await prisma.$executeRawUnsafe(
-        `UPDATE "User" SET "bio" = $1, "onboardedAt" = $2 WHERE "id" = $3`,
-        bio?.trim() || null,
-        new Date(),
-        user.id
-      )
-    } catch (rawErr) {
-      // Columns might not exist yet - that's OK, just log it
-      console.log('Could not update bio/onboardedAt (columns may not exist):', rawErr)
-    }
+    // Update bio and onboardedAt
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        bio: bio?.trim() || null,
+        onboardedAt: new Date(),
+      },
+    })
 
     return NextResponse.json({
       success: true,

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { startVotingPhase, addLateJoinerToCell } from '@/lib/voting'
 
 // POST /api/deliberations/[id]/join - Join a deliberation
@@ -15,6 +16,11 @@ export async function POST(
 
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const limited = await checkRateLimit('join', session.user.email)
+    if (limited) {
+      return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
     }
 
     const user = await prisma.user.findUnique({

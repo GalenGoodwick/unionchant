@@ -99,7 +99,13 @@ export default function ChampionCard({ item, onAction, onExplore, onSubmitted, o
 
     setJoining(true)
     try {
-      await fetch(`/api/deliberations/${item.deliberation.id}/join`, { method: 'POST' })
+      const joinRes = await fetch(`/api/deliberations/${item.deliberation.id}/join`, { method: 'POST' })
+      if (!joinRes.ok) {
+        const joinData = await joinRes.json()
+        showToast(joinData.error || 'Failed to join deliberation', 'error')
+        setJoining(false)
+        return
+      }
       const res = await fetch(`/api/deliberations/${item.deliberation.id}/enter`, { method: 'POST' })
 
       if (res.ok) {

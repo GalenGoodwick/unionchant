@@ -189,7 +189,11 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         onAction()
       } else {
         const data = await res.json()
-        showToast(data.error || 'Failed to vote', 'error')
+        if (data.code === 'EMAIL_NOT_VERIFIED') {
+          showToast('Please verify your email before voting', 'error')
+        } else {
+          showToast(data.error || 'Failed to vote', 'error')
+        }
       }
     } catch (err) {
       console.error('Vote error:', err)

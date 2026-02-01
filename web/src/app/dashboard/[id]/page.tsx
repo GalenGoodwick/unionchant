@@ -617,6 +617,35 @@ export default function DashboardDetailPage() {
                 </div>
               </form>
             </div>
+            {/* Export */}
+            <div className="bg-surface border border-border rounded-lg p-4">
+              <h2 className="text-lg font-semibold text-foreground mb-2">Export Data</h2>
+              <p className="text-sm text-muted mb-3">Download deliberation data as JSON, CSV, or PDF.</p>
+              <div className="flex gap-2 flex-wrap">
+                <a
+                  href={`/api/deliberations/${deliberationId}/export?format=json`}
+                  download
+                  className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                >
+                  JSON
+                </a>
+                <a
+                  href={`/api/deliberations/${deliberationId}/export?format=csv`}
+                  download
+                  className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                >
+                  CSV
+                </a>
+                <a
+                  href={`/api/deliberations/${deliberationId}/export?format=pdf`}
+                  download
+                  className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+                >
+                  PDF
+                </a>
+              </div>
+            </div>
+
             {/* Danger Zone */}
             <div className="bg-surface border border-error/30 rounded-lg p-4">
               <h2 className="text-lg font-semibold text-error mb-2">Danger Zone</h2>

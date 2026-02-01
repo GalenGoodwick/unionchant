@@ -7,6 +7,11 @@ import { isAdminEmail } from '@/lib/admin'
 // GET /api/admin/test/users - Get test user count
 export async function GET() {
   try {
+    // Block test endpoints in production
+    if (process.env.NODE_ENV === 'production') {
+      return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+    }
+
     const session = await getServerSession(authOptions)
     if (!session?.user?.email || !isAdminEmail(session.user.email)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

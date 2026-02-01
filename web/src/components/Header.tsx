@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
+import { useOnboardingContext } from '@/app/providers'
 import NotificationBell from '@/components/NotificationBell'
 
 function ProfileAvatar({ image, name, size, className, textClass }: {
@@ -40,6 +41,7 @@ function ProfileAvatar({ image, name, size, className, textClass }: {
 export default function Header() {
   const { data: session } = useSession()
   const { isAdmin } = useAdmin()
+  const { needsOnboarding, openOnboarding } = useOnboardingContext()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
@@ -86,19 +88,28 @@ export default function Header() {
           )}
           {session && <NotificationBell />}
           {session?.user ? (
-            <Link
-              href="/profile"
-              className="flex items-center gap-2 hover:text-accent-light transition-colors"
-            >
-              <ProfileAvatar
-                image={session.user.image}
-                name={session.user.name}
-                size={24}
-                className="w-6 h-6"
-                textClass="text-xs"
-              />
-              <span className="hidden sm:inline">{session.user.name || 'Profile'}</span>
-            </Link>
+            needsOnboarding ? (
+              <button
+                onClick={openOnboarding}
+                className="text-accent-light hover:text-white transition-colors text-sm font-medium"
+              >
+                Set up profile
+              </button>
+            ) : (
+              <Link
+                href="/profile"
+                className="flex items-center gap-2 hover:text-accent-light transition-colors"
+              >
+                <ProfileAvatar
+                  image={session.user.image}
+                  name={session.user.name}
+                  size={24}
+                  className="w-6 h-6"
+                  textClass="text-xs"
+                />
+                <span className="hidden sm:inline">{session.user.name || 'Profile'}</span>
+              </Link>
+            )
           ) : (
             <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
               Sign In
@@ -163,20 +174,29 @@ export default function Header() {
             )}
             <div className="border-t border-header-hover pt-3 mt-2">
               {session?.user ? (
-                <Link
-                  href="/profile"
-                  onClick={() => setMenuOpen(false)}
-                  className="flex items-center gap-3 py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
-                >
-                  <ProfileAvatar
-                    image={session.user.image}
-                    name={session.user.name}
-                    size={32}
-                    className="w-8 h-8"
-                    textClass="text-sm"
-                  />
-                  <span>{session.user.name || 'Profile'}</span>
-                </Link>
+                needsOnboarding ? (
+                  <button
+                    onClick={() => { setMenuOpen(false); openOnboarding() }}
+                    className="w-full py-2 px-4 rounded-lg text-accent-light hover:bg-header-hover transition-colors text-left font-medium"
+                  >
+                    Set up profile
+                  </button>
+                ) : (
+                  <Link
+                    href="/profile"
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center gap-3 py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
+                  >
+                    <ProfileAvatar
+                      image={session.user.image}
+                      name={session.user.name}
+                      size={32}
+                      className="w-8 h-8"
+                      textClass="text-sm"
+                    />
+                    <span>{session.user.name || 'Profile'}</span>
+                  </Link>
+                )
               ) : (
                 <Link
                   href="/auth/signin"

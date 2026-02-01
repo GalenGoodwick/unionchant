@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 
 interface OnboardingProps {
@@ -13,6 +13,28 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   const [bio, setBio] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // ESC key to skip
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') handleSkip()
+    }
+    document.addEventListener('keydown', handleEsc)
+    return () => document.removeEventListener('keydown', handleEsc)
+  }, [])
+
+  const handleSkip = async () => {
+    try {
+      await fetch('/api/user/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skip: true }),
+      })
+    } catch {
+      // Still dismiss even if API fails
+    }
+    onComplete()
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,9 +62,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
         throw new Error(data.error || 'Failed to save profile')
       }
 
-      // Update the session with new name
       await update({ name: name.trim() })
-
       onComplete()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -100,6 +120,14 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
             className="w-full py-3 bg-accent text-white rounded-lg font-medium hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isSubmitting ? 'Saving...' : 'Get Started'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSkip}
+            className="w-full py-2 text-muted text-sm hover:text-foreground transition-colors"
+          >
+            Skip for now
           </button>
         </form>
       </div>

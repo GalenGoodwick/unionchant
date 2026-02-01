@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { checkDeliberationAccess } from '@/lib/privacy'
 
 // POST /api/deliberations/[id]/enter - Join a voting cell
@@ -13,6 +14,11 @@ export async function POST(
     const session = await getServerSession(authOptions)
     if (!session?.user?.email) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const limited = await checkRateLimit('enter', session.user.email)
+    if (limited) {
+      return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
     }
 
     const { id: deliberationId } = await params

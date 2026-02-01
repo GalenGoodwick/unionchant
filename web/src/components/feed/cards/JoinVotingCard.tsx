@@ -32,7 +32,7 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
   // Comment state
   const [comment, setComment] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
-  const [commentSent, setCommentSent] = useState(false)
+  const [comments, setComments] = useState<{ id: string; text: string }[]>([])
   const commentRef = useRef<HTMLInputElement>(null)
 
   const tierInfo = item.tierInfo
@@ -41,13 +41,23 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
     setJoining(true)
     setError(null)
     try {
+      // Join the deliberation first
+      const joinRes = await fetch(`/api/deliberations/${item.deliberation.id}/join`, { method: 'POST' })
+      if (!joinRes.ok) {
+        const joinData = await joinRes.json()
+        setError(joinData.error || 'Failed to join')
+        setJoining(false)
+        return
+      }
+
+      // Enter a cell
       const res = await fetch(`/api/deliberations/${item.deliberation.id}/enter`, {
         method: 'POST',
       })
       const data = await res.json()
 
       if (res.ok) {
-        setCellData(data.cell)
+        setCellData(data.alreadyInCell ? data.cell : data.cell)
         onAction()
       } else {
         setError(data.error || 'Failed to join')
@@ -76,7 +86,11 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
         onAction()
       } else {
         const data = await res.json()
-        showToast(data.error || 'Failed to vote', 'error')
+        if (data.code === 'EMAIL_NOT_VERIFIED') {
+          showToast('Please verify your email before voting', 'error')
+        } else {
+          showToast(data.error || 'Failed to vote', 'error')
+        }
       }
     } catch (err) {
       console.error('Vote error:', err)
@@ -97,9 +111,9 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
         body: JSON.stringify({ text: comment.trim() }),
       })
       if (res.ok) {
+        const newComment = await res.json()
+        setComments(prev => [...prev, { id: newComment.id, text: comment.trim() }])
         setComment('')
-        setCommentSent(true)
-        showToast('Comment posted', 'success')
       } else {
         const data = await res.json()
         showToast(data.error || 'Failed to post comment', 'error')
@@ -178,6 +192,17 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
           </div>
         )}
 
+        {/* Posted comments */}
+        {comments.length > 0 && (
+          <div className="mt-3 space-y-1">
+            {comments.map(c => (
+              <div key={c.id} className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground">
+                {c.text}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Comment input */}
         <form onSubmit={handleComment} className="mt-4 flex gap-2">
           <input
@@ -185,7 +210,7 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
             type="text"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder={commentSent ? 'Add another comment...' : 'Share your reasoning...'}
+            placeholder={comments.length > 0 ? 'Add another comment...' : 'Share your reasoning...'}
             className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-foreground placeholder-muted focus:outline-none focus:border-accent text-sm"
           />
           <button
