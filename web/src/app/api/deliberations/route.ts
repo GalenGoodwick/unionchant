@@ -15,10 +15,6 @@ export async function GET(req: NextRequest) {
     const deliberations = await prisma.deliberation.findMany({
       where: {
         isPublic: true,
-        // Exclude test bot deliberations
-        NOT: {
-          creator: { email: { endsWith: '@test.local' } },
-        },
         ...(tag ? { tags: { has: tag } } : {}),
       },
       orderBy: { createdAt: 'desc' },
