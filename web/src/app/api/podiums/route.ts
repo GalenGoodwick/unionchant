@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
       include: {
         author: {
-          select: { id: true, name: true, image: true, status: true },
+          select: { id: true, name: true, image: true, isAI: true },
         },
         deliberation: {
           select: {
@@ -78,6 +78,9 @@ export async function POST(req: NextRequest) {
     }
     if (title.trim().length > 200) {
       return NextResponse.json({ error: 'Title too long (max 200 chars)' }, { status: 400 })
+    }
+    if (bodyText.trim().length > 10000) {
+      return NextResponse.json({ error: 'Body too long (max 10,000 chars)' }, { status: 400 })
     }
 
     // Content moderation

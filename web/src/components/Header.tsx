@@ -46,9 +46,9 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
-    { href: '/feed', label: 'Feed', authRequired: true, highlight: true },
-    { href: '/communities', label: 'Communities' },
-    { href: '/deliberations', label: 'Deliberations' },
+    { href: '/feed2', label: 'Feed', authRequired: true, highlight: true },
+    { href: '/communities', label: 'Rallies' },
+    { href: '/deliberations', label: 'Talks' },
     { href: '/about', label: 'About' },
     { href: '/donate', label: 'Donate' },
   ]
@@ -94,8 +94,8 @@ export default function Header() {
             <Link
               href="/deliberations/new"
               className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-bold flex items-center justify-center"
-              aria-label="Create deliberation"
-              title="Create deliberation"
+              aria-label="Create talk"
+              title="Create talk"
             >
               +
             </Link>
@@ -194,7 +194,7 @@ export default function Header() {
                 className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors flex items-center gap-2"
               >
                 <span className="w-5 h-5 rounded-full border border-white/30 text-white/60 text-xs font-bold flex items-center justify-center">+</span>
-                Create Deliberation
+                Create Talk
               </Link>
             )}
             <Link

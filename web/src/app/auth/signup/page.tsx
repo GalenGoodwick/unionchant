@@ -66,7 +66,7 @@ export default function SignUpPage() {
           Create an account
         </h1>
         <p className="text-muted text-center mb-8">
-          Vote on ideas with others. Small teams vote, winners advance, and one priority emerges.
+          Vote on ideas with others. Teams talk, priorities are set.
         </p>
 
         {error && (

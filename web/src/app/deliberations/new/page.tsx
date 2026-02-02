@@ -160,11 +160,11 @@ function NewDeliberationForm() {
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
-          &larr; Back to deliberations
+          &larr; Back to talks
         </Link>
 
         <div className="bg-background rounded-lg border border-border p-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-6">Start a New Deliberation</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-6">Start a New Talk</h1>
 
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* BASIC SECTION */}
@@ -194,7 +194,7 @@ function NewDeliberationForm() {
                   id="description"
                   rows={3}
                   maxLength={500}
-                  placeholder="Provide more context about this deliberation..."
+                  placeholder="Provide more context about this talk..."
                   className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
@@ -433,13 +433,13 @@ function NewDeliberationForm() {
                 value={formData.tagsInput}
                 onChange={(e) => setFormData({ ...formData, tagsInput: e.target.value })}
               />
-              <p className="text-muted-light text-sm mt-1">Help others find your deliberation</p>
+              <p className="text-muted-light text-sm mt-1">Help others find your talk</p>
             </div>
 
             {/* Community Selector */}
             {communities.length > 0 && (
               <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Community (optional)</h2>
+                <h2 className="text-lg font-semibold text-foreground mb-4">Rally (optional)</h2>
                 <select
                   value={selectedCommunityId || ''}
                   onChange={e => {
@@ -486,7 +486,7 @@ function NewDeliberationForm() {
               disabled={loading || !captchaToken}
               className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-colors"
             >
-              {loading ? 'Creating...' : 'Create Deliberation'}
+              {loading ? 'Creating...' : 'Create Talk'}
             </button>
           </form>
         </div>

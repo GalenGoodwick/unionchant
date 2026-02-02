@@ -258,7 +258,7 @@ export default function CommunitySettingsPage() {
               </label>
             </div>
             <div>
-              <label className="block text-foreground font-medium mb-2">Who can create deliberations?</label>
+              <label className="block text-foreground font-medium mb-2">Who can create talks?</label>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input

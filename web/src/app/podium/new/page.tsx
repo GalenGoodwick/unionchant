@@ -4,7 +4,11 @@ import { Suspense, useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import Header from '@/components/Header'
 import { useToast } from '@/components/Toast'
+
+const TITLE_MAX = 200
+const BODY_MAX = 10000
 
 type DelibOption = {
   id: string
@@ -73,6 +77,10 @@ function NewPodiumPageInner() {
       showToast('Write something before publishing', 'error')
       return
     }
+    if (body.trim().length > BODY_MAX) {
+      showToast(`Body too long (max ${BODY_MAX.toLocaleString()} chars)`, 'error')
+      return
+    }
 
     setSubmitting(true)
     try {
@@ -117,15 +125,16 @@ function NewPodiumPageInner() {
 
   return (
     <div className="min-h-screen bg-background">
+      <Header />
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Header */}
+        {/* Top bar */}
         <div className="flex justify-between items-center mb-8">
-          <button
-            onClick={() => router.back()}
+          <Link
+            href="/podiums"
             className="text-muted hover:text-foreground transition-colors text-sm"
           >
-            &larr; Cancel
-          </button>
+            &larr; Back to Podiums
+          </Link>
           <button
             onClick={handleSubmit}
             disabled={submitting || !title.trim() || !body.trim()}
@@ -141,23 +150,27 @@ function NewPodiumPageInner() {
           value={title}
           onChange={e => setTitle(e.target.value)}
           placeholder="Title"
-          maxLength={200}
+          maxLength={TITLE_MAX}
           className="w-full bg-transparent text-3xl font-bold text-foreground placeholder-border outline-none mb-2"
         />
-        <div className="text-xs text-muted mb-6">{title.length}/200</div>
+        <div className="text-xs text-muted mb-6">{title.length}/{TITLE_MAX}</div>
 
         {/* Body */}
         <textarea
           value={body}
           onChange={e => setBody(e.target.value)}
           placeholder="Write your post..."
+          maxLength={BODY_MAX}
           className="w-full bg-transparent text-base text-muted placeholder-border outline-none leading-relaxed resize-none min-h-[400px]"
         />
+        <div className={`text-xs mt-1 ${body.length > BODY_MAX * 0.9 ? 'text-warning' : 'text-muted'}`}>
+          {body.length.toLocaleString()}/{BODY_MAX.toLocaleString()}
+        </div>
 
         {/* Link deliberation */}
         <div className="border-t border-border pt-6 mt-6">
           <div className="text-sm font-semibold text-foreground mb-3">
-            Link a deliberation <span className="text-muted font-normal">(optional)</span>
+            Link a talk <span className="text-muted font-normal">(optional)</span>
           </div>
 
           {linkedDelib ? (
@@ -179,7 +192,7 @@ function NewPodiumPageInner() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search your deliberations..."
+                placeholder="Search your talks..."
                 className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted outline-none mb-2"
               />
               {searchQuery && filteredDelibs.length > 0 && (
@@ -200,15 +213,15 @@ function NewPodiumPageInner() {
                 </div>
               )}
               {searchQuery && filteredDelibs.length === 0 && (
-                <div className="text-xs text-muted py-2">No matching deliberations found</div>
+                <div className="text-xs text-muted py-2">No matching talks found</div>
               )}
             </>
           )}
 
           <div className="text-xs text-muted mt-3">
-            Linking a deliberation adds a &ldquo;Join the Deliberation&rdquo; button to your post.{' '}
+            Linking a talk adds a &ldquo;Join the Talk&rdquo; button to your post.{' '}
             <Link href="/deliberations/new" className="text-accent hover:text-accent-hover">
-              Create a new deliberation
+              Create a new talk
             </Link>
           </div>
         </div>

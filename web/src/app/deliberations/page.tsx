@@ -163,7 +163,7 @@ function DeliberationsList() {
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
           <input
             type="text"
-            placeholder="Search deliberations..."
+            placeholder="Search talks..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-0 focus:outline-none focus:border-accent"
@@ -348,14 +348,14 @@ export default function DeliberationsPage() {
             <Link href="/" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
               &larr; Back to home
             </Link>
-            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Deliberations</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-foreground">Talks</h1>
           </div>
           {session && (
             <Link
               href="/deliberations/new"
               className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
-              New Deliberation
+              New Talk
             </Link>
           )}
         </div>

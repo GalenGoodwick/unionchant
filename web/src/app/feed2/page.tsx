@@ -83,17 +83,17 @@ function EmptyFeed({ authenticated }: { authenticated: boolean }) {
     <div className="text-center py-16 px-4">
       <p className="text-muted mb-4">
         {authenticated
-          ? 'No deliberations to vote on right now.'
+          ? 'No talks to vote on right now.'
           : 'Sign in to see your personalized feed.'}
       </p>
       <div className="flex gap-3 justify-center">
         {authenticated ? (
           <>
             <Link href="/deliberations/new" className="text-accent hover:text-accent-hover font-medium text-sm">
-              Create a Deliberation
+              Create a Talk
             </Link>
             <Link href="/communities" className="text-accent hover:text-accent-hover font-medium text-sm">
-              Browse Communities
+              Browse Rallies
             </Link>
           </>
         ) : (

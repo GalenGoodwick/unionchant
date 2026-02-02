@@ -61,7 +61,7 @@ export default function CommunitiesPage() {
 
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">Communities</h1>
+          <h1 className="text-2xl font-bold text-foreground">Rallies</h1>
           {session && (
             <Link
               href="/communities/new"
@@ -75,7 +75,7 @@ export default function CommunitiesPage() {
         {/* My Communities */}
         {session && myCommunities.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-lg font-semibold text-foreground mb-3">My Communities</h2>
+            <h2 className="text-lg font-semibold text-foreground mb-3">My Rallies</h2>
             <div className="grid gap-3 sm:grid-cols-2">
               {myCommunities.map(c => (
                 <Link
@@ -94,7 +94,7 @@ export default function CommunitiesPage() {
                   )}
                   <div className="flex items-center gap-3 mt-2 text-xs text-muted">
                     <span>{c._count.members} members</span>
-                    <span>{c._count.deliberations} deliberations</span>
+                    <span>{c._count.deliberations} talks</span>
                   </div>
                 </Link>
               ))}
@@ -107,7 +107,7 @@ export default function CommunitiesPage() {
           <h2 className="text-lg font-semibold text-foreground mb-3">Discover</h2>
           <input
             type="text"
-            placeholder="Search communities..."
+            placeholder="Search rallies..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
@@ -132,7 +132,7 @@ export default function CommunitiesPage() {
             {publicCommunities.length === 0 && (
               <div className="text-center py-12 bg-surface border border-border rounded-lg">
                 <p className="text-muted">
-                  {search ? 'No communities found matching your search.' : 'No public communities yet.'}
+                  {search ? 'No rallies found matching your search.' : 'No public rallies yet.'}
                 </p>
                 {session && !search && (
                   <Link
@@ -167,7 +167,7 @@ export default function CommunitiesPage() {
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted">
                   <span>{c._count.members} members</span>
-                  <span>{c._count.deliberations} deliberations</span>
+                  <span>{c._count.deliberations} talks</span>
                   <span>by {c.creator.name || 'Anonymous'}</span>
                 </div>
               </Link>
