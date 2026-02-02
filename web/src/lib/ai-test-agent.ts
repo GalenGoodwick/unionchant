@@ -979,9 +979,9 @@ export async function runAgentTest(
  * Clean up test data - deletes users and all their related records
  */
 export async function cleanupTestAgents(_prefix: string = 'TestBot'): Promise<number> {
-  // Find all test user IDs (@test.local - shared pool)
+  // Find all test user IDs (@test.local - shared pool), but protect AI personas
   const testUsers = await prisma.user.findMany({
-    where: { email: { endsWith: '@test.local' } },
+    where: { email: { endsWith: '@test.local' }, isAI: false },
     select: { id: true },
   })
 

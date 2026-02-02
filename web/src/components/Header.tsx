@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
-import { useOnboardingContext } from '@/app/providers'
+import { useOnboardingContext, useGuideContext } from '@/app/providers'
 import NotificationBell from '@/components/NotificationBell'
 
 function ProfileAvatar({ image, name, size, className, textClass }: {
@@ -42,6 +42,7 @@ export default function Header() {
   const { data: session } = useSession()
   const { isAdmin } = useAdmin()
   const { needsOnboarding, openOnboarding } = useOnboardingContext()
+  const { openGuide } = useGuideContext()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
@@ -85,6 +86,29 @@ export default function Header() {
             <Link href="/dashboard" className="hover:text-accent-light transition-colors">
               Manage
             </Link>
+          )}
+          <Link href="/podiums" className="hover:text-accent-light transition-colors">
+            Podiums
+          </Link>
+          {session && (
+            <Link
+              href="/deliberations/new"
+              className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-bold flex items-center justify-center"
+              aria-label="Create deliberation"
+              title="Create deliberation"
+            >
+              +
+            </Link>
+          )}
+          {session && (
+            <button
+              onClick={openGuide}
+              className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-medium flex items-center justify-center"
+              aria-label="How it works"
+              title="How it works"
+            >
+              ?
+            </button>
           )}
           {session && <NotificationBell />}
           {session?.user ? (
@@ -165,12 +189,39 @@ export default function Header() {
             )}
             {session && (
               <Link
+                href="/deliberations/new"
+                onClick={() => setMenuOpen(false)}
+                className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors flex items-center gap-2"
+              >
+                <span className="w-5 h-5 rounded-full border border-white/30 text-white/60 text-xs font-bold flex items-center justify-center">+</span>
+                Create Deliberation
+              </Link>
+            )}
+            <Link
+              href="/podiums"
+              onClick={() => setMenuOpen(false)}
+              className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors flex items-center gap-2"
+            >
+              <span className="w-5 h-5 rounded-full border border-white/30 text-white/60 text-xs font-bold flex items-center justify-center">✎</span>
+              Podiums
+            </Link>
+            {session && (
+              <Link
                 href="/dashboard"
                 onClick={() => setMenuOpen(false)}
                 className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
               >
                 Dashboard
               </Link>
+            )}
+            {session && (
+              <button
+                onClick={() => { setMenuOpen(false); openGuide() }}
+                className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors text-left flex items-center gap-2"
+              >
+                <span className="w-5 h-5 rounded-full border border-white/30 text-white/60 text-xs font-medium flex items-center justify-center">?</span>
+                How it works
+              </button>
             )}
             <div className="border-t border-header-hover pt-3 mt-2">
               {session?.user ? (

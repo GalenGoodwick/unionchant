@@ -3,7 +3,7 @@
 import { useState } from 'react'
 
 interface UserGuideProps {
-  onClose: () => void
+  onClose: (dontShowAgain: boolean) => void
 }
 
 const steps = [
@@ -47,6 +47,7 @@ const steps = [
 
 export default function UserGuide({ onClose }: UserGuideProps) {
   const [currentStep, setCurrentStep] = useState(0)
+  const [dontShowAgain, setDontShowAgain] = useState(false)
 
   const step = steps[currentStep]
   const isFirst = currentStep === 0
@@ -91,6 +92,17 @@ export default function UserGuide({ onClose }: UserGuideProps) {
             Step {currentStep + 1} of {steps.length}
           </div>
 
+          {/* Don't show again */}
+          <label className="flex items-center gap-2 mb-4 cursor-pointer text-sm text-muted">
+            <input
+              type="checkbox"
+              checked={dontShowAgain}
+              onChange={(e) => setDontShowAgain(e.target.checked)}
+              className="rounded border-border accent-accent"
+            />
+            Don&apos;t show this again
+          </label>
+
           {/* Navigation */}
           <div className="flex gap-3">
             {!isFirst && (
@@ -103,14 +115,14 @@ export default function UserGuide({ onClose }: UserGuideProps) {
             )}
             {isFirst && (
               <button
-                onClick={onClose}
+                onClick={() => onClose(dontShowAgain)}
                 className="flex-1 py-2 border border-border rounded-lg text-muted hover:text-foreground hover:border-border-strong transition-colors"
               >
                 Skip
               </button>
             )}
             <button
-              onClick={() => isLast ? onClose() : setCurrentStep(currentStep + 1)}
+              onClick={() => isLast ? onClose(dontShowAgain) : setCurrentStep(currentStep + 1)}
               className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors"
             >
               {isLast ? 'Get Started' : 'Next'}

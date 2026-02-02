@@ -18,9 +18,10 @@ export async function POST() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Find test bot user IDs first
+    // Find test bot user IDs first (protect AI personas)
     const testUsers = await prisma.user.findMany({
       where: {
+        isAI: false,
         OR: [
           { email: { contains: '@test.bot' } },
           { email: { contains: '@test.local' } },

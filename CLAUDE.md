@@ -10,7 +10,35 @@
 **Deployed:** https://unionchant.vercel.app
 **Status:** Full voting + accumulation (rolling mode) working
 
-**Latest Session (Jan 2026):**
+**Latest Session (Feb 2026 — Design Overhaul):**
+- Complete UI mockup overhaul in `/tmp/union-chant-full.html` (21 phone frames, p0-p20)
+- **New Discussion phase**: Added DELIBERATE phase between cell creation and voting
+  - Flow is now: Join → Submit Idea → Deliberate → Vote → (Next tier / Priority)
+  - Uses existing `DELIBERATING` CellStatus — cells pause for discussion before voting opens
+  - New `discussionDurationMs` field needed on Deliberation model
+  - New "Deliberate" feed card (blue, #3b82f6)
+  - "Discussion time per tier" settings added to Create page
+- **Terminology renames (UI only, backend pending):**
+  - "Deliberation" → "Question" (entity references only, keep "deliberate" as process verb)
+  - "Community" → "Group" (app feature containers)
+  - "Champion" → "Priority" (winning idea)
+  - "Accumulating" → "Accepting New Ideas" (rolling mode phase)
+  - "Challenge Round" → "Round 2" (reframed as natural loop)
+  - "Cell" stays as "Cell" (5-person voting unit — NOT renamed)
+- New pages: Browse Questions (p20), Discussion card, post-creation invite prompt
+- Share/Invite buttons added to all actionable screens
+- Page-by-page 10/10 audit completed
+
+**Previous Session (Feb 2026 — Security):**
+- Security hardening: CAPTCHA on signup/password-reset, rate limits on join/enter/follow, test endpoint gating
+- Privacy fixes: export restricted to creator-only, voter names removed from export for anonymity
+- User flow fixes: onboarding skip button + ESC dismiss, "Set up profile" re-engagement in header
+- Feed card fixes: ChampionCard checks /join before /enter, JoinVotingCard inline comments, EMAIL_NOT_VERIFIED surfaced
+- Design audit: replaced all hardcoded colors with theme tokens across 11 files
+- Removed test filters ([TEST] question filter, @test.local bot filter) from all APIs
+- Export data button added to creator dashboard manage page (JSON/CSV/PDF)
+
+**Previous Session (Jan 2026):**
 - Built feed-based UI (`/feed`) with inline voting, predictions, idea submission
 - Revamped deliberation detail page with collapsible sections for mobile
 - Fixed comment display bugs in feed and deliberation pages
@@ -27,9 +55,10 @@
 **Union Chant** is a scalable direct democracy voting system. The core innovation:
 
 1. **Tiered voting** - Ideas compete in small cells (5 people, 5 ideas)
-2. **Winners advance** - Each tier reduces ideas by ~5:1
-3. **Final showdown** - When ≤5 ideas remain, ALL participants vote
-4. **Rolling mode** - Champion can be challenged by new ideas continuously
+2. **Deliberation first** - Each cell discusses ideas before voting opens
+3. **Winners advance** - Each tier reduces ideas by ~5:1
+4. **Final showdown** - When ≤5 ideas remain, ALL participants vote
+5. **Rolling mode** - Priority can be challenged by new ideas continuously (Round 2+)
 
 **Scale:** 1,000,000 participants → ~9 tiers → days/weeks to consensus
 
@@ -154,6 +183,7 @@ DEFENDING (champion during challenge round)
 
 ## Phases
 
+### Current Backend (implemented)
 ```
 SUBMISSION → VOTING → COMPLETED
                 ↓
@@ -166,13 +196,77 @@ SUBMISSION → VOTING → COMPLETED
             VOTING ───────┘
 ```
 
+### Target Flow (design complete, implementation pending)
+```
+Join → Submit Idea → Deliberate → Vote → (Next tier) → ... → Final → Priority
+                                                                         ↓
+                                                              (if rolling mode)
+                                                                         ↓
+                                                              Accepting New Ideas ←──┐
+                                                                         ↓           │
+                                                                 Deliberate (Round 2) │
+                                                                         ↓           │
+                                                                    Vote ─────────────┘
+```
+
+**Key change:** Discussion/deliberation is now a defined phase PER TIER. After cells are
+formed, members read all 5 ideas and discuss before voting opens. This uses the existing
+`DELIBERATING` CellStatus. Backend needs:
+- `discussionDurationMs` field on Deliberation model (default: 2 hours)
+- Timer to transition cells from DELIBERATING → VOTING after discussion period
+- New "discuss" feed card type mapping
+
+### Terminology Map (UI ↔ Backend)
+
+**Default terms** (used in the standard product):
+
+| UI Term (Default) | Backend Term | Status |
+|---------|-------------|--------|
+| Deliberation | Deliberation | Same (reverted — keep "Deliberation") |
+| Community | Community | Same (reverted — keep "Community") |
+| Priority | Champion/Winner | UI renamed, backend pending |
+| Accepting New Ideas | Accumulating | UI renamed, backend pending |
+| Round 2 | Challenge Round | UI renamed, backend pending |
+| Cell | Cell | Same (no change) |
+| Deliberate | DELIBERATING (CellStatus) | Already exists in schema |
+
+### Universal Theming / Terminology System
+
+Enterprise/premium customers can customize all user-facing terminology to match their org's language. This is a **per-community setting** — each community can define its own term overrides.
+
+**Configurable terms** (with defaults):
+
+| Key | Default | Example: Corporate | Example: Civic |
+|-----|---------|-------------------|----------------|
+| `deliberation` | Deliberation | Decision | Ballot |
+| `community` | Community | Team | District |
+| `cell` | Cell | Group | Panel |
+| `priority` | Priority | Decision | Resolution |
+| `tier` | Tier | Round | Stage |
+| `champion` | Priority | Winner | Adopted |
+| `podium` | Podium | Briefing | Op-Ed |
+| `submit_idea` | Submit an idea | Propose a solution | Submit a proposal |
+| `vote_cta` | Pick your favorite | Select the best option | Cast your vote |
+
+**Implementation:**
+- Schema: `CommunityTheme` model or JSON field `terminology` on Community
+- `terminology: { deliberation: "Decision", cell: "Group", ... }`
+- Helper: `useTerms()` hook reads community context, falls back to defaults
+- All UI strings use `terms.deliberation` instead of hardcoded text
+- Theming available on premium/enterprise tier only
+- Default terms are used when no overrides are set
+
 ### Voting Start Triggers
-Deliberations can start voting in three ways:
+Questions can start voting in three ways:
 1. **Timer mode**: After submission period ends (default)
 2. **Ideas goal**: Auto-starts when X ideas submitted
 3. **Participants goal**: Auto-starts when X participants join
 
 Set via `ideaGoal` or `participantGoal` fields in deliberation creation.
+
+### Discussion Settings (new)
+- **Timed discussion**: Cells deliberate for N hours before voting (default: 2h)
+- **No discussion**: Voting opens immediately when cells form (legacy behavior)
 
 ---
 
@@ -193,6 +287,8 @@ Set via `ideaGoal` or `participantGoal` fields in deliberation creation.
    - Simulates challenge voting
 
 ### Test Endpoints
+
+**Note:** All test endpoints are gated behind `NODE_ENV !== 'production'` and return 403 in production.
 
 ```
 POST /api/admin/test/populate         # Create test users + ideas
@@ -219,6 +315,13 @@ GOOGLE_CLIENT_SECRET="..."
 
 # Admin emails (comma-separated)
 ADMIN_EMAILS="admin@example.com"
+
+# CAPTCHA (Cloudflare Turnstile)
+TURNSTILE_SECRET_KEY="..."
+NEXT_PUBLIC_TURNSTILE_SITE_KEY="..."
+
+# Email (Resend)
+RESEND_API_KEY="..."
 
 # Push notifications (optional)
 VAPID_PUBLIC_KEY="..."
@@ -328,6 +431,161 @@ vercel                   # Deploy preview
 
 ---
 
+## UI Mockup
+
+**Location:** `/tmp/union-chant-full.html` — 21 phone-frame screens (open in browser)
+
+### Pages
+| # | Page | Status |
+|---|------|--------|
+| p0 | Landing | 10/10 |
+| p1 | Sign Up | 10/10 |
+| p2 | Sign In | 10/10 |
+| p3 | Onboarding | 10/10 |
+| p4 | Feed (3 tabs: Your Turn, Activity, Results) | 10/10 |
+| p5 | Question Detail (voting + discussion) | 10/10 |
+| p6 | Groups list | 10/10 |
+| p7 | Group Detail | 10/10 |
+| p8 | Profile | 10/10 |
+| p9 | Settings | 10/10 |
+| p10 | Dashboard | 10/10 |
+| p11 | About | 10/10 |
+| p12 | Demo | 10/10 |
+| p13 | Whitepaper | 10/10 |
+| p14 | How It Works | 10/10 |
+| p15 | Submission Detail | 10/10 |
+| p16 | Priority / Accepting New Ideas | 10/10 |
+| p17 | Round 2 (Challenge) | 10/10 |
+| p18 | Create Question | 10/10 |
+| p19 | Manage Detail | 10/10 |
+| p20 | Browse Questions | 10/10 |
+
+### Feed Card Types (in mockup)
+| Card | Color | Phase | Action |
+|------|-------|-------|--------|
+| Submit Ideas | cyan/accent | SUBMISSION | Add your idea |
+| Deliberate | blue (#3b82f6) | DELIBERATING | Read ideas & discuss |
+| Vote Now | amber/warning | VOTING | Pick the strongest answer |
+| Round 2 | orange | Challenge voting | Vote to keep or replace |
+| Accepting New Ideas | purple | ACCUMULATING | Submit challenger idea |
+| Join | cyan/accent | Any open | Join this question |
+| Waiting | gray | Voted, waiting | See cell progress |
+| Your Pick Advanced | green | Tier complete | Celebration |
+| Priority Declared | green | COMPLETED | Final result |
+
+### Feed Page — Backend Changes Required
+
+The feed has 3 tabs: **Your Turn**, **Activity**, **Results**. Each card maps to a backend query and data shape.
+
+#### Your Turn Tab — Card → Backend Mapping
+
+| Card | Current Backend | Changes Needed |
+|------|----------------|----------------|
+| **Vote Now** (amber) | `vote_now` type, query cells where user is participant + `status: VOTING` | None — works today |
+| **💬 Deliberate** (blue) | Does not exist | **NEW** `discuss` card type (see below) |
+| **⚔ Round 2** (orange) | `challenge` type, query cells in challenge round | Rename label only in UI component |
+| **Join · Open** (cyan) | `join_voting` type, query open questions user hasn't joined | Rename label, show during any open phase (not just VOTING) |
+| **💡 Submit Ideas** (cyan) | `submit_ideas` type, query `phase: SUBMISSION` | None — works today |
+| **★ Accepting New Ideas** (purple) | `champion` type, query `phase: ACCUMULATING` | Rename card type in UI, show challenger count + threshold |
+| **🎉 Your Pick Advanced** (green) | Notification-driven | May need dedicated query: user's voted idea has `status: ADVANCING` |
+| **⏳ Waiting** (gray) | `vote_now` with `hasVoted: true` | Add cell member avatars + vote status to response |
+
+#### New: `discuss` Card Type — Full Spec
+
+**When shown:** User has a cell with `status: DELIBERATING` (cell created, voting not yet open).
+
+**Data needed from API:**
+```
+{
+  type: 'discuss',
+  deliberationId, title, participantCount,
+  cell: {
+    id, discussionEndsAt,
+    ideas: [ { id, text, authorName } ],  // all 5 ideas in cell
+    latestComment: { text, authorName },   // most recent comment
+    memberCount, commentCount
+  }
+}
+```
+
+**Priority:** 95 (between `vote_now` at 100 and `join_voting` at 75).
+
+**Backend work:**
+1. `src/app/api/feed/route.ts` — Add query for cells with `status: 'DELIBERATING'` where user is participant. Join CellIdea → Idea for idea text. Join Comment for latest comment.
+2. `src/types/feed.ts` — Add `'discuss'` to `FeedItemType` union. Add `cellIdeas` and `latestComment` fields.
+3. `src/components/feed/cards/DiscussCard.tsx` — New component. Blue theme. Shows 5 ideas, latest comment, countdown to voting.
+
+#### Activity Tab — Backend Mapping
+
+| Event | Icon | Source | Changes Needed |
+|-------|------|--------|----------------|
+| Discussion opened | 💬 | Cell status → DELIBERATING | **NEW** notification type |
+| Round N started | ⚔️ | Challenge round started | Exists (rename label) |
+| Tier completed | ✅ | Tier completion | Exists as notification |
+| Voting in progress | 🗳️ | Cells in VOTING | Exists |
+| New question | ✨ | Deliberation created | Exists |
+| Priority declared | 👑 | Winner crowned | Exists (rename "Champion" → "Priority" in text) |
+
+#### Results Tab — Backend Mapping
+
+| Card | Source | Changes Needed |
+|------|--------|----------------|
+| Priority Declared (green) | `phase: COMPLETED`, has winner | Rename "Champion" → "Priority" in UI |
+| Your Idea Advanced (cyan) | User's idea `status: ADVANCING` | May need dedicated query |
+| Completed (dimmed) | `phase: COMPLETED`, no user involvement | None |
+| Prediction Correct (amber) | Prediction system | None |
+
+#### Schema Changes for Discussion Phase
+
+```prisma
+// Add to Deliberation model:
+discussionDurationMs  Int?      // null = no discussion phase (legacy behavior)
+
+// Add to Cell model:
+discussionEndsAt      DateTime? // when discussion period ends for this cell
+```
+
+#### Code Changes by File
+
+| File | Change |
+|------|--------|
+| `prisma/schema.prisma` | Add `discussionDurationMs` to Deliberation, `discussionEndsAt` to Cell |
+| `src/lib/voting.ts` | In `startVotingPhase` + `checkTierCompletion`: if `discussionDurationMs` set, create cells as `DELIBERATING` with `discussionEndsAt = now + ms`; else create as `VOTING` (current) |
+| `src/lib/timer-processor.ts` | Add `processExpiredDiscussions()`: query cells where `status = DELIBERATING` and `discussionEndsAt <= now`, transition to `VOTING` |
+| `src/app/api/feed/route.ts` | Add `discuss` card type query, include cell ideas + latest comment |
+| `src/types/feed.ts` | Add `'discuss'` to FeedItemType, add discussion fields |
+| `src/components/feed/cards/DiscussCard.tsx` | New component — blue theme, 5 ideas list, latest comment, countdown |
+| `src/app/api/deliberations/route.ts` | Accept `discussionDurationMs` in POST body |
+| `src/app/deliberations/new/page.tsx` | Add discussion time input to create form |
+| `src/app/globals.css` | Add `--color-blue: #3b82f6` + bg/hover variants to `@theme` |
+
+#### Terminology Renames (UI-only, not DB columns)
+
+| Where | From | To |
+|-------|------|----|
+| Feed card labels | "Champion" | "Priority" |
+| Feed card labels | "Challenge" | "Round 2" |
+| Feed card labels | "Accumulating" | "Accepting New Ideas" |
+| Feed tab | "Actionable" | "Your Turn" |
+| API response mapping | `champion` card type | Keep internally, rename in UI |
+| Notification text | "Champion declared" | "Priority declared" |
+| All user-facing strings | "deliberation" (entity) | "question" |
+| All user-facing strings | "community" (feature) | "group" |
+
+### Other Pending Implementation
+
+1. **Browse page**: `/questions/browse` with search, filters, sort
+2. **Post-creation invite prompt**: After creating, show invite/share options
+3. **Empty feed CTAs**: "Create a Question" and "Browse Groups" links when no cards
+4. **Podium (long-form writing)**: `/podium/[id]` — Users write posts that can link to deliberations. Used to explain context, make the case for why a deliberation matters, and drive participation.
+   - **Schema**: `Podium` model with `title`, `body` (rich text), `authorId`, `deliberationId?` (optional FK to Deliberation), `createdAt`, `updatedAt`
+   - **Cross-linking**: Make it easy for users to link a podium post to a deliberation and vice versa. Deliberation detail page should show linked podium posts. Podium post should show linked deliberation with a "Join" CTA.
+   - **Reverse link**: When creating a deliberation, option to attach an existing podium post as context. When writing a podium post, option to link/create a deliberation.
+   - **Feed integration**: Podium posts appear in Activity tab. Linked deliberation cards can show "Read why →" linking to the podium post.
+   - **Comments**: Podium posts have their own comment thread (separate from deliberation cell discussions)
+
+---
+
 ## Production Roadmap
 
 ### P0 — Must-Have Before Real Users ✅ COMPLETE
@@ -366,7 +624,7 @@ vercel                   # Deploy preview
 1. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
 2. **Accumulation signifier bug**: UI shows accumulation state incorrectly during phase transitions
 3. **Cell color updates**: Cells with 5/5 votes not turning green immediately - relying on timeout instead of vote completion trigger
-4. **"Join and Vote" button issues**: Doesn't work sometimes, still shows after user voted, state confusion on refresh
+4. ~~**"Join and Vote" button issues**~~ — FIXED (Feb 2026: ChampionCard checks /join response, JoinVotingCard calls /join first, handles alreadyInCell)
 5. **Cell click does nothing**: No detail view when clicking a cell on deliberation page
 6. **Challenger idea fallback**: Shows "Challenger idea #" instead of AI-generated text when Haiku fails
 
@@ -378,20 +636,50 @@ vercel                   # Deploy preview
 4. **Auto-join voters**: The "auto-join voters to spawned deliberation" logic never actually run
 5. **Vercel cron timers**: Timer-based transitions not fully tested in production
 
+### Private Community Encryption
+
+| Layer | Status | Protection |
+|-------|--------|------------|
+| Encryption at rest | Done (Neon/Postgres) | Physical disk theft |
+| TLS in transit | Done (HTTPS) | Network sniffing |
+| Access control | Done (OWNER/ADMIN/MEMBER roles) | Unauthorized users |
+| App-level encryption | Not implemented | Raw DB access (would need per-community key in separate secrets manager) |
+| End-to-end encryption | Not feasible | Server must read ideas/votes/comments to run voting algorithm, moderation, cell assignment, cross-cell tallying, notifications, and up-pollination |
+
+Best practical upgrade: per-community AES keys stored in a secrets manager (e.g., Vercel KV or AWS Secrets Manager), encrypt idea/comment text at write, decrypt at read. Protects against DB-only breach. Server still sees plaintext at runtime.
+
 ### Technical Debt
 
 1. **No test suite**: No comprehensive automated tests (see P0 #1)
 2. **Unused component**: `MetaDeliberationEmbed.tsx` created but not used
 3. **Duplicate code**: Some overlap between components
-4. **Free tier permissions**: Need to implement rate limits for free users
-5. **Rate limit bypass**: Per-IP limits bypassed by VPNs
+4. ~~**Free tier permissions**~~ — DONE (Feb 2026: rate limits on join/enter/follow/community-join endpoints)
+5. **Rate limit bypass**: Per-IP limits bypassed by VPNs (per-user limits now used where possible)
 6. **Scale unknowns**: Untested beyond 200 users. Prisma queries not optimized for scale.
+7. **No CSRF protection**: All mutation endpoints lack CSRF tokens. Next.js doesn't include built-in CSRF for App Router.
+8. **No MFA for admins**: Admin access based on email list only, no multi-factor authentication.
 
-### Recent Additions (Jan 2026)
+### Recent Additions (Feb 2026)
+- **Security hardening:**
+  - All 13 `/api/admin/test/*` routes gated behind `NODE_ENV !== 'production'`
+  - CAPTCHA (Cloudflare Turnstile) added to signup and forgot-password
+  - Rate limits added to join (20/min), enter (10/min), follow (30/min) endpoints
+  - `$executeRawUnsafe` replaced with standard Prisma API in onboarding
+  - Export restricted to creator-only, voter names removed for anonymity
+- **User flow fixes:**
+  - Onboarding: skip button, ESC dismiss, simplified `onboardedAt == null` check
+  - `OnboardingContext` in `providers.tsx` — Header shows "Set up profile" for users who skipped
+  - ChampionCard: checks `/join` response before calling `/enter`
+  - JoinVotingCard: calls `/join` first, handles `alreadyInCell`, shows comments inline
+  - VoteNowCard + JoinVotingCard: surfaces `EMAIL_NOT_VERIFIED` error
+- **Design audit:** replaced all hardcoded colors (bg-blue-500, text-gray-500, etc.) with theme tokens across 11 files
+- Export data buttons (JSON/CSV/PDF) on dashboard manage page
+
+### Previous Additions (Jan 2026)
 - `src/lib/moderation.ts` - Content moderation (profanity, spam, links)
 - `src/components/Toast.tsx` - Toast notification system with `useToast()` hook
 - `src/app/feed/page.tsx` - Feed-based UI with cards
-- `src/components/feed/cards/` - VoteNowCard, PredictCard, SubmitIdeasCard, ChampionCard
+- `src/components/feed/cards/` - VoteNowCard, PredictCard, SubmitIdeasCard, ChampionCard, DiscussCard (pending)
 - `src/components/sheets/` - BottomSheet, DeliberationSheet
 - `web/docs/UP_POLLINATION_ARCHITECTURE.md` - Future vision for comment up-pollination
 - `src/components/Onboarding.tsx` - New user onboarding modal (name, bio)
@@ -410,7 +698,7 @@ vercel                   # Deploy preview
   - `src/components/NotificationBell.tsx` - Notification bell in header
   - Comments API returns separate `local` and `upPollinated` arrays
   - Up-pollination capped at deliberation's current tier (no cross-batch pollution)
-  - Feed cards now show view counts (👁 icon)
+  - Feed cards now show view counts
   - Deliberation model updated with `views` field
 
 ---
@@ -449,11 +737,12 @@ Use semantic class names instead of hex values:
 | Purpose | Background | Text | Border |
 |---------|------------|------|--------|
 | Primary action | `bg-accent` | `text-accent` | `border-accent` |
-| Success/Winner | `bg-success` | `text-success` | `border-success` |
+| Success/Priority | `bg-success` | `text-success` | `border-success` |
 | Warning/Voting | `bg-warning` | `text-warning` | `border-warning` |
 | Error | `bg-error` | `text-error` | `border-error` |
-| Accumulating | `bg-purple` | `text-purple` | `border-purple` |
-| Challenge round | `bg-orange` | `text-orange` | `border-orange` |
+| Discussion | `bg-blue` | `text-blue` | `border-blue` |
+| Accepting New Ideas | `bg-purple` | `text-purple` | `border-purple` |
+| Round 2 | `bg-orange` | `text-orange` | `border-orange` |
 
 ### Additional Color Utilities
 
@@ -500,36 +789,11 @@ To change colors app-wide:
 
 ### Network Effects Roadmap (Priority)
 1. ~~**Engagement feed**~~ **DONE** — `/feed` with card-based UI, inline voting, bottom sheet
-
-2. **Communities** (next priority)
-   - Groups around topics/interests (e.g., "Climate Action", "City Council", "Book Club")
-   - Community has members, multiple deliberations, community feed
-   - Creates the retention loop — you belong, you come back
-   - Community admins can moderate, pin deliberations, set rules
-   - Public vs private communities
-
-3. **Sharing & virality**
-   - OG meta tags per deliberation (question + phase + participant count)
-   - Share buttons: Twitter, Facebook, WhatsApp, copy link
-   - "Invite friends" with referral tracking
-   - Shareable results: "X won with Y votes across Z tiers"
-
-4. **Follow system**
-   - Follow/unfollow users
-   - Following feed: see deliberations, ideas, and wins from people you follow
-   - Follower/following counts on profile
-   - Notifications when someone you follow submits an idea or wins
-
-5. **User profile stats**
-   - Ideas: total submitted, highest tier reached, champion count, win rate
-   - Comments: total posted, highest up-pollination tier reached, total upvotes received
-   - Deliberations: created, participated in, completed
-   - Voting: prediction accuracy, current streak, best streak
-   - Activity timeline on profile page
-
-6. **Social graph of agreement**
-   - Track who you agree with across deliberations
-   - "People who voted like you..." recommendations
+2. ~~**Communities**~~ **DONE** — creation, member management, roles (OWNER/ADMIN/MEMBER), invite system, public/private
+3. ~~**Sharing & virality**~~ **DONE** — OG images, share buttons, invite links, copy link
+4. ~~**Follow system**~~ **DONE** — follow/unfollow, following feed, notifications on follow
+5. ~~**User profile stats**~~ **DONE** — profile page with ideas/votes/comments stats, win rate, streaks
+6. ~~**Social graph of agreement**~~ **DONE** — AgreementScore model, AgreementLeaderboard
 
 ### Key Insight
 The voting engine creates MULTIPLE success moments per deliberation:

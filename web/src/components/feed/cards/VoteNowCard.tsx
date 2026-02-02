@@ -8,6 +8,7 @@ import CountdownTimer from '@/components/CountdownTimer'
 import Spinner from '@/components/Spinner'
 import { useToast } from '@/components/Toast'
 import CardShell from './CardShell'
+import { GlossaryTerm } from '@/components/Tooltip'
 
 function CellIdeasCollapsible({ ideas, winnerId, votedIdeaId }: {
   ideas: { id: string; text: string; author: string }[]
@@ -63,7 +64,7 @@ type Props = {
   item: FeedItem
   onAction: () => void
   onExplore: () => void
-  onVoted?: () => void
+  onVoted?: (ideaId: string) => void
   onDismiss?: () => void
 }
 
@@ -183,7 +184,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
       })
 
       if (res.ok) {
-        onVoted?.()
+        onVoted?.(ideaId)
         setVoted(true)
         setVotedIdeaId(ideaId)
         onAction()
@@ -251,7 +252,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         borderColor={borderColor}
         headerLabel={headerText}
         headerLabelColor={headerColor}
-        headerRight={showChampion ? `Final · Tier ${cell.tier}` : `Tier ${cell.tier}`}
+        headerRight={showChampion ? <>Final · <GlossaryTerm term="Tier">Tier {cell.tier}</GlossaryTerm></> : <GlossaryTerm term="Tier">Tier {cell.tier}</GlossaryTerm>}
         onExplore={onExplore}
         onDismiss={onDismiss}
       >
@@ -346,7 +347,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
 
   const headerRight = (
     <div className="flex items-center gap-2">
-      <span>Tier {cell.tier}</span>
+      <GlossaryTerm term="Tier">Tier {cell.tier}</GlossaryTerm>
       {cell.votingDeadline && (
         <>
           <span>•</span>
@@ -381,6 +382,7 @@ export default function VoteNowCard({ item, onAction, onExplore, onVoted, onDism
         headerLabelColor={headerLabelColor}
         headerRight={headerRight}
         headerBgClass={headerBg}
+        subheader={voted ? 'Waiting for your group to finish voting' : isExpired ? undefined : 'Pick your favorite from 5 ideas'}
         onExplore={onExplore}
         statsLeft={<span>{currentVotedCount}/{currentParticipantCount} voted</span>}
       >

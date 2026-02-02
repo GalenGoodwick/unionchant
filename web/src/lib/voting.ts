@@ -424,6 +424,26 @@ export async function startVotingPhase(deliberationId: string) {
  * Process cell results and handle tier completion
  */
 export async function processCellResults(cellId: string, isTimeout = false) {
+  // If timeout, check if anyone voted first. If zero votes, extend the deadline instead of completing.
+  if (isTimeout) {
+    const voteCount = await prisma.vote.count({ where: { cellId } })
+    if (voteCount === 0) {
+      // Nobody voted — reset the timer by extending currentTierStartedAt
+      const cell = await prisma.cell.findUnique({
+        where: { id: cellId },
+        select: { deliberationId: true, status: true, deliberation: { select: { votingTimeoutMs: true } } },
+      })
+      if (cell && cell.status === 'VOTING') {
+        await prisma.deliberation.update({
+          where: { id: cell.deliberationId },
+          data: { currentTierStartedAt: new Date() },
+        })
+        console.log(`Cell ${cellId}: zero votes on timeout, extending deadline by ${cell.deliberation.votingTimeoutMs}ms`)
+        return null
+      }
+    }
+  }
+
   // ATOMIC GUARD: Claim this cell for processing using atomic updateMany.
   // Only one concurrent caller can succeed — others get count=0 and bail out.
   const claimed = await prisma.cell.updateMany({
@@ -922,7 +942,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       // Use floor division so remainder ideas absorb into existing batches
       // rather than creating a tiny batch. Fewer batches with more ideas = better deliberation.
       // e.g., 11 ideas → 2 batches of 6,5 instead of 3 batches of 5,5,1
-      const numBatches = Math.max(1, Math.floor(shuffledIdeas.length / IDEAS_PER_CELL))
+      const numBatches = Math.max(1, Math.round(shuffledIdeas.length / IDEAS_PER_CELL))
       const baseIdeasPerBatch = Math.floor(shuffledIdeas.length / numBatches)
       const extraIdeas = shuffledIdeas.length % numBatches
       const baseMembersPerBatch = Math.floor(shuffledMembers.length / numBatches)

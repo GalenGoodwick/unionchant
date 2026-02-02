@@ -12,6 +12,7 @@ type CardShellProps = {
   headerBgClass?: string
   onExplore?: () => void
   onDismiss?: () => void
+  subheader?: string
   statsLeft?: React.ReactNode
   children: React.ReactNode
 }
@@ -26,6 +27,7 @@ export default function CardShell({
   headerBgClass = '',
   onExplore,
   onDismiss,
+  subheader,
   statsLeft,
   children,
 }: CardShellProps) {
@@ -41,14 +43,19 @@ export default function CardShell({
       )}
 
       {/* Header */}
-      <div className={`px-4 py-3 border-b border-border flex justify-between items-center ${headerBgClass}`}>
-        <span className={`font-bold text-sm uppercase tracking-wide ${headerLabelColor}`}>
-          {headerLabel}
-        </span>
-        {headerRight && (
-          <span className="text-sm text-muted font-mono">
-            {headerRight}
+      <div className={`px-4 py-3 border-b border-border ${headerBgClass}`}>
+        <div className="flex justify-between items-center">
+          <span className={`font-bold text-sm uppercase tracking-wide ${headerLabelColor}`}>
+            {headerLabel}
           </span>
+          {headerRight && (
+            <span className="text-sm text-muted font-mono">
+              {headerRight}
+            </span>
+          )}
+        </div>
+        {subheader && (
+          <p className="text-xs text-muted mt-1">{subheader}</p>
         )}
       </div>
 

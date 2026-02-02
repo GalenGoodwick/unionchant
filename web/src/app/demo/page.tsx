@@ -146,18 +146,34 @@ export default function DemoPage() {
   const [running, setRunning] = useState(false)
   const [activeCell, setActiveCell] = useState<Cell | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
-  const [speed, setSpeed] = useState(1) // 1 = normal, 2 = fast, 0.5 = slow
-  const [runId, setRunId] = useState(0) // Unique ID for each demo run to prevent key collisions
+  const [explanation, setExplanation] = useState('Press "Start Demo" to begin.')
+  const [paused, setPaused] = useState(false)
+  const [runId, setRunId] = useState(0)
   const abortRef = useRef(false)
+  const continueRef = useRef<(() => void) | null>(null)
+  const speed = 0.5
 
   const participantCount = 40
   const CELL_SIZE = 5
   const IDEAS_PER_CELL = 5
 
-  const sleep = (ms: number) => new Promise(resolve => {
-    if (abortRef.current) return
+  const sleep = (ms: number) => new Promise<void>(resolve => {
+    if (abortRef.current) { resolve(); return }
     setTimeout(resolve, ms / speed)
   })
+
+  const waitForContinue = (text: string): Promise<void> => {
+    if (abortRef.current) return Promise.resolve()
+    setExplanation(text)
+    setPaused(true)
+    return new Promise(resolve => {
+      continueRef.current = () => {
+        setPaused(false)
+        continueRef.current = null
+        resolve()
+      }
+    })
+  }
 
   const shuffle = <T,>(array: T[]): T[] => {
     const shuffled = [...array]
@@ -194,6 +210,7 @@ export default function DemoPage() {
   const startDemo = async () => {
     abortRef.current = false
     setRunning(true)
+    setPhase('submission')
     setCells([])
     setChampion(null)
     setCurrentTier(0)
@@ -203,12 +220,15 @@ export default function DemoPage() {
     setRunId(currentRunId) // Increment run ID to ensure unique keys
 
     // Create participants
+    setExplanation('Participants are joining the deliberation...')
     setStatusMessage('Participants joining the deliberation...')
     const newParticipants: Participant[] = shuffle(AI_NAMES)
       .slice(0, participantCount)
       .map((name, i) => ({ id: `p${i}`, name }))
     setParticipants(newParticipants)
     await sleep(800)
+
+    await waitForContinue(`${participantCount} people have joined. Each will submit one idea for the group to evaluate.`)
 
     // Show tier plan
     const plan = calculateTierPlan(participantCount, participantCount)
@@ -218,6 +238,7 @@ export default function DemoPage() {
 
     // Submission phase
     setPhase('submission')
+    setExplanation('Each participant is submitting one idea...')
     setStatusMessage('Submission phase: Each participant submits one idea...')
     const generatedIdeas = generateUniqueIdeas(participantCount)
     const newIdeas: Idea[] = []
@@ -240,6 +261,8 @@ export default function DemoPage() {
 
     setStatusMessage(`All ${newIdeas.length} ideas submitted. Starting voting phase...`)
     await sleep(1000)
+
+    await waitForContinue(`All ${newIdeas.length} ideas are in. Now they'll be randomly grouped into cells of 5 ideas and 5 voters each.`)
 
     // Start voting
     setPhase('voting')
@@ -270,11 +293,15 @@ export default function DemoPage() {
       ))
 
       if (isFinalShowdown) {
+        setExplanation(`Final Showdown! All participants vote on the remaining ideas.`)
         setStatusMessage(`Final Showdown! All ${allParticipants.length} participants vote on ${activeIdeas.length} remaining ideas`)
+        await sleep(1000)
+        await waitForContinue(`Only ${activeIdeas.length} ideas left. Now ALL ${allParticipants.length} participants vote on these finalists together.`)
       } else {
+        setExplanation(`Tier ${tier}: Ideas are being grouped into cells of 5.`)
         setStatusMessage(`Tier ${tier}: ${activeIdeas.length} ideas competing in small groups`)
+        await sleep(1000)
       }
-      await sleep(1000)
 
       // Create cells - ALL participants always vote (same number of cells each tier)
       const shuffledParticipants = shuffle(allParticipants)
@@ -348,7 +375,12 @@ export default function DemoPage() {
       }
       await sleep(800)
 
+      if (!isFinalShowdown) {
+        await waitForContinue(`${tierCells.length} cells formed. Each has 5 people discussing 5 ideas. They'll deliberate, then vote.`)
+      }
+
       // ALL CELLS DELIBERATE IN PARALLEL
+      setExplanation(`Each cell is discussing their 5 ideas before voting.`)
       setStatusMessage(`All ${tierCells.length} cells discussing...`)
       for (const cell of tierCells) {
         cell.status = 'deliberating'
@@ -361,7 +393,10 @@ export default function DemoPage() {
       }))
       await sleep(1500)
 
+      await waitForContinue('Discussion complete. Now each person picks their favorite idea from their cell.')
+
       // ALL CELLS VOTE - show individual votes accumulating
+      setExplanation('Voting in progress — each person picks their favorite idea.')
       setStatusMessage(`All ${tierCells.length} cells voting...`)
       for (const cell of tierCells) {
         cell.status = 'voting'
@@ -415,8 +450,11 @@ export default function DemoPage() {
         })
       }
 
+      setExplanation('Tallying votes across all cells...')
       setStatusMessage(`Tallying votes across all ${tierCells.length} cells...`)
       await sleep(800)
+
+      await waitForContinue('Votes tallied. The winning idea from each cell advances to the next tier. The rest are eliminated.')
 
       // Determine winners (no random tiebreaker - just pick highest votes, first alphabetically)
       let advancingIdeas: string[] = []
@@ -491,6 +529,10 @@ export default function DemoPage() {
         t.tier === tier ? { ...t, status: 'completed', ideasEnd: activeIdeas.length } : t
       ))
 
+      if (!isFinalShowdown) {
+        await waitForContinue(`Tier ${tier} done! ${activeIdeas.length} idea${activeIdeas.length === 1 ? '' : 's'} advance to the next round. The process repeats with fewer ideas.`)
+      }
+
       tier++
       await sleep(1500)
     }
@@ -508,6 +550,7 @@ export default function DemoPage() {
       // Mark all tiers as completed
       setTierSummaries(prev => prev.map(t => ({ ...t, status: 'completed' })))
       setStatusMessage(`Champion determined through ${tier - 1} tiers of deliberation!`)
+      await waitForContinue(`One idea survived scrutiny from many independent groups across ${tier - 1} tiers. That's a stronger mandate than any poll.`)
     }
 
     setRunning(false)
@@ -515,6 +558,10 @@ export default function DemoPage() {
 
   const reset = () => {
     abortRef.current = true
+    if (continueRef.current) {
+      continueRef.current()
+      continueRef.current = null
+    }
     setPhase('setup')
     setIdeas([])
     setParticipants([])
@@ -525,6 +572,8 @@ export default function DemoPage() {
     setRunning(false)
     setActiveCell(null)
     setStatusMessage('')
+    setExplanation('Press "Start Demo" to begin.')
+    setPaused(false)
   }
 
   const getIdeaText = (ideaId: string) => ideas.find(i => i.id === ideaId)?.text || ''
@@ -544,80 +593,57 @@ export default function DemoPage() {
           <p className="text-muted mt-1 text-sm sm:text-base">Watch how {participantCount} people reach consensus through structured small-group deliberation</p>
         </div>
 
-        {/* Setup Panel */}
-        {phase === 'setup' && (
-          <div className="bg-background rounded-lg p-8 border border-border mb-6 max-w-2xl">
-            <h2 className="text-xl font-semibold text-foreground mb-2">Demo Question</h2>
-            <p className="text-2xl text-accent font-medium mb-6">"{question}"</p>
-
-            <div className="bg-surface rounded-lg p-4 mb-6 text-subtle text-sm space-y-2">
-              <p><strong className="text-foreground">How it works:</strong></p>
-              <p>1. {participantCount} participants each submit one idea</p>
-              <p>2. Ideas are grouped into cells of 5 ideas, 5 people each</p>
-              <p>3. Each cell <span className="text-accent">deliberates</span> (discusses trade-offs) then votes</p>
-              <p>4. Winners advance to the next tier, losers are eliminated</p>
-              <p>5. Process repeats until one champion emerges</p>
-            </div>
-
-            <div className="flex items-center gap-4 mb-6">
-              <label className="text-sm text-muted">Speed:</label>
-              <div className="flex gap-2">
-                {[0.5, 1, 2].map(s => (
+        <div className="space-y-6">
+          {/* Explanation banner — always visible */}
+          <div className="bg-accent-light border-2 border-accent rounded-lg p-5">
+            {phase === 'setup' ? (
+              <>
+                <div className="text-sm text-foreground space-y-1.5 mb-4">
+                  <p><strong>1.</strong> {participantCount} participants each submit one idea</p>
+                  <p><strong>2.</strong> Ideas are grouped into cells of 5 ideas, 5 people each</p>
+                  <p><strong>3.</strong> Each cell deliberates (discusses trade-offs) then votes</p>
+                  <p><strong>4.</strong> Winners advance to the next tier, losers are eliminated</p>
+                  <p><strong>5.</strong> Process repeats until one champion emerges</p>
+                </div>
+                <button
+                  onClick={startDemo}
+                  className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition-colors"
+                >
+                  Start Demo
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="text-accent text-2xl shrink-0">💡</div>
+                  <p className="text-foreground font-medium">{explanation}</p>
+                </div>
+                {paused && (
                   <button
-                    key={s}
-                    onClick={() => setSpeed(s)}
-                    className={`px-3 py-1 rounded text-sm ${
-                      speed === s
-                        ? 'bg-accent text-white'
-                        : 'bg-surface text-muted border border-border hover:border-accent'
-                    }`}
+                    onClick={() => continueRef.current?.()}
+                    className="shrink-0 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors"
                   >
-                    {s === 0.5 ? 'Slow' : s === 1 ? 'Normal' : 'Fast'}
+                    Continue
                   </button>
-                ))}
+                )}
               </div>
-            </div>
-
-            <button
-              onClick={startDemo}
-              className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-4 rounded-lg transition-colors text-lg"
-            >
-              Start Demo
-            </button>
+            )}
           </div>
-        )}
-
-        {/* Running Demo */}
-        {phase !== 'setup' && (
-          <div className="space-y-6">
-            {/* Champion Banner - Always visible, shows ? until winner */}
-            <div className={`rounded-lg p-6 text-center border-2 transition-all ${
-              champion
-                ? 'bg-success-bg border-success'
-                : 'bg-surface border-border'
-            }`}>
-              <div className="text-4xl mb-2">{champion ? '🏆' : '❓'}</div>
-              <div className={`text-sm font-medium mb-1 ${champion ? 'text-success' : 'text-muted'}`}>
-                {champion ? 'CHAMPION' : 'CHAMPION TBD'}
-              </div>
-              <div className={`text-xl font-bold mb-2 ${champion ? 'text-foreground' : 'text-muted'}`}>
-                {champion ? champion.text : 'Deliberation in progress...'}
-              </div>
-              <p className="text-muted text-sm">
-                {champion
-                  ? `From ${ideas.length} ideas → 1 winner through ${currentTier} tiers`
-                  : `${ideas.filter(i => i.status === 'advancing' || i.status === 'in_voting').length} ideas still competing`
-                }
-              </p>
-            </div>
 
             <div className="grid lg:grid-cols-5 gap-6">
             {/* Left: Tier Progress */}
             <div className="lg:col-span-2 space-y-4">
               {/* Status */}
-              <div className="bg-background rounded-lg p-4 border border-border">
+              <div className={`rounded-lg p-4 border ${champion ? 'bg-success-bg border-success' : 'bg-background border-border'}`}>
                 <div className="text-sm text-muted mb-1">Status</div>
                 <div className="text-foreground font-medium">{statusMessage}</div>
+                {champion && (
+                  <div className="mt-3 pt-3 border-t border-success/30">
+                    <div className="text-success text-xs font-semibold uppercase tracking-wide mb-1">Champion</div>
+                    <div className="text-foreground font-bold">{champion.text}</div>
+                    <div className="text-muted text-xs mt-1">From {ideas.length} ideas → 1 winner through {currentTier} tiers</div>
+                  </div>
+                )}
               </div>
 
 
@@ -672,18 +698,10 @@ export default function DemoPage() {
               {/* Ideas Summary */}
               <div className="bg-background rounded-lg p-4 border border-border">
                 <h3 className="text-sm font-medium text-muted mb-3">Ideas by Status</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="bg-accent-light rounded p-2">
-                    <div className="text-2xl font-bold text-accent font-mono">
-                      {ideas.filter(i => i.status === 'advancing' || i.status === 'in_voting').length}
-                    </div>
-                    <div className="text-accent text-xs">Active</div>
-                  </div>
-                  <div className="bg-success-bg rounded p-2">
-                    <div className="text-2xl font-bold text-success font-mono">
-                      {ideas.filter(i => i.status === 'winner').length}
-                    </div>
-                    <div className="text-success text-xs">Winner</div>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="bg-surface rounded p-2">
+                    <div className="text-2xl font-bold text-foreground font-mono">{ideas.length}</div>
+                    <div className="text-muted text-xs">Total</div>
                   </div>
                   <div className="bg-surface rounded p-2">
                     <div className="text-2xl font-bold text-muted font-mono">
@@ -691,9 +709,11 @@ export default function DemoPage() {
                     </div>
                     <div className="text-muted text-xs">Eliminated</div>
                   </div>
-                  <div className="bg-surface rounded p-2">
-                    <div className="text-2xl font-bold text-muted font-mono">{ideas.length}</div>
-                    <div className="text-muted text-xs">Total</div>
+                  <div className="bg-success-bg rounded p-2">
+                    <div className="text-2xl font-bold text-success font-mono">
+                      {ideas.filter(i => i.status === 'winner').length}
+                    </div>
+                    <div className="text-success text-xs">Winner</div>
                   </div>
                 </div>
               </div>
@@ -952,7 +972,6 @@ export default function DemoPage() {
             </div>
           </div>
           </div>
-        )}
 
         {/* Bottom CTA */}
         {phase === 'completed' && (

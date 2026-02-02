@@ -66,7 +66,7 @@ export default function SignUpPage() {
           Create an account
         </h1>
         <p className="text-muted text-center mb-8">
-          Join Union Chant
+          Vote on ideas with others. Small teams vote, winners advance, and one priority emerges.
         </p>
 
         {error && (

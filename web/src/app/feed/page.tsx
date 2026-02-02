@@ -15,12 +15,13 @@ import BottomSheet from '@/components/sheets/BottomSheet'
 import DeliberationSheet from '@/components/sheets/DeliberationSheet'
 import { useAdaptivePolling } from '@/hooks/useAdaptivePolling'
 import UserGuide from '@/components/UserGuide'
+import { useGuideContext } from '@/app/providers'
 import Spinner from '@/components/Spinner'
 import type { FeedItem, FeedTab, ActivityItem, ResultItem, FollowingItem } from '@/types/feed'
 
 // Desktop left column tabs
 const DESKTOP_TABS: { id: FeedTab; label: string; authRequired: boolean }[] = [
-  { id: 'for-you', label: 'Actionable', authRequired: false },
+  { id: 'for-you', label: 'Your Turn', authRequired: false },
   { id: 'activity', label: 'Activity', authRequired: false },
   { id: 'following', label: 'Following', authRequired: true },
 ]
@@ -34,7 +35,7 @@ const RIGHT_TABS: { id: RightTab; label: string }[] = [
 
 // Mobile: all tabs in one bar
 const MOBILE_TABS: { id: FeedTab; label: string; authRequired: boolean }[] = [
-  { id: 'for-you', label: 'Actionable', authRequired: false },
+  { id: 'for-you', label: 'Your Turn', authRequired: false },
   { id: 'activity', label: 'Activity', authRequired: false },
   { id: 'done', label: 'Complete', authRequired: true },
   { id: 'results', label: 'Resolved', authRequired: false },
@@ -73,13 +74,13 @@ export default function FeedPage() {
   const [items, setItems] = useState<FeedItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [showGuide, setShowGuide] = useState(false)
+  const { showGuide, openGuide, closeGuide } = useGuideContext()
 
   // Incremental update tracking
   const lastFetchTsRef = useRef<number>(0)
 
   // Optimistic action tracking — refs are immune to stale closures
-  const votedCellIdsRef = useRef<Set<string>>(new Set())
+  const votedCellIdsRef = useRef<Map<string, string | null>>(new Map())
   const submittedDelibsRef = useRef<Map<string, string>>(new Map()) // deliberationId -> text
   const resolvedAtRef = useRef<Map<string, number>>(new Map()) // itemKey -> timestamp
 
@@ -146,15 +147,10 @@ export default function FeedPage() {
   useEffect(() => {
     const hasSeenGuide = localStorage.getItem('hasSeenGuide')
     if (!hasSeenGuide && status === 'authenticated') {
-      const timer = setTimeout(() => setShowGuide(true), 1000)
+      const timer = setTimeout(() => openGuide(), 1000)
       return () => clearTimeout(timer)
     }
-  }, [status])
-
-  const closeGuide = () => {
-    setShowGuide(false)
-    localStorage.setItem('hasSeenGuide', 'true')
-  }
+  }, [status, openGuide])
 
   // Track cards for cells user has voted in
   const [preservedVoteCards, setPreservedVoteCards] = useState<Map<string, FeedItem>>(new Map())
@@ -174,7 +170,7 @@ export default function FeedPage() {
         })
         setPreservedVoteCards(new Map(valid))
         // Seed optimistic ref from persisted data
-        valid.forEach(([cellId]) => votedCellIdsRef.current.add(cellId))
+        valid.forEach(([cellId, item]) => votedCellIdsRef.current.set(cellId, item.cell?.userVotedIdeaId || null))
         localStorage.setItem('preservedVoteCards', JSON.stringify(valid))
       } catch {
         // Ignore parse errors
@@ -192,7 +188,12 @@ export default function FeedPage() {
     try {
       const sinceParam = lastFetchTsRef.current ? `?since=${lastFetchTsRef.current}` : ''
       const res = await fetch(`/api/feed${sinceParam}`)
-      if (!res.ok) throw new Error('Failed to fetch feed')
+      if (!res.ok) {
+        console.error('Feed fetch failed:', res.status)
+        if (loading) setError('Failed to load feed')
+        setLoading(false)
+        return
+      }
       const data = await res.json()
 
       // Track server timestamp for incremental updates
@@ -218,7 +219,8 @@ export default function FeedPage() {
       // Refs are always current — no stale closure issues.
       const deduplicatedItems = deduped.map(item => {
         if (item.type === 'vote_now' && item.cell && votedCellIdsRef.current.has(item.cell.id) && !item.cell.userHasVoted) {
-          return { ...item, cell: { ...item.cell, userHasVoted: true } }
+          const optimisticIdeaId = votedCellIdsRef.current.get(item.cell.id) || null
+          return { ...item, cell: { ...item.cell, userHasVoted: true, userVotedIdeaId: optimisticIdeaId } }
         }
         if (item.type === 'submit_ideas' && submittedDelibsRef.current.has(item.deliberation.id) && !item.userSubmittedIdea) {
           return { ...item, userSubmittedIdea: { id: 'optimistic', text: submittedDelibsRef.current.get(item.deliberation.id)! } }
@@ -265,18 +267,18 @@ export default function FeedPage() {
     }
   }, [preservedVoteCards]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const preserveVoteCard = useCallback((item: FeedItem) => {
+  const preserveVoteCard = useCallback((item: FeedItem, votedIdeaId?: string) => {
     if (!item.cell) return
-    votedCellIdsRef.current.add(item.cell.id)
+    votedCellIdsRef.current.set(item.cell.id, votedIdeaId || null)
     resolvedAtRef.current.set(`vote_now-${item.deliberation.id}-${item.cell.id}`, Date.now())
     // Update items locally — card reclassifies as done THIS render
     setItems(prev => prev.map(i =>
       i.cell?.id === item.cell!.id
-        ? { ...i, cell: { ...i.cell!, userHasVoted: true } }
+        ? { ...i, cell: { ...i.cell!, userHasVoted: true, userVotedIdeaId: votedIdeaId || i.cell!.userVotedIdeaId } }
         : i
     ))
     // Persist for when server stops returning this cell
-    const doneItem = { ...item, cell: { ...item.cell, userHasVoted: true } }
+    const doneItem = { ...item, cell: { ...item.cell, userHasVoted: true, userVotedIdeaId: votedIdeaId || item.cell.userVotedIdeaId } }
     setPreservedVoteCards(prev => {
       const updated = new Map(prev)
       updated.set(item.cell!.id, doneItem)
@@ -493,7 +495,14 @@ export default function FeedPage() {
                 )}
 
                 {actionableItems.length === 0 && !error ? (
-                  <EmptyState message="Nothing actionable right now." />
+                  <EmptyState message="No deliberations to vote on right now.">
+                    <Link href="/deliberations/new" className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors">
+                      Create a Deliberation
+                    </Link>
+                    <Link href="/communities" className="px-4 py-2 border border-border hover:border-border-strong text-foreground rounded-lg text-sm font-medium transition-colors">
+                      Browse Communities
+                    </Link>
+                  </EmptyState>
                 ) : (
                   <div className="space-y-4">
                     <FeedCards
@@ -525,7 +534,11 @@ export default function FeedPage() {
             {activeTab === 'activity' && (
               <TabContent loading={activityLoading} error={activityError} retry={fetchActivity}>
                 {activityItems.length === 0 ? (
-                  <EmptyState message="No activity yet." />
+                  <EmptyState message="No activity yet. Join a deliberation to get started.">
+                    <Link href="/deliberations" className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors">
+                      Browse Deliberations
+                    </Link>
+                  </EmptyState>
                 ) : (
                   <div className="space-y-3">
                     {activityItems.map(item => (
@@ -565,7 +578,7 @@ export default function FeedPage() {
               <div className="lg:hidden">
                 <TabContent loading={resolvedLoading} error={resolvedError} retry={fetchResolved}>
                   {resolvedItems.length === 0 ? (
-                    <EmptyState message="No outcomes yet." />
+                    <EmptyState message="No outcomes yet. Results will appear as deliberations complete." />
                   ) : (
                     <div className="space-y-3">
                       {resolvedItems.map(item => (
@@ -642,7 +655,7 @@ export default function FeedPage() {
               {rightTab === 'resolved' && (
                 <TabContent loading={resolvedLoading} error={resolvedError} retry={fetchResolved}>
                   {resolvedItems.length === 0 ? (
-                    <EmptyState message="No outcomes yet." />
+                    <EmptyState message="No outcomes yet. Results will appear as deliberations complete." />
                   ) : (
                     <div className="space-y-3">
                       {resolvedItems.map(item => (
@@ -689,7 +702,7 @@ function FeedCards({
   items: FeedItem[]
   handleAction: () => void
   openSheet: (item: FeedItem) => void
-  preserveVoteCard: (item: FeedItem) => void
+  preserveVoteCard: (item: FeedItem, ideaId?: string) => void
   dismissVoteCard: (cellId: string) => void
   dismissCard: (deliberationId: string) => void
   markIdeaSubmitted: (deliberationId: string, text: string) => void
@@ -706,7 +719,7 @@ function FeedCards({
                 item={item}
                 onAction={handleAction}
                 onExplore={() => openSheet(item)}
-                onVoted={() => preserveVoteCard(item)}
+                onVoted={(ideaId: string) => preserveVoteCard(item, ideaId)}
                 onDismiss={item.cell ? () => dismissVoteCard(item.cell!.id) : undefined}
               />
             )
@@ -823,10 +836,11 @@ function TabContent({
   return <>{children}</>
 }
 
-function EmptyState({ message }: { message: string }) {
+function EmptyState({ message, children }: { message: string; children?: React.ReactNode }) {
   return (
     <div className="text-center py-12">
       <p className="text-muted text-sm">{message}</p>
+      {children && <div className="mt-4 flex flex-wrap justify-center gap-3">{children}</div>}
     </div>
   )
 }

@@ -132,10 +132,11 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Delete test users (email contains @test.local)
+    // Delete test users (email contains @test.local), but protect AI personas
     const deletedUsers = await prisma.user.deleteMany({
       where: {
         email: { contains: '@test.local' },
+        isAI: false,
       },
     })
 

@@ -105,6 +105,7 @@ export default function SubmitIdeasCard({ item, onAction, onSubmitted, onDismiss
       headerLabel={isExpired ? 'Submission Closed' : 'Accepting Ideas'}
       headerLabelColor={isExpired ? 'text-muted' : 'text-accent'}
       headerRight={headerRight}
+      subheader={isExpired ? undefined : 'Share your idea for this question'}
       onDismiss={onDismiss}
       statsLeft={<span>{ideaCount} ideas • {item.deliberation._count.members} participants</span>}
     >

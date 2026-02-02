@@ -34,6 +34,8 @@ model User {
   role          UserRole   @default(USER)
   onboardedAt   DateTime?  // Set when user completes onboarding
   captchaVerifiedAt DateTime?  // Last CAPTCHA verification (valid for 24h)
+  isAI          Boolean    @default(false)      // AI persona for cold-start engagement
+  aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
   theme         String     @default("system")  // "light", "dark", "system"
   deletedAt     DateTime?
   bannedAt      DateTime?
@@ -83,6 +85,9 @@ model User {
   // Follow relations
   followers     Follow[] @relation("Followers")
   following     Follow[] @relation("Following")
+
+  // Podium relations
+  podiums       Podium[]
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -175,6 +180,7 @@ model Deliberation {
   cells         Cell[]
   watchers      Watch[]
   predictions   Prediction[]
+  podiums       Podium[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -676,6 +682,29 @@ model RateLimitConfig {
   keyType     String   @default("userId")  // "userId" or "ip"
   enabled     Boolean  @default(true)
   updatedAt   DateTime @updatedAt
+}
+
+// ============ PODIUM (LONG-FORM WRITING) ============
+
+model Podium {
+  id              String   @id @default(cuid())
+  title           String
+  body            String   @db.Text
+  authorId        String
+  author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  // Optional link to deliberation (cross-linking)
+  deliberationId  String?
+  deliberation    Deliberation? @relation(fields: [deliberationId], references: [id], onDelete: SetNull)
+
+  views           Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([authorId])
+  @@index([deliberationId])
+  @@index([createdAt])
 }
 
 // ============ CRON EXECUTION LOG ============

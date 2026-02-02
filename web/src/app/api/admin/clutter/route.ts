@@ -95,9 +95,9 @@ export async function DELETE() {
       where: { id: { in: orphanedNotifIds } }
     })
 
-    // Delete test users (this will cascade delete their data)
+    // Delete test users (this will cascade delete their data), protect AI personas
     const deletedTestUsers = await prisma.user.deleteMany({
-      where: { email: { endsWith: '@test.local' } }
+      where: { email: { endsWith: '@test.local' }, isAI: false }
     })
 
     return NextResponse.json({

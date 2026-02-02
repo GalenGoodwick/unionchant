@@ -86,6 +86,9 @@ export default function DashboardDetailPage() {
   const [actionMessage, setActionMessage] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmForce, setConfirmForce] = useState(false)
+  const [confirmRelease, setConfirmRelease] = useState(false)
+  const [confirmChallenge, setConfirmChallenge] = useState(false)
 
   const fetchDeliberation = useCallback(async () => {
     try {
@@ -339,35 +342,104 @@ export default function DashboardDetailPage() {
                   {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting Now'}
                 </button>
 
-                <button
-                  onClick={() => handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`)}
-                  disabled={deliberation.phase !== 'VOTING' || actionLoading === 'force-next-tier'}
-                  className="w-full bg-orange hover:bg-orange/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                >
-                  {actionLoading === 'force-next-tier' ? 'Processing...' : 'Force Complete Current Round'}
-                </button>
+                {!confirmForce ? (
+                  <button
+                    onClick={() => setConfirmForce(true)}
+                    disabled={deliberation.phase !== 'VOTING' || actionLoading === 'force-next-tier'}
+                    className="w-full bg-orange hover:bg-orange/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
+                  >
+                    Force Complete Current Round
+                  </button>
+                ) : (
+                  <div className="space-y-3 border border-orange rounded p-3">
+                    <p className="text-sm text-foreground">
+                      This will end the current voting round immediately, tally all votes cast so far, and advance winners. Participants who haven&apos;t voted yet will be skipped.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setConfirmForce(false); handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`) }}
+                        disabled={actionLoading === 'force-next-tier'}
+                        className="flex-1 bg-orange hover:bg-orange/80 disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        {actionLoading === 'force-next-tier' ? 'Processing...' : 'Yes, Force Complete'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmForce(false)}
+                        className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-muted">
                   Processes all active voting cells as if timer expired.
                 </p>
 
-                <button
-                  onClick={() => handleAction('release-extra-votes', `/api/deliberations/${deliberationId}/release-extra-votes`)}
-                  disabled={deliberation.phase !== 'VOTING' || actionLoading === 'release-extra-votes'}
-                  className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                >
-                  {actionLoading === 'release-extra-votes' ? 'Releasing...' : 'Release Extra Votes'}
-                </button>
+                {!confirmRelease ? (
+                  <button
+                    onClick={() => setConfirmRelease(true)}
+                    disabled={deliberation.phase !== 'VOTING' || actionLoading === 'release-extra-votes'}
+                    className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
+                  >
+                    Release Extra Votes
+                  </button>
+                ) : (
+                  <div className="space-y-3 border border-accent rounded p-3">
+                    <p className="text-sm text-foreground">
+                      This will add extra voting slots so more participants can join the current round. Use this if people are waiting to vote but all cells are full.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setConfirmRelease(false); handleAction('release-extra-votes', `/api/deliberations/${deliberationId}/release-extra-votes`) }}
+                        disabled={actionLoading === 'release-extra-votes'}
+                        className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        {actionLoading === 'release-extra-votes' ? 'Releasing...' : 'Yes, Release'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmRelease(false)}
+                        className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-muted">
                   Opens a window for participants whose cells completed to vote in another batch.
                 </p>
 
-                <button
-                  onClick={() => handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`)}
-                  disabled={deliberation.phase !== 'ACCUMULATING' || actionLoading === 'start-challenge'}
-                  className="w-full bg-purple hover:bg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                >
-                  {actionLoading === 'start-challenge' ? 'Starting...' : 'Start Challenge Round'}
-                </button>
+                {!confirmChallenge ? (
+                  <button
+                    onClick={() => setConfirmChallenge(true)}
+                    disabled={deliberation.phase !== 'ACCUMULATING' || actionLoading === 'start-challenge'}
+                    className="w-full bg-purple hover:bg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
+                  >
+                    Start Challenge Round
+                  </button>
+                ) : (
+                  <div className="space-y-3 border border-purple rounded p-3">
+                    <p className="text-sm text-foreground">
+                      This will start a new challenge round. Challenger ideas will compete against the current champion through tiered voting. The champion could be replaced.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setConfirmChallenge(false); handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`) }}
+                        disabled={actionLoading === 'start-challenge'}
+                        className="flex-1 bg-purple hover:bg-purple/80 disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        {actionLoading === 'start-challenge' ? 'Starting...' : 'Yes, Start Challenge'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmChallenge(false)}
+                        className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-muted">
                   Starts a new voting round where challengers compete against the champion.
                 </p>

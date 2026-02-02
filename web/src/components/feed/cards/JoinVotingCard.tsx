@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import type { FeedItem } from '@/types/feed'
 import { useToast } from '@/components/Toast'
 import CardShell from './CardShell'
+import { GlossaryTerm } from '@/components/Tooltip'
 
 type CellData = {
   id: string
@@ -58,7 +59,6 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
 
       if (res.ok) {
         setCellData(data.alreadyInCell ? data.cell : data.cell)
-        onAction()
       } else {
         setError(data.error || 'Failed to join')
       }
@@ -137,7 +137,8 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
         borderColor={borderColor}
         headerLabel={headerLabel}
         headerLabelColor={headerLabelColor}
-        headerRight={<>Tier {cellData.tier}</>}
+        headerRight={<GlossaryTerm term="Tier">Tier {cellData.tier}</GlossaryTerm>}
+        subheader={voted ? 'Waiting for your group to finish voting' : 'Pick your favorite from 5 ideas'}
         onExplore={onExplore}
       >
         {/* Ideas with vote buttons */}
@@ -230,7 +231,8 @@ export default function JoinVotingCard({ item, onAction, onExplore, onDismiss }:
     <CardShell
       item={item}
       headerLabel="Voting in Progress"
-      headerRight={<>Tier {tierInfo?.tier || 1} • {tierInfo?.totalCells || 0} cells</>}
+      headerRight={<><GlossaryTerm term="Tier">Tier {tierInfo?.tier || 1}</GlossaryTerm> · {tierInfo?.totalCells || 0} <GlossaryTerm term="Cell">cells</GlossaryTerm></>}
+      subheader="Join a 5-person group and vote on ideas"
       onExplore={onExplore}
       onDismiss={onDismiss}
       statsLeft={<span>{item.deliberation._count.members} participants</span>}

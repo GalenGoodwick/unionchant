@@ -7,6 +7,7 @@ import type { FeedItem } from '@/types/feed'
 import Turnstile from '@/components/Turnstile'
 import { useToast } from '@/components/Toast'
 import CardShell from './CardShell'
+import { GlossaryTerm } from '@/components/Tooltip'
 
 type Props = {
   item: FeedItem
@@ -146,9 +147,10 @@ export default function ChampionCard({ item, onAction, onExplore, onSubmitted, o
     <CardShell
       item={item}
       borderColor={borderColor}
-      headerLabel={isChallenge ? `Challenge Round #${item.deliberation.challengeRound}` : 'Champion'}
+      headerLabel={isChallenge ? <GlossaryTerm term="Challenge Round">Challenge Round #{item.deliberation.challengeRound}</GlossaryTerm> : <GlossaryTerm term="Champion">Champion</GlossaryTerm>}
       headerLabelColor={headerColor}
       headerRight={headerRight}
+      subheader={isChallenge ? 'The champion is being challenged — join the vote' : 'Submit a new idea to challenge the winner'}
       onExplore={isChallenge ? onExplore : undefined}
       onDismiss={onDismiss}
       statsLeft={statsLeft}
@@ -158,7 +160,7 @@ export default function ChampionCard({ item, onAction, onExplore, onSubmitted, o
         <div className={`${championBg} border rounded-lg p-4 mb-4`}>
           {isChallenge && (
             <div className={`${headerColor} text-xs font-semibold uppercase tracking-wide mb-2`}>
-              Defending Champion
+              <GlossaryTerm term="Defending Champion">Defending Champion</GlossaryTerm>
             </div>
           )}
           <div className="flex items-start gap-3">
