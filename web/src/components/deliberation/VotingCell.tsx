@@ -141,7 +141,7 @@ export default function VotingCell({
         setRevisions(prev => ({ ...prev, [ideaId]: data.revision }))
         setEditingIdea(null)
         setEditText('')
-        showToast('Edit proposed — waiting for confirmations', 'success')
+        showToast('Chant proposed — waiting for confirmations', 'success')
       } else {
         const data = await res.json().catch(() => ({ error: 'Failed to propose edit' }))
         showToast(data.error || 'Failed to propose edit', 'error')
@@ -169,7 +169,7 @@ export default function VotingCell({
             delete next[ideaId]
             return next
           })
-          showToast('Edit approved!', 'success')
+          showToast('Chant approved!', 'success')
           onRefresh()
         } else {
           // Re-fetch the full revision to get accurate state
@@ -271,7 +271,7 @@ export default function VotingCell({
                           onClick={() => { setEditingIdea(idea.id); setEditText(idea.text) }}
                           className="text-[10px] text-muted hover:text-accent transition-colors"
                         >
-                          edit
+                          chant
                         </button>
                       )}
                     </div>
@@ -285,9 +285,9 @@ export default function VotingCell({
                         className={`text-[9px] px-1.5 py-0.5 rounded font-medium transition-colors ${
                           showingEdit ? 'bg-blue text-white' : 'bg-surface text-blue border border-blue'
                         }`}
-                        title={showingEdit ? 'Show original' : 'Show proposed edit'}
+                        title={showingEdit ? 'Show original' : 'Show proposed chant'}
                       >
-                        {showingEdit ? 'edit' : 'orig'}
+                        {showingEdit ? 'chant' : 'orig'}
                       </button>
                     )}
 
@@ -332,7 +332,7 @@ export default function VotingCell({
                 {revision && !isProposer && (
                   <div className="mt-1.5 pt-1.5 border-t border-blue/20 flex items-center justify-between">
                     <span className="text-[10px] text-blue">
-                      Edit by {revision.proposedBy.name || 'Anonymous'} &middot; {revision.approvals}/{revision.required} confirmed
+                      Chant by {revision.proposedBy.name || 'Anonymous'} &middot; {revision.approvals}/{revision.required} confirmed
                     </span>
                     {userConfirmed ? (
                       <span className="text-[10px] text-success font-medium px-2 py-0.5 bg-success-bg rounded">
@@ -354,7 +354,7 @@ export default function VotingCell({
                 {revision && isProposer && (
                   <div className="mt-1.5 pt-1.5 border-t border-blue/20">
                     <span className="text-[10px] text-blue">
-                      Your edit &middot; {revision.approvals}/{revision.required} confirmed
+                      Your chant &middot; {revision.approvals}/{revision.required} confirmed
                       {revision.votes.filter(v => v.approve).map(v => (
                         <span key={v.userId} className="ml-1 text-success">&bull; {v.user.name || 'anon'}</span>
                       ))}
@@ -371,7 +371,7 @@ export default function VotingCell({
                     onChange={e => setEditText(e.target.value)}
                     rows={2}
                     className="w-full text-sm bg-background border border-border rounded p-2 text-foreground resize-none"
-                    placeholder="Propose a revised version..."
+                    placeholder="Propose a chant..."
                   />
                   <div className="flex gap-2 mt-1">
                     <button
@@ -379,7 +379,7 @@ export default function VotingCell({
                       disabled={submittingRevision || editText.trim() === idea.text || editText.trim().length < 5}
                       className="px-3 py-1 bg-blue text-white text-xs rounded font-medium disabled:opacity-40 hover:bg-blue-hover transition-colors"
                     >
-                      {submittingRevision ? 'Proposing...' : 'Propose Edit'}
+                      {submittingRevision ? 'Proposing...' : 'Propose Chant'}
                     </button>
                     <button
                       onClick={() => { setEditingIdea(null); setEditText('') }}

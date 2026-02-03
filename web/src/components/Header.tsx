@@ -106,7 +106,7 @@ export default function Header() {
               Manage
             </Link>
           )}
-          {session && isFeed && (
+          {session && (
             <button
               onClick={openGuide}
               className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-medium flex items-center justify-center"

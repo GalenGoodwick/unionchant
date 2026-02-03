@@ -20,10 +20,10 @@ const steps = [
     tip: 'You must allocate all 10 XP. The idea with the most total XP wins the cell. Only totals are shown, never individual votes.',
   },
   {
-    title: 'Discuss & Revise',
+    title: 'Discuss & Chant',
     icon: '💬',
-    description: 'Your cell discusses ideas together. Anyone can propose edits to any idea — swipe between original and edited versions. If 30% of cell members confirm the edit, it replaces the original across all cells.',
-    tip: 'Edits can up-pollinate to other cells. Strengthening ideas benefits everyone!',
+    description: 'Your cell discusses ideas together. Anyone can propose a chant — a revised version of any idea. Swipe between original and chant. If 30% of cell members confirm, the chant replaces the original across all cells.',
+    tip: 'Chants can up-pollinate to other cells. Strengthening ideas benefits everyone!',
   },
   {
     title: 'Winners Advance',

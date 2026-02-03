@@ -62,6 +62,8 @@ export type FeedEntry = {
     creatorName?: string | null
     votingDeadline?: string | null
     submissionDeadline?: string | null
+    upvoteCount?: number
+    userUpvoted?: boolean
   }
   cell?: {
     id: string
@@ -153,6 +155,7 @@ async function getDiscovery() {
       votingTimeoutMs: true,
       currentTierStartedAt: true,
       completedAt: true,
+      upvoteCount: true,
       _count: { select: { members: true, ideas: true } },
       community: { select: { name: true } },
       creator: { select: { name: true } },
@@ -200,6 +203,7 @@ type UserContext = {
   cellsByDelib: Map<string, any>
   ideaByDelib: Map<string, any>
   extraVoteEligible: Map<string, string> // deliberationId -> deadline ISO
+  upvotedDelibIds: Set<string>
 }
 
 async function getUserContext(email: string): Promise<UserContext | null> {
@@ -331,7 +335,15 @@ async function getUserContext(email: string): Promise<UserContext | null> {
     }
   }
 
-  return { id: user.id, memberDelibIds, cellsByDelib, ideaByDelib, extraVoteEligible }
+  // Get user's active upvotes (not expired)
+  const upvoteCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const userUpvotes = await prisma.deliberationUpvote.findMany({
+    where: { userId: user.id, createdAt: { gte: upvoteCutoff } },
+    select: { deliberationId: true },
+  })
+  const upvotedDelibIds = new Set(userUpvotes.map(u => u.deliberationId))
+
+  return { id: user.id, memberDelibIds, cellsByDelib, ideaByDelib, extraVoteEligible, upvotedDelibIds }
 }
 
 // ── Tab Handlers ───────────────────────────────────────────────
@@ -366,6 +378,8 @@ async function buildYourTurnFeed(
           ? new Date(d.currentTierStartedAt.getTime() + d.votingTimeoutMs).toISOString()
           : null,
         submissionDeadline: d.submissionEndsAt?.toISOString() ?? null,
+        upvoteCount: d.upvoteCount ?? 0,
+        userUpvoted: userCtx?.upvotedDelibIds.has(d.id) ?? false,
       },
       cell,
       champion,
@@ -525,6 +539,7 @@ async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedRespon
       currentTier: true,
       challengeRound: true,
       completedAt: true,
+      upvoteCount: true,
       _count: { select: { members: true, ideas: true } },
       community: { select: { name: true } },
       creator: { select: { name: true } },
@@ -560,6 +575,8 @@ async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedRespon
         creatorName: d.creator?.name,
         votingDeadline: null,
         submissionDeadline: null,
+        upvoteCount: d.upvoteCount ?? 0,
+        userUpvoted: userCtx?.upvotedDelibIds.has(d.id) ?? false,
       },
       champion,
       myIdea,

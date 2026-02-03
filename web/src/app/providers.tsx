@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import { SessionProvider } from 'next-auth/react'
 import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
+import UserGuide from '@/components/UserGuide'
 import CollectiveChat from '@/components/CollectiveChat'
 import { useOnboarding } from '@/hooks/useOnboarding'
 
@@ -102,6 +103,7 @@ function GuideGate({ children }: { children: React.ReactNode }) {
   return (
     <GuideContext.Provider value={{ showGuide, openGuide, closeGuide }}>
       {children}
+      {showGuide && <UserGuide onClose={closeGuide} />}
     </GuideContext.Provider>
   )
 }

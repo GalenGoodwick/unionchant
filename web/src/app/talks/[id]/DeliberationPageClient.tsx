@@ -1307,6 +1307,9 @@ export default function DeliberationPageClient() {
   const [sendingInvites, setSendingInvites] = useState(false)
   const [inviteResult, setInviteResult] = useState<{ sent: number; failed: number } | null>(null)
   const [copiedInviteLink, setCopiedInviteLink] = useState(false)
+  const [upvoted, setUpvoted] = useState(false)
+  const [upvoteCount, setUpvoteCount] = useState(0)
+  const [upvoteLoading, setUpvoteLoading] = useState(false)
 
   const id = params.id as string
 
@@ -1342,7 +1345,32 @@ export default function DeliberationPageClient() {
     }
   }
 
-  useEffect(() => { fetchDeliberation() }, [id])
+  // Fetch upvote state
+  const fetchUpvote = async () => {
+    try {
+      const res = await fetch(`/api/deliberations/${id}/upvote`)
+      if (res.ok) {
+        const data = await res.json()
+        setUpvoted(data.userUpvoted)
+        setUpvoteCount(data.upvoteCount)
+      }
+    } catch { /* ignore */ }
+  }
+
+  const handleUpvote = async () => {
+    setUpvoteLoading(true)
+    try {
+      const res = await fetch(`/api/deliberations/${id}/upvote`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setUpvoted(data.upvoted)
+        setUpvoteCount(data.upvoteCount)
+      }
+    } catch { /* ignore */ }
+    setUpvoteLoading(false)
+  }
+
+  useEffect(() => { fetchDeliberation(); fetchUpvote() }, [id])
 
   useEffect(() => {
     if (deliberation?.phase === 'VOTING') {
@@ -1558,6 +1586,21 @@ export default function DeliberationPageClient() {
           <div className="flex justify-between items-start gap-2 mb-2">
             <h1 className="text-xl font-bold text-foreground leading-tight">{deliberation.question}</h1>
             <div className="flex gap-1.5 shrink-0 items-center">
+              <button
+                onClick={handleUpvote}
+                disabled={upvoteLoading}
+                className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                  upvoted
+                    ? 'text-accent bg-accent/15 font-medium'
+                    : 'text-muted hover:text-accent hover:bg-accent/10'
+                }`}
+                title={upvoted ? 'Remove upvote' : 'Upvote this talk'}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={upvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+                <span className="font-mono">{upvoteCount}</span>
+              </button>
               <span className={`text-xs font-semibold px-2 py-1 rounded ${phaseColor} bg-surface`}>
                 {phaseLabel(effectivePhase)}
               </span>

@@ -4,8 +4,6 @@ import { useSession } from 'next-auth/react'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
-import { useGuideContext } from '@/app/providers'
-import UserGuide from '@/components/UserGuide'
 import type { FeedEntry, FeedResponse, PulseStats, ActivityItem } from '@/app/api/feed/route'
 
 type Tab = 'your-turn' | 'activity' | 'results'
@@ -18,7 +16,6 @@ const POLL_INTERVALS: Record<Tab, number> = {
 
 export default function FeedPage() {
   const { data: session, status } = useSession()
-  const { showGuide, closeGuide } = useGuideContext()
   const [tab, setTab] = useState<Tab>('your-turn')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -73,8 +70,6 @@ export default function FeedPage() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      {showGuide && <UserGuide onClose={closeGuide} />}
-
       {/* Tab Bar */}
       <div className="sticky top-0 z-30 bg-surface border-b border-border">
         <div className="max-w-xl mx-auto flex" role="tablist">
@@ -259,7 +254,10 @@ function ResultCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
     <Card accentColor="var(--color-success)" href={`/talks/${d.id}`}>
-      <Badge color="var(--color-success)" bg="var(--color-success-bg)">{'\u{1F451}'} Priority Declared</Badge>
+      <div className="flex justify-between items-center">
+        <Badge color="var(--color-success)" bg="var(--color-success-bg)">{'\u{1F451}'} Priority Declared</Badge>
+        <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+      </div>
       <Question text={d.question} />
       {entry.champion && (
         <div className="mt-2 bg-success-bg border border-success/20 rounded-lg p-2.5">
@@ -402,6 +400,45 @@ function Meta({ children }: { children: React.ReactNode }) {
   return <div className="text-sm text-muted mt-2 flex flex-wrap gap-1.5">{children}</div>
 }
 
+function UpvoteButton({ deliberationId, count, userUpvoted }: { deliberationId: string; count: number; userUpvoted: boolean }) {
+  const [upvoted, setUpvoted] = useState(userUpvoted)
+  const [upvoteCount, setUpvoteCount] = useState(count)
+  const [loading, setLoading] = useState(false)
+
+  const handleUpvote = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/deliberations/${deliberationId}/upvote`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setUpvoted(data.upvoted)
+        setUpvoteCount(data.upvoteCount)
+      }
+    } catch { /* ignore */ }
+    setLoading(false)
+  }
+
+  return (
+    <button
+      onClick={handleUpvote}
+      disabled={loading}
+      className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+        upvoted
+          ? 'text-accent bg-accent/15 font-medium'
+          : 'text-muted hover:text-accent hover:bg-accent/10'
+      }`}
+      title={upvoted ? 'Remove upvote' : 'Upvote this talk'}
+    >
+      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={upvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+      </svg>
+      <span className="font-mono">{upvoteCount}</span>
+    </button>
+  )
+}
+
 // ── PodiumsSummaryCard ─────────────────────────────────────────
 
 function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
@@ -455,7 +492,10 @@ function WaitingCard({ entry }: { entry: FeedEntry }) {
       <Card accentColor="var(--color-border)" href={`/talks/${d.id}`}>
         <div className="flex justify-between items-center">
           <Badge color="var(--color-muted)" bg="rgba(113,113,122,0.1)">{'\u23F3'} Waiting &middot; Tier {d.tier}</Badge>
-          {d.votingDeadline && <span className="text-xs font-mono text-muted-light">{timeLeft(d.votingDeadline)}</span>}
+          <div className="flex items-center gap-2">
+            {d.votingDeadline && <span className="text-xs font-mono text-muted-light">{timeLeft(d.votingDeadline)}</span>}
+            <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+          </div>
         </div>
         <Question text={d.question} />
         <Meta>
@@ -569,7 +609,10 @@ function VoteNowCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-warning)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-warning)" bg="var(--color-warning-bg)">Vote Now &middot; Tier {d.tier}</Badge>
-        <span className="text-xs font-mono font-semibold text-warning">{d.votingDeadline ? timeLeft(d.votingDeadline) : 'Facilitated'}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono font-semibold text-warning">{d.votingDeadline ? timeLeft(d.votingDeadline) : 'Facilitated'}</span>
+          <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+        </div>
       </div>
       <Question text={d.question} />
       {cell && cell.ideas.length > 0 && (
@@ -603,6 +646,7 @@ function DeliberateCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-blue)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-blue)" bg="var(--color-blue-bg)">{'\u{1F4AC}'} Deliberate &middot; Tier {d.tier}</Badge>
+        <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
       </div>
       <Question text={d.question} />
       {cell && cell.ideas.length > 0 && (
@@ -638,7 +682,10 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">{'\u{1F4A1}'} Submit Ideas</Badge>
-        <span className="text-xs text-muted-light">{d.submissionDeadline ? `${timeLeft(d.submissionDeadline)} left` : 'Facilitated'}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-light">{d.submissionDeadline ? `${timeLeft(d.submissionDeadline)} left` : 'Facilitated'}</span>
+          <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+        </div>
       </div>
       <Question text={d.question} />
       <Meta>
@@ -661,7 +708,10 @@ function JoinCard({ entry }: { entry: FeedEntry }) {
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">
           Join &middot; {d.phase === 'SUBMISSION' ? 'Accepting Ideas' : `Tier ${d.tier}`}
         </Badge>
-        {d.submissionDeadline && <span className="text-xs text-muted-light">{timeLeft(d.submissionDeadline)} left</span>}
+        <div className="flex items-center gap-2">
+          {d.submissionDeadline && <span className="text-xs text-muted-light">{timeLeft(d.submissionDeadline)} left</span>}
+          <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+        </div>
       </div>
       <Question text={d.question} />
       {d.communityName && <div className="text-xs text-muted mt-1">{d.communityName}</div>}
@@ -688,7 +738,10 @@ function ChampionCardInline({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-purple)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-purple)" bg="var(--color-purple-bg)">{'\u2605'} Accepting New Ideas</Badge>
-        <span className="text-xs font-mono font-semibold text-purple">Facilitated</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono font-semibold text-purple">Facilitated</span>
+          <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+        </div>
       </div>
       <Question text={d.question} />
       {entry.champion && (
@@ -713,7 +766,10 @@ function ChallengeCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-orange)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-orange)" bg="var(--color-orange-bg)">Challenge Vote &middot; Round {d.challengeRound + 1} &middot; Tier {d.tier}</Badge>
-        <span className="text-xs font-mono font-semibold text-orange">{d.votingDeadline ? `${timeLeft(d.votingDeadline)} left` : 'Facilitated'}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-mono font-semibold text-orange">{d.votingDeadline ? `${timeLeft(d.votingDeadline)} left` : 'Facilitated'}</span>
+          <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+        </div>
       </div>
       <Question text={d.question} />
       <Meta>
@@ -738,9 +794,12 @@ function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">Extra Vote &middot; Tier {d.tier}</Badge>
-        {entry.secondVoteDeadline && (
-          <span className="text-xs font-mono font-semibold text-accent">{timeLeft(entry.secondVoteDeadline)} left</span>
-        )}
+        <div className="flex items-center gap-2">
+          {entry.secondVoteDeadline && (
+            <span className="text-xs font-mono font-semibold text-accent">{timeLeft(entry.secondVoteDeadline)} left</span>
+          )}
+          <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+        </div>
       </div>
       <Question text={d.question} />
       <div className="mt-2 bg-accent-light border border-accent/20 rounded-lg p-2.5">
@@ -757,7 +816,10 @@ function CompletedCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
     <Card href={`/talks/${d.id}`}>
-      <Badge color="var(--color-success)" bg="var(--color-success-bg)">Priority Declared</Badge>
+      <div className="flex justify-between items-center">
+        <Badge color="var(--color-success)" bg="var(--color-success-bg)">Priority Declared</Badge>
+        <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
+      </div>
       <Question text={d.question} />
       {entry.champion && (
         <div className="mt-3 bg-success-bg border border-success/20 rounded-lg p-2.5">
