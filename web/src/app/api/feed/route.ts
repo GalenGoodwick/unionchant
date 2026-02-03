@@ -9,6 +9,27 @@ import { getCachedPodiums, setCachedPodiums } from '@/lib/podium-cache'
 let discoveryCache: { data: any[]; ts: number } | null = null
 const DISCOVERY_TTL = 30_000
 
+// Per-user+tab response cache (15s TTL, avoids redundant DB queries during polling)
+const responseCache = new Map<string, { data: FeedResponse; ts: number }>()
+const RESPONSE_TTL = 15_000
+const MAX_CACHE_ENTRIES = 500
+
+function getCachedResponse(key: string): FeedResponse | null {
+  const entry = responseCache.get(key)
+  if (entry && Date.now() - entry.ts < RESPONSE_TTL) return entry.data
+  if (entry) responseCache.delete(key)
+  return null
+}
+
+function setCachedResponse(key: string, data: FeedResponse) {
+  // Evict oldest entries if cache grows too large
+  if (responseCache.size >= MAX_CACHE_ENTRIES) {
+    const oldest = responseCache.keys().next().value
+    if (oldest) responseCache.delete(oldest)
+  }
+  responseCache.set(key, { data, ts: Date.now() })
+}
+
 // ── Types ──────────────────────────────────────────────────────
 export type FeedEntryKind =
   | 'podium'
@@ -557,28 +578,32 @@ async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedRespon
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   const tab = (request.nextUrl.searchParams.get('tab') || 'your-turn') as TabParam
+  const cacheKey = `${session?.user?.email || 'anon'}:${tab}`
+
+  // Return cached response if fresh (15s TTL)
+  const cached = getCachedResponse(cacheKey)
+  if (cached) return NextResponse.json(cached)
+
+  let response: FeedResponse
 
   if (tab === 'activity') {
     const userId = session?.user?.email
       ? (await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } }))?.id ?? null
       : null
-    const response = await buildActivityFeed(userId)
-    return NextResponse.json(response)
-  }
-
-  if (tab === 'results') {
+    response = await buildActivityFeed(userId)
+  } else if (tab === 'results') {
     const userCtx = session?.user?.email ? await getUserContext(session.user.email) : null
-    const response = await buildResultsFeed(userCtx)
-    return NextResponse.json(response)
+    response = await buildResultsFeed(userCtx)
+  } else {
+    // Default: your-turn tab
+    const [deliberations, podiums, userCtx] = await Promise.all([
+      getDiscovery(),
+      getPodiums(),
+      session?.user?.email ? getUserContext(session.user.email) : null,
+    ])
+    response = await buildYourTurnFeed(deliberations, podiums, userCtx)
   }
 
-  // Default: your-turn tab
-  const [deliberations, podiums, userCtx] = await Promise.all([
-    getDiscovery(),
-    getPodiums(),
-    session?.user?.email ? getUserContext(session.user.email) : null,
-  ])
-
-  const response = await buildYourTurnFeed(deliberations, podiums, userCtx)
+  setCachedResponse(cacheKey, response)
   return NextResponse.json(response)
 }

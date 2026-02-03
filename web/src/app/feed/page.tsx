@@ -21,6 +21,7 @@ export default function FeedPage() {
   const { showGuide, closeGuide } = useGuideContext()
   const [tab, setTab] = useState<Tab>('your-turn')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
 
   // Per-tab cached data
   const [yourTurnData, setYourTurnData] = useState<{ items: FeedEntry[]; actionableCount: number }>({ items: [], actionableCount: 0 })
@@ -34,6 +35,7 @@ export default function FeedPage() {
       const res = await fetch(`/api/feed?tab=${targetTab}`)
       if (res.ok) {
         const data: FeedResponse = await res.json()
+        setError(false)
         if (targetTab === 'your-turn') {
           setYourTurnData({ items: data.items, actionableCount: data.actionableCount ?? 0 })
         } else if (targetTab === 'activity') {
@@ -41,9 +43,11 @@ export default function FeedPage() {
         } else {
           setResultsData({ items: data.items })
         }
+      } else {
+        setError(true)
       }
     } catch {
-      // silent
+      setError(true)
     } finally {
       setLoading(false)
     }
@@ -94,6 +98,17 @@ export default function FeedPage() {
       </div>
 
       <main className="max-w-xl mx-auto px-4 py-4">
+        {error && (
+          <div className="bg-error-bg border border-error/20 rounded-lg p-4 mb-4 text-center">
+            <p className="text-sm text-error mb-2">Could not load feed</p>
+            <button
+              onClick={() => { setError(false); setLoading(true); fetchFeed(tab) }}
+              className="text-xs text-accent hover:underline"
+            >
+              Try again
+            </button>
+          </div>
+        )}
         {loading && (tab === 'your-turn' ? yourTurnData.items.length === 0 : tab === 'activity' ? !activityData.pulse : resultsData.items.length === 0) ? (
           <div className="text-center py-20 text-muted">Loading...</div>
         ) : tab === 'your-turn' ? (
