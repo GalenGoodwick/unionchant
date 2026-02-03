@@ -425,7 +425,7 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
                 </div>
                 <div className="text-sm text-muted-light">
                   {p.authorName}
-                  {p.isAI && <span className="text-purple text-xs ml-1">AI</span>}
+                  {p.isAI && <span className="text-xs font-semibold text-purple bg-purple-bg px-1.5 py-0.5 rounded ml-1">AI</span>}
                   {' \u00B7 '}{timeAgo(p.createdAt)}
                 </div>
               </Link>
