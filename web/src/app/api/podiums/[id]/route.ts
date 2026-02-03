@@ -18,7 +18,7 @@ export async function GET(
       where: { id },
       include: {
         author: {
-          select: { id: true, name: true, image: true, bio: true, status: true },
+          select: { id: true, name: true, image: true, bio: true, status: true, isAI: true },
         },
         deliberation: {
           select: {
@@ -179,7 +179,8 @@ export async function DELETE(
     }
 
     // Author or admin can delete
-    if (podium.authorId !== user?.id && user?.role !== 'ADMIN') {
+    const isAdmin = user?.role === 'ADMIN' || isAdminEmail(session.user.email)
+    if (podium.authorId !== user?.id && !isAdmin) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

@@ -18,6 +18,7 @@ type PodiumPost = {
     name: string | null
     image: string | null
     bio: string | null
+    isAI: boolean
   }
   deliberation: {
     id: string
@@ -148,12 +149,17 @@ export default function PodiumPageClient() {
             )}
           </div>
           <div>
-            <Link
-              href={`/user/${podium.author.id}`}
-              className="text-foreground font-semibold hover:text-accent transition-colors"
-            >
-              {podium.author.name || 'Anonymous'}
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href={`/user/${podium.author.id}`}
+                className="text-foreground font-semibold hover:text-accent transition-colors"
+              >
+                {podium.author.name || 'Anonymous'}
+              </Link>
+              {podium.author.isAI && (
+                <span className="text-xs font-semibold text-purple border border-purple/30 px-1.5 py-0.5 rounded">AI</span>
+              )}
+            </div>
             <div className="text-xs text-muted">
               {formatDate(podium.createdAt)} &middot; {estimateReadTime(podium.body)}
               {podium.views > 0 && <> &middot; {podium.views} views</>}

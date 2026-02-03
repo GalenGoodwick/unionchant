@@ -136,7 +136,7 @@ export default function AdminPage() {
   // Podiums state
   const [podiums, setPodiums] = useState<Array<{
     id: string; title: string; pinned: boolean; views: number; createdAt: string
-    author: { id: string; name: string | null; image: string | null }
+    author: { id: string; name: string | null; image: string | null; isAI?: boolean }
     deliberation: { id: string; question: string } | null
   }>>([])
   const [podiumsLoading, setPodiumsLoading] = useState(false)
@@ -198,9 +198,12 @@ export default function AdminPage() {
       const res = await fetch(`/api/podiums/${podiumId}`, { method: 'DELETE' })
       if (res.ok) {
         setPodiums(prev => prev.filter(p => p.id !== podiumId))
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(`Delete failed: ${data.error || res.status}`)
       }
-    } catch {
-      console.error('Failed to delete podium')
+    } catch (err) {
+      alert(`Delete failed: ${err}`)
     } finally {
       setPodiumActioning(null)
     }
@@ -804,6 +807,7 @@ export default function AdminPage() {
                           <Link href={`/user/${p.author.id}`} className="flex items-center gap-2 text-sm text-muted hover:text-accent">
                             <UserAvatar image={p.author.image} name={p.author.name} />
                             <span>{p.author.name || 'Anonymous'}</span>
+                            {p.author.isAI && <span className="text-[10px] font-semibold text-purple border border-purple/30 px-1 py-0.5 rounded">AI</span>}
                           </Link>
                         </td>
                         <td className="p-4">
