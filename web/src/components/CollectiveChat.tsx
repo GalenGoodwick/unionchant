@@ -14,6 +14,11 @@ interface Message {
   createdAt: string
 }
 
+interface ExistingTalk {
+  id: string
+  question: string
+}
+
 export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const { data: session } = useSession()
   const [messages, setMessages] = useState<Message[]>([])
@@ -23,6 +28,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [subscribeRequired, setSubscribeRequired] = useState(false)
   const [subscribing, setSubscribing] = useState(false)
   const [subscribed, setSubscribed] = useState<boolean | null>(null)
+  const [existingTalk, setExistingTalk] = useState<ExistingTalk | null>(null)
+  const [confirmReplace, setConfirmReplace] = useState(false)
+  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
@@ -38,6 +46,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         if (res.ok) {
           const data = await res.json()
           setMessages(data.messages)
+          if (data.existingTalk) {
+            setExistingTalk(data.existingTalk)
+          }
         }
       } catch {
         // Silently fail polling
@@ -71,7 +82,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     checkSubscription()
   }, [session?.user?.email])
 
-  // Auto-scroll on new messages
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
@@ -96,19 +106,17 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  const handleSend = async () => {
-    if (!input.trim() || sending) return
-
-    const messageText = input.trim()
-    setInput('')
+  const sendMessage = async (messageText: string, replaceExisting: boolean = false) => {
     setSending(true)
     setError(null)
+    setConfirmReplace(false)
+    setPendingMessage(null)
 
     try {
       const res = await fetch('/api/collective-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, model: 'haiku' }),
+        body: JSON.stringify({ message: messageText, model: 'haiku', replaceExisting }),
       })
 
       const data = await res.json()
@@ -116,7 +124,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       if (!res.ok) {
         if (data.error === 'SUBSCRIBE_REQUIRED') {
           setSubscribeRequired(true)
-          setInput(messageText) // Restore message
+          setInput(messageText)
+          return
+        }
+        if (data.error === 'HAS_EXISTING_TALK') {
+          // Show confirmation — user must decide
+          setExistingTalk(data.existingTalk)
+          setPendingMessage(messageText)
+          setConfirmReplace(true)
           return
         }
         setError(data.error || 'Failed to send message')
@@ -124,7 +139,12 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         return
       }
 
-      // Refetch messages to get the full updated list
+      // Update existing talk reference
+      if (data.talkCreated) {
+        setExistingTalk(data.talkCreated)
+      }
+
+      // Refetch messages
       const messagesRes = await fetch('/api/collective-chat')
       if (messagesRes.ok) {
         const messagesData = await messagesRes.json()
@@ -138,6 +158,26 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
   }
 
+  const handleSend = async () => {
+    if (!input.trim() || sending) return
+    const messageText = input.trim()
+    setInput('')
+    await sendMessage(messageText)
+  }
+
+  const handleConfirmReplace = async () => {
+    if (!pendingMessage) return
+    await sendMessage(pendingMessage, true)
+  }
+
+  const handleCancelReplace = () => {
+    setConfirmReplace(false)
+    if (pendingMessage) {
+      setInput(pendingMessage)
+    }
+    setPendingMessage(null)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -146,20 +186,20 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className="rounded-xl border border-border bg-surface overflow-hidden">
+    <div className="rounded-xl border border-gold-border bg-surface overflow-hidden">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-border bg-surface-hover/50">
+      <div className="px-4 py-3 border-b border-gold-border bg-gold-bg">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-foreground font-sans">
+            <h3 className="text-sm font-semibold text-gold font-sans">
               The Collective
             </h3>
             <p className="text-xs text-muted">
-              Chat with the AI deliberation
+              Every message creates a Talk
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20 font-mono">
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gold-bg text-gold border border-gold-border font-mono">
               Haiku
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted-light border border-border font-mono cursor-not-allowed" title="Coming soon">
@@ -183,16 +223,31 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       </div>
 
+      {/* Your active Talk */}
+      {existingTalk && !confirmReplace && (
+        <div className="px-4 py-2 border-b border-gold-border bg-gold-bg">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gold-muted font-mono uppercase">Your Talk</span>
+            <Link
+              href={`/talks/${existingTalk.id}`}
+              className="flex-1 text-xs text-gold hover:text-gold-hover truncate transition-colors"
+            >
+              {existingTalk.question}
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div
         ref={chatContainerRef}
-        className="h-[340px] overflow-y-auto px-4 py-3 space-y-3"
+        className="h-[300px] overflow-y-auto px-4 py-3 space-y-3"
       >
         {messages.length === 0 && (
           <div className="text-center text-muted text-sm py-12">
-            <p className="mb-1">100 AI agents are deliberating.</p>
+            <p className="mb-1 text-gold/80">100 AI agents are deliberating.</p>
             <p className="text-muted-light text-xs">
-              Ask them what they&apos;re thinking.
+              Your message becomes a Talk that others can join.
             </p>
           </div>
         )}
@@ -207,8 +262,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             <div
               className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                 msg.role === 'assistant'
-                  ? 'bg-accent/10 border border-accent/20 text-foreground'
-                  : 'bg-surface-hover text-foreground'
+                  ? 'bg-gold-bg border border-gold-border text-foreground'
+                  : 'bg-surface-hover border border-border text-foreground'
               }`}
             >
               {msg.role === 'user' && (
@@ -217,7 +272,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 </div>
               )}
               {msg.role === 'assistant' && (
-                <div className="text-[10px] text-accent mb-0.5 font-mono">
+                <div className="text-[10px] text-gold mb-0.5 font-mono">
                   Collective
                 </div>
               )}
@@ -234,8 +289,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
 
         {sending && (
           <div className="flex items-start">
-            <div className="bg-accent/10 border border-accent/20 rounded-lg px-3 py-2 text-sm text-muted">
-              <div className="text-[10px] text-accent mb-0.5 font-mono">Collective</div>
+            <div className="bg-gold-bg border border-gold-border rounded-lg px-3 py-2 text-sm text-muted">
+              <div className="text-[10px] text-gold mb-0.5 font-mono">Collective</div>
               <span className="animate-pulse">Thinking...</span>
             </div>
           </div>
@@ -244,16 +299,46 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Confirm replacement dialog */}
+      {confirmReplace && existingTalk && (
+        <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
+          <p className="text-sm text-foreground mb-1">
+            You already have a Talk:
+          </p>
+          <p className="text-xs text-gold mb-3 italic truncate">
+            &ldquo;{existingTalk.question}&rdquo;
+          </p>
+          <p className="text-xs text-muted mb-3">
+            Sending this message will <strong className="text-error">delete</strong> your existing Talk and create a new one. All ideas, votes, and comments on it will be lost.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleConfirmReplace}
+              disabled={sending}
+              className="text-xs px-3 py-1.5 rounded-lg bg-gold hover:bg-gold-hover text-background font-medium transition-colors disabled:opacity-50"
+            >
+              {sending ? 'Replacing...' : 'Replace Talk'}
+            </button>
+            <button
+              onClick={handleCancelReplace}
+              className="text-xs px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-hover text-foreground border border-border transition-colors"
+            >
+              Keep existing
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Subscribe gate */}
-      {subscribeRequired && (
-        <div className="px-4 py-3 border-t border-border bg-warning-bg">
+      {subscribeRequired && !confirmReplace && (
+        <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
           <p className="text-sm text-foreground mb-2">
-            Subscribe to email notifications to chat with the collective. You can unsubscribe anytime in settings.
+            Subscribe to email notifications to chat with the collective. You can unsubscribe anytime.
           </p>
           <button
             onClick={handleSubscribe}
             disabled={subscribing}
-            className="text-sm px-4 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium transition-colors disabled:opacity-50"
+            className="text-sm px-4 py-1.5 rounded-lg bg-gold hover:bg-gold-hover text-background font-medium transition-colors disabled:opacity-50"
           >
             {subscribing ? 'Subscribing...' : 'Subscribe & Chat'}
           </button>
@@ -261,14 +346,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       )}
 
       {/* Error */}
-      {error && !subscribeRequired && (
+      {error && !subscribeRequired && !confirmReplace && (
         <div className="px-4 py-2 border-t border-error-border bg-error-bg text-error text-xs">
           {error}
         </div>
       )}
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-border">
+      <div className="px-4 py-3 border-t border-gold-border">
         {session ? (
           <div className="flex gap-2">
             <input
@@ -279,16 +364,18 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               placeholder={
                 subscribed === false
                   ? 'Subscribe to notifications to chat...'
-                  : 'Ask the collective...'
+                  : existingTalk
+                    ? 'New message replaces your Talk...'
+                    : 'Your message becomes a Talk...'
               }
-              disabled={sending}
+              disabled={sending || confirmReplace}
               maxLength={2000}
-              className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+              className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || sending}
-              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!input.trim() || sending || confirmReplace}
+              className="px-4 py-2 bg-gold hover:bg-gold-hover text-background text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send
             </button>
@@ -296,7 +383,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         ) : (
           <Link
             href="/auth/signup"
-            className="block text-center text-sm text-accent hover:text-accent-hover transition-colors"
+            className="block text-center text-sm text-gold hover:text-gold-hover transition-colors"
           >
             Sign in to chat with the collective
           </Link>

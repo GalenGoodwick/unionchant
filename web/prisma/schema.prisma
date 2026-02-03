@@ -181,6 +181,8 @@ model Deliberation {
 
   // Showcase flag (for AI-populated deliberation)
   isShowcase    Boolean  @default(false)
+  // Created from collective chat (one per user)
+  fromCollective Boolean @default(false)
 
   // Relations
   members       DeliberationMember[]

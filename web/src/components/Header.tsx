@@ -113,8 +113,8 @@ export default function Header() {
             onClick={toggleChat}
             className={`relative group flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
               chatOpen
-                ? 'bg-accent/20 text-accent'
-                : 'hover:bg-header-hover text-white/70 hover:text-accent'
+                ? 'bg-gold/20 text-gold'
+                : 'hover:bg-header-hover text-white/70 hover:text-gold'
             }`}
             aria-label="Collective Consciousness"
             title="Collective Consciousness"
@@ -125,7 +125,7 @@ export default function Header() {
               <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
             </svg>
             <span className="text-xs font-medium hidden lg:inline">Collective</span>
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full animate-pulse" />
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-gold rounded-full animate-pulse" />
           </button>
           {session && <NotificationBell />}
           {session?.user ? (
@@ -163,7 +163,7 @@ export default function Header() {
           <button
             onClick={toggleChat}
             className={`p-1.5 rounded-lg transition-colors ${
-              chatOpen ? 'text-accent' : 'text-white/70 hover:text-accent'
+              chatOpen ? 'text-gold' : 'text-white/70 hover:text-gold'
             }`}
             aria-label="Collective Consciousness"
           >
