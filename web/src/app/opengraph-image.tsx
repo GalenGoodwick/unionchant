@@ -62,7 +62,6 @@ export default async function Image() {
             paddingLeft: 80,
             paddingRight: 40,
             width: '55%',
-            zIndex: 2,
           }}
         >
           <div
@@ -78,6 +77,8 @@ export default async function Image() {
           </div>
           <div
             style={{
+              display: 'flex',
+              flexDirection: 'column',
               fontSize: 28,
               color: '#0891b2',
               lineHeight: 1.4,
@@ -85,9 +86,8 @@ export default async function Image() {
               marginBottom: 32,
             }}
           >
-            Query your crowd.
-            <br />
-            Get a collective answer.
+            <span>Query your crowd.</span>
+            <span>Get a collective answer.</span>
           </div>
           <div
             style={{

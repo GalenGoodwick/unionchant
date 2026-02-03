@@ -96,10 +96,8 @@ Union-Rolling/
 │   └── prisma/
 │       └── schema.prisma          # Database schema
 │
-├── core/                          # Original demo engine (reference only)
-│   └── union-chant-engine.js      # Stable algorithm reference
-│
-└── START-HERE.md                  # Original documentation (outdated)
+└── core/                          # Algorithm reference (not imported by web/)
+    └── union-chant-engine.js      # Stable algorithm reference
 ```
 
 ---
