@@ -46,10 +46,10 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
-    { href: '/feed2', label: 'Feed', authRequired: true, highlight: true },
-    { href: '/communities', label: 'Rallies' },
-    { href: '/deliberations', label: 'Talks' },
-    { href: '/about', label: 'About' },
+    { href: '/feed', label: 'Feed', authRequired: true, highlight: true },
+    { href: '/groups', label: 'Groups' },
+    { href: '/talks', label: 'Talks' },
+    { href: '/podiums', label: 'Podiums' },
     { href: '/donate', label: 'Donate' },
   ]
 
@@ -87,12 +87,9 @@ export default function Header() {
               Manage
             </Link>
           )}
-          <Link href="/podiums" className="hover:text-accent-light transition-colors">
-            Podiums
-          </Link>
           {session && (
             <Link
-              href="/deliberations/new"
+              href="/talks/new"
               className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-bold flex items-center justify-center"
               aria-label="Create talk"
               title="Create talk"
@@ -189,7 +186,7 @@ export default function Header() {
             )}
             {session && (
               <Link
-                href="/deliberations/new"
+                href="/talks/new"
                 onClick={() => setMenuOpen(false)}
                 className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors flex items-center gap-2"
               >
@@ -197,14 +194,6 @@ export default function Header() {
                 Create Talk
               </Link>
             )}
-            <Link
-              href="/podiums"
-              onClick={() => setMenuOpen(false)}
-              className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors flex items-center gap-2"
-            >
-              <span className="w-5 h-5 rounded-full border border-white/30 text-white/60 text-xs font-bold flex items-center justify-center">✎</span>
-              Podiums
-            </Link>
             {session && (
               <Link
                 href="/dashboard"

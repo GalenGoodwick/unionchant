@@ -147,6 +147,7 @@ model Deliberation {
   submissionDurationMs  Int      @default(86400000)  // 24 hours
   votingTimeoutMs       Int      @default(3600000)   // 1 hour
   secondVoteTimeoutMs   Int      @default(900000)    // 15 minutes
+  discussionDurationMs  Int?     // null = no discussion (skip to voting). e.g. 7200000 = 2h. -1 = manual advance only
   accumulationEnabled   Boolean  @default(true)
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
   isPublic              Boolean  @default(true)
@@ -284,6 +285,7 @@ model Cell {
   secondVotesEnabled Boolean @default(false)
 
   // Timing
+  discussionEndsAt  DateTime? // when discussion period ends for this cell
   votingStartedAt   DateTime?
   votingDeadline    DateTime?
   secondVoteDeadline DateTime?
@@ -303,6 +305,7 @@ model Cell {
   @@index([deliberationId, tier])
   @@index([deliberationId, status])
   @@index([status, finalizesAt])
+  @@index([status, discussionEndsAt])
 }
 
 enum CellStatus {
@@ -698,6 +701,7 @@ model Podium {
   deliberation    Deliberation? @relation(fields: [deliberationId], references: [id], onDelete: SetNull)
 
   views           Int      @default(0)
+  pinned          Boolean  @default(false)
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

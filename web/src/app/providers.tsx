@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback } from 'react'
+import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { SessionProvider } from 'next-auth/react'
 import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
@@ -19,6 +19,57 @@ const OnboardingContext = createContext<OnboardingContextType>({
 export function useOnboardingContext() {
   return useContext(OnboardingContext)
 }
+
+// ── Theme ─────────────────────────────────────────────────────
+
+type ThemeContextType = {
+  theme: 'dark' | 'light'
+  toggleTheme: () => void
+}
+
+const ThemeContext = createContext<ThemeContextType>({
+  theme: 'dark',
+  toggleTheme: () => {},
+})
+
+export function useTheme() {
+  return useContext(ThemeContext)
+}
+
+function ThemeGate({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  useEffect(() => {
+    const stored = localStorage.getItem('theme')
+    if (stored === 'light') {
+      setTheme('light')
+      document.documentElement.classList.add('light')
+    } else {
+      document.documentElement.classList.remove('light')
+    }
+  }, [])
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const next = prev === 'dark' ? 'light' : 'dark'
+      localStorage.setItem('theme', next)
+      if (next === 'light') {
+        document.documentElement.classList.add('light')
+      } else {
+        document.documentElement.classList.remove('light')
+      }
+      return next
+    })
+  }, [])
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  )
+}
+
+// ── Guide ──────────────────────────────────────────────────────
 
 type GuideContextType = {
   showGuide: boolean
@@ -68,13 +119,15 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
-      <ToastProvider>
-        <GuideGate>
-          <OnboardingGate>
-            {children}
-          </OnboardingGate>
-        </GuideGate>
-      </ToastProvider>
+      <ThemeGate>
+        <ToastProvider>
+          <GuideGate>
+            <OnboardingGate>
+              {children}
+            </OnboardingGate>
+          </GuideGate>
+        </ToastProvider>
+      </ThemeGate>
     </SessionProvider>
   )
 }

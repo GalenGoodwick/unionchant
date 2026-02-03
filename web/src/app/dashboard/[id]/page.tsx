@@ -5,6 +5,7 @@ import { useRouter, useParams } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import { phaseLabel } from '@/lib/labels'
 
 interface Deliberation {
   id: string
@@ -81,6 +82,13 @@ export default function DashboardDetailPage() {
   const [goalValue, setGoalValue] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Linked podiums
+  const [linkedPodiums, setLinkedPodiums] = useState<Array<{
+    id: string; title: string; views: number; pinned: boolean; createdAt: string
+    author: { id: string; name: string | null }
+  }>>([])
+  const [podiumsLoading, setPodiumsLoading] = useState(true)
+
   // Action state
   const [actionLoading, setActionLoading] = useState('')
   const [actionMessage, setActionMessage] = useState('')
@@ -123,6 +131,12 @@ export default function DashboardDetailPage() {
     }
     if (status === 'authenticated') {
       fetchDeliberation()
+      // Fetch linked podiums
+      fetch(`/api/podiums?deliberationId=${deliberationId}&limit=20`)
+        .then(res => res.ok ? res.json() : { items: [] })
+        .then(data => setLinkedPodiums(data.items || []))
+        .catch(() => {})
+        .finally(() => setPodiumsLoading(false))
       const interval = setInterval(fetchDeliberation, 5000)
       return () => clearInterval(interval)
     }
@@ -154,7 +168,7 @@ export default function DashboardDetailPage() {
   const handleDelete = async () => {
     setDeleting(true)
     try {
-      const res = await fetch(`/api/admin/deliberations/${deliberationId}`, { method: 'DELETE' })
+      const res = await fetch(`/api/admin/talks/${deliberationId}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json()
         setActionMessage(`Error: ${data.error || 'Failed to delete'}`)
@@ -199,7 +213,7 @@ export default function DashboardDetailPage() {
     return (
       <div className="min-h-screen bg-background">
         <Header />
-        <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="max-w-xl mx-auto px-4 py-8">
           <div className="animate-pulse h-8 bg-surface rounded w-1/3" />
         </div>
       </div>
@@ -210,11 +224,11 @@ export default function DashboardDetailPage() {
     return (
       <div className="min-h-screen bg-background">
         <Header />
-        <div className="max-w-6xl mx-auto px-4 py-8">
+        <div className="max-w-xl mx-auto px-4 py-8">
           <Link href="/dashboard" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
             &larr; Back to Dashboard
           </Link>
-          <div className="bg-error-bg text-error p-4 rounded-lg">
+          <div className="bg-error-bg text-error p-4 rounded-xl">
             {error || 'Deliberation not found'}
           </div>
         </div>
@@ -238,7 +252,7 @@ export default function DashboardDetailPage() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-xl mx-auto px-4 py-6">
         <Link href="/dashboard" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
           &larr; Back to Dashboard
         </Link>
@@ -252,9 +266,9 @@ export default function DashboardDetailPage() {
             )}
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <span className={`px-2 py-1 rounded text-white text-sm ${phaseColors[deliberation.phase] || 'bg-muted'}`}>
-                {deliberation.phase}
+                {phaseLabel(deliberation.phase)}
               </span>
-              <span className={`px-2 py-1 rounded text-sm ${deliberation.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-error-bg text-error border border-error'}`}>
+              <span className={`px-2 py-1 rounded text-sm ${deliberation.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-surface-hover text-muted border border-border'}`}>
                 {deliberation.isPublic ? 'Public' : 'Private'}
               </span>
               <span className="text-muted">Tier {deliberation.currentTier}</span>
@@ -285,12 +299,20 @@ export default function DashboardDetailPage() {
               </div>
             </div>
           </div>
-          <Link
-            href={`/deliberations/${deliberation.id}`}
-            className="text-accent hover:underline text-sm shrink-0"
-          >
-            View Public Page &rarr;
-          </Link>
+          <div className="flex flex-col gap-1 shrink-0 text-right">
+            <Link
+              href={`/talks/${deliberation.id}`}
+              className="text-accent hover:underline text-sm"
+            >
+              View Public Page &rarr;
+            </Link>
+            <Link
+              href={`/talks/${deliberation.id}/details`}
+              className="text-accent hover:underline text-sm"
+            >
+              View Details &rarr;
+            </Link>
+          </div>
         </div>
 
         {/* Champion Banner */}
@@ -298,7 +320,7 @@ export default function DashboardDetailPage() {
           const champion = deliberation.ideas.find(i => i.isChampion || i.status === 'WINNER')
           if (!champion) return null
           return (
-            <div className={`mb-6 p-4 rounded-lg border ${
+            <div className={`mb-6 p-4 rounded-xl border ${
               deliberation.phase === 'ACCUMULATING'
                 ? 'bg-purple-bg border-purple'
                 : 'bg-success-bg border-success'
@@ -306,7 +328,7 @@ export default function DashboardDetailPage() {
               <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
                 deliberation.phase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
               }`}>
-                {deliberation.phase === 'ACCUMULATING' ? 'Champion (Accepting Challengers)' : 'Winner'}
+                {deliberation.phase === 'ACCUMULATING' ? 'Priority (Accepting Challengers)' : 'Winner'}
               </div>
               <p className="text-foreground font-medium text-lg">{champion.text}</p>
               <p className="text-muted text-sm mt-1">{champion.totalVotes} total votes</p>
@@ -316,21 +338,21 @@ export default function DashboardDetailPage() {
 
         {/* Action message */}
         {actionMessage && (
-          <div className={`mb-4 p-3 rounded-lg text-sm ${
+          <div className={`mb-4 p-3 rounded-xl text-sm ${
             actionMessage.startsWith('Error') ? 'bg-error-bg text-error' : 'bg-success-bg text-success'
           }`}>
             {actionMessage}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="flex flex-col gap-4">
           {/* Left Column - Controls & Invites */}
           <div className="space-y-4">
             {/* Facilitator Controls */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-2">Facilitator Controls</h2>
               <p className="text-sm text-muted mb-4">
-                Current phase: <span className="font-medium text-foreground">{deliberation.phase}</span>
+                Current phase: <span className="font-medium text-foreground">{phaseLabel(deliberation.phase)}</span>
               </p>
 
               <div className="space-y-3">
@@ -416,12 +438,12 @@ export default function DashboardDetailPage() {
                     disabled={deliberation.phase !== 'ACCUMULATING' || actionLoading === 'start-challenge'}
                     className="w-full bg-purple hover:bg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
                   >
-                    Start Challenge Round
+                    Start Round 2
                   </button>
                 ) : (
                   <div className="space-y-3 border border-purple rounded p-3">
                     <p className="text-sm text-foreground">
-                      This will start a new challenge round. Challenger ideas will compete against the current champion through tiered voting. The champion could be replaced.
+                      This will start a new round. Challenger ideas will compete against the current priority through tiered voting. The priority could be replaced.
                     </p>
                     <div className="flex gap-2">
                       <button
@@ -429,7 +451,7 @@ export default function DashboardDetailPage() {
                         disabled={actionLoading === 'start-challenge'}
                         className="flex-1 bg-purple hover:bg-purple/80 disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
                       >
-                        {actionLoading === 'start-challenge' ? 'Starting...' : 'Yes, Start Challenge'}
+                        {actionLoading === 'start-challenge' ? 'Starting...' : 'Yes, Start Round'}
                       </button>
                       <button
                         onClick={() => setConfirmChallenge(false)}
@@ -441,13 +463,13 @@ export default function DashboardDetailPage() {
                   </div>
                 )}
                 <p className="text-xs text-muted">
-                  Starts a new voting round where challengers compete against the champion.
+                  Starts a new voting round where challengers compete against the current priority.
                 </p>
               </div>
             </div>
 
             {/* Settings */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4">Settings</h2>
 
               <div className="space-y-4">
@@ -584,7 +606,7 @@ export default function DashboardDetailPage() {
             </div>
 
             {/* Up-Pollinated Comments */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4">
                 Up-Pollinated Comments ({upPollinatedComments.length})
               </h2>
@@ -611,7 +633,7 @@ export default function DashboardDetailPage() {
             </div>
 
             {/* Invite Members */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4">Invite Members</h2>
 
               {/* Invite link */}
@@ -690,9 +712,9 @@ export default function DashboardDetailPage() {
               </form>
             </div>
             {/* Export */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-2">Export Data</h2>
-              <p className="text-sm text-muted mb-3">Download deliberation data as JSON, CSV, or PDF.</p>
+              <p className="text-sm text-muted mb-3">Download talk data as JSON, CSV, or PDF.</p>
               <div className="flex gap-2 flex-wrap">
                 <a
                   href={`/api/deliberations/${deliberationId}/export?format=json`}
@@ -718,20 +740,69 @@ export default function DashboardDetailPage() {
               </div>
             </div>
 
+            {/* Linked Podiums */}
+            <div className="bg-surface border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-foreground">
+                  Linked Podiums ({linkedPodiums.length})
+                </h2>
+                <Link
+                  href={`/podium/new?deliberationId=${deliberationId}`}
+                  className="text-accent hover:text-accent-hover text-sm"
+                >
+                  Write Post
+                </Link>
+              </div>
+
+              {podiumsLoading ? (
+                <p className="text-muted text-sm">Loading...</p>
+              ) : linkedPodiums.length === 0 ? (
+                <p className="text-muted text-sm">
+                  No podium posts linked to this talk yet. Write a post to explain context or make the case for this deliberation.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {linkedPodiums.map(p => (
+                    <Link
+                      key={p.id}
+                      href={`/podium/${p.id}`}
+                      className="block bg-background rounded-lg p-3 hover:border-accent border border-border transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            {p.pinned && (
+                              <span className="text-xs bg-warning-bg text-warning px-1.5 py-0.5 rounded border border-warning shrink-0">Pinned</span>
+                            )}
+                            <h3 className="text-foreground font-medium text-sm truncate">{p.title}</h3>
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-xs text-muted">
+                            <span>by {p.author.name || 'Anonymous'}</span>
+                            <span>{p.views} views</span>
+                            <span>{new Date(p.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Danger Zone */}
-            <div className="bg-surface border border-error/30 rounded-lg p-4">
+            <div className="bg-surface border border-error/30 rounded-xl p-4">
               <h2 className="text-lg font-semibold text-error mb-2">Danger Zone</h2>
               {!confirmDelete ? (
                 <button
                   onClick={() => setConfirmDelete(true)}
                   className="w-full border border-error text-error hover:bg-error hover:text-white font-medium px-4 py-2 rounded transition-colors"
                 >
-                  Delete Deliberation
+                  Delete Talk
                 </button>
               ) : (
                 <div className="space-y-3">
                   <p className="text-sm text-foreground">
-                    This will permanently delete this deliberation and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
+                    This will permanently delete this talk and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
                   </p>
                   <div className="flex gap-2">
                     <button
@@ -757,7 +828,7 @@ export default function DashboardDetailPage() {
           {/* Right Column - Info (read-only) */}
           <div className="space-y-4">
             {/* Active Cells */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4">
                 Active Cells ({deliberation.cells.filter(c => c.status === 'VOTING').length})
               </h2>
@@ -855,49 +926,45 @@ export default function DashboardDetailPage() {
               </div>
             </div>
 
-            {/* Ideas by Status */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Ideas by Status ({deliberation.ideas.length} total)</h2>
+            {/* Ideas */}
+            <div className="bg-surface border border-border rounded-xl p-4">
+              <h2 className="text-lg font-semibold text-foreground mb-4">Ideas ({deliberation.ideas.length})</h2>
 
-              <div className="grid grid-cols-2 gap-4">
-                {/* Status breakdown */}
-                <div className="space-y-2">
-                  <div className="text-xs text-muted uppercase tracking-wide mb-2">By Status</div>
-                  {['SUBMITTED', 'PENDING', 'IN_VOTING', 'ADVANCING', 'WINNER', 'ELIMINATED', 'DEFENDING', 'BENCHED', 'RETIRED', 'POOLED'].map(s => {
-                    const count = deliberation.ideas.filter(i => i.status === s).length
-                    return (
-                      <div key={s} className="flex justify-between items-center">
-                        <span className={`text-sm ${count > 0 ? 'text-foreground' : 'text-muted-light'}`}>{s}</span>
-                        <span className={`text-sm font-mono ${count > 0 ? 'text-foreground' : 'text-muted-light'}`}>{count}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Tier breakdown */}
-                <div className="space-y-2">
-                  <div className="text-xs text-muted uppercase tracking-wide mb-2">By Tier Reached</div>
-                  {(() => {
-                    const maxTier = Math.max(...deliberation.ideas.map(i => i.tier), 0)
-                    return Array.from({ length: maxTier + 1 }, (_, tier) => {
-                      const count = deliberation.ideas.filter(i => i.tier === tier).length
-                      return (
-                        <div key={tier} className="flex justify-between items-center">
-                          <span className={`text-sm ${count > 0 ? 'text-foreground' : 'text-muted-light'}`}>
-                            Tier {tier}
-                          </span>
-                          <span className={`text-sm font-mono ${count > 0 ? 'text-foreground' : 'text-muted-light'}`}>
-                            {count}
-                          </span>
+              {/* Status + Tier breakdown — only show when voting has started */}
+              {deliberation.phase !== 'SUBMISSION' && (
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted uppercase tracking-wide mb-2">By Status</div>
+                    {['SUBMITTED', 'PENDING', 'IN_VOTING', 'ADVANCING', 'WINNER', 'ELIMINATED', 'DEFENDING', 'BENCHED', 'RETIRED', 'POOLED']
+                      .map(s => ({ status: s, count: deliberation.ideas.filter(i => i.status === s).length }))
+                      .filter(({ count }) => count > 0)
+                      .map(({ status, count }) => (
+                        <div key={status} className="flex justify-between items-center">
+                          <span className="text-sm text-foreground">{status}</span>
+                          <span className="text-sm font-mono text-foreground">{count}</span>
                         </div>
-                      )
-                    })
-                  })()}
-                  {deliberation.ideas.every(i => i.tier === 0) && (
-                    <div className="text-muted text-sm">No tiers yet</div>
+                      ))}
+                  </div>
+
+                  {!deliberation.ideas.every(i => i.tier === 0) && (
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted uppercase tracking-wide mb-2">By Tier Reached</div>
+                      {(() => {
+                        const maxTier = Math.max(...deliberation.ideas.map(i => i.tier), 0)
+                        return Array.from({ length: maxTier + 1 }, (_, tier) => {
+                          const count = deliberation.ideas.filter(i => i.tier === tier).length
+                          return count > 0 ? (
+                            <div key={tier} className="flex justify-between items-center">
+                              <span className="text-sm text-foreground">Tier {tier}</span>
+                              <span className="text-sm font-mono text-foreground">{count}</span>
+                            </div>
+                          ) : null
+                        })
+                      })()}
+                    </div>
                   )}
                 </div>
-              </div>
+              )}
 
               {/* All Ideas List */}
               <div className="mt-4 pt-4 border-t border-border">
@@ -935,7 +1002,7 @@ export default function DashboardDetailPage() {
             </div>
 
             {/* Recent Comments */}
-            <div className="bg-surface border border-border rounded-lg p-4">
+            <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-4">
                 Recent Comments ({deliberation.cells.reduce((sum, c) => sum + c.comments.length, 0)})
               </h2>

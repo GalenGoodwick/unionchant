@@ -193,7 +193,7 @@ export default function HomeContent({
 
           {metaDeliberation.phase === 'VOTING' && (
             <Link
-              href={`/deliberations/${metaDeliberation.id}`}
+              href={`/talks/${metaDeliberation.id}`}
               className="inline-block bg-purple hover:bg-purple-hover text-white px-8 py-3 rounded-lg font-medium transition-colors"
             >
               Join Voting
@@ -224,7 +224,7 @@ export default function HomeContent({
           {metaDeliberation && (
             <div className="text-center mt-3">
               <Link
-                href={`/deliberations/${metaDeliberation.id}`}
+                href={`/talks/${metaDeliberation.id}`}
                 className="text-purple hover:text-purple-hover text-sm"
               >
                 View all {metaDeliberation._count.ideas} ideas →
@@ -265,7 +265,7 @@ export default function HomeContent({
           <Link href="/how-it-works" className="text-purple hover:text-purple-hover">
             How It Works
           </Link>
-          <Link href="/deliberations" className="text-purple hover:text-purple-hover">
+          <Link href="/talks" className="text-purple hover:text-purple-hover">
             All Deliberations
           </Link>
           <Link href="/whitepaper" className="text-purple hover:text-purple-hover">

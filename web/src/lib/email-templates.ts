@@ -67,7 +67,7 @@ export function cellReadyEmail(params: {
   deliberationId: string
   tier: number
 }) {
-  const voteUrl = `${baseUrl}/deliberations/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/talks/${params.deliberationId}`
 
   return {
     subject: `Time to vote: ${params.question}`,
@@ -90,7 +90,7 @@ export function votingEndingSoonEmail(params: {
   question: string
   deliberationId: string
 }) {
-  const voteUrl = `${baseUrl}/deliberations/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/talks/${params.deliberationId}`
 
   return {
     subject: `Voting ending soon: ${params.question}`,
@@ -114,7 +114,7 @@ export function championDeclaredEmail(params: {
   championText: string
   deliberationId: string
 }) {
-  const resultsUrl = `${baseUrl}/deliberations/${params.deliberationId}`
+  const resultsUrl = `${baseUrl}/talks/${params.deliberationId}`
 
   return {
     subject: `Champion declared: ${params.question}`,
@@ -143,7 +143,7 @@ export function communityInviteEmail(params: {
   inviteCode: string
   description?: string | null
 }) {
-  const joinUrl = `${baseUrl}/communities/invite/${params.inviteCode}`
+  const joinUrl = `${baseUrl}/groups/invite/${params.inviteCode}`
   const descLine = params.description
     ? `<p style="color:#71717a;font-size:14px;margin:8px 0 16px;">${params.description}</p>`
     : ''
@@ -220,7 +220,7 @@ export function followedNewDelibEmail(params: {
   question: string
   deliberationId: string
 }) {
-  const delibUrl = `${baseUrl}/deliberations/${params.deliberationId}`
+  const delibUrl = `${baseUrl}/talks/${params.deliberationId}`
 
   return {
     subject: `"${params.userName}" started a new deliberation`,
@@ -244,7 +244,7 @@ export function newTierEmail(params: {
   deliberationId: string
   tier: number
 }) {
-  const voteUrl = `${baseUrl}/deliberations/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/talks/${params.deliberationId}`
 
   return {
     subject: `New voting tier: ${params.question}`,

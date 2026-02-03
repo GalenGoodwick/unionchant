@@ -181,7 +181,7 @@ export default function NotificationsPage() {
       case 'DELIBERATION_COMPLETE': return 'Complete'
       case 'FOLLOW': return 'New Follower'
       case 'COMMUNITY_INVITE': return 'Invite'
-      case 'COMMUNITY_NEW_DELIB': return 'Community'
+      case 'COMMUNITY_NEW_DELIB': return 'Group'
       case 'FOLLOWED_NEW_DELIB': return 'Following'
       case 'FOLLOWED_VOTED': return 'Following'
       default: return 'Notification'
@@ -217,7 +217,7 @@ export default function NotificationsPage() {
 
   const getLink = (n: Notification) => {
     if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
-    if (n.deliberationId) return `/deliberations/${n.deliberationId}`
+    if (n.deliberationId) return `/talks/${n.deliberationId}`
     return null
   }
 
@@ -227,7 +227,7 @@ export default function NotificationsPage() {
     return (
       <div className="min-h-screen bg-background">
         <Header />
-        <div className="max-w-2xl mx-auto px-4 py-8">
+        <div className="max-w-xl mx-auto px-4 py-8">
           <div className="flex flex-col items-center gap-6 py-12">
             <Spinner size="lg" label="Loading notifications" />
           </div>
@@ -240,7 +240,7 @@ export default function NotificationsPage() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <div className="max-w-2xl mx-auto px-4 py-6">
+      <div className="max-w-xl mx-auto px-4 py-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
           <div>
@@ -281,7 +281,7 @@ export default function NotificationsPage() {
               <div
                 ref={!n.read ? observeRef : undefined}
                 data-notif-id={n.id}
-                className={`p-4 rounded-lg border transition-colors ${
+                className={`p-4 rounded-xl border transition-colors ${
                   n.read
                     ? 'bg-surface border-border'
                     : 'bg-surface border-accent'

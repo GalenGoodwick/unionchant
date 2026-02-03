@@ -82,6 +82,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem('theme')==='light')document.documentElement.classList.add('light')}catch(e){}` }} />
       </head>
       <body className={`${libreFranklin.variable} ${sourceSerif.variable} ${ibmPlexMono.variable} font-sans`}>
         <Providers>

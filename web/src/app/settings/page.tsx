@@ -7,11 +7,13 @@ import { useEffect, useState } from 'react'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useAdmin } from '@/hooks/useAdmin'
 import Header from '@/components/Header'
+import { useTheme } from '@/app/providers'
 
 export default function SettingsPage() {
   const { data: session, status, update } = useSession()
   const router = useRouter()
   const { isAdmin } = useAdmin()
+  const { theme, toggleTheme } = useTheme()
   const [isExporting, setIsExporting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -148,15 +150,15 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-surface">
       <Header />
 
-      <div className="max-w-2xl mx-auto px-6 py-8">
-        <Link href="/deliberations" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
-          &larr; Back to deliberations
+      <div className="max-w-xl mx-auto px-6 py-8">
+        <Link href="/feed" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
+          &larr; Back to feed
         </Link>
 
         <h1 className="text-2xl font-bold text-foreground mb-8">Settings</h1>
 
         {/* Profile Section */}
-        <section className="bg-background rounded-lg p-6 border border-border mb-6">
+        <section className="bg-background rounded-xl p-6 border border-border mb-6">
           <div className="flex justify-between items-start mb-4">
             <h2 className="text-lg font-semibold text-foreground">Profile</h2>
             <Link
@@ -187,7 +189,7 @@ export default function SettingsPage() {
               </div>
               <button
                 onClick={() => setIsEditingProfile(true)}
-                className="mt-4 px-4 py-2 border border-border text-foreground rounded-lg hover:bg-surface text-sm transition-colors"
+                className="mt-4 px-4 py-2 border border-border text-foreground rounded-xl hover:bg-surface text-sm transition-colors"
               >
                 Edit Profile
               </button>
@@ -215,7 +217,7 @@ export default function SettingsPage() {
                       value={profileName}
                       onChange={(e) => setProfileName(e.target.value)}
                       maxLength={50}
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                      className="w-full px-3 py-2 border border-border rounded-xl bg-surface text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
                     />
                   </div>
                   <div>
@@ -228,7 +230,7 @@ export default function SettingsPage() {
                       maxLength={200}
                       rows={3}
                       placeholder="Tell us about yourself..."
-                      className="w-full px-3 py-2 border border-border rounded-lg bg-surface text-foreground focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+                      className="w-full px-3 py-2 border border-border rounded-xl bg-surface text-foreground focus:outline-none focus:ring-2 focus:ring-accent resize-none"
                     />
                     <p className="text-xs text-muted mt-1">{profileBio.length}/200</p>
                   </div>
@@ -243,7 +245,7 @@ export default function SettingsPage() {
                 <button
                   onClick={handleSaveProfile}
                   disabled={profileSaving || !profileName.trim()}
-                  className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50 text-sm"
+                  className="px-4 py-2 bg-accent text-white rounded-xl hover:bg-accent-hover disabled:opacity-50 text-sm"
                 >
                   {profileSaving ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -255,7 +257,7 @@ export default function SettingsPage() {
                     setProfileError(null)
                   }}
                   disabled={profileSaving}
-                  className="px-4 py-2 border border-border text-muted rounded-lg hover:bg-surface text-sm"
+                  className="px-4 py-2 border border-border text-muted rounded-xl hover:bg-surface text-sm"
                 >
                   Cancel
                 </button>
@@ -264,8 +266,33 @@ export default function SettingsPage() {
           )}
         </section>
 
+        {/* Appearance Section */}
+        <section className="bg-background rounded-xl p-6 border border-border mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Appearance</h2>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-foreground font-medium">Theme</div>
+              <div className="text-muted text-sm">
+                {theme === 'dark' ? 'Dark mode' : 'Light mode'}
+              </div>
+            </div>
+            <button
+              onClick={toggleTheme}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                theme === 'light' ? 'bg-accent' : 'bg-border-strong'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                  theme === 'light' ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        </section>
+
         {/* Notifications Section */}
-        <section className="bg-background rounded-lg p-6 border border-border mb-6">
+        <section className="bg-background rounded-xl p-6 border border-border mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Notifications</h2>
 
           {!isSupported ? (
@@ -273,7 +300,7 @@ export default function SettingsPage() {
               Push notifications are not supported in this browser.
             </p>
           ) : permission === 'denied' ? (
-            <div className="bg-error-bg border border-error rounded-lg p-4">
+            <div className="bg-error-bg border border-error rounded-xl p-4">
               <p className="text-error text-sm">
                 Notifications are blocked. To enable, click the lock icon in your browser&apos;s address bar and allow notifications.
               </p>
@@ -312,7 +339,7 @@ export default function SettingsPage() {
         </section>
 
         {/* Data Export Section */}
-        <section className="bg-background rounded-lg p-6 border border-border mb-6">
+        <section className="bg-background rounded-xl p-6 border border-border mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Your Data</h2>
           <p className="text-muted text-sm mb-4">
             Download a copy of all your data including deliberations you created, ideas you submitted, votes you cast, and comments you made.
@@ -320,28 +347,28 @@ export default function SettingsPage() {
           <button
             onClick={handleExportData}
             disabled={isExporting}
-            className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50 text-sm"
+            className="px-4 py-2 bg-accent text-white rounded-xl hover:bg-accent-hover disabled:opacity-50 text-sm"
           >
             {isExporting ? 'Exporting...' : 'Export My Data'}
           </button>
         </section>
 
         {/* Account Section */}
-        <section className="bg-background rounded-lg p-6 border border-border mb-6">
+        <section className="bg-background rounded-xl p-6 border border-border mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Account</h2>
           <p className="text-muted text-sm mb-4">
             Signed in as <span className="text-foreground">{session.user?.email}</span>
           </p>
           <button
             onClick={() => signOut({ callbackUrl: '/' })}
-            className="px-4 py-2 border border-border text-foreground rounded-lg hover:bg-surface text-sm transition-colors"
+            className="px-4 py-2 border border-border text-foreground rounded-xl hover:bg-surface text-sm transition-colors"
           >
             Sign Out
           </button>
         </section>
 
         {/* Delete Account Section */}
-        <section className="bg-background rounded-lg p-6 border border-error">
+        <section className="bg-background rounded-xl p-6 border border-error">
           <h2 className="text-lg font-semibold text-error mb-4">Danger Zone</h2>
 
           {isAdmin ? (
@@ -355,7 +382,7 @@ export default function SettingsPage() {
               </p>
               <button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="px-4 py-2 border border-error text-error rounded-lg hover:bg-error hover:text-white text-sm transition-colors"
+                className="px-4 py-2 border border-error text-error rounded-xl hover:bg-error hover:text-white text-sm transition-colors"
               >
                 Delete Account
               </button>
@@ -375,14 +402,14 @@ export default function SettingsPage() {
                 <button
                   onClick={handleDeleteAccount}
                   disabled={isDeleting}
-                  className="px-4 py-2 bg-error text-white rounded-lg hover:bg-error-hover disabled:opacity-50 text-sm"
+                  className="px-4 py-2 bg-error text-white rounded-xl hover:bg-error-hover disabled:opacity-50 text-sm"
                 >
                   {isDeleting ? 'Deleting...' : 'Yes, Delete My Account'}
                 </button>
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
                   disabled={isDeleting}
-                  className="px-4 py-2 border border-border text-muted rounded-lg hover:bg-surface text-sm"
+                  className="px-4 py-2 border border-border text-muted rounded-xl hover:bg-surface text-sm"
                 >
                   Cancel
                 </button>

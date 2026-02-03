@@ -16,7 +16,7 @@ export default function LandingCTA({ variant = 'hero' }: { variant?: 'hero' | 'f
           Go to Feed
         </Link>
         <Link
-          href="/deliberations/new"
+          href="/talks/new"
           className="bg-white/10 hover:bg-white/20 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors border border-white/20"
         >
           Start a Talk

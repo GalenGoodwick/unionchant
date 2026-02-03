@@ -100,7 +100,7 @@ export async function POST() {
       success: true,
       deliberationId: delib.id,
       cellId: cell.id,
-      url: `/deliberations/${delib.id}`
+      url: `/talks/${delib.id}`
     })
   } catch (error) {
     console.error('Error creating test:', error)

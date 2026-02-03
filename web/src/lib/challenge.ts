@@ -217,11 +217,19 @@ export async function startChallengeRound(deliberationId: string) {
     const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
     const actualMembers = cellMembers.length > 0 ? cellMembers : shuffledMembers.slice(0, CELL_SIZE)
 
+    // Discussion phase for challenge cells if enabled
+    const hasChallengeDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
+    const challengeCellStatus = hasChallengeDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+    const challengeDiscussionEndsAt = hasChallengeDiscussion && deliberation.discussionDurationMs! > 0
+      ? new Date(Date.now() + deliberation.discussionDurationMs!)
+      : null
+
     await prisma.cell.create({
       data: {
         deliberationId,
         tier: 1,
-        status: 'VOTING',
+        status: challengeCellStatus,
+        discussionEndsAt: challengeDiscussionEndsAt,
         ideas: {
           create: cellIdeaIds.map(ideaId => ({ ideaId })),
         },

@@ -140,6 +140,18 @@ export async function GET(
     const winRate = ideasCount > 0 ? Math.round((ideasWonCount / ideasCount) * 100) : null
     const ideasAdvanced = tierBreakdown.filter(t => t.tier > 1).reduce((sum, t) => sum + t._count, 0)
 
+    // Participation rate: cells assigned vs cells where user voted
+    let cellsAssigned = 0
+    let cellsVotedIn = 0
+    try {
+      cellsAssigned = await prisma.cellParticipation.count({ where: { userId: id } })
+      cellsVotedIn = await prisma.vote.groupBy({
+        by: ['cellId'],
+        where: { userId: id },
+      }).then(r => r.length)
+    } catch { /* table may not exist in older setups */ }
+    const participationRate = cellsAssigned > 0 ? Math.round((cellsVotedIn / cellsAssigned) * 100) : null
+
     return NextResponse.json({
       user: {
         id: user.id,
@@ -157,6 +169,9 @@ export async function GET(
           deliberationsCreated: deliberationsCreatedCount,
           deliberationsJoined: membershipsCount,
           deliberationsVotedIn: distinctDelibsVotedIn,
+          cellsAssigned,
+          cellsVotedIn,
+          participationRate,
           // Prediction stats
           totalPredictions: user.totalPredictions,
           correctPredictions: user.correctPredictions,

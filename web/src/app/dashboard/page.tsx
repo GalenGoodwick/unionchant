@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import { phaseLabel } from '@/lib/labels'
 
 interface DeliberationSummary {
   id: string
@@ -34,6 +35,10 @@ export default function DashboardPage() {
   const router = useRouter()
   const [deliberations, setDeliberations] = useState<DeliberationSummary[]>([])
   const [communities, setCommunities] = useState<CommunitySummary[]>([])
+  const [podiums, setPodiums] = useState<Array<{
+    id: string; title: string; views: number; pinned: boolean; createdAt: string
+    deliberation: { id: string; question: string } | null
+  }>>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -52,10 +57,15 @@ export default function DashboardPage() {
           if (!res.ok) return []
           return res.json()
         }),
+        fetch(`/api/podiums?authorId=${session?.user?.id || ''}&limit=10`).then(res => {
+          if (!res.ok) return { items: [] }
+          return res.json()
+        }),
       ])
-        .then(([delibData, commData]) => {
+        .then(([delibData, commData, podiumData]) => {
           setDeliberations(delibData)
           setCommunities(Array.isArray(commData) ? commData : [])
+          setPodiums(podiumData.items || [])
         })
         .catch(err => setError(err.message))
         .finally(() => setLoading(false))
@@ -73,11 +83,11 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">My Talks</h1>
           <Link
-            href="/deliberations/new"
+            href="/talks/new"
             className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors"
           >
             + Create New
@@ -87,7 +97,7 @@ export default function DashboardPage() {
         {loading && (
           <div className="space-y-4">
             {[1, 2, 3].map(i => (
-              <div key={i} className="animate-pulse bg-surface border border-border rounded-lg p-4">
+              <div key={i} className="animate-pulse bg-surface border border-border rounded-xl p-4">
                 <div className="h-5 bg-background rounded w-2/3 mb-3" />
                 <div className="h-4 bg-background rounded w-1/3" />
               </div>
@@ -100,13 +110,13 @@ export default function DashboardPage() {
         )}
 
         {!loading && !error && deliberations.length === 0 && (
-          <div className="text-center py-16 bg-surface border border-border rounded-lg">
-            <p className="text-muted text-lg mb-4">You haven&apos;t created any deliberations yet.</p>
+          <div className="text-center py-16 bg-surface border border-border rounded-xl">
+            <p className="text-muted text-lg mb-4">You haven&apos;t created any talks yet.</p>
             <Link
-              href="/deliberations/new"
+              href="/talks/new"
               className="bg-accent hover:bg-accent-hover text-white px-6 py-3 rounded-lg font-medium transition-colors inline-block"
             >
-              Create Your First Deliberation
+              Create Your First Talk
             </Link>
           </div>
         )}
@@ -117,7 +127,7 @@ export default function DashboardPage() {
               <Link
                 key={d.id}
                 href={`/dashboard/${d.id}`}
-                className="block bg-surface border border-border rounded-lg p-4 hover:border-accent transition-colors"
+                className="block bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
@@ -128,9 +138,9 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className={`px-2 py-0.5 rounded text-white text-xs ${phaseColors[d.phase] || 'bg-muted'}`}>
-                      {d.phase}
+                      {phaseLabel(d.phase)}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-xs ${d.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-error-bg text-error border border-error'}`}>
+                    <span className={`px-2 py-0.5 rounded text-xs ${d.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-surface-hover text-muted border border-border'}`}>
                       {d.isPublic ? 'Public' : 'Private'}
                     </span>
                   </div>
@@ -150,9 +160,9 @@ export default function DashboardPage() {
         {!loading && !error && (
           <div className="mt-10">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-foreground">My Communities</h2>
+              <h2 className="text-xl font-bold text-foreground">My Groups</h2>
               <Link
-                href="/communities"
+                href="/groups"
                 className="text-accent hover:text-accent-hover text-sm transition-colors"
               >
                 Browse All
@@ -160,22 +170,22 @@ export default function DashboardPage() {
             </div>
 
             {communities.length === 0 ? (
-              <div className="text-center py-8 bg-surface border border-border rounded-lg">
-                <p className="text-muted mb-4">You haven&apos;t joined any communities yet.</p>
+              <div className="text-center py-8 bg-surface border border-border rounded-xl">
+                <p className="text-muted mb-4">You haven&apos;t joined any groups yet.</p>
                 <Link
-                  href="/communities"
+                  href="/groups"
                   className="text-accent hover:text-accent-hover font-medium"
                 >
-                  Discover Communities
+                  Discover Groups
                 </Link>
               </div>
             ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-3">
                 {communities.map(c => (
                   <Link
                     key={c.id}
-                    href={c.role === 'OWNER' || c.role === 'ADMIN' ? `/communities/${c.slug}/settings` : `/communities/${c.slug}`}
-                    className="bg-surface border border-border rounded-lg p-4 hover:border-accent transition-colors"
+                    href={c.role === 'OWNER' || c.role === 'ADMIN' ? `/groups/${c.slug}/settings` : `/groups/${c.slug}`}
+                    className="bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="text-foreground font-medium truncate">{c.name}</h3>
@@ -188,7 +198,62 @@ export default function DashboardPage() {
                     )}
                     <div className="flex items-center gap-3 mt-2 text-xs text-muted">
                       <span>{c._count.members} members</span>
-                      <span>{c._count.deliberations} deliberations</span>
+                      <span>{c._count.deliberations} talks</span>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* My Podiums */}
+        {!loading && !error && (
+          <div className="mt-10">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-foreground">My Podiums</h2>
+              <Link
+                href="/podium/new"
+                className="text-accent hover:text-accent-hover text-sm transition-colors"
+              >
+                Write New
+              </Link>
+            </div>
+
+            {podiums.length === 0 ? (
+              <div className="text-center py-8 bg-surface border border-border rounded-xl">
+                <p className="text-muted mb-4">You haven&apos;t written any podium posts yet.</p>
+                <Link
+                  href="/podium/new"
+                  className="text-accent hover:text-accent-hover font-medium"
+                >
+                  Write Your First Post
+                </Link>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {podiums.map(p => (
+                  <Link
+                    key={p.id}
+                    href={`/podium/${p.id}`}
+                    className="bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          {p.pinned && (
+                            <span className="text-xs bg-warning-bg text-warning px-1.5 py-0.5 rounded border border-warning shrink-0">Pinned</span>
+                          )}
+                          <h3 className="text-foreground font-medium truncate">{p.title}</h3>
+                        </div>
+                        {p.deliberation && (
+                          <p className="text-sm text-muted mt-0.5 truncate">Linked: {p.deliberation.question}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+                      <span>{p.views} views</span>
+                      <span>{new Date(p.createdAt).toLocaleDateString()}</span>
                     </div>
                   </Link>
                 ))}

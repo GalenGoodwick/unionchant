@@ -24,6 +24,9 @@ interface UserProfile {
     deliberationsCreated: number
     deliberationsJoined: number
     deliberationsVotedIn: number
+    cellsAssigned: number
+    cellsVotedIn: number
+    participationRate: number | null
     totalPredictions: number
     correctPredictions: number
     accuracy: number | null
@@ -57,7 +60,7 @@ interface UserProfile {
 
 function StatCard({ label, value, icon }: { label: string; value: number | string; icon: string }) {
   return (
-    <div className="bg-surface rounded-lg p-4 border border-border">
+    <div className="bg-surface rounded-xl p-4 border border-border">
       <div className="flex items-center gap-2 text-muted text-sm mb-1">
         <span>{icon}</span>
         <span>{label}</span>
@@ -92,6 +95,11 @@ export default function UserProfilePage() {
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [podiums, setPodiums] = useState<Array<{
+    id: string; title: string; views: number; pinned: boolean; createdAt: string
+    deliberation: { id: string; question: string } | null
+  }>>([])
+  const [podiumsLoading, setPodiumsLoading] = useState(true)
 
   const userId = params.id as string
   const isOwnProfile = session?.user?.id === userId
@@ -117,6 +125,11 @@ export default function UserProfilePage() {
 
     if (userId) {
       fetchProfile()
+      fetch(`/api/podiums?authorId=${userId}&limit=10`)
+        .then(res => res.ok ? res.json() : { items: [] })
+        .then(data => setPodiums(data.items || []))
+        .catch(() => {})
+        .finally(() => setPodiumsLoading(false))
     }
   }, [userId])
 
@@ -133,11 +146,11 @@ export default function UserProfilePage() {
     return (
       <div className="min-h-screen bg-surface">
         <Header />
-        <div className="max-w-2xl mx-auto px-6 py-8">
+        <div className="max-w-xl mx-auto px-6 py-8">
           <div className="text-center py-12">
             <p className="text-error mb-4">{error || 'User not found'}</p>
-            <Link href="/deliberations" className="text-accent hover:underline">
-              Back to deliberations
+            <Link href="/feed" className="text-accent hover:underline">
+              Back to feed
             </Link>
           </div>
         </div>
@@ -149,7 +162,7 @@ export default function UserProfilePage() {
     <div className="min-h-screen bg-surface">
       <Header />
 
-      <div className="max-w-2xl mx-auto px-6 py-8">
+      <div className="max-w-xl mx-auto px-6 py-8">
         {/* Profile Header */}
         <div className="bg-background rounded-xl p-6 border border-border mb-6">
           <div className="flex items-start gap-4">
@@ -177,7 +190,7 @@ export default function UserProfilePage() {
                   {isOwnProfile && (
                     <Link
                       href="/settings"
-                      className="text-sm text-muted hover:text-foreground border border-border rounded-lg px-3 py-1.5 transition-colors"
+                      className="text-sm text-muted hover:text-foreground border border-border rounded-xl px-3 py-1.5 transition-colors"
                     >
                       Settings
                     </Link>
@@ -203,12 +216,17 @@ export default function UserProfilePage() {
 
         {/* Stats Grid */}
         <h2 className="text-lg font-semibold text-foreground mb-3">Activity</h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-2 grid-cols-2 gap-3 mb-6">
           <StatCard label="Ideas" value={profile.stats.ideas} icon="💡" />
           <StatCard label="Votes" value={profile.stats.votes} icon="✓" />
           <StatCard label="Comments" value={profile.stats.comments} icon="💬" />
           <StatCard label="Created" value={profile.stats.deliberationsCreated} icon="📝" />
           <StatCard label="Joined" value={profile.stats.deliberationsJoined} icon="👥" />
+          <StatCard
+            label="Attendance"
+            value={profile.stats.participationRate !== null ? `${profile.stats.participationRate}%` : '-'}
+            icon="📋"
+          />
           <StatCard
             label="Accuracy"
             value={profile.stats.accuracy !== null ? `${profile.stats.accuracy}%` : '-'}
@@ -245,7 +263,7 @@ export default function UserProfilePage() {
         {profile.stats.comments > 0 && (
           <>
             <h2 className="text-lg font-semibold text-foreground mb-3">Comments</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-2 grid-cols-2 gap-3 mb-6">
               <StatCard label="Comments" value={profile.stats.comments} icon="💬" />
               <StatCard label="Upvotes" value={profile.stats.totalUpvotesReceived} icon="👍" />
               <StatCard label="Up-Pollinate" value={`Tier ${profile.stats.highestUpPollinateTier}`} icon="🌸" />
@@ -269,7 +287,7 @@ export default function UserProfilePage() {
                 icon="✅"
               />
               <StatCard
-                label="Champions"
+                label="Priorities"
                 value={profile.stats.championPicks}
                 icon="👑"
               />
@@ -282,6 +300,36 @@ export default function UserProfilePage() {
           </>
         )}
 
+        {/* Podiums */}
+        {!podiumsLoading && podiums.length > 0 && (
+          <>
+            <h2 className="text-lg font-semibold text-foreground mb-3">Podium Posts</h2>
+            <div className="bg-background rounded-xl border border-border divide-y divide-border mb-6">
+              {podiums.map(p => (
+                <Link
+                  key={p.id}
+                  href={`/podium/${p.id}`}
+                  className="block p-4 hover:bg-surface transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {p.pinned && (
+                      <span className="text-xs bg-warning-bg text-warning px-1.5 py-0.5 rounded border border-warning shrink-0">Pinned</span>
+                    )}
+                    <p className="text-foreground font-medium truncate">{p.title}</p>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1.5 text-sm text-muted">
+                    <span>{p.views} views</span>
+                    {p.deliberation && (
+                      <span className="truncate">Re: {p.deliberation.question}</span>
+                    )}
+                    <span className="shrink-0">{timeAgo(p.createdAt)}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
+
         {/* Recent Ideas */}
         {profile.recentIdeas.length > 0 && (
           <>
@@ -290,7 +338,7 @@ export default function UserProfilePage() {
               {profile.recentIdeas.map((idea) => (
                 <Link
                   key={idea.id}
-                  href={`/deliberations/${idea.deliberationId}`}
+                  href={`/talks/${idea.deliberationId}`}
                   className="block p-4 hover:bg-surface transition-colors"
                 >
                   <p className="text-foreground">{idea.text}</p>
@@ -327,7 +375,7 @@ export default function UserProfilePage() {
               {profile.recentActivity.map((activity) => (
                 <Link
                   key={activity.deliberationId}
-                  href={`/deliberations/${activity.deliberationId}`}
+                  href={`/talks/${activity.deliberationId}`}
                   className="block p-4 hover:bg-surface transition-colors"
                 >
                   <p className="text-foreground">{activity.question}</p>
@@ -358,8 +406,8 @@ export default function UserProfilePage() {
           <div className="text-center py-8 text-muted">
             <p>No activity yet</p>
             {isOwnProfile && (
-              <Link href="/deliberations" className="text-accent hover:underline mt-2 inline-block">
-                Join a deliberation to get started
+              <Link href="/talks" className="text-accent hover:underline mt-2 inline-block">
+                Join a talk to get started
               </Link>
             )}
           </div>

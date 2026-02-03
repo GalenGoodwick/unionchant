@@ -127,7 +127,7 @@ export default function PodiumPageClient() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-2xl mx-auto px-4 py-8">
+      <div className="max-w-xl mx-auto px-4 py-8">
         {/* Back nav */}
         <div className="mb-6">
           <button
@@ -169,11 +169,11 @@ export default function PodiumPageClient() {
         {/* Linked deliberation */}
         {podium.deliberation && (
           <Link
-            href={`/deliberations/${podium.deliberation.id}`}
+            href={`/talks/${podium.deliberation.id}`}
             className="block bg-accent/10 border border-accent/25 rounded-xl p-4 mb-8 hover:bg-accent/15 transition-colors"
           >
             <div className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">
-              Linked Deliberation
+              Linked Talk
             </div>
             <div className="text-foreground font-medium">
               &ldquo;{podium.deliberation.question}&rdquo;
@@ -189,7 +189,7 @@ export default function PodiumPageClient() {
         {/* Body */}
         <article className="mb-8">
           {paragraphs.map((para, i) => (
-            <p key={i} className="text-muted leading-relaxed mb-4 text-base">
+            <p key={i} className="text-subtle leading-relaxed mb-4 text-base">
               {para}
             </p>
           ))}
@@ -199,10 +199,10 @@ export default function PodiumPageClient() {
         {podium.deliberation && (
           <div className="mb-8">
             <Link
-              href={`/deliberations/${podium.deliberation.id}`}
+              href={`/talks/${podium.deliberation.id}`}
               className="block w-full text-center bg-accent text-white font-semibold py-3 rounded-xl hover:bg-accent-hover transition-colors"
             >
-              Join the Deliberation &rarr;
+              Join the Talk &rarr;
             </Link>
           </div>
         )}

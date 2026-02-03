@@ -220,7 +220,7 @@ function NewPodiumPageInner() {
 
           <div className="text-xs text-muted mt-3">
             Linking a talk adds a &ldquo;Join the Talk&rdquo; button to your post.{' '}
-            <Link href="/deliberations/new" className="text-accent hover:text-accent-hover">
+            <Link href="/talks/new" className="text-accent hover:text-accent-hover">
               Create a new talk
             </Link>
           </div>

@@ -369,12 +369,20 @@ export async function startVotingPhase(deliberationId: string) {
       data: { status: 'IN_VOTING', tier: 1 },
     })
 
+    // Determine initial cell status: DELIBERATING if discussion enabled, else VOTING
+    const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
+    const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+    const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
+      ? new Date(Date.now() + deliberation.discussionDurationMs!)
+      : null // -1 = manual advance, no deadline
+
     // Create the cell with UNIQUE ideas
     const cell = await prisma.cell.create({
       data: {
         deliberationId,
         tier: 1,
-        status: 'VOTING',
+        status: cellStatus,
+        discussionEndsAt,
         ideas: {
           create: cellIdeas.map(idea => ({
             ideaId: idea.id,
@@ -908,6 +916,13 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // Promote top comments from completed tier to next tier
     await promoteTopComments(deliberationId, tier, advancingIdeas.map(i => i.id))
 
+    // Determine cell status for next tier: DELIBERATING if discussion enabled
+    const hasNextTierDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
+    const nextTierCellStatus = hasNextTierDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+    const nextTierDiscussionEndsAt = hasNextTierDiscussion && deliberation.discussionDurationMs! > 0
+      ? new Date(Date.now() + deliberation.discussionDurationMs!)
+      : null
+
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
     // Multiple cells for up-pollination of comments between cells
     console.log(`Creating tier ${nextTier}: ${shuffledIdeas.length} ideas, ${shuffledMembers.length} members, final showdown: ${shuffledIdeas.length <= 5}`)
@@ -927,7 +942,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             deliberationId,
             tier: nextTier,
             batch: 0, // All cells vote on same ideas in final showdown
-            status: 'VOTING',
+            status: nextTierCellStatus,
+            discussionEndsAt: nextTierDiscussionEndsAt,
             ideas: {
               create: shuffledIdeas.map(idea => ({ ideaId: idea.id })),
             },
@@ -980,7 +996,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
               deliberationId,
               tier: nextTier,
               batch, // Track which batch of ideas this cell votes on
-              status: 'VOTING',
+              status: nextTierCellStatus,
+              discussionEndsAt: nextTierDiscussionEndsAt,
               ideas: {
                 create: batchIdeas.map(idea => ({ ideaId: idea.id })),
               },

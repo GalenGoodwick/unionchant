@@ -30,7 +30,7 @@ function UserAvatar({ image, name }: { image: string | null; name: string | null
 }
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
-type AdminTab = 'deliberations' | 'users' | 'moderation'
+type AdminTab = 'deliberations' | 'users' | 'moderation' | 'podiums'
 
 interface AdminReport {
   id: string
@@ -133,6 +133,79 @@ export default function AdminPage() {
   const [rateLimitsLoading, setRateLimitsLoading] = useState(false)
   const [rateLimitsSaving, setRateLimitsSaving] = useState<string | null>(null)
 
+  // Podiums state
+  const [podiums, setPodiums] = useState<Array<{
+    id: string; title: string; pinned: boolean; views: number; createdAt: string
+    author: { id: string; name: string | null; image: string | null }
+    deliberation: { id: string; question: string } | null
+  }>>([])
+  const [podiumsLoading, setPodiumsLoading] = useState(false)
+  const [podiumsCursor, setPodiumsCursor] = useState<string | null>(null)
+  const [podiumsHasMore, setPodiumsHasMore] = useState(false)
+  const [podiumActioning, setPodiumActioning] = useState<string | null>(null)
+
+  const fetchPodiums = useCallback(async (cursor?: string | null) => {
+    setPodiumsLoading(true)
+    try {
+      const params = new URLSearchParams({ limit: '30' })
+      if (cursor) params.set('cursor', cursor)
+      const res = await fetch(`/api/podiums?${params}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (cursor) {
+          setPodiums(prev => [...prev, ...(data.items || [])])
+        } else {
+          setPodiums(data.items || [])
+        }
+        setPodiumsCursor(data.nextCursor || null)
+        setPodiumsHasMore(!!data.nextCursor)
+      }
+    } catch (error) {
+      console.error('Failed to fetch podiums:', error)
+    } finally {
+      setPodiumsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'podiums' && podiums.length === 0) {
+      fetchPodiums()
+    }
+  }, [activeTab, fetchPodiums, podiums.length])
+
+  const handlePodiumPin = async (podiumId: string, pinned: boolean) => {
+    setPodiumActioning(podiumId)
+    try {
+      const res = await fetch(`/api/podiums/${podiumId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pinned }),
+      })
+      if (res.ok) {
+        setPodiums(prev => prev.map(p => p.id === podiumId ? { ...p, pinned } : p))
+      }
+    } catch {
+      console.error('Failed to pin/unpin podium')
+    } finally {
+      setPodiumActioning(null)
+    }
+  }
+
+  const handlePodiumDelete = async (podiumId: string, title: string) => {
+    if (!confirm(`Delete podium post "${title}"? This cannot be undone.`)) return
+    setPodiumActioning(podiumId)
+    try {
+      const res = await fetch(`/api/podiums/${podiumId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setPodiums(prev => prev.filter(p => p.id !== podiumId))
+      }
+    } catch {
+      console.error('Failed to delete podium')
+    } finally {
+      setPodiumActioning(null)
+    }
+  }
+
   const fetchReports = useCallback(async (statusFilter = reportsFilter, page = reportsPage) => {
     setReportsLoading(true)
     try {
@@ -179,7 +252,7 @@ export default function AdminPage() {
 
   const fetchDeliberations = async () => {
     try {
-      const res = await fetch('/api/admin/deliberations')
+      const res = await fetch('/api/admin/talks')
       if (res.ok) {
         const data = await res.json()
         // Ensure we have an array
@@ -297,7 +370,7 @@ export default function AdminPage() {
 
     setDeleting(id)
     try {
-      const res = await fetch(`/api/admin/deliberations/${id}`, {
+      const res = await fetch(`/api/admin/talks/${id}`, {
         method: 'DELETE',
       })
 
@@ -399,6 +472,14 @@ export default function AdminPage() {
             }`}
           >
             Moderation
+          </button>
+          <button
+            onClick={() => setActiveTab('podiums')}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+              activeTab === 'podiums' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
+            }`}
+          >
+            Podiums
           </button>
         </div>
 
@@ -670,6 +751,107 @@ export default function AdminPage() {
                   className="px-3 py-1.5 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
                 >
                   Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Podiums Tab */}
+        {activeTab === 'podiums' && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-muted text-sm">{podiums.length} podium posts</span>
+              <button
+                onClick={() => fetchPodiums()}
+                className="bg-surface hover:bg-surface-alt text-muted border border-border px-3 py-1.5 rounded transition-colors text-sm"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="bg-background rounded-lg border border-border overflow-hidden">
+              {podiumsLoading && podiums.length === 0 ? (
+                <div className="p-8 text-center text-muted">Loading podiums...</div>
+              ) : podiums.length === 0 ? (
+                <div className="p-8 text-center text-muted">No podium posts yet</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-surface border-b border-border">
+                    <tr>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Title</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Author</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Linked Talk</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Views</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Date</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {podiums.map(p => (
+                      <tr key={p.id} className="border-t border-border hover:bg-surface">
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            {p.pinned && (
+                              <span className="text-xs bg-warning-bg text-warning px-1.5 py-0.5 rounded border border-warning">Pinned</span>
+                            )}
+                            <Link href={`/podium/${p.id}`} className="text-foreground hover:text-accent font-medium text-sm">
+                              {p.title.length > 50 ? p.title.slice(0, 50) + '...' : p.title}
+                            </Link>
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <Link href={`/user/${p.author.id}`} className="flex items-center gap-2 text-sm text-muted hover:text-accent">
+                            <UserAvatar image={p.author.image} name={p.author.name} />
+                            <span>{p.author.name || 'Anonymous'}</span>
+                          </Link>
+                        </td>
+                        <td className="p-4">
+                          {p.deliberation ? (
+                            <Link href={`/talks/${p.deliberation.id}`} className="text-accent hover:underline text-sm">
+                              {p.deliberation.question.length > 30 ? p.deliberation.question.slice(0, 30) + '...' : p.deliberation.question}
+                            </Link>
+                          ) : (
+                            <span className="text-muted text-sm">--</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-muted font-mono text-sm">{p.views}</td>
+                        <td className="p-4 text-muted text-sm font-mono">
+                          {new Date(p.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="p-4">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handlePodiumPin(p.id, !p.pinned)}
+                              disabled={podiumActioning === p.id}
+                              className={`text-sm disabled:opacity-50 ${p.pinned ? 'text-warning hover:text-warning-hover' : 'text-muted hover:text-foreground'}`}
+                            >
+                              {p.pinned ? 'Unpin' : 'Pin'}
+                            </button>
+                            <button
+                              onClick={() => handlePodiumDelete(p.id, p.title)}
+                              disabled={podiumActioning === p.id}
+                              className="text-error hover:text-error-hover text-sm disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {podiumsHasMore && (
+              <div className="text-center mt-4">
+                <button
+                  onClick={() => fetchPodiums(podiumsCursor)}
+                  disabled={podiumsLoading}
+                  className="px-4 py-2 rounded text-sm bg-surface border border-border text-muted hover:text-foreground disabled:opacity-50"
+                >
+                  {podiumsLoading ? 'Loading...' : 'Load More'}
                 </button>
               </div>
             )}
@@ -1216,7 +1398,7 @@ export default function AdminPage() {
                           Manage
                         </Link>
                         <Link
-                          href={`/deliberations/${d.id}`}
+                          href={`/talks/${d.id}`}
                           className="text-muted hover:text-foreground text-sm"
                         >
                           View

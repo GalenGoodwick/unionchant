@@ -396,8 +396,16 @@ async function main() {
       where: { title: article.title, authorId: author.id },
     })
 
+    const isPinned = article.title === 'AI Was Built to Help Us Agree, Not Fight'
+
     if (existing) {
-      console.log(`  – Already exists: "${article.title}"`)
+      // Ensure pinned flag is set correctly on existing posts
+      if (existing.pinned !== isPinned) {
+        await prisma.podium.update({ where: { id: existing.id }, data: { pinned: isPinned } })
+        console.log(`  – Updated pin: "${article.title}" pinned=${isPinned}`)
+      } else {
+        console.log(`  – Already exists: "${article.title}"`)
+      }
       continue
     }
 
@@ -406,6 +414,7 @@ async function main() {
         title: article.title,
         body: article.body,
         authorId: author.id,
+        pinned: isPinned,
       },
     })
     console.log(`  ✓ Podium post: "${post.title}" by ${author.name}`)

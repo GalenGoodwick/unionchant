@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
       tags = [],
       submissionDurationMs,
       votingTimeoutMs,
+      discussionDurationMs,
       accumulationEnabled,
       accumulationTimeoutMs,
       ideaGoal,
@@ -129,6 +130,7 @@ export async function POST(req: NextRequest) {
         submissionEndsAt,
         ...(submissionDurationMs && { submissionDurationMs }),
         ...(votingTimeoutMs !== undefined && { votingTimeoutMs }),
+        ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         // Goal-based auto-start

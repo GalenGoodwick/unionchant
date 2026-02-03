@@ -292,20 +292,26 @@ export default function AdminTestPage() {
 
             <button
               onClick={async () => {
-                addLog('info', 'Seeding feed test data...')
+                addLog('info', 'Seeding all feed card types...')
                 try {
                   const emails = testConfig.additionalUserEmails.split(',').map(e => e.trim()).filter(Boolean)
                   const res = await fetch('/api/admin/test/seed-feed', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ additionalUserEmails: emails }),
+                    body: JSON.stringify({ additionalUserEmails: emails, userEmail: session?.user?.email }),
                   })
                   const data = await res.json()
                   if (res.ok) {
-                    addLog('success', data.message)
-                    data.results?.forEach((r: string) => addLog('success', r))
+                    addLog('success', data.message || 'Feed data seeded')
+                    data.results?.forEach((r: string) => addLog('success', `  ${r}`))
+                    if (data.cardTypes) {
+                      addLog('info', '--- Card types created ---')
+                      data.cardTypes.forEach((ct: string) => addLog('info', `  ${ct}`))
+                    }
+                    addLog('success', 'Visit /feed to see all cards!')
                   } else {
                     addLog('error', data.error || 'Failed to seed')
+                    if (data.details) addLog('error', data.details)
                   }
                 } catch (err) {
                   addLog('error', 'Failed to seed feed data')
@@ -314,7 +320,7 @@ export default function AdminTestPage() {
               disabled={isRunning}
               className="px-6 py-2 rounded-lg font-semibold bg-purple hover:bg-purple-hover text-white"
             >
-              Seed Feed Test Data
+              Seed Feed Demo Cards
             </button>
 
             <button
@@ -356,7 +362,7 @@ export default function AdminTestPage() {
             <p className="text-success font-medium mb-2">Test Deliberation Created</p>
             <div className="flex gap-4">
               <Link
-                href={`/deliberations/${createdDeliberation.id}`}
+                href={`/talks/${createdDeliberation.id}`}
                 className="text-accent hover:text-accent-hover underline"
               >
                 View Deliberation
@@ -405,7 +411,13 @@ export default function AdminTestPage() {
           <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
           <div className="flex gap-4 flex-wrap">
             <Link
-              href="/deliberations"
+              href="/feed"
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium"
+            >
+              View Feed
+            </Link>
+            <Link
+              href="/talks"
               className="px-4 py-2 bg-surface hover:bg-border text-foreground rounded-lg border border-border"
             >
               Browse Deliberations
@@ -469,7 +481,7 @@ function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info'
   const fetchAccumulating = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/deliberations')
+      const res = await fetch('/api/admin/talks')
       if (res.ok) {
         const data = await res.json()
         setAccumulatingDeliberations(data.filter((d: { phase: string }) => d.phase === 'ACCUMULATING'))
@@ -609,7 +621,7 @@ function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'e
 
   const fetchDeliberations = async () => {
     try {
-      const res = await fetch('/api/admin/deliberations')
+      const res = await fetch('/api/admin/talks')
       if (res.ok) {
         const data = await res.json()
         setDeliberations(Array.isArray(data) ? data : [])

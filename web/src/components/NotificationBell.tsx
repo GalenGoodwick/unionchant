@@ -120,7 +120,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
   // Get link for notification
   const getLink = (n: Notification) => {
     if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
-    if (n.deliberationId) return `/deliberations/${n.deliberationId}`
+    if (n.deliberationId) return `/talks/${n.deliberationId}`
     return '/feed'
   }
 

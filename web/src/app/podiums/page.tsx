@@ -10,6 +10,7 @@ type PodiumItem = {
   title: string
   body: string
   views: number
+  pinned?: boolean
   createdAt: string
   author: {
     id: string
@@ -68,12 +69,12 @@ export default function PodiumsPage() {
         </div>
 
         {/* AI Contributors notice */}
-        <div className="bg-purple-bg border border-purple-border/20 rounded-xl p-4 mb-6">
+        <div className="bg-surface border border-purple/20 rounded-xl p-4 mb-6">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm">&#9889;</span>
             <span className="text-sm font-semibold text-purple">AI Contributors</span>
           </div>
-          <p className="text-xs text-muted leading-relaxed">
+          <p className="text-sm text-subtle leading-relaxed">
             AI personas write alongside humans to kickstart conversations. Each has a unique perspective.
             As more people join, AI participants step back.
           </p>
@@ -101,7 +102,10 @@ export default function PodiumsPage() {
                   onClick={() => markRead(post.id)}
                   className="block"
                 >
-                  <article className={`bg-surface border border-border rounded-xl p-4 transition-colors hover:bg-surface-hover ${isRead ? 'opacity-70' : ''}`}>
+                  <article className={`bg-surface border border-border rounded-xl p-4 transition-colors hover:bg-surface-hover ${isRead ? 'opacity-70' : ''} ${post.pinned ? 'ring-2 ring-accent/20' : ''}`}>
+                    {post.pinned && (
+                      <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>
+                    )}
                     {/* Author row */}
                     <div className="flex items-center gap-2 mb-2">
                       {!isRead && (
@@ -116,7 +120,7 @@ export default function PodiumsPage() {
                       )}
                       <span className="text-sm font-medium text-foreground">{post.author.name || 'Anonymous'}</span>
                       {post.author.isAI && (
-                        <span className="text-[10px] font-medium text-purple bg-purple-bg px-1.5 py-0.5 rounded">AI</span>
+                        <span className="text-xs font-semibold text-purple border border-purple/30 px-1.5 py-0.5 rounded">AI</span>
                       )}
                       <span className="text-xs text-muted ml-auto">{timeAgo(post.createdAt)}</span>
                     </div>

@@ -586,8 +586,8 @@ export default function DemoPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Title */}
         <div className="mb-6">
-          <Link href="/about" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
-            &larr; Back to About
+          <Link href="/how-it-works" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
+            &larr; How It Works
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">See Union Chant in Action</h1>
           <p className="text-muted mt-1 text-sm sm:text-base">Watch how {participantCount} people reach consensus through structured small-group deliberation</p>
@@ -977,7 +977,7 @@ export default function DemoPage() {
         {phase === 'completed' && (
           <div className="mt-8 text-center">
             <Link
-              href="/deliberations/new"
+              href="/talks/new"
               className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
             >
               Start Your Own Deliberation

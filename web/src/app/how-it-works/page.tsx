@@ -13,13 +13,13 @@ export default function HowItWorksPage() {
       <Header />
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <Link href="/about" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
-          &larr; Back to About
+        <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
+          &larr; Back to Home
         </Link>
 
         <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">How Union Chant Works</h1>
         <p className="text-xl text-muted mb-12">
-          A technical deep-dive into the deliberation algorithm
+          A technical deep-dive into the voting algorithm
         </p>
 
         {/* Overview */}
@@ -31,7 +31,7 @@ export default function HowItWorksPage() {
               Each cell contains 5 ideas and 5 participants. After deliberation, each cell votes and one idea advances.
             </p>
             <p className="text-subtle">
-              This process repeats across tiers until a single champion emerges. The key insight: by structuring
+              This process repeats across tiers until a single priority emerges. The key insight: by structuring
               many parallel small-group discussions, we achieve genuine deliberation at any scale.
             </p>
           </div>
@@ -154,10 +154,10 @@ export default function HowItWorksPage() {
             <div className="flex items-start gap-3 sm:gap-4">
               <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-success flex items-center justify-center text-white font-bold shrink-0 text-sm sm:text-base">4</div>
               <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
-                <h3 className="font-semibold text-foreground">Champion / Accumulation</h3>
+                <h3 className="font-semibold text-foreground">Priority / Accepting New Ideas</h3>
                 <p className="text-subtle text-sm mt-1">
-                  A champion is declared. If rolling mode is enabled, the deliberation enters accumulation phase
-                  where new challenger ideas can be submitted. Periodically, challengers compete to dethrone the champion.
+                  A priority is declared. If rolling mode is enabled, the talk enters an accepting new ideas phase
+                  where new challenger ideas can be submitted. Periodically, challengers compete to replace the priority.
                 </p>
               </div>
             </div>
@@ -166,18 +166,18 @@ export default function HowItWorksPage() {
 
         {/* Rolling Mode */}
         <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Rolling Mode (Accumulation)</h2>
+          <h2 className="text-2xl font-semibold text-foreground mb-4">Rolling Mode (Accepting New Ideas)</h2>
           <div className="bg-purple-bg border border-purple rounded-lg p-6">
             <p className="text-subtle mb-4">
-              Rolling mode allows decisions to evolve over time. After a champion is crowned, the deliberation
-              doesn't end—it enters <strong className="text-foreground">accumulation phase</strong>.
+              Rolling mode allows decisions to evolve over time. After a priority is declared, the talk
+              doesn&apos;t end—it enters an <strong className="text-foreground">accepting new ideas</strong> phase.
             </p>
             <ul className="text-subtle space-y-2 text-sm">
               <li>• New challenger ideas can be submitted at any time</li>
-              <li>• When enough challengers accumulate, a challenge round begins</li>
-              <li>• The defending champion enters at a later tier (advantage for having won before)</li>
-              <li>• If a challenger wins, it becomes the new champion</li>
-              <li>• Ideas that lose repeatedly at Tier 1 are "retired" from the pool</li>
+              <li>• When enough challengers accumulate, Round 2 begins</li>
+              <li>• The defending priority enters at a later tier (advantage for having won before)</li>
+              <li>• If a challenger wins, it becomes the new priority</li>
+              <li>• Ideas that lose repeatedly at Tier 1 are &ldquo;retired&rdquo; from the pool</li>
             </ul>
             <p className="text-purple text-sm mt-4 font-medium">
               Result: The collective position can update as circumstances change, but stability is maintained.
@@ -292,7 +292,7 @@ export default function HowItWorksPage() {
             <div className="bg-background rounded-lg border border-border p-6">
               <h3 className="font-semibold text-foreground mb-2">Can someone submit multiple ideas?</h3>
               <p className="text-subtle text-sm">
-                By default, each participant can submit one idea per deliberation. This ensures
+                By default, each participant can submit one idea per talk. This ensures
                 a diversity of perspectives rather than volume from a few voices.
               </p>
             </div>
@@ -398,7 +398,7 @@ export default function HowItWorksPage() {
           {/* The Point */}
           <div className="bg-surface rounded-lg border border-border p-6 text-center">
             <p className="text-foreground mb-2">
-              Every deliberation here is practice for the conversations that matter most.
+              Every talk here is practice for the conversations that matter most.
             </p>
             <p className="text-muted text-sm italic">
               "The measure of a democracy is not the loudness of its voices, but the quality of its listening."
@@ -417,10 +417,10 @@ export default function HowItWorksPage() {
               Watch Demo
             </Link>
             <Link
-              href="/deliberations/new"
+              href="/talks/new"
               className="bg-background border border-border-strong hover:border-muted text-foreground px-6 py-3 rounded-lg font-medium transition-colors"
             >
-              Start a Deliberation
+              Start a Talk
             </Link>
           </div>
         </div>

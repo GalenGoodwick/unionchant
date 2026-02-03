@@ -2,534 +2,532 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { processAllTimers } from '@/lib/timer-processor'
 
-// Throttle processExpiredTiers - run at most once every 30 seconds
-let lastTimerProcessed = 0
+import { getCachedPodiums, setCachedPodiums } from '@/lib/podium-cache'
 
-// Global discovery feed cache - same for ALL users, rebuilt every 30s
-let globalFeedCache: { items: any[]; champions: Map<string, any>; ts: number } | null = null
-const GLOBAL_FEED_TTL = 30000 // 30 seconds
+// ── Caches ─────────────────────────────────────────────────────
+let discoveryCache: { data: any[]; ts: number } | null = null
+const DISCOVERY_TTL = 30_000
 
-// Per-user feed cache - stores final merged response
-const userFeedCache = new Map<string, { data: any; ts: number }>()
-const USER_FEED_TTL = 5000 // 5 seconds
-
-export type FeedItemType =
+// ── Types ──────────────────────────────────────────────────────
+export type FeedEntryKind =
+  | 'podium'
   | 'vote_now'
-  | 'join_voting'
-  | 'predict'
-  | 'submit_ideas'
-  | 'challenge'
+  | 'deliberate'
+  | 'submit'
+  | 'join'
   | 'champion'
+  | 'challenge'
+  | 'completed'
+  | 'waiting'
+  | 'advanced'
+  | 'podiums_summary'
 
-export type FeedItem = {
-  type: FeedItemType
+export type FeedEntry = {
+  kind: FeedEntryKind
+  id: string
+  pinned?: boolean
   priority: number
-  deliberation: {
+  deliberation?: {
     id: string
     question: string
-    description: string | null
-    organization: string | null
     phase: string
-    currentTier: number
+    tier: number
     challengeRound: number
-    createdAt: Date
-    views: number
-    _count: { members: number; ideas: number }
-    creator?: { id: string; name: string }
+    participantCount: number
+    ideaCount: number
+    communityName?: string | null
+    creatorName?: string | null
+    votingDeadline?: string | null
+    submissionDeadline?: string | null
   }
-  community?: { name: string; slug: string } | null
-  // Type-specific data
   cell?: {
     id: string
-    tier: number
     status: string
-    votingDeadline: string | null
-    spotsRemaining: number
-    ideas: { id: string; text: string; author: string }[]
-    participantCount: number
+    tier?: number
+    myVote: boolean
     votedCount: number
-    userHasVoted?: boolean
-    userVotedIdeaId?: string | null
-    // Urgency indicators
-    urgency?: 'critical' | 'warning' | 'normal'
-    timeRemainingMs?: number
-    votesNeeded?: number
+    memberCount: number
+    ideas: { id: string; text: string; authorName: string }[]
+    members?: { name: string; image: string | null; voted: boolean }[]
+    latestComment?: { text: string; authorName: string } | null
+    discussionDeadline?: string | null
   }
-  tierInfo?: {
-    tier: number
-    totalCells: number
-    votingProgress: number
-    ideas: { id: string; text: string }[]
-    spotsRemaining: number
-    cells?: { id: string; ideas?: { id: string; text: string }[] }[]
-  }
-  champion?: {
+  champion?: { text: string; authorName: string }
+  myIdea?: { text: string; status: string }
+  podium?: {
     id: string
-    text: string
-    author: string
-    totalVotes: number
+    title: string
+    preview: string
+    authorName: string
+    authorImage: string | null
+    isAI: boolean
+    views: number
+    createdAt: string
+    deliberationQuestion?: string | null
   }
-  submissionDeadline?: string | null
-  challengersCount?: number
-  userPredictions?: Record<number, string> // tier -> predictedIdeaId
-  userSubmittedIdea?: { id: string; text: string } | null
-  resolvedAt?: string | null
-  votingTrigger?: {
-    type: 'timer' | 'idea_goal' | 'manual'
-    ideaGoal?: number | null
-    currentIdeas: number
-    currentParticipants: number
-  }
+  podiums?: {
+    id: string
+    title: string
+    authorName: string
+    isAI: boolean
+    createdAt: string
+  }[]
+  // For completed/results cards
+  winnerVoteCount?: number
+  totalParticipants?: number
+  tierCount?: number
+  completedAt?: string
 }
 
-/** Check if feed items have meaningfully changed (for incremental updates) */
-function hasFeedChanged(prev: FeedItem[], next: FeedItem[]): boolean {
-  if (prev.length !== next.length) return true
-  const prevMap = new Map(prev.map(i => [`${i.type}-${i.deliberation.id}-${i.cell?.id || ''}`, i]))
-  for (const item of next) {
-    const key = `${item.type}-${item.deliberation.id}-${item.cell?.id || ''}`
-    const old = prevMap.get(key)
-    if (!old) return true // new item
-    if (item.cell?.votedCount !== old.cell?.votedCount) return true
-    if (item.cell?.status !== old.cell?.status) return true
-    if (item.cell?.userHasVoted !== old.cell?.userHasVoted) return true
-    if (item.deliberation._count.ideas !== old.deliberation._count.ideas) return true
-  }
-  return false
+export type PulseStats = {
+  activeVoters: number
+  inProgress: number
+  ideasToday: number
+  votesToday: number
 }
 
-// GET /api/feed - Get personalized feed
-export async function GET(req: NextRequest) {
-  try {
-    // Process all timers in background, throttled to once per 30s
-    const ts = Date.now()
-    if (ts - lastTimerProcessed > 30000) {
-      lastTimerProcessed = ts
-      processAllTimers('feed_api').catch(err => {
-        console.error('Error processing timers:', err)
-      })
-    }
+export type ActivityItem = {
+  id: string
+  type: string
+  title: string
+  body: string | null
+  deliberationId: string | null
+  createdAt: string
+}
 
-    const session = await getServerSession(authOptions)
-    const filterType = req.nextUrl.searchParams.get('filter') // 'following' or null
-    const sinceParam = req.nextUrl.searchParams.get('since')
-    const sinceTs = sinceParam ? parseInt(sinceParam, 10) : null
+export type FeedResponse = {
+  items: FeedEntry[]
+  actionableCount?: number
+  pulse?: PulseStats
+  activity?: ActivityItem[]
+}
 
-    // Get user if logged in
-    let userId: string | null = null
-    if (session?.user?.email) {
-      const user = await prisma.user.findUnique({
-        where: { email: session.user.email },
-        select: { id: true },
-      })
-      userId = user?.id || null
-    }
+type TabParam = 'your-turn' | 'activity' | 'results'
 
-    // Check per-user cache first (5s TTL)
-    const cacheKey = `${userId || 'anon'}|${filterType || 'all'}`
-    const userCached = userFeedCache.get(cacheKey)
-    if (userCached && (ts - userCached.ts) < USER_FEED_TTL) {
-      // If client sent since and cache hasn't changed, return unchanged
-      if (sinceTs && userCached.ts <= sinceTs) {
-        return NextResponse.json({ items: [], unchanged: true, ts: userCached.ts })
-      }
-      return NextResponse.json({ ...userCached.data, ts: userCached.ts })
-    }
+// ── Helpers ────────────────────────────────────────────────────
 
-    // --- GLOBAL DISCOVERY FEED (shared across all users, 30s cache) ---
-    if (!globalFeedCache || (ts - globalFeedCache.ts) > GLOBAL_FEED_TTL) {
-      const [votingDelibs, submissionDelibs, accumulatingDelibs, challengeDelibs] = await Promise.all([
-        prisma.deliberation.findMany({
-          where: { phase: 'VOTING', isPublic: true,  },
-          include: {
-            _count: { select: { members: true, ideas: true } },
-            community: { select: { name: true, slug: true } },
-            creator: { select: { id: true, name: true } },
-            cells: {
-              where: { status: 'VOTING' },
-              select: {
-                id: true,
-                status: true,
-                ideas: { select: { idea: { select: { id: true, text: true } } } },
-                _count: { select: { participants: true } },
+async function getDiscovery() {
+  const now = Date.now()
+  if (discoveryCache && now - discoveryCache.ts < DISCOVERY_TTL) return discoveryCache.data
+
+  const deliberations = await prisma.deliberation.findMany({
+    where: {
+      isPublic: true,
+      phase: { in: ['VOTING', 'SUBMISSION', 'ACCUMULATING', 'COMPLETED'] },
+    },
+    select: {
+      id: true,
+      question: true,
+      phase: true,
+      currentTier: true,
+      challengeRound: true,
+      submissionEndsAt: true,
+      votingTimeoutMs: true,
+      currentTierStartedAt: true,
+      completedAt: true,
+      _count: { select: { members: true, ideas: true } },
+      community: { select: { name: true } },
+      creator: { select: { name: true } },
+      ideas: {
+        where: { status: { in: ['WINNER', 'DEFENDING'] } },
+        select: { text: true, totalVotes: true, author: { select: { name: true } } },
+        take: 1,
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  })
+
+  discoveryCache = { data: deliberations, ts: now }
+  return deliberations
+}
+
+async function getPodiums() {
+  const cached = getCachedPodiums()
+  if (cached) return cached.data
+
+  const podiums = await prisma.podium.findMany({
+    take: 10,
+    orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
+    select: {
+      id: true,
+      title: true,
+      body: true,
+      views: true,
+      pinned: true,
+      createdAt: true,
+      author: { select: { name: true, image: true, isAI: true } },
+      deliberation: { select: { question: true } },
+    },
+  })
+
+  setCachedPodiums(podiums)
+  return podiums
+}
+
+type UserContext = {
+  id: string
+  memberDelibIds: Set<string>
+  cellsByDelib: Map<string, any>
+  ideaByDelib: Map<string, any>
+}
+
+async function getUserContext(email: string): Promise<UserContext | null> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      memberships: {
+        select: { deliberationId: true },
+      },
+      cellParticipations: {
+        where: {
+          cell: { status: { in: ['VOTING', 'DELIBERATING'] } },
+        },
+        select: {
+          cell: {
+            select: {
+              id: true,
+              status: true,
+              tier: true,
+              deliberationId: true,
+              votingDeadline: true,
+              discussionEndsAt: true,
+              ideas: {
+                select: {
+                  idea: {
+                    select: { id: true, text: true, author: { select: { name: true } } },
+                  },
+                },
               },
-              take: 3,
+              participants: {
+                select: {
+                  userId: true,
+                  user: { select: { name: true, image: true } },
+                },
+              },
+              votes: { select: { userId: true } },
+              comments: {
+                orderBy: { createdAt: 'desc' as const },
+                take: 1,
+                select: {
+                  text: true,
+                  user: { select: { name: true } },
+                },
+              },
             },
           },
+        },
+      },
+      ideas: {
+        where: { status: { in: ['ADVANCING', 'WINNER', 'IN_VOTING'] } },
+        select: { id: true, text: true, status: true, deliberationId: true, totalVotes: true, tier: true },
+        take: 20,
+      },
+    },
+  })
+
+  if (!user) return null
+
+  const memberDelibIds = new Set(user.memberships.map((m) => m.deliberationId))
+
+  const cellsByDelib = new Map<string, any>()
+  for (const cp of user.cellParticipations) {
+    const c = cp.cell
+    const votedUserIds = new Set(c.votes.map((v: any) => v.userId))
+    const latestComment = (c as any).comments?.[0]
+      ? { text: (c as any).comments[0].text, authorName: (c as any).comments[0].user?.name || 'Anonymous' }
+      : null
+
+    cellsByDelib.set(c.deliberationId, {
+      id: c.id,
+      status: c.status,
+      tier: c.tier,
+      myVote: votedUserIds.has(user.id),
+      votedCount: c.votes.length,
+      memberCount: c.participants.length,
+      ideas: c.ideas.map((ci: any) => ({
+        id: ci.idea.id,
+        text: ci.idea.text,
+        authorName: ci.idea.author?.name || 'Anonymous',
+      })),
+      members: c.participants.map((p: any) => ({
+        name: p.user?.name || 'Anonymous',
+        image: p.user?.image || null,
+        voted: votedUserIds.has(p.userId),
+      })),
+      votingDeadline: c.votingDeadline?.toISOString() ?? null,
+      discussionDeadline: c.discussionEndsAt?.toISOString() ?? null,
+      latestComment,
+    })
+  }
+
+  const ideaByDelib = new Map<string, any>()
+  for (const idea of user.ideas) {
+    ideaByDelib.set(idea.deliberationId, {
+      text: idea.text,
+      status: idea.status,
+      totalVotes: idea.totalVotes,
+      tier: idea.tier,
+    })
+  }
+
+  return { id: user.id, memberDelibIds, cellsByDelib, ideaByDelib }
+}
+
+// ── Tab Handlers ───────────────────────────────────────────────
+
+async function buildYourTurnFeed(
+  deliberations: any[],
+  podiums: any[],
+  userCtx: UserContext | null
+): Promise<FeedResponse> {
+  const entries: FeedEntry[] = []
+
+  for (const d of deliberations) {
+    const isMember = userCtx?.memberDelibIds.has(d.id) ?? false
+    const cell = userCtx?.cellsByDelib.get(d.id)
+    const myIdea = userCtx?.ideaByDelib.get(d.id)
+    const champion = d.ideas[0]
+      ? { text: d.ideas[0].text, authorName: d.ideas[0].author?.name || 'Anonymous' }
+      : undefined
+
+    const base = {
+      deliberation: {
+        id: d.id,
+        question: d.question,
+        phase: d.phase,
+        tier: d.currentTier,
+        challengeRound: d.challengeRound,
+        participantCount: d._count.members,
+        ideaCount: d._count.ideas,
+        communityName: d.community?.name,
+        creatorName: d.creator?.name,
+        votingDeadline: d.currentTierStartedAt && d.votingTimeoutMs
+          ? new Date(d.currentTierStartedAt.getTime() + d.votingTimeoutMs).toISOString()
+          : null,
+        submissionDeadline: d.submissionEndsAt?.toISOString() ?? null,
+      },
+      cell,
+      champion,
+      myIdea,
+    }
+
+    // Waiting card: user has cell, already voted, cell still voting
+    if (d.phase === 'VOTING' && cell && cell.myVote && cell.status === 'VOTING') {
+      entries.push({ kind: 'waiting', id: `waiting-${d.id}`, priority: 5, ...base })
+      continue
+    }
+
+    // Advanced card: user's idea is advancing
+    if (myIdea?.status === 'ADVANCING') {
+      entries.push({ kind: 'advanced', id: `advanced-${d.id}`, priority: 15, ...base })
+      continue
+    }
+
+    // Deliberate: cell in discussion phase (check BEFORE vote_now — !myVote is also true here)
+    if (d.phase === 'VOTING' && cell?.status === 'DELIBERATING') {
+      entries.push({ kind: 'deliberate', id: `discuss-${d.id}`, priority: 90, ...base })
+    }
+    // Vote/Challenge: user has cell, hasn't voted
+    else if (d.phase === 'VOTING' && cell && !cell.myVote) {
+      if (d.challengeRound > 0) {
+        entries.push({ kind: 'challenge', id: `challenge-${d.id}`, priority: 95, ...base })
+      } else {
+        entries.push({ kind: 'vote_now', id: `vote-${d.id}`, priority: 100, ...base })
+      }
+    }
+    // Voting phase, no cell yet — show the real state, user joins on click-through
+    else if (d.phase === 'VOTING' && !cell) {
+      if (d.challengeRound > 0) {
+        entries.push({ kind: 'challenge', id: `challenge-${d.id}`, priority: 50, ...base })
+      } else {
+        entries.push({ kind: 'vote_now', id: `vote-${d.id}`, priority: 50, ...base })
+      }
+    }
+    // Submit ideas — member or not, they'll join on click-through
+    else if (d.phase === 'SUBMISSION') {
+      entries.push({ kind: 'submit', id: `submit-${d.id}`, priority: isMember ? 70 : 50, ...base })
+    }
+    else if (d.phase === 'ACCUMULATING') {
+      entries.push({ kind: 'champion', id: `champ-${d.id}`, priority: 40, ...base })
+    }
+    else if (d.phase === 'COMPLETED') {
+      entries.push({ kind: 'completed', id: `done-${d.id}`, priority: 10, ...base })
+    }
+  }
+
+  // Sort by priority desc
+  entries.sort((a, b) => b.priority - a.priority)
+
+  // Build podiums summary card (pinned at top, max 5 most recent)
+  const podiumsSummary: FeedEntry = {
+    kind: 'podiums_summary',
+    id: 'podiums-summary',
+    priority: 999,
+    pinned: true,
+    podiums: podiums.slice(0, 5).map((p: any) => ({
+      id: p.id,
+      title: p.title,
+      authorName: p.author?.name || 'Anonymous',
+      isAI: p.author?.isAI || false,
+      createdAt: p.createdAt.toISOString(),
+    })),
+  }
+
+  // Count actionable items (priority >= 40)
+  const actionableCount = entries.filter((e) => e.priority >= 40).length
+
+  const feed: FeedEntry[] = [podiumsSummary, ...entries]
+
+  return { items: feed, actionableCount }
+}
+
+async function buildActivityFeed(userId: string | null): Promise<FeedResponse> {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+
+  // Run pulse stats queries in parallel
+  const [activeVoters, inProgress, ideasToday, votesToday, notifications] = await Promise.all([
+    prisma.vote.findMany({
+      where: { votedAt: { gte: last24h } },
+      select: { userId: true },
+      distinct: ['userId'],
+    }).then((r) => r.length),
+    prisma.deliberation.count({
+      where: { phase: { in: ['VOTING', 'SUBMISSION'] } },
+    }),
+    prisma.idea.count({
+      where: { createdAt: { gte: today } },
+    }),
+    prisma.vote.count({
+      where: { votedAt: { gte: today } },
+    }),
+    // Get recent notifications for activity timeline
+    userId
+      ? prisma.notification.findMany({
+          where: { userId },
           orderBy: { createdAt: 'desc' },
           take: 20,
-        }),
-        prisma.deliberation.findMany({
-          where: { phase: 'SUBMISSION', isPublic: true,  },
           select: {
-            id: true, question: true, description: true, organization: true,
-            phase: true, currentTier: true, challengeRound: true, createdAt: true,
-            views: true, submissionEndsAt: true, ideaGoal: true,
-            _count: { select: { members: true, ideas: true } },
-            community: { select: { name: true, slug: true } },
-            creator: { select: { id: true, name: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        }),
-        prisma.deliberation.findMany({
-          where: { phase: 'ACCUMULATING', isPublic: true,  },
-          include: {
-            _count: { select: { members: true, ideas: true } },
-            community: { select: { name: true, slug: true } },
-            creator: { select: { id: true, name: true } },
-            ideas: {
-              where: { status: 'WINNER' },
-              include: { author: { select: { name: true } } },
-              take: 1,
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        }),
-        prisma.deliberation.findMany({
-          where: { phase: 'VOTING', challengeRound: { gt: 0 }, isPublic: true,  },
-          include: {
-            _count: { select: { members: true, ideas: true } },
-            community: { select: { name: true, slug: true } },
-            creator: { select: { id: true, name: true } },
-            ideas: {
-              where: { status: 'DEFENDING' },
-              include: { author: { select: { name: true } } },
-              take: 1,
-            },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        }),
-      ])
-
-      // Pre-fetch champions for challenge deliberations
-      const challengeDelibIds = votingDelibs.filter(d => d.challengeRound > 0).map(d => d.id)
-      const challengeChampions = challengeDelibIds.length > 0
-        ? await prisma.idea.findMany({
-            where: {
-              deliberationId: { in: challengeDelibIds },
-              OR: [{ status: 'DEFENDING' }, { isChampion: true }],
-            },
-            include: { author: { select: { name: true } } },
-          })
-        : []
-
-      // Build discovery items
-      const discoveryItems: FeedItem[] = []
-      const championByDelib = new Map(challengeChampions.map(c => [c.deliberationId, c] as const))
-
-      // Voting deliberations
-      for (const delib of votingDelibs) {
-        const votingCells = delib.cells.filter(c => c.status === 'VOTING')
-        if (votingCells.length === 0) continue
-        const ideas = votingCells[0]?.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })) || []
-        if (ideas.length === 0) continue
-        const totalSpots = votingCells.reduce((sum, c) => sum + (5 - c._count.participants), 0)
-        const votingProgress = votingCells.length > 0 ?
-          Math.round((votingCells.filter(c => c.status === 'COMPLETED').length / votingCells.length) * 100) : 0
-        const isChallenge = delib.challengeRound > 0
-
-        if (isChallenge) {
-          const champion = championByDelib.get(delib.id) || null
-          discoveryItems.push({
-            type: 'challenge', priority: 70,
-            deliberation: {
-              id: delib.id, question: delib.question, description: delib.description,
-              organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
-              challengeRound: delib.challengeRound, createdAt: delib.createdAt,
-              views: delib.views || 0, _count: delib._count,
-              creator: delib.creator ? { id: delib.creator.id, name: delib.creator.name || 'Anonymous' } : undefined,
-            },
-            community: delib.community || null,
-            champion: champion ? { id: champion.id, text: champion.text, author: champion.author?.name || 'Anonymous', totalVotes: champion.totalVotes } : undefined,
-            tierInfo: { tier: delib.currentTier, totalCells: votingCells.length, votingProgress, ideas, spotsRemaining: totalSpots,
-              cells: votingCells.map(c => ({ id: c.id, ideas: c.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })) })),
-            },
-          })
-        } else {
-          discoveryItems.push({
-            type: 'join_voting', priority: 75,
-            deliberation: {
-              id: delib.id, question: delib.question, description: delib.description,
-              organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
-              challengeRound: delib.challengeRound, createdAt: delib.createdAt,
-              views: delib.views || 0, _count: delib._count,
-              creator: delib.creator ? { id: delib.creator.id, name: delib.creator.name || 'Anonymous' } : undefined,
-            },
-            community: delib.community || null,
-            tierInfo: { tier: delib.currentTier, totalCells: votingCells.length, votingProgress, ideas, spotsRemaining: totalSpots,
-              cells: votingCells.map(c => ({ id: c.id, ideas: c.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text })) })),
-            },
-          })
-        }
-      }
-
-      // Submission deliberations
-      for (const delib of submissionDelibs) {
-        discoveryItems.push({
-          type: 'submit_ideas', priority: 60,
-          deliberation: {
-            id: delib.id, question: delib.question, description: delib.description,
-            organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
-            challengeRound: delib.challengeRound, createdAt: delib.createdAt,
-            views: delib.views || 0, _count: delib._count,
-            creator: (delib as any).creator ? { id: (delib as any).creator.id, name: (delib as any).creator.name || 'Anonymous' } : undefined,
-          },
-          community: delib.community || null,
-          submissionDeadline: delib.submissionEndsAt?.toISOString() || null,
-          votingTrigger: {
-            type: delib.ideaGoal ? 'idea_goal' : delib.submissionEndsAt ? 'timer' : 'manual',
-            ideaGoal: delib.ideaGoal, currentIdeas: delib._count.ideas, currentParticipants: delib._count.members,
-          },
-        })
-      }
-
-      // Accumulating deliberations
-      const accumDelibIds = accumulatingDelibs.filter(d => d.ideas[0]).map(d => d.id)
-      const challengerCounts = accumDelibIds.length > 0
-        ? await prisma.idea.groupBy({ by: ['deliberationId'], where: { deliberationId: { in: accumDelibIds }, status: 'PENDING', isNew: true }, _count: true })
-        : []
-      const challengerCountByDelib = new Map(challengerCounts.map(c => [c.deliberationId, c._count]))
-
-      for (const delib of accumulatingDelibs) {
-        const champion = delib.ideas[0]
-        if (!champion) continue
-        discoveryItems.push({
-          type: 'champion', priority: 40,
-          deliberation: {
-            id: delib.id, question: delib.question, description: delib.description,
-            organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
-            challengeRound: delib.challengeRound, createdAt: delib.createdAt,
-            views: delib.views || 0, _count: delib._count,
-            creator: delib.creator ? { id: delib.creator.id, name: delib.creator.name || 'Anonymous' } : undefined,
-          },
-          community: delib.community || null,
-          champion: { id: champion.id, text: champion.text, author: champion.author.name || 'Anonymous', totalVotes: champion.totalVotes },
-          challengersCount: challengerCountByDelib.get(delib.id) || 0,
-        })
-      }
-
-      // Challenge deliberations (from query 5)
-      for (const delib of challengeDelibs) {
-        if (discoveryItems.some(i => i.deliberation.id === delib.id)) continue
-        const defender = delib.ideas[0]
-        discoveryItems.push({
-          type: 'challenge', priority: 70,
-          deliberation: {
-            id: delib.id, question: delib.question, description: delib.description,
-            organization: delib.organization, phase: delib.phase, currentTier: delib.currentTier,
-            challengeRound: delib.challengeRound, createdAt: delib.createdAt,
-            views: delib.views || 0, _count: delib._count,
-            creator: delib.creator ? { id: delib.creator.id, name: delib.creator.name || 'Anonymous' } : undefined,
-          },
-          community: delib.community || null,
-          champion: defender ? { id: defender.id, text: defender.text, author: defender.author.name || 'Anonymous', totalVotes: defender.totalVotes } : undefined,
-        })
-      }
-
-      globalFeedCache = { items: discoveryItems, champions: championByDelib, ts: Date.now() }
-    }
-
-    // --- PER-USER DATA (1-2 fast queries) ---
-    const items: FeedItem[] = []
-
-    // User's active cells
-    const userCells = userId ? await prisma.cellParticipation.findMany({
-      where: {
-        userId,
-        status: { in: ['ACTIVE', 'VOTED'] },
-        cell: { status: { in: ['VOTING', 'COMPLETED'] } },
-      },
-      include: {
-        cell: {
-          select: {
-            id: true, tier: true, status: true,
+            id: true,
+            type: true,
+            title: true,
+            body: true,
             deliberationId: true,
-            deliberation: {
-              select: {
-                id: true, question: true, description: true, organization: true,
-                phase: true, currentTier: true, challengeRound: true, createdAt: true,
-                views: true, currentTierStartedAt: true, votingTimeoutMs: true,
-                _count: { select: { members: true, ideas: true } },
-                community: { select: { name: true, slug: true } },
-                creator: { select: { id: true, name: true } },
-              },
-            },
-            ideas: {
-              select: { idea: { select: { id: true, text: true, author: { select: { name: true } } } } },
-            },
-            participants: { select: { status: true } },
-            votes: { where: { userId: userId! }, select: { ideaId: true }, take: 1 },
+            createdAt: true,
           },
-        },
+        })
+      : [],
+  ])
+
+  const pulse: PulseStats = { activeVoters, inProgress, ideasToday, votesToday }
+
+  const activity: ActivityItem[] = (notifications as any[]).map((n) => ({
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    body: n.body,
+    deliberationId: n.deliberationId,
+    createdAt: n.createdAt.toISOString(),
+  }))
+
+  return { items: [], pulse, activity }
+}
+
+async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedResponse> {
+  const completedDelibs = await prisma.deliberation.findMany({
+    where: {
+      phase: 'COMPLETED',
+      OR: [
+        { isPublic: true },
+        ...(userCtx ? [{ members: { some: { userId: userCtx.id } } }] : []),
+      ],
+    },
+    select: {
+      id: true,
+      question: true,
+      phase: true,
+      currentTier: true,
+      challengeRound: true,
+      completedAt: true,
+      _count: { select: { members: true, ideas: true } },
+      community: { select: { name: true } },
+      creator: { select: { name: true } },
+      ideas: {
+        where: { status: 'WINNER' },
+        select: { text: true, totalVotes: true, author: { select: { name: true } } },
+        take: 1,
       },
-    }) : []
+    },
+    orderBy: { completedAt: 'desc' },
+    take: 30,
+  })
 
-    // Extract votes from cells (batched into the query above)
-    const votesByCell = new Map(
-      userCells
-        .filter(cp => cp.cell.votes.length > 0)
-        .map(cp => [cp.cell.id, cp.cell.votes[0].ideaId] as const)
-    )
+  const entries: FeedEntry[] = completedDelibs.map((d) => {
+    const champion = d.ideas[0]
+      ? { text: d.ideas[0].text, authorName: d.ideas[0].author?.name || 'Anonymous' }
+      : undefined
+    const myIdea = userCtx?.ideaByDelib.get(d.id)
 
-    // Process user cells into vote_now items
-    const nowMs = Date.now()
-    const bestCellByDelib = new Map<string, typeof userCells[number]>()
-    for (const cp of userCells) {
-      const delibId = cp.cell.deliberation.id
-      const existing = bestCellByDelib.get(delibId)
-      if (!existing || cp.cell.tier > existing.cell.tier) {
-        bestCellByDelib.set(delibId, cp)
-      }
+    return {
+      kind: 'completed' as const,
+      id: `result-${d.id}`,
+      priority: 10,
+      deliberation: {
+        id: d.id,
+        question: d.question,
+        phase: d.phase,
+        tier: d.currentTier,
+        challengeRound: d.challengeRound,
+        participantCount: d._count.members,
+        ideaCount: d._count.ideas,
+        communityName: d.community?.name,
+        creatorName: d.creator?.name,
+        votingDeadline: null,
+        submissionDeadline: null,
+      },
+      champion,
+      myIdea,
+      winnerVoteCount: d.ideas[0]?.totalVotes ?? undefined,
+      totalParticipants: d._count.members,
+      tierCount: d.currentTier,
+      completedAt: d.completedAt?.toISOString() ?? undefined,
     }
+  })
 
-    for (const cp of bestCellByDelib.values()) {
-      const cell = cp.cell
-      const votedCount = cell.participants.filter(p => p.status === 'VOTED').length
-      const userHasVoted = cp.status === 'VOTED'
-      const votedAt = cp.votedAt
-      const isCompleted = cell.status === 'COMPLETED'
-      const userVotedIdeaId = votesByCell.get(cell.id) || null
-      const deadline = cell.deliberation.currentTierStartedAt
-        ? new Date(cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs)
-        : null
-      const timeRemainingMs = deadline ? deadline.getTime() - nowMs : null
-      if (!isCompleted && deadline && deadline.getTime() < nowMs) continue
+  return { items: entries }
+}
 
-      // If deliberation is accumulating and user's cell is done, skip vote_now —
-      // the discovery 'champion' card will be used instead for a consistent experience
-      if (cell.deliberation.phase === 'ACCUMULATING' && isCompleted && userHasVoted) continue
+// ── Main ───────────────────────────────────────────────────────
 
-      const votesNeeded = cell.participants.length - votedCount
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  const tab = (request.nextUrl.searchParams.get('tab') || 'your-turn') as TabParam
 
-      let urgency: 'critical' | 'warning' | 'normal' = 'normal'
-      if (timeRemainingMs !== null) {
-        if (timeRemainingMs < 10 * 60 * 1000) urgency = 'critical'
-        else if (timeRemainingMs < 30 * 60 * 1000) urgency = 'warning'
-      }
-
-      items.push({
-        type: 'vote_now',
-        priority: isCompleted ? 80 : (userHasVoted ? 90 : 100),
-        deliberation: {
-          id: cell.deliberation.id, question: cell.deliberation.question, description: cell.deliberation.description,
-          organization: cell.deliberation.organization, phase: cell.deliberation.phase, currentTier: cell.deliberation.currentTier,
-          challengeRound: cell.deliberation.challengeRound, createdAt: cell.deliberation.createdAt,
-          views: cell.deliberation.views || 0, _count: cell.deliberation._count,
-          creator: cell.deliberation.creator ? { id: cell.deliberation.creator.id, name: cell.deliberation.creator.name || 'Anonymous' } : undefined,
-        },
-        community: cell.deliberation.community || null,
-        cell: {
-          id: cell.id, tier: cell.tier, status: cell.status,
-          votingDeadline: deadline?.toISOString() || null, spotsRemaining: 0,
-          ideas: cell.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text, author: ci.idea.author.name || 'Anonymous' })),
-          participantCount: cell.participants.length, votedCount, userHasVoted, userVotedIdeaId,
-          urgency, timeRemainingMs: timeRemainingMs ?? undefined, votesNeeded,
-        },
-        resolvedAt: votedAt?.toISOString() || null,
-      })
-    }
-
-    // Merge: user's vote_now cards + global discovery items (skip duplicates)
-    // IMPORTANT: clone discovery items — never mutate the shared global cache
-    const userDelibIds = new Set(items.map(i => i.deliberation.id))
-
-    // Also exclude deliberations the user has already joined (even if no active cell yet)
-    if (userId) {
-      const memberships = await prisma.deliberationMember.findMany({
-        where: { userId },
-        select: { deliberationId: true },
-      })
-      for (const m of memberships) userDelibIds.add(m.deliberationId)
-    }
-
-    for (const item of globalFeedCache!.items) {
-      if (!userDelibIds.has(item.deliberation.id)) {
-        items.push({ ...item })
-      }
-    }
-
-    // Enrich items with user's submitted ideas (lightweight query)
-    const allDelibIds = items.map(i => i.deliberation.id)
-    if (userId && allDelibIds.length > 0) {
-      const userIdeas = await prisma.idea.findMany({
-        where: { deliberationId: { in: allDelibIds }, authorId: userId },
-        select: { id: true, text: true, deliberationId: true, isNew: true, createdAt: true },
-      })
-      for (const idea of userIdeas) {
-        const item = items.find(i => i.deliberation.id === idea.deliberationId)
-        if (item) {
-          item.userSubmittedIdea = { id: idea.id, text: idea.text }
-          item.resolvedAt = idea.createdAt.toISOString()
-        }
-      }
-    }
-
-    // Sort by: urgency first, then priority, then hot score
-    const getHotScore = (item: FeedItem): number => {
-      const views = item.deliberation.views || 0
-      const members = item.deliberation._count.members || 0
-      const ideas = item.deliberation._count.ideas || 0
-      const ageHours = (Date.now() - new Date(item.deliberation.createdAt).getTime()) / (1000 * 60 * 60)
-      const ageFactor = Math.max(1, Math.sqrt(ageHours))
-      return (views + members * 2 + ideas * 3) / ageFactor
-    }
-
-    const getUrgencyScore = (item: FeedItem) => {
-      if (item.cell?.urgency === 'critical') return 2
-      if (item.cell?.urgency === 'warning') return 1
-      return 0
-    }
-
-    items.sort((a, b) => {
-      const aUrgent = a.cell && !a.cell.userHasVoted ? getUrgencyScore(a) : 0
-      const bUrgent = b.cell && !b.cell.userHasVoted ? getUrgencyScore(b) : 0
-      if (bUrgent !== aUrgent) return bUrgent - aUrgent
-      if (b.priority !== a.priority) return b.priority - a.priority
-      return getHotScore(b) - getHotScore(a)
-    })
-
-    // Filter by following if requested
-    let filteredItems = items
-    if (filterType === 'following' && userId) {
-      const follows = await prisma.follow.findMany({
-        where: { followerId: userId },
-        select: { followingId: true },
-      })
-      const followingIds = new Set(follows.map(f => f.followingId))
-      filteredItems = items.filter(item =>
-        item.deliberation.creator && followingIds.has(item.deliberation.creator.id)
-      )
-    }
-
-    const nowCacheTs = Date.now()
-    const responseData = { items: filteredItems, hasMore: false, ts: nowCacheTs }
-
-    // Cache the response
-    userFeedCache.set(cacheKey, { data: responseData, ts: nowCacheTs })
-    if (userFeedCache.size > 100) {
-      const cutoff = Date.now() - USER_FEED_TTL * 10
-      for (const [k, v] of userFeedCache) {
-        if (v.ts < cutoff) userFeedCache.delete(k)
-      }
-    }
-
-    // If client sent since, check if anything meaningfully changed
-    if (sinceTs) {
-      const prevCached = userCached?.data as { items: FeedItem[] } | undefined
-      if (prevCached && !hasFeedChanged(prevCached.items, filteredItems)) {
-        return NextResponse.json({ items: [], unchanged: true, ts: nowCacheTs })
-      }
-    }
-
-    return NextResponse.json(responseData)
-  } catch (error) {
-    console.error('Error fetching feed:', error)
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: 'Failed to fetch feed', details: message }, { status: 500 })
+  if (tab === 'activity') {
+    const userId = session?.user?.email
+      ? (await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } }))?.id ?? null
+      : null
+    const response = await buildActivityFeed(userId)
+    return NextResponse.json(response)
   }
+
+  if (tab === 'results') {
+    const userCtx = session?.user?.email ? await getUserContext(session.user.email) : null
+    const response = await buildResultsFeed(userCtx)
+    return NextResponse.json(response)
+  }
+
+  // Default: your-turn tab
+  const [deliberations, podiums, userCtx] = await Promise.all([
+    getDiscovery(),
+    getPodiums(),
+    session?.user?.email ? getUserContext(session.user.email) : null,
+  ])
+
+  const response = await buildYourTurnFeed(deliberations, podiums, userCtx)
+  return NextResponse.json(response)
 }

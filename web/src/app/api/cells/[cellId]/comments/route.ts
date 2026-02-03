@@ -248,6 +248,9 @@ export async function POST(
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Comment text is required' }, { status: 400 })
     }
+    if (text.trim().length > 2000) {
+      return NextResponse.json({ error: 'Comment too long (max 2,000 characters)' }, { status: 400 })
+    }
 
     // Validate ideaId if provided - must be an idea in this cell
     if (ideaId) {

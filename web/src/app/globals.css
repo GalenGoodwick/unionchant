@@ -6,61 +6,123 @@
   --font-serif: var(--font-serif), Georgia, serif;
   --font-mono: var(--font-mono), ui-monospace, monospace;
 
-  /* Base colors */
+  /* Base colors (dark default) */
+  --color-background: #0f172a;
+  --color-foreground: #e2e8f0;
+  --color-header: #020617;
+  --color-header-hover: #0f172a;
+
+  /* Accent */
+  --color-accent: #22d3ee;
+  --color-accent-hover: #06b6d4;
+  --color-accent-light: #164e63;
+
+  /* Surface */
+  --color-surface: #1e293b;
+  --color-surface-hover: #334155;
+  --color-surface-alt: #475569;
+
+  /* Border */
+  --color-border: #334155;
+  --color-border-strong: #475569;
+
+  /* Text */
+  --color-muted: #94a3b8;
+  --color-muted-light: #64748b;
+  --color-subtle: #cbd5e1;
+
+  /* Status: Success */
+  --color-success: #34d399;
+  --color-success-hover: #10b981;
+  --color-success-bg: #064e3b;
+  --color-success-border: #059669;
+
+  /* Status: Warning */
+  --color-warning: #eab308;
+  --color-warning-hover: #ca9a06;
+  --color-warning-bg: rgba(234,179,8,0.1);
+  --color-warning-border: #ca9a06;
+
+  /* Status: Error */
+  --color-error: #f87171;
+  --color-error-hover: #ef4444;
+  --color-error-bg: #7f1d1d;
+  --color-error-border: #dc2626;
+
+  /* Status: Purple (Accepting New Ideas) */
+  --color-purple: #a78bfa;
+  --color-purple-hover: #8b5cf6;
+  --color-purple-bg: #2e1065;
+  --color-purple-light: #3b0764;
+  --color-purple-border: #7c3aed;
+
+  /* Status: Orange (Challenge rounds) */
+  --color-orange: #f97316;
+  --color-orange-hover: #ea580c;
+  --color-orange-bg: rgba(249,115,22,0.1);
+  --color-orange-light: rgba(249,115,22,0.15);
+
+  /* Status: Blue (Deliberation/Discussion) */
+  --color-blue: #60a5fa;
+  --color-blue-hover: #3b82f6;
+  --color-blue-bg: #1e3a5f;
+  --color-blue-light: #1e40af;
+  --color-blue-border: #2563eb;
+}
+
+/* Light mode override */
+.light {
   --color-background: #ffffff;
   --color-foreground: #0f172a;
   --color-header: #0c4a6e;
   --color-header-hover: #083654;
 
-  /* Accent */
   --color-accent: #0891b2;
   --color-accent-hover: #0e7490;
   --color-accent-light: #ecfeff;
 
-  /* Surface */
   --color-surface: #f8fafc;
   --color-surface-hover: #f1f5f9;
   --color-surface-alt: #e2e8f0;
 
-  /* Border */
   --color-border: #e2e8f0;
   --color-border-strong: #cbd5e1;
 
-  /* Text */
   --color-muted: #64748b;
   --color-muted-light: #94a3b8;
   --color-subtle: #475569;
 
-  /* Status: Success */
   --color-success: #059669;
   --color-success-hover: #047857;
   --color-success-bg: #ecfdf5;
   --color-success-border: #10b981;
 
-  /* Status: Warning */
-  --color-warning: #d97706;
-  --color-warning-hover: #b45309;
-  --color-warning-bg: #fffbeb;
-  --color-warning-border: #f59e0b;
+  --color-warning: #eab308;
+  --color-warning-hover: #ca9a06;
+  --color-warning-bg: rgba(234,179,8,0.1);
+  --color-warning-border: #ca9a06;
 
-  /* Status: Error */
   --color-error: #dc2626;
   --color-error-hover: #b91c1c;
   --color-error-bg: #fef2f2;
   --color-error-border: #ef4444;
 
-  /* Status: Purple (Accumulating) */
   --color-purple: #7c3aed;
   --color-purple-hover: #6d28d9;
   --color-purple-bg: #f5f3ff;
   --color-purple-light: #ede9fe;
   --color-purple-border: #8b5cf6;
 
-  /* Status: Orange (Challenge rounds) */
   --color-orange: #f97316;
   --color-orange-hover: #ea580c;
-  --color-orange-bg: #fff7ed;
-  --color-orange-light: #ffedd5;
+  --color-orange-bg: rgba(249,115,22,0.1);
+  --color-orange-light: rgba(249,115,22,0.15);
+
+  --color-blue: #3b82f6;
+  --color-blue-hover: #2563eb;
+  --color-blue-bg: #eff6ff;
+  --color-blue-light: #dbeafe;
+  --color-blue-border: #60a5fa;
 }
 
 body {

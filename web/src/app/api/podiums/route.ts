@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
+import { invalidatePodiumCache } from '@/lib/podium-cache'
 
 // GET /api/podiums - List podium posts
 export async function GET(req: NextRequest) {
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
       where,
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ pinned: 'desc' }, { createdAt: 'desc' }],
       include: {
         author: {
           select: { id: true, name: true, image: true, isAI: true },
@@ -117,6 +118,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    invalidatePodiumCache()
     return NextResponse.json(podium, { status: 201 })
   } catch (error) {
     console.error('Error creating podium:', error)

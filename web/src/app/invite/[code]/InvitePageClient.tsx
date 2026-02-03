@@ -65,7 +65,7 @@ export default function InvitePageClient() {
       }
 
       const data = await res.json()
-      router.push(`/deliberations/${data.deliberationId}`)
+      router.push(`/talks/${data.deliberationId}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join')
       setJoining(false)
@@ -147,7 +147,7 @@ export default function InvitePageClient() {
               disabled={joining}
               className="w-full bg-accent hover:bg-accent-hover text-white py-3 px-6 rounded-lg font-semibold transition-colors disabled:opacity-50"
             >
-              {joining ? 'Joining...' : session ? 'Join Deliberation' : 'Sign in to Join'}
+              {joining ? 'Joining...' : session ? 'Join Talk' : 'Sign in to Join'}
             </button>
           )}
 

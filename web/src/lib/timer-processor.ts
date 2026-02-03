@@ -44,6 +44,46 @@ export async function processExpiredSubmissions(): Promise<string[]> {
 }
 
 /**
+ * Process cells where discussion period has expired
+ * Transitions DELIBERATING cells to VOTING when discussionEndsAt passes
+ */
+export async function processExpiredDiscussions(): Promise<string[]> {
+  const now = new Date()
+
+  const expiredCells = await prisma.cell.findMany({
+    where: {
+      status: 'DELIBERATING',
+      discussionEndsAt: { lte: now },
+    },
+    include: {
+      deliberation: { select: { votingTimeoutMs: true } },
+    },
+  })
+
+  const processed: string[] = []
+
+  for (const cell of expiredCells) {
+    try {
+      await prisma.cell.update({
+        where: { id: cell.id },
+        data: {
+          status: 'VOTING',
+          votingStartedAt: now,
+          votingDeadline: cell.deliberation.votingTimeoutMs > 0
+            ? new Date(now.getTime() + cell.deliberation.votingTimeoutMs)
+            : null,
+        },
+      })
+      processed.push(cell.id)
+    } catch (err) {
+      console.error(`Failed to advance discussion for cell ${cell.id}:`, err)
+    }
+  }
+
+  return processed
+}
+
+/**
  * Process deliberations where voting tier has expired
  * Completes all cells in the tier with whatever votes have been cast
  */
@@ -314,8 +354,9 @@ export async function processAllTimers(trigger?: string) {
   const startedAt = Date.now()
 
   try {
-    const [submissions, tiers, accumulations] = await Promise.all([
+    const [submissions, discussions, tiers, accumulations] = await Promise.all([
       processExpiredSubmissions(),
+      processExpiredDiscussions(),
       processExpiredTiers(),
       processExpiredAccumulations(),
     ])
@@ -326,7 +367,7 @@ export async function processAllTimers(trigger?: string) {
       stuckHealed = await processStuckCells()
     }
 
-    const total = submissions.length + tiers.length + accumulations.length + stuckHealed.length
+    const total = submissions.length + discussions.length + tiers.length + accumulations.length + stuckHealed.length
 
     // Log execution: always for cron, only when work done for feed
     if (trigger === 'external_cron' || trigger === 'vercel_cron' || total > 0) {
@@ -342,6 +383,7 @@ export async function processAllTimers(trigger?: string) {
 
     return {
       submissions,
+      discussions,
       tiers,
       accumulations,
       stuckHealed,

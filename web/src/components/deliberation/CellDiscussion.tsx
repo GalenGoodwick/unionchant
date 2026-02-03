@@ -223,6 +223,7 @@ export default function CellDiscussion({ cellId, isParticipant, ideas }: {
                   placeholder={selectedIdeaId ? "Comment on this idea..." : "Message..."}
                   value={newComment}
                   onChange={(e) => setNewComment(e.target.value)}
+                  maxLength={2000}
                   className="flex-1 bg-background rounded border border-border px-3 py-1.5 text-sm text-foreground placeholder-muted focus:outline-none focus:border-accent"
                 />
                 <button
