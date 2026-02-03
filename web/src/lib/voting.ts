@@ -491,9 +491,9 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   // In final showdown, don't mark individual winners/losers - wait for cross-cell tally
   if (!isFinalShowdown) {
-    // Count votes per idea
+    // Count votes per idea (only first votes — second votes don't affect tally)
     const voteCounts: Record<string, number> = {}
-    cell.votes.forEach(vote => {
+    cell.votes.filter((vote: { isSecondVote: boolean }) => !vote.isSecondVote).forEach((vote: { ideaId: string }) => {
       voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
     })
 
@@ -673,10 +673,10 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
   // FINAL SHOWDOWN: Cross-cell tallying when all cells vote on same ≤5 ideas
   if (allCellsHaveSameIdeas && firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0) {
-    // Count ALL votes across ALL cells
+    // Count first votes across ALL cells (second votes don't affect tally)
     const crossCellTally: Record<string, number> = {}
     for (const cell of cells) {
-      for (const vote of cell.votes) {
+      for (const vote of cell.votes.filter((v: { isSecondVote: boolean }) => !v.isSecondVote)) {
         crossCellTally[vote.ideaId] = (crossCellTally[vote.ideaId] || 0) + 1
       }
     }
