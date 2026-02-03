@@ -61,18 +61,11 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, name: true, emailNotifications: true },
+      select: { id: true, name: true },
     })
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
-    }
-
-    if (!user.emailNotifications) {
-      return NextResponse.json(
-        { error: 'SUBSCRIBE_REQUIRED', message: 'Subscribe to email notifications to chat with the collective. You can unsubscribe anytime.' },
-        { status: 403 }
-      )
     }
 
     const body = await req.json()

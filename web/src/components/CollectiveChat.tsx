@@ -25,9 +25,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [subscribeRequired, setSubscribeRequired] = useState(false)
-  const [subscribing, setSubscribing] = useState(false)
-  const [subscribed, setSubscribed] = useState<boolean | null>(null)
   const [existingTalk, setExistingTalk] = useState<ExistingTalk | null>(null)
 
   // Set-as-Talk state
@@ -75,51 +72,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     return () => clearInterval(interval)
   }, [])
 
-  // Check subscription status
-  useEffect(() => {
-    if (!session?.user?.email) {
-      setSubscribed(null)
-      return
-    }
-
-    const checkSubscription = async () => {
-      try {
-        const res = await fetch('/api/user/me')
-        if (res.ok) {
-          const data = await res.json()
-          setSubscribed(data.user.emailNotifications)
-        }
-      } catch {
-        // Silently fail
-      }
-    }
-
-    checkSubscription()
-  }, [session?.user?.email])
-
   useEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
-
-  const handleSubscribe = async () => {
-    setSubscribing(true)
-    try {
-      const res = await fetch('/api/user/me', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailNotifications: true }),
-      })
-      if (res.ok) {
-        setSubscribed(true)
-        setSubscribeRequired(false)
-        setError(null)
-      }
-    } catch {
-      setError('Failed to subscribe. Please try again.')
-    } finally {
-      setSubscribing(false)
-    }
-  }
 
   // Chat send — free, no Talk creation
   const handleSend = async () => {
@@ -139,11 +94,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const data = await res.json()
 
       if (!res.ok) {
-        if (data.error === 'SUBSCRIBE_REQUIRED') {
-          setSubscribeRequired(true)
-          setInput(messageText)
-          return
-        }
         setError(data.error || 'Failed to send message')
         setInput(messageText)
         return
@@ -421,24 +371,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {/* Subscribe gate */}
-      {subscribeRequired && !talkConfirm && (
-        <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
-          <p className="text-sm text-foreground mb-2">
-            Subscribe to email notifications to chat with the collective. You can unsubscribe anytime.
-          </p>
-          <button
-            onClick={handleSubscribe}
-            disabled={subscribing}
-            className="text-sm px-4 py-1.5 rounded-lg bg-gold hover:bg-gold-hover text-background font-medium transition-colors disabled:opacity-50"
-          >
-            {subscribing ? 'Subscribing...' : 'Subscribe & Chat'}
-          </button>
-        </div>
-      )}
-
       {/* Error */}
-      {error && !subscribeRequired && !talkConfirm && (
+      {error && !talkConfirm && (
         <div className="px-4 py-2 border-t border-error-border bg-error-bg text-error text-xs">
           {error}
         </div>
@@ -453,11 +387,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={
-                subscribed === false
-                  ? 'Subscribe to notifications to chat...'
-                  : 'Chat with the collective...'
-              }
+              placeholder="Chat with the collective..."
               disabled={sending || !!talkConfirm}
               maxLength={2000}
               className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
