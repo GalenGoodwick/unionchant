@@ -338,7 +338,7 @@ export default function DashboardDetailPage() {
                 {deliberation.phase === 'ACCUMULATING' ? 'Priority (Accepting Challengers)' : 'Winner'}
               </div>
               <p className="text-foreground font-medium text-lg">{champion.text}</p>
-              <p className="text-muted text-sm mt-1">{champion.totalVotes} total votes</p>
+              <p className="text-muted text-sm mt-1">{champion.totalVotes} XP</p>
             </div>
           )
         })()}
@@ -355,133 +355,320 @@ export default function DashboardDetailPage() {
         <div className="flex flex-col gap-4">
           {/* Left Column - Controls & Invites */}
           <div className="space-y-4">
-            {/* Facilitator Controls */}
+            {/* Facilitator Controls — Chronological Flow */}
             <div className="bg-surface border border-border rounded-xl p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-2">Facilitator Controls</h2>
-              <p className="text-sm text-muted mb-4">
-                Current phase: <span className="font-medium text-foreground">{phaseLabel(deliberation.phase)}</span>
-              </p>
+              <h2 className="text-lg font-semibold text-foreground mb-3">Facilitator Controls</h2>
+
+              {/* Progress stepper */}
+              <div className="flex items-center gap-0 mb-4 text-xs overflow-x-auto">
+                {[
+                  { key: 'SUBMISSION', label: 'Ideas', color: 'accent' },
+                  { key: 'VOTING', label: 'Voting', color: 'warning' },
+                  { key: 'COMPLETED', label: 'Priority', color: 'success' },
+                  ...(deliberation.accumulationEnabled ? [{ key: 'ACCUMULATING', label: 'Rolling', color: 'purple' }] : []),
+                ].map((step, i, arr) => {
+                  const phases = arr.map(s => s.key)
+                  const currentIndex = phases.indexOf(deliberation.phase)
+                  const stepIndex = i
+                  const isDone = stepIndex < currentIndex
+                  const isCurrent = step.key === deliberation.phase
+                  return (
+                    <div key={step.key} className="flex items-center">
+                      <div className={`flex items-center gap-1 px-2 py-1 rounded-full whitespace-nowrap ${
+                        isCurrent ? `bg-${step.color} text-white` :
+                        isDone ? `bg-${step.color}-bg text-${step.color} border border-${step.color}` :
+                        'bg-surface text-muted border border-border'
+                      }`}>
+                        {isDone && <span>&#10003;</span>}
+                        <span className="font-medium">{step.label}</span>
+                      </div>
+                      {i < arr.length - 1 && (
+                        <div className={`w-4 h-px mx-0.5 ${isDone ? 'bg-muted' : 'bg-border'}`} />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Stats bar */}
+              <div className="flex gap-3 text-sm text-muted mb-4 flex-wrap">
+                <span>{deliberation._count.ideas} ideas</span>
+                <span>{deliberation._count.members} members</span>
+                {deliberation.phase === 'VOTING' && (
+                  <>
+                    <span>Tier {deliberation.currentTier}</span>
+                    <span>{deliberation.cells.filter(c => c.status === 'VOTING').length} cells voting</span>
+                    <span>{deliberation.cells.filter(c => c.status === 'COMPLETED').length} done</span>
+                  </>
+                )}
+              </div>
 
               <div className="space-y-3">
-                <button
-                  onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
-                  disabled={deliberation.phase !== 'SUBMISSION' || actionLoading === 'start-voting'}
-                  className="w-full bg-warning hover:bg-warning/80 disabled:opacity-40 disabled:cursor-not-allowed text-black font-medium px-4 py-2 rounded transition-colors"
-                >
-                  {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting Now'}
-                </button>
+                {/* ═══ PHASE: SUBMISSION ═══ */}
+                {deliberation.phase === 'SUBMISSION' && (
+                  <>
+                    {deliberation.ideaGoal && (
+                      <div className="mb-2">
+                        <div className="flex justify-between text-xs text-muted mb-1">
+                          <span>Idea goal</span>
+                          <span>{deliberation._count.ideas}/{deliberation.ideaGoal}</span>
+                        </div>
+                        <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-accent rounded-full transition-all"
+                            style={{ width: `${Math.min(100, (deliberation._count.ideas / deliberation.ideaGoal) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
 
-                {deliberation.cells.some(c => c.status === 'DELIBERATING') && (
-                  <button
-                    onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
-                    disabled={actionLoading === 'advance-discussion'}
-                    className="w-full bg-blue hover:bg-blue/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                  >
-                    {actionLoading === 'advance-discussion' ? 'Opening...' : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
-                  </button>
+                    <button
+                      onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
+                      disabled={actionLoading === 'start-voting' || deliberation._count.ideas < 2}
+                      className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
+                    >
+                      {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting'}
+                    </button>
+                    <p className="text-xs text-muted">
+                      Creates cells of ~5 people and begins tiered voting. Ideas can no longer be submitted.
+                    </p>
+                  </>
                 )}
 
-                {!confirmForce ? (
-                  <button
-                    onClick={() => setConfirmForce(true)}
-                    disabled={deliberation.phase !== 'VOTING' || actionLoading === 'force-next-tier'}
-                    className="w-full bg-orange hover:bg-orange/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                  >
-                    Force Complete Current Round
-                  </button>
-                ) : (
-                  <div className="space-y-3 border border-orange rounded p-3">
-                    <p className="text-sm text-foreground">
-                      This will end the current voting round immediately, tally all votes cast so far, and advance winners. Participants who haven&apos;t voted yet will be skipped.
-                    </p>
-                    <div className="flex gap-2">
+                {/* ═══ PHASE: VOTING ═══ */}
+                {deliberation.phase === 'VOTING' && (
+                  <>
+                    {/* Voting progress bar */}
+                    {(() => {
+                      const votingCells = deliberation.cells.filter(c => c.status === 'VOTING')
+                      const completedCells = deliberation.cells.filter(c => c.status === 'COMPLETED')
+                      const totalCells = votingCells.length + completedCells.length
+                      const progress = totalCells > 0 ? Math.round((completedCells.length / totalCells) * 100) : 0
+                      return totalCells > 0 ? (
+                        <div className="mb-2">
+                          <div className="flex justify-between text-xs text-muted mb-1">
+                            <span>Tier {deliberation.currentTier} progress</span>
+                            <span>{completedCells.length}/{totalCells} cells</span>
+                          </div>
+                          <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-warning rounded-full transition-all"
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : null
+                    })()}
+
+                    {/* Open voting for deliberating cells */}
+                    {deliberation.cells.some(c => c.status === 'DELIBERATING') && (
+                      <>
+                        <button
+                          onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
+                          disabled={actionLoading === 'advance-discussion'}
+                          className="w-full bg-blue hover:bg-blue-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {actionLoading === 'advance-discussion' ? 'Opening...' : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
+                        </button>
+                        <p className="text-xs text-muted">
+                          Ends discussion early and opens voting for cells still in deliberation.
+                        </p>
+                      </>
+                    )}
+
+                    {/* Force complete */}
+                    {!confirmForce ? (
                       <button
-                        onClick={() => { setConfirmForce(false); handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`) }}
+                        onClick={() => setConfirmForce(true)}
                         disabled={actionLoading === 'force-next-tier'}
-                        className="flex-1 bg-orange hover:bg-orange/80 disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                        className="w-full bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
                       >
-                        {actionLoading === 'force-next-tier' ? 'Processing...' : 'Yes, Force Complete'}
+                        Force Complete Round
                       </button>
-                      <button
-                        onClick={() => setConfirmForce(false)}
-                        className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <p className="text-xs text-muted">
-                  Processes all active voting cells as if timer expired.
-                </p>
+                    ) : (
+                      <div className="border border-orange rounded-lg p-3 space-y-2">
+                        <p className="text-sm text-orange font-medium">Warning</p>
+                        <p className="text-sm text-foreground">
+                          Ends the current round immediately. Votes cast so far will be tallied. Participants who haven&apos;t voted yet will be skipped.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setConfirmForce(false); handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`) }}
+                            disabled={actionLoading === 'force-next-tier'}
+                            className="flex-1 bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                          >
+                            {actionLoading === 'force-next-tier' ? 'Processing...' : 'Confirm'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmForce(false)}
+                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-                {!confirmRelease ? (
-                  <button
-                    onClick={() => setConfirmRelease(true)}
-                    disabled={deliberation.phase !== 'VOTING' || actionLoading === 'release-extra-votes'}
-                    className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                  >
-                    Release Extra Votes
-                  </button>
-                ) : (
-                  <div className="space-y-3 border border-accent rounded p-3">
-                    <p className="text-sm text-foreground">
-                      This will add extra voting slots so more participants can join the current round. Use this if people are waiting to vote but all cells are full.
-                    </p>
-                    <div className="flex gap-2">
+                    {/* Release extra votes */}
+                    {!confirmRelease ? (
                       <button
-                        onClick={() => { setConfirmRelease(false); handleAction('release-extra-votes', `/api/deliberations/${deliberationId}/release-extra-votes`) }}
+                        onClick={() => setConfirmRelease(true)}
                         disabled={actionLoading === 'release-extra-votes'}
-                        className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                        className="w-full border border-accent text-accent hover:bg-accent-light disabled:opacity-40 font-medium px-4 py-2.5 rounded-lg transition-colors"
                       >
-                        {actionLoading === 'release-extra-votes' ? 'Releasing...' : 'Yes, Release'}
+                        Release Extra Votes
                       </button>
-                      <button
-                        onClick={() => setConfirmRelease(false)}
-                        className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <p className="text-xs text-muted">
-                  Opens a window for participants whose cells completed to vote in another batch.
-                </p>
+                    ) : (
+                      <div className="border border-accent rounded-lg p-3 space-y-2">
+                        <p className="text-sm text-accent font-medium">Extra Votes</p>
+                        <p className="text-sm text-foreground">
+                          Opens extra voting slots so more participants can join the current round. Use when people are waiting and all cells are full.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setConfirmRelease(false); handleAction('release-extra-votes', `/api/deliberations/${deliberationId}/release-extra-votes`) }}
+                            disabled={actionLoading === 'release-extra-votes'}
+                            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                          >
+                            {actionLoading === 'release-extra-votes' ? 'Releasing...' : 'Confirm'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmRelease(false)}
+                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
-                {!confirmChallenge ? (
-                  <button
-                    onClick={() => setConfirmChallenge(true)}
-                    disabled={deliberation.phase !== 'ACCUMULATING' || actionLoading === 'start-challenge'}
-                    className="w-full bg-purple hover:bg-purple/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
-                  >
-                    Start Round 2
-                  </button>
-                ) : (
-                  <div className="space-y-3 border border-purple rounded p-3">
-                    <p className="text-sm text-foreground">
-                      This will start a new round. Challenger ideas will compete against the current priority through tiered voting. The priority could be replaced.
-                    </p>
-                    <div className="flex gap-2">
+                    {/* Toggle: reopen submissions */}
+                    <div className="pt-2 border-t border-border">
+                      <p className="text-xs text-muted mb-2">State Controls</p>
                       <button
-                        onClick={() => { setConfirmChallenge(false); handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`) }}
-                        disabled={actionLoading === 'start-challenge'}
-                        className="flex-1 bg-purple hover:bg-purple/80 disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                        onClick={async () => {
+                          if (confirm('This will pause voting and reopen idea submission. Existing cells and votes are preserved. Continue?')) {
+                            await patchSettings({ phase: 'SUBMISSION' })
+                          }
+                        }}
+                        disabled={saving}
+                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong font-medium px-4 py-2 rounded-lg transition-colors text-sm"
                       >
-                        {actionLoading === 'start-challenge' ? 'Starting...' : 'Yes, Start Round'}
+                        Reopen Idea Submission
+                      </button>
+                      <p className="text-xs text-muted mt-1">
+                        Pauses voting and lets participants submit more ideas.
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                {/* ═══ PHASE: ACCUMULATING ═══ */}
+                {deliberation.phase === 'ACCUMULATING' && (
+                  <>
+                    <p className="text-sm text-purple">
+                      Accepting new ideas. Challengers can be submitted to compete against the current priority.
+                    </p>
+
+                    {/* Start Round 2 */}
+                    {!confirmChallenge ? (
+                      <button
+                        onClick={() => setConfirmChallenge(true)}
+                        disabled={actionLoading === 'start-challenge'}
+                        className="w-full bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                      >
+                        Start Round 2
+                      </button>
+                    ) : (
+                      <div className="border border-purple rounded-lg p-3 space-y-2">
+                        <p className="text-sm text-purple font-medium">Warning</p>
+                        <p className="text-sm text-foreground">
+                          Starts a new voting round. Challenger ideas compete against the current priority through tiered voting. The priority could be replaced.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => { setConfirmChallenge(false); handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`) }}
+                            disabled={actionLoading === 'start-challenge'}
+                            className="flex-1 bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+                          >
+                            {actionLoading === 'start-challenge' ? 'Starting...' : 'Confirm'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmChallenge(false)}
+                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* State controls */}
+                    <div className="pt-2 border-t border-border space-y-2">
+                      <p className="text-xs text-muted mb-1">State Controls</p>
+                      <button
+                        onClick={async () => {
+                          if (confirm('This will reopen idea submission. The current priority is preserved. Continue?')) {
+                            await patchSettings({ phase: 'SUBMISSION' })
+                          }
+                        }}
+                        disabled={saving}
+                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong font-medium px-4 py-2 rounded-lg transition-colors text-sm"
+                      >
+                        Reopen Idea Submission
                       </button>
                       <button
-                        onClick={() => setConfirmChallenge(false)}
-                        className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
+                        onClick={async () => {
+                          if (confirm('This will close the talk and declare the current priority as final. Continue?')) {
+                            await patchSettings({ phase: 'COMPLETED' })
+                          }
+                        }}
+                        disabled={saving}
+                        className="w-full border border-success text-success hover:bg-success-bg font-medium px-4 py-2 rounded-lg transition-colors text-sm"
                       >
-                        Cancel
+                        Close Talk (Declare Final Priority)
                       </button>
                     </div>
-                  </div>
+                  </>
                 )}
-                <p className="text-xs text-muted">
-                  Starts a new voting round where challengers compete against the current priority.
-                </p>
+
+                {/* ═══ PHASE: COMPLETED ═══ */}
+                {deliberation.phase === 'COMPLETED' && (
+                  <>
+                    <p className="text-sm text-success">
+                      This talk is complete. The priority has been declared.
+                    </p>
+
+                    {/* State controls */}
+                    <div className="pt-2 border-t border-border space-y-2">
+                      <p className="text-xs text-muted mb-1">State Controls</p>
+                      {deliberation.accumulationEnabled && (
+                        <button
+                          onClick={async () => {
+                            if (confirm('This will reopen the talk for new challenger ideas. Continue?')) {
+                              await patchSettings({ phase: 'ACCUMULATING' })
+                            }
+                          }}
+                          disabled={saving}
+                          className="w-full border border-purple text-purple hover:bg-purple-bg font-medium px-4 py-2 rounded-lg transition-colors text-sm"
+                        >
+                          Reopen for Challengers
+                        </button>
+                      )}
+                      <button
+                        onClick={async () => {
+                          if (confirm('This will reopen idea submission. Continue?')) {
+                            await patchSettings({ phase: 'SUBMISSION' })
+                          }
+                        }}
+                        disabled={saving}
+                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong font-medium px-4 py-2 rounded-lg transition-colors text-sm"
+                      >
+                        Restart from Idea Submission
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -758,14 +945,14 @@ export default function DashboardDetailPage() {
             </div>
 
             {/* Linked Podiums */}
-            <div className="bg-surface border border-border rounded-xl p-4">
+            <div className={`bg-surface border rounded-xl p-4 ${linkedPodiums.length > 0 ? 'border-accent' : 'border-border'}`}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-foreground">
                   Linked Podiums ({linkedPodiums.length})
                 </h2>
                 <Link
                   href={`/podium/new?deliberationId=${deliberationId}`}
-                  className="text-accent hover:text-accent-hover text-sm"
+                  className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
                 >
                   Write Post
                 </Link>
@@ -775,7 +962,7 @@ export default function DashboardDetailPage() {
                 <p className="text-muted text-sm">Loading...</p>
               ) : linkedPodiums.length === 0 ? (
                 <p className="text-muted text-sm">
-                  No podium posts linked to this talk yet. Write a post to explain context or make the case for this deliberation.
+                  No podium posts linked to this talk yet. Write a post to explain context or make the case for this deliberation. Readers can join the talk directly from your post.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1000,7 +1187,7 @@ export default function DashboardDetailPage() {
                         }`}>
                           T{idea.tier}
                         </span>
-                        <span className="text-muted font-mono">{idea.totalVotes}v</span>
+                        <span className="text-muted font-mono">{idea.totalVotes} XP</span>
                         <span className="text-foreground truncate flex-1" title={idea.text}>
                           {idea.text.slice(0, 60)}{idea.text.length > 60 ? '...' : ''}
                         </span>

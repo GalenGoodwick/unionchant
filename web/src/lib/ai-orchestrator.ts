@@ -381,19 +381,20 @@ Choose the idea that best aligns with your values and perspective. Respond with 
     return { action: 'error', detail: 'No ideas to vote on' }
   }
 
-  // Cast the vote
+  // Cast the vote (AI allocates all 10 XP to chosen idea)
   await prisma.vote.create({
     data: {
       cellId: cell.id,
       userId: agent.user.id,
       ideaId: chosenIdea.id,
+      xpPoints: 10,
     },
   })
 
-  // Update idea vote count
+  // Update idea vote count and XP
   await prisma.idea.update({
     where: { id: chosenIdea.id },
-    data: { totalVotes: { increment: 1 } },
+    data: { totalVotes: { increment: 1 }, totalXP: { increment: 10 } },
   })
 
   // Update participation status

@@ -141,9 +141,19 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
     <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
       {children}
       {chatOpen && (
-        <div className="fixed bottom-4 right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] shadow-2xl rounded-xl">
-          <CollectiveChat onClose={toggleChat} />
-        </div>
+        <>
+          {/* Backdrop on mobile */}
+          <div
+            className="fixed inset-0 z-40 bg-black/50 md:hidden"
+            onClick={toggleChat}
+          />
+          {/* Chat panel — constrained on mobile, floating on desktop */}
+          <div className="fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-16 md:top-auto md:left-auto rounded-t-xl">
+            <div className="h-full md:h-auto max-h-[calc(100vh-4rem)] md:max-h-[500px]">
+              <CollectiveChat onClose={toggleChat} />
+            </div>
+          </div>
+        </>
       )}
     </CollectiveChatContext.Provider>
   )

@@ -13,7 +13,7 @@ export default function CellSlider({
 }: {
   activeCells: Cell[]
   votedCells: Cell[]
-  onVote: (cellId: string, ideaId: string) => void
+  onVote: (cellId: string, allocations: { ideaId: string; points: number }[]) => void
   voting: string | null
   onRefresh: () => void
 }) {

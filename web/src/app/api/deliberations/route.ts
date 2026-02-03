@@ -9,8 +9,18 @@ import { followedNewDelibEmail } from '@/lib/email-templates'
 // GET /api/deliberations - List all public deliberations
 export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
     const { searchParams } = new URL(req.url)
     const tag = searchParams.get('tag')
+
+    let userId: string | null = null
+    if (session?.user?.email) {
+      const user = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { id: true },
+      })
+      userId = user?.id ?? null
+    }
 
     const deliberations = await prisma.deliberation.findMany({
       where: {
@@ -38,7 +48,25 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    return NextResponse.json(deliberations)
+    // Check which deliberations the user has upvoted
+    let upvotedIds = new Set<string>()
+    if (userId) {
+      const userUpvotes = await prisma.deliberationUpvote.findMany({
+        where: {
+          userId,
+          deliberationId: { in: deliberations.map(d => d.id) },
+        },
+        select: { deliberationId: true },
+      })
+      upvotedIds = new Set(userUpvotes.map(u => u.deliberationId))
+    }
+
+    const result = deliberations.map(d => ({
+      ...d,
+      userHasUpvoted: upvotedIds.has(d.id),
+    }))
+
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Error fetching deliberations:', error)
     return NextResponse.json({ error: 'Failed to fetch deliberations' }, { status: 500 })

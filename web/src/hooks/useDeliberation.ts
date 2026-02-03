@@ -178,16 +178,27 @@ export function useDeliberation(id: string) {
     }
   }
 
-  const handleVote = async (cellId: string, ideaId: string) => {
-    setVoting(ideaId)
+  const handleVote = async (cellId: string, allocations: { ideaId: string; points: number }[]) => {
+    setVoting(cellId)
     try {
-      const res = await fetch(`/api/cells/${cellId}/vote`, {
+      let res = await fetch(`/api/cells/${cellId}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ideaId }),
+        body: JSON.stringify({ allocations }),
       })
-      if (res.ok) { showToast('Vote recorded', 'success'); fetchCells(); fetchDeliberation() }
-      else { const d = await res.json(); showToast(d.error || 'Failed', 'error') }
+      // Retry once on serialization conflict (409)
+      if (res.status === 409) {
+        await new Promise(r => setTimeout(r, 500))
+        res = await fetch(`/api/cells/${cellId}/vote`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ allocations }),
+        })
+      }
+      if (res.ok) { showToast('XP allocated', 'success'); fetchCells(); fetchDeliberation() }
+      else { const d = await res.json(); showToast(d.error || 'Failed to cast vote', 'error') }
+    } catch {
+      showToast('Network error — please try again', 'error')
     } finally {
       setVoting(null)
     }

@@ -19,6 +19,8 @@ interface ExistingTalk {
   question: string
 }
 
+type ChatMode = 'collective' | 'private'
+
 export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const { data: session } = useSession()
   const [messages, setMessages] = useState<Message[]>([])
@@ -26,6 +28,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [existingTalk, setExistingTalk] = useState<ExistingTalk | null>(null)
+  const [mode, setMode] = useState<ChatMode>('collective')
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   // Set-as-Talk state
   const [settingTalk, setSettingTalk] = useState(false)
@@ -40,7 +45,13 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = useCallback((smooth = true) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'instant' })
+    const container = chatContainerRef.current
+    if (!container) return
+    if (smooth) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+    } else {
+      container.scrollTop = container.scrollHeight
+    }
   }, [])
 
   const handleScroll = useCallback(() => {
@@ -54,10 +65,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const res = await fetch('/api/collective-chat')
+        const url = mode === 'private'
+          ? '/api/collective-chat?mode=private'
+          : '/api/collective-chat'
+        const res = await fetch(url)
         if (res.ok) {
           const data = await res.json()
           setMessages(data.messages)
+          setHasMore(!!data.hasMore)
           if (data.existingTalk) {
             setExistingTalk(data.existingTalk)
           }
@@ -70,7 +85,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     fetchMessages()
     const interval = setInterval(fetchMessages, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [mode])
 
   useEffect(() => {
     scrollToBottom()
@@ -88,7 +103,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const res = await fetch('/api/collective-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, model: 'haiku' }),
+        body: JSON.stringify({ message: messageText, model: 'haiku', isPrivate: mode === 'private' }),
       })
 
       const data = await res.json()
@@ -100,7 +115,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       }
 
       // Refetch messages
-      const messagesRes = await fetch('/api/collective-chat')
+      const messagesRes = await fetch(mode === 'private' ? '/api/collective-chat?mode=private' : '/api/collective-chat')
       if (messagesRes.ok) {
         const messagesData = await messagesRes.json()
         setMessages(messagesData.messages)
@@ -152,12 +167,35 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       }
 
       setExistingTalk(data.talk)
-      setTalkSuccess('Talk created! Others can now deliberate on your idea.')
-      setTimeout(() => setTalkSuccess(null), 4000)
+      setTalkSuccess(data.talk.id)
+      setTimeout(() => setTalkSuccess(null), 10000)
     } catch {
       setTalkError('Failed to create Talk. Please try again.')
     } finally {
       setSettingTalk(false)
+    }
+  }
+
+  const loadOlderMessages = async () => {
+    if (!messages.length || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const oldest = messages[0].createdAt
+      const url = mode === 'private'
+        ? `/api/collective-chat?mode=private&before=${oldest}`
+        : `/api/collective-chat?before=${oldest}`
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.messages.length > 0) {
+          setMessages(prev => [...data.messages, ...prev])
+        }
+        setHasMore(!!data.hasMore)
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -169,7 +207,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className="rounded-xl border border-gold-border bg-surface overflow-hidden">
+    <div className={`rounded-xl border border-gold-border bg-surface overflow-hidden ${onClose ? 'flex flex-col h-full md:h-auto' : ''}`}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-gold-border bg-gold-bg">
         <div className="flex items-center justify-between">
@@ -178,7 +216,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               The Collective
             </h3>
             <p className="text-xs text-muted">
-              Ask it to create a Talk for you or simply chat with it &mdash; your own facilitated conversation.
+              {mode === 'private'
+                ? 'Private conversation — only you can see these messages.'
+                : 'Ask it to create a Talk for you or simply chat with it \u2014 your own facilitated conversation.'}
             </p>
           </div>
           <div className="flex items-center gap-1.5">
@@ -194,17 +234,43 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             {onClose && (
               <button
                 onClick={onClose}
-                className="ml-1 p-0.5 text-muted hover:text-foreground transition-colors"
+                className="ml-1 p-1.5 rounded-lg text-gold hover:text-foreground hover:bg-gold/10 transition-colors"
                 aria-label="Close chat"
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Mode tabs */}
+      {session && (
+        <div className="flex border-b border-gold-border">
+          <button
+            onClick={() => setMode('collective')}
+            className={`flex-1 py-1.5 text-xs font-medium text-center transition-colors border-b-2 ${
+              mode === 'collective'
+                ? 'text-gold border-gold'
+                : 'text-muted border-transparent hover:text-foreground'
+            }`}
+          >
+            Collective
+          </button>
+          <button
+            onClick={() => setMode('private')}
+            className={`flex-1 py-1.5 text-xs font-medium text-center transition-colors border-b-2 ${
+              mode === 'private'
+                ? 'text-gold border-gold'
+                : 'text-muted border-transparent hover:text-foreground'
+            }`}
+          >
+            Tune Out
+          </button>
+        </div>
+      )}
 
       {/* Your active Talk */}
       {existingTalk && !talkConfirm && (
@@ -225,14 +291,36 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       <div
         ref={chatContainerRef}
         onScroll={handleScroll}
-        className="h-[300px] overflow-y-auto px-4 py-3 space-y-3 relative"
+        className={`overflow-y-auto px-4 py-3 space-y-3 relative ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}
       >
+        {hasMore && (
+          <div className="text-center pb-2">
+            <button
+              onClick={loadOlderMessages}
+              disabled={loadingMore}
+              className="text-[10px] px-3 py-1 rounded-full bg-surface-hover text-muted hover:text-foreground border border-border transition-colors disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading...' : 'Load older messages'}
+            </button>
+          </div>
+        )}
         {messages.length === 0 && (
           <div className="text-center text-muted text-sm py-12">
-            <p className="mb-1 text-gold/80">100 AI agents are deliberating.</p>
-            <p className="text-muted-light text-xs">
-              Chat freely. Set your best idea as a Talk.
-            </p>
+            {mode === 'private' ? (
+              <>
+                <p className="mb-1 text-gold/80">Private conversation</p>
+                <p className="text-muted-light text-xs">
+                  Messages here are only visible to you.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mb-1 text-gold/80">100 AI agents are deliberating.</p>
+                <p className="text-muted-light text-xs">
+                  Chat freely. Set your best idea as a Talk.
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -356,8 +444,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
 
       {/* Talk success */}
       {talkSuccess && !talkConfirm && (
-        <div className="px-4 py-2 border-t border-gold-border bg-success-bg text-success text-xs">
-          {talkSuccess}
+        <div className="px-4 py-2 border-t border-gold-border bg-success-bg text-success text-xs flex items-center justify-between">
+          <span>Talk created! Others can now deliberate on your idea.</span>
+          <Link
+            href={`/talks/${talkSuccess}`}
+            className="ml-2 shrink-0 px-3 py-1 rounded-lg bg-success text-white font-medium hover:bg-success-hover transition-colors"
+          >
+            View Talk
+          </Link>
         </div>
       )}
 

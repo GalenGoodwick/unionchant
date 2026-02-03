@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Metadata } from 'next'
 import Header from '@/components/Header'
 import LandingCTA from '@/components/LandingCTA'
+import CollectiveChat from '@/components/CollectiveChat'
 
 export const metadata: Metadata = {
   title: 'Union Chant - Holding Quiet Hope',
@@ -12,6 +13,13 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
+
+      {/* ── Collective Chat — first thing mobile users see ── */}
+      <section className="bg-header border-b border-gold-border">
+        <div className="max-w-xl mx-auto px-4 py-6">
+          <CollectiveChat />
+        </div>
+      </section>
 
       {/* ── Hero ── */}
       <section className="bg-header text-white">

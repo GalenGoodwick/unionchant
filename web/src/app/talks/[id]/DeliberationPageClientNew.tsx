@@ -21,6 +21,7 @@ import type { TimelineEntry } from '@/components/deliberation/JourneyTimeline'
 import CellMembersBar from '@/components/deliberation/CellMembersBar'
 import ChatDiscussion from '@/components/deliberation/ChatDiscussion'
 import ChatInputBar from '@/components/deliberation/ChatInputBar'
+import VotingCell from '@/components/deliberation/VotingCell'
 import WinnerCard from '@/components/deliberation/WinnerCard'
 import DefenderCard from '@/components/deliberation/DefenderCard'
 import StatsRow from '@/components/deliberation/StatsRow'
@@ -246,7 +247,7 @@ function SubmissionBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
               <IdeaCard
                 key={idea.id}
                 idea={idea}
-                meta={`${idea.totalVotes}v`}
+                meta={idea.totalXP > 0 ? `${idea.totalXP} XP` : undefined}
               />
             ))}
           </div>
@@ -265,11 +266,6 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const votedCurrentTierCell = d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
   const displayCell = activeCell || votedCurrentTierCell
 
-  const hasVoted = displayCell ? displayCell.votes.length > 0 : false
-  const votedIdeaId = displayCell?.votes[0]?.ideaId
-  const isFinalizing = displayCell?.status === 'VOTING' && !!displayCell?.finalizesAt
-  const canChangeVote = isFinalizing && hasVoted
-
   return (
     <div className="space-y-4">
       {/* Cell members bar */}
@@ -281,78 +277,9 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
         />
       )}
 
-      {/* Voting cards — always visible while cell exists */}
+      {/* Voting cell — XP allocation UI */}
       {displayCell ? (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground mb-2">
-            {hasVoted
-              ? canChangeVote ? 'You can change your vote' : 'You voted — waiting for results'
-              : 'Pick your favorite'}
-          </h3>
-
-          {/* Finalization notice */}
-          {isFinalizing && (
-            <p className="text-xs text-accent mb-2">All votes in — you can change your vote before it finalizes.</p>
-          )}
-
-          <div className="space-y-2">
-            {displayCell.ideas.map(({ idea }) => {
-              const isVoted = votedIdeaId === idea.id
-              const isWinner = idea.status === 'ADVANCING' || idea.status === 'WINNER'
-              const isEliminated = idea.status === 'ELIMINATED'
-
-              return (
-                <IdeaCard
-                  key={idea.id}
-                  idea={idea}
-                  meta={idea.totalVotes > 0 ? `${idea.totalVotes}v` : undefined}
-                  variant={isWinner ? 'default' : isEliminated ? 'default' : 'default'}
-                  action={
-                    // Not voted yet: show Vote buttons
-                    !hasVoted ? (
-                      <button
-                        onClick={() => d.handleVote(displayCell.id, idea.id)}
-                        disabled={d.voting === idea.id}
-                        className="bg-warning hover:bg-warning-hover text-black px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
-                      >
-                        {d.voting === idea.id ? '...' : 'Vote'}
-                      </button>
-                    ) : isVoted ? (
-                      // Your pick: show checkmark
-                      <span className="text-accent text-sm font-medium flex items-center gap-1">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                        Your pick
-                      </span>
-                    ) : canChangeVote ? (
-                      // Finalizing + not your pick: show Change button
-                      <button
-                        onClick={() => d.handleVote(displayCell.id, idea.id)}
-                        disabled={d.voting === idea.id}
-                        className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                      >
-                        {d.voting === idea.id ? '...' : 'Change'}
-                      </button>
-                    ) : null
-                  }
-                />
-              )
-            })}
-          </div>
-
-          {/* Voting deadline */}
-          {displayCell.votingDeadline && !isFinalizing && (
-            <div className="flex justify-end mt-1">
-              <CountdownTimer deadline={displayCell.votingDeadline} onExpire={d.handleRefresh} compact />
-            </div>
-          )}
-          {isFinalizing && displayCell.finalizesAt && (
-            <div className="flex justify-end mt-1">
-              <CountdownTimer deadline={displayCell.finalizesAt} onExpire={d.handleRefresh} compact label="Finalizing" />
-            </div>
-          )}
-        </div>
+        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
       ) : d.cellsLoaded && !d.isInCurrentTier && d.session ? (
         <div className="bg-warning-bg border border-warning rounded-[10px] p-4 text-center">
           <p className="text-muted text-sm mb-3">Voting in progress at Tier {delib.currentTier}</p>
@@ -366,17 +293,6 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
           <p className="text-xs text-muted mt-2">You'll be assigned to an available cell</p>
         </div>
       ) : null}
-
-      {/* Chat discussion — always visible when user has a cell */}
-      {displayCell && (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground mb-1">Cell Discussion</h3>
-          <ChatDiscussion
-            cellId={displayCell.id}
-            ideas={displayCell.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text }))}
-          />
-        </div>
-      )}
 
       {/* Journey timeline */}
       {journeyEntries.length > 1 && (
@@ -400,7 +316,7 @@ function AccumulatingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
       {d.winner && (
         <WinnerCard
           winner={d.winner}
-          voteStats={`${d.winner.totalVotes} votes`}
+          voteStats={`${d.winner.totalXP} XP`}
         />
       )}
 
@@ -491,84 +407,24 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const votedCurrentTierCell = d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
   const displayCell = activeCell || votedCurrentTierCell
 
-  const hasVoted = displayCell ? displayCell.votes.length > 0 : false
-  const votedIdeaId = displayCell?.votes[0]?.ideaId
-  const isFinalizing = displayCell?.status === 'VOTING' && !!displayCell?.finalizesAt
-  const canChangeVote = isFinalizing && hasVoted
-
   // Final showdown: defender is in the cell and ≤5 total ideas in voting
   const ideasInVoting = delib.ideas.filter(i => i.status === 'IN_VOTING' || i.status === 'DEFENDING')
   const isFinalShowdown = ideasInVoting.length <= 5
 
-  // All ideas in this cell (including defender)
-  const allCellIdeas = displayCell?.ideas.map(ci => ci.idea) || []
-  const challengerIdeas = allCellIdeas.filter(i => i.id !== d.defender?.id)
-
   return (
     <div className="space-y-4">
-      {/* Defender card — vote button only in final showdown */}
+      {/* Defender card — display only (XP allocation happens in VotingCell) */}
       {d.defender && (
         <DefenderCard
           defender={d.defender}
           isFinalShowdown={isFinalShowdown}
-          onVote={displayCell ? d.handleVote : undefined}
-          voting={d.voting}
-          cellId={displayCell?.id}
         />
       )}
 
-      {/* Challenger cards */}
-      {displayCell && challengerIdeas.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground mb-2">
-            {hasVoted
-              ? canChangeVote ? 'You can change your vote' : 'You voted — waiting for results'
-              : 'Challengers'}
-          </h3>
-
-          {isFinalizing && (
-            <p className="text-xs text-accent mb-2">All votes in — you can change your vote before it finalizes.</p>
-          )}
-
-          <div className="space-y-2">
-            {challengerIdeas.map(idea => {
-              const isVoted = votedIdeaId === idea.id
-              return (
-                <IdeaCard
-                  key={idea.id}
-                  idea={idea}
-                  action={
-                    !hasVoted ? (
-                      <button
-                        onClick={() => d.handleVote(displayCell.id, idea.id)}
-                        disabled={d.voting === idea.id}
-                        className="bg-warning hover:bg-warning-hover text-black px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
-                      >
-                        {d.voting === idea.id ? '...' : 'Vote'}
-                      </button>
-                    ) : isVoted ? (
-                      <span className="text-accent text-sm font-medium flex items-center gap-1">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                        Your pick
-                      </span>
-                    ) : canChangeVote ? (
-                      <button
-                        onClick={() => d.handleVote(displayCell.id, idea.id)}
-                        disabled={d.voting === idea.id}
-                        className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50"
-                      >
-                        {d.voting === idea.id ? '...' : 'Change'}
-                      </button>
-                    ) : null
-                  }
-                />
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {/* Voting cell — XP allocation UI */}
+      {displayCell ? (
+        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
+      ) : null}
 
       {/* If no cell, show join prompt */}
       {!displayCell && d.cellsLoaded && !d.isInCurrentTier && d.session && (
@@ -584,16 +440,6 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
         </div>
       )}
 
-      {/* Chat discussion — visible before and after voting */}
-      {displayCell && (
-        <div>
-          <h3 className="text-sm font-semibold text-foreground mb-1">Cell Discussion</h3>
-          <ChatDiscussion
-            cellId={displayCell.id}
-            ideas={displayCell.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text }))}
-          />
-        </div>
-      )}
     </div>
   )
 }
@@ -613,7 +459,7 @@ function PhaseBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   return (
     <div className="space-y-4">
       {d.winner && (
-        <WinnerCard winner={d.winner} voteStats={`${d.winner.totalVotes} votes · Final`} />
+        <WinnerCard winner={d.winner} voteStats={`${d.winner.totalXP} XP · Final`} />
       )}
       <div className="bg-success-bg border border-success rounded-[10px] p-4 text-center">
         <p className="text-success font-medium">This deliberation has concluded</p>

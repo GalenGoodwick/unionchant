@@ -211,8 +211,8 @@ export default function DetailsPageClient() {
                         }`}>
                           {idea.status}
                         </span>
-                        {idea.totalVotes > 0 && (
-                          <p className="text-xs text-muted font-mono">{idea.totalVotes}v</p>
+                        {idea.totalXP > 0 && (
+                          <p className="text-xs text-muted font-mono">{idea.totalXP} XP</p>
                         )}
                       </div>
                     </div>

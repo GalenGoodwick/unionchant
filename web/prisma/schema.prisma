@@ -94,6 +94,13 @@ model User {
 
   // AI Agent relation
   aiAgent       AIAgent?
+
+  // Deliberation upvotes
+  deliberationUpvotes DeliberationUpvote[]
+
+  // Idea revision relations
+  ideaRevisionsProposed IdeaRevision[]     @relation("RevisionProposer")
+  ideaRevisionVotes     IdeaRevisionVote[] @relation("RevisionVoter")
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -186,6 +193,9 @@ model Deliberation {
   // Created from collective chat (one per user)
   fromCollective Boolean @default(false)
 
+  // Upvotes (collective priority)
+  upvoteCount   Int      @default(0)
+
   // Relations
   members       DeliberationMember[]
   ideas         Idea[]
@@ -194,6 +204,7 @@ model Deliberation {
   predictions   Prediction[]
   podiums       Podium[]
   aiAgents      AIAgent[]
+  upvotes       DeliberationUpvote[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -254,7 +265,8 @@ model Idea {
   losses          Int        @default(0)      // Track total losses (2 = eliminated)
 
   // Vote tracking
-  totalVotes      Int        @default(0)
+  totalVotes      Int        @default(0)   // count of unique voters
+  totalXP         Int        @default(0)   // sum of all xpPoints
 
   createdAt       DateTime   @default(now())
 
@@ -263,6 +275,7 @@ model Idea {
   cellIdeas       CellIdea[]
   predictions     Prediction[]
   comments        Comment[]    // Comments linked to this idea (follow across tiers)
+  revisions       IdeaRevision[]
 
   @@index([deliberationId])
   @@index([authorId])
@@ -307,12 +320,15 @@ model Cell {
 
   createdAt       DateTime @default(now())
 
+  avgXPUtilization Float?    // average % of 10 XP used by participants
+
   // Relations
   participants    CellParticipation[]
   ideas           CellIdea[]
   votes           Vote[]
   comments        Comment[]
   predictions     Prediction[]
+  ideaRevisions   IdeaRevision[]
 
   @@index([deliberationId, tier])
   @@index([deliberationId, status])
@@ -382,12 +398,14 @@ model Vote {
   ideaId          String
   idea            Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
 
+  xpPoints        Int      @default(10)      // 1-10 XP allocated to this idea
   isSecondVote    Boolean  @default(false)
   votedAt         DateTime @default(now())
 
-  @@unique([cellId, userId, isSecondVote])
+  @@unique([cellId, userId, ideaId])          // one allocation per user per idea
   @@index([cellId])
   @@index([ideaId])
+  @@index([cellId, userId])
 }
 
 // ============ COMMENTS ============
@@ -763,6 +781,55 @@ model AIAgent {
 
 // ============ COLLECTIVE CHAT ============
 
+// ============ DELIBERATION UPVOTES ============
+
+model DeliberationUpvote {
+  id              String   @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@unique([deliberationId, userId])
+  @@index([deliberationId])
+  @@index([userId])
+}
+
+// ============ IDEA REVISIONS ============
+
+model IdeaRevision {
+  id           String   @id @default(cuid())
+  ideaId       String
+  idea         Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  proposedText String
+  proposedById String
+  proposedBy   User     @relation("RevisionProposer", fields: [proposedById], references: [id])
+  status       String   @default("pending")  // "pending" | "approved" | "rejected"
+  approvals    Int      @default(0)
+  required     Int                            // total cell members needed (unanimous)
+  cellId       String
+  cell         Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+
+  votes        IdeaRevisionVote[]
+
+  @@index([ideaId])
+  @@index([cellId])
+}
+
+model IdeaRevisionVote {
+  id         String   @id @default(cuid())
+  revisionId String
+  revision   IdeaRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation("RevisionVoter", fields: [userId], references: [id])
+  approve    Boolean
+  createdAt  DateTime @default(now())
+
+  @@unique([revisionId, userId])
+}
+
 model CollectiveMessage {
   id        String   @id @default(cuid())
   role      String   // "user" | "assistant"
@@ -770,7 +837,10 @@ model CollectiveMessage {
   userName  String?  // display name of human sender
   userId    String?  // null for anonymous
   model     String   @default("haiku") // "haiku" | "sonnet" | "opus"
+  isPrivate Boolean  @default(false) // true = only visible to sender (tune-out mode)
+  replyToUserId String? // for assistant messages: which user this reply is for
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+  @@index([userId, isPrivate])
 }

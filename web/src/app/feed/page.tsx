@@ -589,7 +589,7 @@ function VoteNowCard({ entry }: { entry: FeedEntry }) {
         <span>&middot;</span>
         {cell && <span>Your cell: {cell.votedCount}/{cell.memberCount} voted</span>}
       </Meta>
-      <div className="mt-2 text-sm font-medium text-warning">Pick your favorite &rarr;</div>
+      <div className="mt-2 text-sm font-medium text-warning">Allocate your 10 XP &rarr;</div>
     </Card>
   )
 }

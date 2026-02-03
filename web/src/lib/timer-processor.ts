@@ -374,6 +374,46 @@ async function processStuckCells(): Promise<string[]> {
  * Run all timer processors
  * @param trigger - Source that triggered this run (for logging)
  */
+/**
+ * Purge empty talks — deliberations older than 24h with 0 ideas submitted.
+ * Any idea submission saves the talk from purging.
+ */
+export async function purgeEmptyTalks(): Promise<string[]> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000) // 24h ago
+
+  const emptyTalks = await prisma.deliberation.findMany({
+    where: {
+      createdAt: { lte: cutoff },
+      phase: 'SUBMISSION',
+      isShowcase: false,
+    },
+    include: {
+      _count: { select: { ideas: true } },
+    },
+  })
+
+  const toPurge = emptyTalks.filter(d => d._count.ideas === 0)
+  const purged: string[] = []
+
+  for (const talk of toPurge) {
+    try {
+      // Cascade delete (no ideas/cells to worry about, but clean up relations)
+      await prisma.deliberationUpvote.deleteMany({ where: { deliberationId: talk.id } })
+      await prisma.notification.deleteMany({ where: { deliberationId: talk.id } })
+      await prisma.watch.deleteMany({ where: { deliberationId: talk.id } })
+      await prisma.aIAgent.deleteMany({ where: { deliberationId: talk.id } })
+      await prisma.deliberationMember.deleteMany({ where: { deliberationId: talk.id } })
+      await prisma.deliberation.delete({ where: { id: talk.id } })
+      purged.push(talk.id)
+      console.log(`[Purge] Deleted empty talk ${talk.id}: "${talk.question.slice(0, 50)}"`)
+    } catch (err) {
+      console.error(`[Purge] Failed to delete talk ${talk.id}:`, err)
+    }
+  }
+
+  return purged
+}
+
 export async function processAllTimers(trigger?: string) {
   const startedAt = Date.now()
 
@@ -385,13 +425,15 @@ export async function processAllTimers(trigger?: string) {
       processExpiredAccumulations(),
     ])
 
-    // Self-healing only runs from cron triggers (not feed API)
+    // Self-healing and purging only run from cron triggers (not feed API)
     let stuckHealed: string[] = []
+    let purged: string[] = []
     if (trigger === 'external_cron' || trigger === 'vercel_cron') {
       stuckHealed = await processStuckCells()
+      purged = await purgeEmptyTalks()
     }
 
-    const total = submissions.length + discussions.length + tiers.length + accumulations.length + stuckHealed.length
+    const total = submissions.length + discussions.length + tiers.length + accumulations.length + stuckHealed.length + purged.length
 
     // Log execution: always for cron, only when work done for feed
     if (trigger === 'external_cron' || trigger === 'vercel_cron' || total > 0) {
@@ -411,6 +453,7 @@ export async function processAllTimers(trigger?: string) {
       tiers,
       accumulations,
       stuckHealed,
+      purged,
       total,
     }
   } catch (error) {

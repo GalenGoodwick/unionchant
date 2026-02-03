@@ -326,13 +326,14 @@ export async function castVote(
           cellId,
           userId,
           ideaId,
+          xpPoints: 10,
         },
       })
 
-      // Update idea vote count
+      // Update idea vote count and XP
       await prisma.idea.update({
         where: { id: ideaId },
-        data: { totalVotes: { increment: 1 } },
+        data: { totalVotes: { increment: 1 }, totalXP: { increment: 10 } },
       })
     }
 
@@ -799,7 +800,7 @@ export async function runAgentTest(
       }
 
       // BATCH VOTING: Collect all votes across all cells, then create them in one operation
-      const allVotes: { cellId: string; userId: string; ideaId: string }[] = []
+      const allVotes: { cellId: string; userId: string; ideaId: string; xpPoints: number }[] = []
       const ideaVoteCounts: Map<string, number> = new Map()
       const participationUpdates: { cellId: string; userId: string }[] = []
 
@@ -830,6 +831,7 @@ export async function runAgentTest(
             cellId: cell.id,
             userId: participant.userId,
             ideaId: chosenIdea.id,
+            xpPoints: 10,
           })
 
           // Track vote counts per idea
@@ -858,7 +860,7 @@ export async function runAgentTest(
         for (const [ideaId, count] of ideaVoteCounts) {
           await prisma.idea.update({
             where: { id: ideaId },
-            data: { totalVotes: { increment: count } },
+            data: { totalVotes: { increment: count }, totalXP: { increment: count * 10 } },
           })
         }
 

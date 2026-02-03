@@ -51,7 +51,7 @@ export async function GET(
           include: {
             idea: {
               include: {
-                author: { select: { name: true, status: true } },
+                author: { select: { id: true, name: true, status: true } },
               },
             },
           },
@@ -74,8 +74,8 @@ export async function GET(
         voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
       })
 
-      // Get user's vote
-      const userVote = cell.votes.find(v => v.userId === user.id)
+      // Get all of user's votes in this cell (one per idea allocation)
+      const userVotes = cell.votes.filter(v => v.userId === user.id)
 
       return {
         ...cell,
@@ -86,8 +86,8 @@ export async function GET(
             totalVotes: voteCounts[ci.ideaId] || 0,
           },
         })),
-        userVote: userVote || null,
-        votes: userVote ? [userVote] : [], // Keep user's vote for hasVoted check
+        userVote: userVotes[0] || null,
+        votes: userVotes, // All user votes for XP allocation display
       }
     })
 

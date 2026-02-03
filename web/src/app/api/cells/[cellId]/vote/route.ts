@@ -43,16 +43,34 @@ export async function POST(
     }
 
     const body = await req.json()
-    const { ideaId } = body
+    const { allocations } = body as {
+      allocations: { ideaId: string; points: number }[]
+    }
 
-    if (!ideaId) {
-      return NextResponse.json({ error: 'Idea ID is required' }, { status: 400 })
+    // Validate allocations
+    if (!allocations || !Array.isArray(allocations) || allocations.length === 0) {
+      return NextResponse.json({ error: 'Allocations are required (array of { ideaId, points })' }, { status: 400 })
+    }
+
+    const totalPoints = allocations.reduce((sum, a) => sum + a.points, 0)
+    if (totalPoints !== 10) {
+      return NextResponse.json({ error: `Must allocate exactly 10 XP (got ${totalPoints})` }, { status: 400 })
+    }
+
+    for (const a of allocations) {
+      if (!a.ideaId || typeof a.points !== 'number' || a.points < 1 || !Number.isInteger(a.points)) {
+        return NextResponse.json({ error: 'Each allocation needs ideaId and points >= 1 (integer)' }, { status: 400 })
+      }
+    }
+
+    // Check for duplicate ideaIds
+    const ideaIds = allocations.map(a => a.ideaId)
+    if (new Set(ideaIds).size !== ideaIds.length) {
+      return NextResponse.json({ error: 'Duplicate ideaId in allocations' }, { status: 400 })
     }
 
     // Use a transaction with serializable isolation to prevent race conditions
-    // This ensures that concurrent votes are processed sequentially
     const result = await prisma.$transaction(async (tx) => {
-      // Lock the cell row by selecting it within the transaction
       const cell = await tx.cell.findUnique({
         where: { id: cellId },
         include: {
@@ -83,8 +101,12 @@ export async function POST(
         throw new Error('CELL_NOT_VOTING')
       }
 
-      // Check voting deadline (calculated from tier start + timeout)
-      if (cell.deliberation.currentTierStartedAt) {
+      // Check voting deadline — use cell-level deadline if set, otherwise deliberation-level
+      if (cell.votingDeadline) {
+        if (new Date(cell.votingDeadline) < new Date()) {
+          throw new Error('DEADLINE_PASSED')
+        }
+      } else if (cell.deliberation.currentTierStartedAt && cell.deliberation.votingTimeoutMs > 0) {
         const deadline = new Date(
           cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs
         )
@@ -93,77 +115,78 @@ export async function POST(
         }
       }
 
-      // Check idea is in this cell
-      const ideaInCell = cell.ideas.some((ci: { ideaId: string }) => ci.ideaId === ideaId)
-      if (!ideaInCell) {
-        throw new Error('IDEA_NOT_IN_CELL')
+      // Check all ideas are in this cell
+      const cellIdeaIds = new Set(cell.ideas.map((ci: { ideaId: string }) => ci.ideaId))
+      for (const a of allocations) {
+        if (!cellIdeaIds.has(a.ideaId)) {
+          throw new Error('IDEA_NOT_IN_CELL')
+        }
       }
 
-      // Check if already voted - allow changing vote
-      const existingVote = cell.votes.find(
-        (v: { userId: string; id: string; ideaId: string }) => v.userId === user.id
+      // Check if this is a change (user already voted)
+      const existingVotes = cell.votes.filter(
+        (v: { userId: string }) => v.userId === user.id
       )
+      const wasChange = existingVotes.length > 0
 
-      let vote
-      if (existingVote) {
-        // Changing vote - update existing
-        const oldIdeaId = existingVote.ideaId
-
-        vote = await tx.vote.update({
-          where: { id: existingVote.id },
-          data: { ideaId, votedAt: new Date() },
+      // Delete existing votes for this user in this cell
+      if (wasChange) {
+        await tx.vote.deleteMany({
+          where: { cellId, userId: user.id },
         })
+      }
 
-        // Update idea vote counts
-        if (oldIdeaId !== ideaId) {
-          await tx.idea.update({
-            where: { id: oldIdeaId },
-            data: { totalVotes: { decrement: 1 } },
-          })
-          await tx.idea.update({
-            where: { id: ideaId },
-            data: { totalVotes: { increment: 1 } },
-          })
-        }
-      } else {
-        // New vote
-        vote = await tx.vote.create({
-          data: {
-            cellId,
-            userId: user.id,
-            ideaId,
-          },
+      // Create new vote records (one per allocation)
+      const now = new Date()
+      await tx.vote.createMany({
+        data: allocations.map(a => ({
+          cellId,
+          userId: user.id,
+          ideaId: a.ideaId,
+          xpPoints: a.points,
+          votedAt: now,
+        })),
+      })
+
+      // Recalculate totalVotes and totalXP for all ideas in this cell
+      for (const ci of cell.ideas) {
+        const ideaId = (ci as { ideaId: string }).ideaId
+        const ideaVotes = await tx.vote.findMany({
+          where: { cellId, ideaId },
+          select: { xpPoints: true, userId: true },
         })
+        const uniqueVoters = new Set(ideaVotes.map(v => v.userId)).size
+        const xpSum = ideaVotes.reduce((sum, v) => sum + v.xpPoints, 0)
 
-        // Update idea vote count
         await tx.idea.update({
           where: { id: ideaId },
-          data: { totalVotes: { increment: 1 } },
+          data: { totalVotes: uniqueVoters, totalXP: xpSum },
         })
       }
 
       // Update participant status
       await tx.cellParticipation.updateMany({
         where: { cellId, userId: user.id },
-        data: { status: 'VOTED', votedAt: new Date() },
+        data: { status: 'VOTED', votedAt: now },
       })
 
-      // Check if all participants have voted (within same transaction)
-      const voteCount = await tx.vote.count({
+      // Check if all participants have voted
+      const votedUserIds = await tx.vote.findMany({
         where: { cellId },
+        select: { userId: true },
+        distinct: ['userId'],
       })
 
       const activeParticipantCount = cell.participants.filter(
         (p: { status: string }) => p.status === 'ACTIVE' || p.status === 'VOTED'
       ).length
 
-      const allVoted = voteCount >= activeParticipantCount
+      const allVoted = votedUserIds.length >= activeParticipantCount
 
-      const wasChange = !!existingVote
-      return { vote, allVoted, wasChange }
+      return { allocations, allVoted, wasChange }
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      timeout: 10000, // 10 second timeout
+      timeout: 10000,
     })
 
     // When all votes are in, start a 10-second grace period before finalizing.
@@ -245,7 +268,7 @@ export async function POST(
     }).catch(() => {})
 
     return NextResponse.json({
-      ...result.vote,
+      allocations: result.allocations,
       allVoted: result.allVoted,
     }, { status: 201 })
   } catch (error) {

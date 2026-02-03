@@ -20,6 +20,8 @@ type Deliberation = {
   phase: string
   tags: string[]
   views: number
+  upvoteCount: number
+  userHasUpvoted: boolean
   createdAt: string
   submissionEndsAt: string | null
   ideaGoal: number | null
@@ -101,9 +103,36 @@ function DeliberationsList() {
     const views = d.views || 0
     const members = d._count.members || 0
     const ideas = d._count.ideas || 0
+    const upvotes = d.upvoteCount || 0
     const ageHours = (Date.now() - new Date(d.createdAt).getTime()) / (1000 * 60 * 60)
     const ageFactor = Math.max(1, Math.sqrt(ageHours))
-    return (views + members * 2 + ideas * 3) / ageFactor
+    return (views + members * 2 + ideas * 3 + upvotes * 5) / ageFactor
+  }
+
+  // Toggle upvote on a deliberation
+  const handleUpvote = async (e: React.MouseEvent, deliberationId: string) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(`/api/deliberations/${deliberationId}/upvote`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setDeliberations(prev =>
+          prev.map(d =>
+            d.id === deliberationId
+              ? {
+                  ...d,
+                  userHasUpvoted: data.upvoted,
+                  upvoteCount: d.upvoteCount + (data.upvoted ? 1 : -1),
+                }
+              : d
+          )
+        )
+      }
+    } catch {
+      // Silently fail
+    }
   }
 
   const filteredDeliberations = deliberations
@@ -263,7 +292,21 @@ function DeliberationsList() {
                       Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}
                     </p>
                   )}
-                  <div className="flex gap-3 text-sm text-muted flex-wrap">
+                  <div className="flex items-center gap-3 text-sm text-muted flex-wrap">
+                    <button
+                      onClick={(e) => handleUpvote(e, d.id)}
+                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md border transition-colors ${
+                        d.userHasUpvoted
+                          ? 'bg-accent/10 border-accent text-accent'
+                          : 'border-border hover:border-accent hover:text-accent'
+                      }`}
+                      title={d.userHasUpvoted ? 'Remove upvote' : 'Upvote this talk'}
+                    >
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={d.userHasUpvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                      </svg>
+                      <span className="font-mono text-xs">{d.upvoteCount || 0}</span>
+                    </button>
                     <span>{getVotingTrigger(d)}</span>
                     <span className="font-mono">{d._count.members} members</span>
                     <span className="font-mono">{d._count.ideas} ideas</span>

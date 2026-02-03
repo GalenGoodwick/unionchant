@@ -151,11 +151,20 @@ export async function PATCH(
       ideaGoal: true,
       accumulationEnabled: true,
       discussionDurationMs: true,
+      phase: true,
     }
 
     const data: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {
       if (allowedFields[key]) data[key] = body[key]
+    }
+
+    // Validate phase transitions
+    if (data.phase) {
+      const validPhases = ['SUBMISSION', 'VOTING', 'ACCUMULATING', 'COMPLETED']
+      if (!validPhases.includes(data.phase as string)) {
+        return NextResponse.json({ error: 'Invalid phase' }, { status: 400 })
+      }
     }
 
     if (Object.keys(data).length === 0) {

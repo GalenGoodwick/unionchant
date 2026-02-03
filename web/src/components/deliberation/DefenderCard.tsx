@@ -6,15 +6,9 @@ import type { Idea } from './types'
 export default function DefenderCard({
   defender,
   isFinalShowdown,
-  onVote,
-  voting,
-  cellId,
 }: {
   defender: Idea
   isFinalShowdown?: boolean
-  onVote?: (cellId: string, ideaId: string) => void
-  voting?: string | null
-  cellId?: string
 }) {
   return (
     <div className="bg-orange-bg border-2 border-orange rounded-[10px] p-4">
@@ -23,25 +17,14 @@ export default function DefenderCard({
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
         </svg>
         <span className="text-xs font-bold text-orange uppercase tracking-wider">Defending Priority</span>
+        {isFinalShowdown && <span className="text-xs text-orange">(Final Showdown)</span>}
       </div>
       <p className="text-foreground font-medium text-base leading-snug mb-2">
         {defender.text}
       </p>
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="text-sm text-orange">{getDisplayName(defender.author)}</span>
-          <p className="text-xs text-muted mt-0.5">Won original vote · Enters at Tier 2 (advantage)</p>
-        </div>
-        {/* Only show vote button during final showdown */}
-        {isFinalShowdown && onVote && cellId && (
-          <button
-            onClick={() => onVote(cellId, defender.id)}
-            disabled={voting === defender.id}
-            className="bg-orange hover:bg-orange-hover text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
-          >
-            {voting === defender.id ? '...' : 'Keep as Priority'}
-          </button>
-        )}
+      <div>
+        <span className="text-sm text-orange">{getDisplayName(defender.author)}</span>
+        <p className="text-xs text-muted mt-0.5">Won original vote · Enters at Tier 2 (advantage)</p>
       </div>
     </div>
   )

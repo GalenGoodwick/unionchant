@@ -6,6 +6,7 @@ export type Idea = {
   status: string
   tier: number
   totalVotes: number
+  totalXP: number
   losses: number
   isNew: boolean
   author: { id: string; name: string | null; status?: UserStatus }
@@ -25,6 +26,7 @@ export type Participant = {
 export type Vote = {
   id: string
   ideaId: string
+  xpPoints: number
   isSecondVote: boolean
 }
 

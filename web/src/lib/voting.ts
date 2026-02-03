@@ -491,21 +491,21 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   // In final showdown, don't mark individual winners/losers - wait for cross-cell tally
   if (!isFinalShowdown) {
-    // Count votes per idea (including second votes — they fill gaps when participation drops)
-    const voteCounts: Record<string, number> = {}
-    cell.votes.forEach(vote => {
-      voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
+    // Sum XP points per idea
+    const xpTotals: Record<string, number> = {}
+    cell.votes.forEach((vote: { ideaId: string; xpPoints: number }) => {
+      xpTotals[vote.ideaId] = (xpTotals[vote.ideaId] || 0) + vote.xpPoints
     })
 
-    // Find winner(s) - ideas with most votes
-    const maxVotes = Math.max(...Object.values(voteCounts), 0)
+    // Find winner(s) — ideas with most XP
+    const maxXP = Math.max(...Object.values(xpTotals), 0)
 
-    if (maxVotes === 0) {
-      // No votes cast - all ideas advance
+    if (maxXP === 0) {
+      // No votes cast — all ideas advance
       winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
     } else {
-      winnerIds = Object.entries(voteCounts)
-        .filter(([, count]) => count === maxVotes)
+      winnerIds = Object.entries(xpTotals)
+        .filter(([, total]) => total === maxXP)
         .map(([id]) => id)
 
       loserIds = cell.ideas
@@ -673,15 +673,15 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
   // FINAL SHOWDOWN: Cross-cell tallying when all cells vote on same ≤5 ideas
   if (allCellsHaveSameIdeas && firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0) {
-    // Count first votes across ALL cells (second votes don't affect tally)
+    // Sum XP points across ALL cells
     const crossCellTally: Record<string, number> = {}
     for (const cell of cells) {
-      for (const vote of cell.votes.filter((v: { isSecondVote: boolean }) => !v.isSecondVote)) {
-        crossCellTally[vote.ideaId] = (crossCellTally[vote.ideaId] || 0) + 1
+      for (const vote of cell.votes) {
+        crossCellTally[vote.ideaId] = (crossCellTally[vote.ideaId] || 0) + (vote as { xpPoints: number }).xpPoints
       }
     }
 
-    // Find the winner (most total votes)
+    // Find the winner (most total XP)
     const sortedIdeas = Object.entries(crossCellTally)
       .sort(([, a], [, b]) => b - a)
 

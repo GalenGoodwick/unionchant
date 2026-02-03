@@ -56,6 +56,28 @@ export async function cleanupTestData() {
       })
     }
 
+    // IdeaRevisions + IdeaRevisionVotes (cascade from ideas)
+    const ideaIds = await prisma.idea.findMany({
+      where: { deliberationId: { in: deliberationIds } },
+      select: { id: true },
+    })
+    const allIdeaIds = ideaIds.map(i => i.id)
+    if (allIdeaIds.length > 0) {
+      const revisions = await prisma.ideaRevision.findMany({
+        where: { ideaId: { in: allIdeaIds } },
+        select: { id: true },
+      })
+      const revisionIds = revisions.map(r => r.id)
+      if (revisionIds.length > 0) {
+        await prisma.ideaRevisionVote.deleteMany({
+          where: { revisionId: { in: revisionIds } },
+        })
+        await prisma.ideaRevision.deleteMany({
+          where: { id: { in: revisionIds } },
+        })
+      }
+    }
+
     // Ideas reference deliberations
     await prisma.idea.deleteMany({
       where: { deliberationId: { in: deliberationIds } },

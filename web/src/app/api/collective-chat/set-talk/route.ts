@@ -161,6 +161,7 @@ async function deleteDeliberation(deliberationId: string) {
   await prisma.prediction.deleteMany({ where: { deliberationId } })
   await prisma.watch.deleteMany({ where: { deliberationId } })
   await prisma.aIAgent.deleteMany({ where: { deliberationId } })
+  await prisma.deliberationUpvote.deleteMany({ where: { deliberationId } })
   await prisma.idea.deleteMany({ where: { deliberationId } })
   await prisma.deliberationMember.deleteMany({ where: { deliberationId } })
   await prisma.deliberation.delete({ where: { id: deliberationId } })
