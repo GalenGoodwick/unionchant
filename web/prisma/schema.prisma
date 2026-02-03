@@ -38,6 +38,8 @@ model User {
   aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
   theme         String     @default("system")  // "light", "dark", "system"
   emailNotifications Boolean @default(false)  // Must opt-in to use AI chat
+  subscriptionTier   String  @default("free") // "free" or "pro" ($3/month)
+  lastCollectiveTalkChangeAt DateTime? // Rate limit: free = 1 Talk change/day
   deletedAt     DateTime?
   bannedAt      DateTime?
   banReason     String?

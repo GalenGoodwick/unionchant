@@ -31,6 +31,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [existingTalk, setExistingTalk] = useState<ExistingTalk | null>(null)
   const [confirmReplace, setConfirmReplace] = useState(false)
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
+  const [rateLimited, setRateLimited] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
 
@@ -109,6 +110,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const sendMessage = async (messageText: string, replaceExisting: boolean = false) => {
     setSending(true)
     setError(null)
+    setRateLimited(null)
     setConfirmReplace(false)
     setPendingMessage(null)
 
@@ -128,10 +130,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           return
         }
         if (data.error === 'HAS_EXISTING_TALK') {
-          // Show confirmation — user must decide
           setExistingTalk(data.existingTalk)
           setPendingMessage(messageText)
           setConfirmReplace(true)
+          return
+        }
+        if (data.error === 'RATE_LIMITED') {
+          setRateLimited(data.message)
+          setInput(messageText)
           return
         }
         setError(data.error || 'Failed to send message')
@@ -329,6 +335,16 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
+      {/* Rate limit notice */}
+      {rateLimited && !confirmReplace && (
+        <div className="px-4 py-2 border-t border-gold-border bg-error-bg">
+          <p className="text-xs text-error mb-1">{rateLimited}</p>
+          <Link href="/pricing" className="text-xs text-gold hover:text-gold-hover underline">
+            Upgrade to Pro for unlimited changes
+          </Link>
+        </div>
+      )}
+
       {/* Subscribe gate */}
       {subscribeRequired && !confirmReplace && (
         <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
@@ -346,7 +362,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       )}
 
       {/* Error */}
-      {error && !subscribeRequired && !confirmReplace && (
+      {error && !subscribeRequired && !confirmReplace && !rateLimited && (
         <div className="px-4 py-2 border-t border-error-border bg-error-bg text-error text-xs">
           {error}
         </div>

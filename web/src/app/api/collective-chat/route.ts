@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma'
 import { callClaude } from '@/lib/claude'
 import { checkRateLimit } from '@/lib/rate-limit'
 
+const ONE_DAY_MS = 86400000
+
 // GET /api/collective-chat - Returns last 50 messages + user's existing collective Talk
 export async function GET(req: NextRequest) {
   try {
@@ -15,7 +17,6 @@ export async function GET(req: NextRequest) {
       take: 50,
     })
 
-    // If logged in, check if user has an existing collective Talk
     let existingTalk: { id: string; question: string; phase: string } | null = null
     if (session?.user?.email) {
       const user = await prisma.user.findUnique({
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
 }
 
 // POST /api/collective-chat - Send a message, get AI response, auto-create Talk
+// Every message creates a Talk. Replacing an existing Talk is rate-limited for free users.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -60,7 +62,13 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, name: true, emailNotifications: true },
+      select: {
+        id: true,
+        name: true,
+        emailNotifications: true,
+        subscriptionTier: true,
+        lastCollectiveTalkChangeAt: true,
+      },
     })
 
     if (!user) {
@@ -99,12 +107,27 @@ export async function POST(req: NextRequest) {
     })
 
     if (existingTalk && !replaceExisting) {
-      // User has an existing Talk — ask them to confirm replacement
       return NextResponse.json({
         error: 'HAS_EXISTING_TALK',
         existingTalk: { id: existingTalk.id, question: existingTalk.question },
-        message: 'You already have a collective question. Sending a new message will delete it and start fresh.',
+        message: 'You already have a collective Talk. Sending a new message will replace it.',
       }, { status: 409 })
+    }
+
+    // Rate limit Talk replacement: free users = 1 change per day
+    if (existingTalk && replaceExisting && user.subscriptionTier === 'free') {
+      if (user.lastCollectiveTalkChangeAt) {
+        const timeSinceLastChange = Date.now() - user.lastCollectiveTalkChangeAt.getTime()
+        if (timeSinceLastChange < ONE_DAY_MS) {
+          const hoursLeft = Math.ceil((ONE_DAY_MS - timeSinceLastChange) / 3600000)
+          return NextResponse.json({
+            error: 'RATE_LIMITED',
+            message: `Free accounts can change their Talk once per day. Try again in ${hoursLeft}h.`,
+            hoursLeft,
+            upgradeUrl: '/pricing',
+          }, { status: 429 })
+        }
+      }
     }
 
     // If replacing, delete the old Talk first
@@ -152,6 +175,14 @@ export async function POST(req: NextRequest) {
         role: 'CREATOR',
       },
     })
+
+    // Update rate limit timestamp (for Talk replacement tracking)
+    if (existingTalk) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastCollectiveTalkChangeAt: new Date() },
+      })
+    }
 
     console.log(`[Collective Chat] Created Talk ${newTalk.id} from message by ${user.id}`)
 
@@ -238,7 +269,19 @@ You represent the collective wisdom emerging from this deliberation. You are tho
           : m.content,
       }))
 
-    const reply = await callClaude(systemPrompt, conversationHistory, model)
+    let reply: string
+    try {
+      reply = await callClaude(systemPrompt, conversationHistory, model)
+    } catch (aiError: unknown) {
+      const errMsg = aiError instanceof Error ? aiError.message : 'AI service unavailable'
+      console.error('[Collective Chat] AI call failed:', errMsg)
+      return NextResponse.json({
+        error: errMsg.includes('ANTHROPIC_API_KEY')
+          ? 'AI service not configured. Please contact the administrator.'
+          : 'AI is temporarily unavailable. Your Talk was still created.',
+        talkCreated: { id: newTalk.id, question: newTalk.question },
+      }, { status: 503 })
+    }
 
     if (!reply.trim()) {
       return NextResponse.json({
@@ -272,24 +315,20 @@ You represent the collective wisdom emerging from this deliberation. You are tho
 // ── Deliberation deletion (same pattern as admin endpoint) ────
 
 async function deleteDeliberation(deliberationId: string) {
-  // Get cell IDs
   const cells = await prisma.cell.findMany({
     where: { deliberationId },
     select: { id: true },
   })
   const cellIds = cells.map(c => c.id)
 
-  // Get idea IDs
   const ideas = await prisma.idea.findMany({
     where: { deliberationId },
     select: { id: true },
   })
   const ideaIds = ideas.map(i => i.id)
 
-  // Delete in dependency order
   if (cellIds.length > 0) {
     await prisma.commentUpvote.deleteMany({ where: { comment: { cellId: { in: cellIds } } } })
-    // Clear reply references before deleting comments
     await prisma.comment.updateMany({
       where: { cellId: { in: cellIds }, replyToId: { not: null } },
       data: { replyToId: null },

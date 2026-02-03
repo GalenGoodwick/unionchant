@@ -657,7 +657,31 @@ Best practical upgrade: per-community AES keys stored in a secrets manager (e.g.
 7. **No CSRF protection**: All mutation endpoints lack CSRF tokens. Next.js doesn't include built-in CSRF for App Router.
 8. **No MFA for admins**: Admin access based on email list only, no multi-factor authentication.
 
-### Recent Additions (Feb 2026)
+### Recent Additions (Feb 2026 — AI Collective + Pricing)
+- **AI Collective Deliberation (100 Haiku agents):**
+  - `src/lib/claude.ts` — Anthropic SDK wrapper (`callClaude()`)
+  - `src/lib/ai-seed.ts` — Seed showcase deliberation + 100 AI personas
+  - `src/lib/ai-orchestrator.ts` — Cron-driven AI agent actions (submit ideas, comment, vote)
+  - `src/app/api/cron/ai-orchestrator/route.ts` — Vercel cron endpoint (every 5 min)
+  - `AIAgent` model in schema (persona, personality, retirement, staggered actions)
+  - `CollectiveMessage` model in schema (shared chat history)
+  - Human replacement: joining showcase retires newest AI agent
+- **Collective Chat (floating panel):**
+  - `src/components/CollectiveChat.tsx` — Gold-themed floating chat panel
+  - `src/app/api/collective-chat/route.ts` — GET messages + POST chat (always free)
+  - `src/app/api/collective-chat/set-talk/route.ts` — POST to create/replace collective Talk (rate-limited)
+  - `src/app/providers.tsx` — `CollectiveChatContext` for global toggle from Header
+  - Header button (desktop + mobile) with concentric-circles icon
+  - Chat is always free; "Set as Talk" is rate-limited (1/day free, unlimited pro)
+- **Pricing ($3/month Pro tier):**
+  - `src/app/pricing/page.tsx` — Pricing page (Free vs Pro)
+  - `User.subscriptionTier` ("free" | "pro") + `User.lastCollectiveTalkChangeAt` fields
+  - Manual Talk creation at `/talks/new` always free and unlimited
+  - Stripe integration pending — currently shows "Coming soon"
+- **Email notification gate:** `User.emailNotifications` required to use AI chat
+- **Gold theme tokens:** `--color-gold`, `--color-gold-bg`, `--color-gold-border`, etc. in globals.css
+
+### Previous Additions (Feb 2026 — Security)
 - **Security hardening:**
   - All 13 `/api/admin/test/*` routes gated behind `NODE_ENV !== 'production'`
   - CAPTCHA (Cloudflare Turnstile) added to signup and forgot-password
@@ -779,11 +803,28 @@ To change colors app-wide:
 ## Strategic Direction
 
 ### Monetization Model
-**Free creation, paid amplification.** Deliberation creation is FREE to maximize content supply and engagement. Revenue comes from:
+**Free creation, paid amplification.** Deliberation creation is FREE to maximize content supply and engagement.
+
+#### Active Revenue: Pro Subscription ($3/month)
+- **Pricing page**: `/pricing`
+- **Free tier**: Unlimited AI chat (Haiku), unlimited manual Talk creation at `/talks/new`, 1 collective Talk change per day
+- **Pro tier ($3/month)**: Unlimited collective Talk changes, Sonnet & Opus models (coming soon)
+- **Schema fields**: `User.subscriptionTier` ("free" | "pro"), `User.lastCollectiveTalkChangeAt` (rate limit tracker)
+- **Rate limit**: Free users enforced in `POST /api/collective-chat/set-talk` — 1 replacement per 24h
+- **Stripe**: Not yet integrated — Pro tier shows "Coming soon" with email contact
+
+#### Planned Revenue
 - **Amplification**: Promote/feature deliberations (paid)
 - **Private deliberations**: Invite-only with controls (paid)
 - **Creator analytics**: Deep insights on your deliberations (paid)
 - **Enterprise/API**: Governance-as-a-service for orgs (paid)
+
+#### Collective AI Chat Architecture
+- **Chat** (`POST /api/collective-chat`): Always free. Send messages, get Haiku AI responses. Requires email notification opt-in.
+- **Set as Talk** (`POST /api/collective-chat/set-talk`): Creates/replaces a collective Deliberation from a chat message. Rate-limited for free users.
+- **Manual creation** (`/talks/new`): Always free, unlimited, unrelated to collective Talk rate limit.
+- Each user gets **one** collective Talk at a time (`Deliberation.fromCollective = true`). New Talk deletes old one (cascading delete).
+- **Component**: `CollectiveChat.tsx` — floating panel toggled from Header button. "Set as Talk" button appears on each user message.
 
 ### Network Effects Roadmap (Priority)
 1. ~~**Engagement feed**~~ **DONE** — `/feed` with card-based UI, inline voting, bottom sheet
