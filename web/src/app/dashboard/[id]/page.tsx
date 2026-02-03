@@ -659,37 +659,62 @@ export default function DashboardDetailPage() {
                 {/* ═══ PHASE: COMPLETED ═══ */}
                 {deliberation.phase === 'COMPLETED' && (
                   <>
-                    <p className="text-sm text-success">
-                      This talk is complete. The priority has been declared.
-                    </p>
+                    <div className="bg-success-bg border border-success rounded-lg p-3">
+                      <p className="text-sm text-success font-medium">Talk Complete</p>
+                      <p className="text-xs text-foreground mt-1">
+                        The priority has been declared. You can reopen this talk to collect more ideas, challenge the priority, or run another round of voting.
+                      </p>
+                    </div>
 
-                    {/* State controls */}
-                    <div className="pt-2 border-t border-border space-y-2">
-                      <p className="text-xs text-muted mb-1">State Controls</p>
-                      {deliberation.accumulationEnabled && (
-                        <button
-                          onClick={async () => {
-                            if (confirm('This will reopen the talk for new challenger ideas. Continue?')) {
-                              await patchSettings({ phase: 'ACCUMULATING' })
-                            }
-                          }}
-                          disabled={saving}
-                          className="w-full border border-purple text-purple hover:bg-purple-bg font-medium px-4 py-2 rounded-lg transition-colors text-sm"
-                        >
-                          Reopen for Challengers
-                        </button>
-                      )}
+                    {/* Reopen options */}
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted font-medium">Reopen This Talk</p>
+
                       <button
                         onClick={async () => {
-                          if (confirm('This will reopen idea submission. Continue?')) {
+                          if (confirm('This will accept new challenger ideas that compete against the current priority. The priority stays unless beaten. Continue?')) {
+                            await patchSettings({ phase: 'ACCUMULATING' })
+                          }
+                        }}
+                        disabled={saving}
+                        className="w-full bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                      >
+                        {saving ? 'Reopening...' : 'Accept Challengers (Rolling Mode)'}
+                      </button>
+                      <p className="text-xs text-muted">
+                        Opens the talk for new ideas that compete against the current priority. If a challenger wins, it becomes the new priority.
+                      </p>
+
+                      <button
+                        onClick={async () => {
+                          if (confirm('This will reopen idea submission. All existing ideas, cells, and votes are preserved. New ideas can be submitted and will get new cells when you start voting. Continue?')) {
                             await patchSettings({ phase: 'SUBMISSION' })
                           }
                         }}
                         disabled={saving}
-                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong font-medium px-4 py-2 rounded-lg transition-colors text-sm"
+                        className="w-full border border-warning text-warning hover:bg-warning-bg disabled:opacity-40 font-medium px-4 py-2.5 rounded-lg transition-colors"
                       >
-                        Restart from Idea Submission
+                        {saving ? 'Reopening...' : 'Reopen Idea Submission'}
                       </button>
+                      <p className="text-xs text-muted">
+                        Collects more ideas, then creates new voting cells. Previous results are preserved.
+                      </p>
+
+                      <button
+                        onClick={async () => {
+                          if (confirm('This will restart voting immediately. All submitted ideas will be assigned to new cells. Continue?')) {
+                            await patchSettings({ phase: 'SUBMISSION' })
+                            handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)
+                          }
+                        }}
+                        disabled={saving || actionLoading === 'start-voting'}
+                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong disabled:opacity-40 font-medium px-4 py-2 rounded-lg transition-colors text-sm"
+                      >
+                        {actionLoading === 'start-voting' ? 'Restarting...' : 'Restart Voting Now'}
+                      </button>
+                      <p className="text-xs text-muted">
+                        Skips idea collection and immediately creates new cells from any submitted ideas.
+                      </p>
                     </div>
                   </>
                 )}
