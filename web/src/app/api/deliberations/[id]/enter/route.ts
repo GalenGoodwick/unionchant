@@ -4,7 +4,6 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { checkDeliberationAccess } from '@/lib/privacy'
-import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
 
 // POST /api/deliberations/[id]/enter - Join a voting cell
 export async function POST(
@@ -37,9 +36,6 @@ export async function POST(
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
-
-    // Self-heal: process any stalled timers before checking state
-    await checkAndTransitionDeliberation(deliberationId)
 
     // Check deliberation exists and is in VOTING phase
     const deliberation = await prisma.deliberation.findUnique({

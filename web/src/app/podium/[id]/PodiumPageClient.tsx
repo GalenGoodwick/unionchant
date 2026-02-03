@@ -6,14 +6,6 @@ import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { useToast } from '@/components/Toast'
 
-type LinkedDelib = {
-  id: string
-  question: string
-  description: string | null
-  phase: string
-  _count: { members: number; ideas: number }
-}
-
 type PodiumPost = {
   id: string
   title: string
@@ -27,7 +19,13 @@ type PodiumPost = {
     image: string | null
     bio: string | null
   }
-  deliberations: LinkedDelib[]
+  deliberation: {
+    id: string
+    question: string
+    description: string | null
+    phase: string
+    _count: { members: number; ideas: number }
+  } | null
 }
 
 function formatDate(dateStr: string) {
@@ -168,29 +166,24 @@ export default function PodiumPageClient() {
           {podium.title}
         </h1>
 
-        {/* Linked talks */}
-        {podium.deliberations?.length > 0 && (
-          <div className="flex flex-col gap-3 mb-8">
-            {podium.deliberations.map(d => (
-              <Link
-                key={d.id}
-                href={`/talks/${d.id}`}
-                className="block bg-accent/10 border border-accent/25 rounded-xl p-4 hover:bg-accent/15 transition-colors"
-              >
-                <div className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">
-                  Linked Talk
-                </div>
-                <div className="text-foreground font-medium">
-                  &ldquo;{d.question}&rdquo;
-                </div>
-                <div className="text-xs text-muted mt-1">
-                  {d._count.members} participants &middot;{' '}
-                  {d._count.ideas} ideas &middot;{' '}
-                  {phaseLabel(d.phase)}
-                </div>
-              </Link>
-            ))}
-          </div>
+        {/* Linked deliberation */}
+        {podium.deliberation && (
+          <Link
+            href={`/talks/${podium.deliberation.id}`}
+            className="block bg-accent/10 border border-accent/25 rounded-xl p-4 mb-8 hover:bg-accent/15 transition-colors"
+          >
+            <div className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">
+              Linked Talk
+            </div>
+            <div className="text-foreground font-medium">
+              &ldquo;{podium.deliberation.question}&rdquo;
+            </div>
+            <div className="text-xs text-muted mt-1">
+              {podium.deliberation._count.members} participants &middot;{' '}
+              {podium.deliberation._count.ideas} ideas &middot;{' '}
+              {phaseLabel(podium.deliberation.phase)}
+            </div>
+          </Link>
         )}
 
         {/* Body */}
@@ -202,61 +195,22 @@ export default function PodiumPageClient() {
           ))}
         </article>
 
-        {/* Join Talk CTAs */}
-        {podium.deliberations?.length > 0 && (
-          <div className="mb-8 flex flex-col gap-3">
-            {podium.deliberations.map(d => (
-              <div key={d.id} className="border border-accent/25 rounded-xl overflow-hidden">
-                <div className="bg-accent/10 px-4 py-2 text-xs font-semibold text-accent uppercase tracking-wider">
-                  Linked Talk
-                </div>
-                <Link
-                  href={`/talks/${d.id}`}
-                  className="block p-4 hover:bg-surface/50 transition-colors"
-                >
-                  <div className="text-foreground font-medium mb-1">
-                    &ldquo;{d.question}&rdquo;
-                  </div>
-                  {d.description && (
-                    <p className="text-xs text-muted mb-2 line-clamp-2">{d.description}</p>
-                  )}
-                  <div className="flex items-center gap-3 text-xs text-muted">
-                    <span className="font-mono">{d._count.members} participants</span>
-                    <span className="font-mono">{d._count.ideas} ideas</span>
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                      d.phase === 'SUBMISSION' ? 'bg-accent/20 text-accent' :
-                      d.phase === 'VOTING' ? 'bg-warning/20 text-warning' :
-                      d.phase === 'COMPLETED' ? 'bg-success/20 text-success' :
-                      'bg-purple/20 text-purple'
-                    }`}>
-                      {phaseLabel(d.phase)}
-                    </span>
-                  </div>
-                </Link>
-                <Link
-                  href={`/talks/${d.id}`}
-                  className="block w-full text-center bg-accent text-white font-semibold py-3 hover:bg-accent-hover transition-colors"
-                >
-                  Join the Talk &rarr;
-                </Link>
-              </div>
-            ))}
+        {/* Join deliberation CTA */}
+        {podium.deliberation && (
+          <div className="mb-8">
+            <Link
+              href={`/talks/${podium.deliberation.id}`}
+              className="block w-full text-center bg-accent text-white font-semibold py-3 rounded-xl hover:bg-accent-hover transition-colors"
+            >
+              Join the Talk &rarr;
+            </Link>
           </div>
         )}
 
         {/* Footer actions */}
         <div className="border-t border-border pt-4 flex justify-between items-center text-sm text-muted">
           <div className="flex gap-4">
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(window.location.href)
-                  .then(() => showToast('Link copied', 'success'))
-                  .catch(() => showToast('Failed to copy', 'error'))
-              }}
-              className="hover:text-foreground transition-colors"
-            >
-              Share
-            </button>
+            <button className="hover:text-foreground transition-colors">Share</button>
           </div>
           {isAuthor && (
             <div className="flex gap-4">

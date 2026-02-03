@@ -432,12 +432,23 @@ export async function startVotingPhase(deliberationId: string) {
  * Process cell results and handle tier completion
  */
 export async function processCellResults(cellId: string, isTimeout = false) {
-  // If timeout with zero votes, complete the cell (don't extend indefinitely)
+  // If timeout, check if anyone voted first. If zero votes, extend the deadline instead of completing.
   if (isTimeout) {
     const voteCount = await prisma.vote.count({ where: { cellId } })
     if (voteCount === 0) {
-      console.log(`Cell ${cellId}: zero votes on timeout, completing cell as timeout`)
-      // Fall through to normal completion — cell completes with no winner
+      // Nobody voted — reset the timer by extending currentTierStartedAt
+      const cell = await prisma.cell.findUnique({
+        where: { id: cellId },
+        select: { deliberationId: true, status: true, deliberation: { select: { votingTimeoutMs: true } } },
+      })
+      if (cell && cell.status === 'VOTING') {
+        await prisma.deliberation.update({
+          where: { id: cell.deliberationId },
+          data: { currentTierStartedAt: new Date() },
+        })
+        console.log(`Cell ${cellId}: zero votes on timeout, extending deadline by ${cell.deliberation.votingTimeoutMs}ms`)
+        return null
+      }
     }
   }
 

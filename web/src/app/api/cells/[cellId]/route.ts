@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 // GET /api/cells/[cellId] - Get cell details including status and winner
@@ -9,11 +7,6 @@ export async function GET(
   { params }: { params: Promise<{ cellId: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const { cellId } = await params
 
     const cell = await prisma.cell.findUnique({
@@ -113,25 +106,22 @@ export async function GET(
       ? new Date(cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs)
       : null
 
-    // Only expose vote counts after voting is complete (prevents influencing active voters)
-    const isCompleted = cell.status === 'COMPLETED'
-
     return NextResponse.json({
       id: cell.id,
       status: cell.status,
       tier: cell.tier,
       votingDeadline: votingDeadline?.toISOString() || null,
-      votedCount: isCompleted ? cell._count.votes : undefined,
+      votedCount: cell._count.votes,
       participantCount: cell._count.participants,
       secondVotesEnabled: cell.secondVotesEnabled,
-      winner: isCompleted ? winner : null,
+      winner,
       champion,
       deliberation: {
         id: cell.deliberation.id,
         phase: cell.deliberation.phase,
         accumulationEnabled: cell.deliberation.accumulationEnabled,
       },
-      _count: { participants: cell._count.participants, votes: isCompleted ? cell._count.votes : undefined },
+      _count: cell._count,
     })
   } catch (error) {
     console.error('Error fetching cell:', error)

@@ -30,23 +30,15 @@ export async function GET(req: NextRequest) {
         _count: {
           select: { members: true, ideas: true },
         },
-        podiumLinks: {
+        podiums: {
+          select: { id: true, title: true },
           take: 1,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            podium: { select: { id: true, title: true } },
-          },
+          orderBy: { createdAt: 'desc' as const },
         },
       },
     })
 
-    // Flatten podiumLinks to podiums array for backwards compat
-    const result = deliberations.map((d: any) => ({
-      ...d,
-      podiums: (d.podiumLinks || []).map((l: any) => l.podium),
-      podiumLinks: undefined,
-    }))
-    return NextResponse.json(result)
+    return NextResponse.json(deliberations)
   } catch (error) {
     console.error('Error fetching deliberations:', error)
     return NextResponse.json({ error: 'Failed to fetch deliberations' }, { status: 500 })

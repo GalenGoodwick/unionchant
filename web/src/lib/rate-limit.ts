@@ -13,8 +13,6 @@ const DEFAULT_LIMITS: Record<string, { maxRequests: number; windowMs: number }> 
   join: { maxRequests: 20, windowMs: 60_000 },
   enter: { maxRequests: 10, windowMs: 60_000 },
   follow: { maxRequests: 30, windowMs: 60_000 },
-  comment: { maxRequests: 10, windowMs: 60_000 },
-  upvote: { maxRequests: 30, windowMs: 60_000 },
 }
 
 // Cache DB config to avoid querying on every request

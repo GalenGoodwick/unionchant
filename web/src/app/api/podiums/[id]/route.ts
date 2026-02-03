@@ -19,19 +19,14 @@ export async function GET(
         author: {
           select: { id: true, name: true, image: true, bio: true, status: true },
         },
-        deliberationLinks: {
-          include: {
-            deliberation: {
-              select: {
-                id: true,
-                question: true,
-                description: true,
-                phase: true,
-                _count: { select: { members: true, ideas: true } },
-              },
-            },
+        deliberation: {
+          select: {
+            id: true,
+            question: true,
+            description: true,
+            phase: true,
+            _count: { select: { members: true, ideas: true } },
           },
-          orderBy: { createdAt: 'desc' },
         },
       },
     })
@@ -46,10 +41,7 @@ export async function GET(
       data: { views: { increment: 1 } },
     }).catch(err => console.error('Failed to increment podium views:', err))
 
-    return NextResponse.json({
-      ...podium,
-      deliberations: podium.deliberationLinks.map(l => l.deliberation),
-    })
+    return NextResponse.json(podium)
   } catch (error) {
     console.error('Error fetching podium:', error)
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
@@ -86,40 +78,12 @@ export async function PATCH(
     const isAdmin = user?.role === 'ADMIN'
     const isAuthor = podium.authorId === user?.id
 
-    const body = await req.json()
-    const data: Record<string, unknown> = {}
-
-    // deliberationId linking — any authenticated user can add/remove links
-    if (body.deliberationId !== undefined) {
-      if (body.deliberationId) {
-        const delib = await prisma.deliberation.findUnique({
-          where: { id: body.deliberationId },
-          select: { id: true },
-        })
-        if (!delib) {
-          return NextResponse.json({ error: 'Linked deliberation not found' }, { status: 404 })
-        }
-        // Create junction entry (upsert to avoid duplicates)
-        await prisma.podiumDeliberation.upsert({
-          where: { podiumId_deliberationId: { podiumId: id, deliberationId: body.deliberationId } },
-          create: { podiumId: id, deliberationId: body.deliberationId },
-          update: {},
-        })
-      }
-    }
-
-    // Remove a specific link
-    if (body.removeDeliberationId) {
-      await prisma.podiumDeliberation.deleteMany({
-        where: { podiumId: id, deliberationId: body.removeDeliberationId },
-      })
-    }
-
-    // All other fields require author or admin
-    const hasOtherFields = body.title !== undefined || body.body !== undefined || body.pinned !== undefined
-    if (hasOtherFields && !isAuthor && !isAdmin) {
+    if (!isAuthor && !isAdmin) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+
+    const body = await req.json()
+    const data: Record<string, unknown> = {}
 
     // Admin-only: toggle pinned
     if (body.pinned !== undefined && isAdmin) {
@@ -153,29 +117,30 @@ export async function PATCH(
       data.body = bodyText
     }
 
-    // Only run update if there are fields to change
-    if (Object.keys(data).length > 0) {
-      await prisma.podium.update({ where: { id }, data })
+    if (body.deliberationId !== undefined) {
+      if (body.deliberationId) {
+        const delib = await prisma.deliberation.findUnique({
+          where: { id: body.deliberationId },
+          select: { id: true },
+        })
+        if (!delib) {
+          return NextResponse.json({ error: 'Linked deliberation not found' }, { status: 404 })
+        }
+      }
+      data.deliberationId = body.deliberationId || null
     }
 
-    // Return full updated podium
-    const updated = await prisma.podium.findUnique({
+    const updated = await prisma.podium.update({
       where: { id },
+      data,
       include: {
         author: { select: { id: true, name: true, image: true } },
-        deliberationLinks: {
-          include: {
-            deliberation: { select: { id: true, question: true, phase: true } },
-          },
-        },
+        deliberation: { select: { id: true, question: true, phase: true } },
       },
     })
 
     invalidatePodiumCache()
-    return NextResponse.json({
-      ...updated,
-      deliberations: updated?.deliberationLinks.map(l => l.deliberation) || [],
-    })
+    return NextResponse.json(updated)
   } catch (error) {
     console.error('Error updating podium:', error)
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
