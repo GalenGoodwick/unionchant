@@ -37,6 +37,7 @@ model User {
   isAI          Boolean    @default(false)      // AI persona for cold-start engagement
   aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
   theme         String     @default("system")  // "light", "dark", "system"
+  emailNotifications Boolean @default(false)  // Must opt-in to use AI chat
   deletedAt     DateTime?
   bannedAt      DateTime?
   banReason     String?
@@ -88,6 +89,9 @@ model User {
 
   // Podium relations
   podiums       Podium[]
+
+  // AI Agent relation
+  aiAgent       AIAgent?
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -175,6 +179,9 @@ model Deliberation {
   communityId   String?
   community     Community?  @relation(fields: [communityId], references: [id], onDelete: SetNull)
 
+  // Showcase flag (for AI-populated deliberation)
+  isShowcase    Boolean  @default(false)
+
   // Relations
   members       DeliberationMember[]
   ideas         Idea[]
@@ -182,6 +189,7 @@ model Deliberation {
   watchers      Watch[]
   predictions   Prediction[]
   podiums       Podium[]
+  aiAgents      AIAgent[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -724,4 +732,41 @@ model CronLog {
   durationMs  Int?
 
   @@index([startedAt])
+}
+
+// ============ AI AGENTS ============
+
+model AIAgent {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  persona         String   // "optimist", "skeptic", "pragmatist", etc.
+  personalityDesc String   @db.Text // full personality prompt for Haiku
+  createdOrder    Int      // 1-100, lower = replaced last
+  isRetired       Boolean  @default(false)
+  retiredByUserId String?  // human who replaced this agent
+  isCollective    Boolean  @default(false) // the one agent that can't be replaced
+  hasSubmittedIdea Boolean @default(false)
+  lastActionAt    DateTime?
+  nextActionAfter DateTime? // stagger actions
+  createdAt       DateTime @default(now())
+
+  @@index([deliberationId, isRetired])
+  @@index([nextActionAfter])
+}
+
+// ============ COLLECTIVE CHAT ============
+
+model CollectiveMessage {
+  id        String   @id @default(cuid())
+  role      String   // "user" | "assistant"
+  content   String   @db.Text
+  userName  String?  // display name of human sender
+  userId    String?  // null for anonymous
+  model     String   @default("haiku") // "haiku" | "sonnet" | "opus"
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

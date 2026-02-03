@@ -6,7 +6,7 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
-import { useOnboardingContext, useGuideContext } from '@/app/providers'
+import { useOnboardingContext, useGuideContext, useCollectiveChat } from '@/app/providers'
 import NotificationBell from '@/components/NotificationBell'
 
 function ProfileAvatar({ image, name, size, className, textClass }: {
@@ -44,6 +44,7 @@ export default function Header() {
   const { isAdmin } = useAdmin()
   const { needsOnboarding, openOnboarding } = useOnboardingContext()
   const { openGuide } = useGuideContext()
+  const { chatOpen, toggleChat } = useCollectiveChat()
   const pathname = usePathname()
   const isFeed = pathname === '/feed'
   const [menuOpen, setMenuOpen] = useState(false)
@@ -108,6 +109,24 @@ export default function Header() {
               ?
             </button>
           )}
+          <button
+            onClick={toggleChat}
+            className={`relative group flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
+              chatOpen
+                ? 'bg-accent/20 text-accent'
+                : 'hover:bg-header-hover text-white/70 hover:text-accent'
+            }`}
+            aria-label="Collective Consciousness"
+            title="Collective Consciousness"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <circle cx="12" cy="12" r="3" />
+              <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
+              <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
+            </svg>
+            <span className="text-xs font-medium hidden lg:inline">Collective</span>
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full animate-pulse" />
+          </button>
           {session && <NotificationBell />}
           {session?.user ? (
             needsOnboarding ? (
@@ -139,8 +158,21 @@ export default function Header() {
           )}
         </nav>
 
-        {/* Mobile: notification + burger */}
+        {/* Mobile: collective + notification + burger */}
         <div className="flex items-center gap-3 md:hidden">
+          <button
+            onClick={toggleChat}
+            className={`p-1.5 rounded-lg transition-colors ${
+              chatOpen ? 'text-accent' : 'text-white/70 hover:text-accent'
+            }`}
+            aria-label="Collective Consciousness"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <circle cx="12" cy="12" r="3" />
+              <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
+              <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
+            </svg>
+          </button>
           {session && <NotificationBell onOpen={() => setMenuOpen(false)} />}
           <button
             onClick={() => setMenuOpen(!menuOpen)}

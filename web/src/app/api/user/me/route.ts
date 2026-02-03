@@ -41,6 +41,7 @@ export async function GET() {
         status: user.status,
         onboardedAt: (user as any).onboardedAt || null,
         createdAt: user.createdAt,
+        emailNotifications: user.emailNotifications,
         totalPredictions: user.totalPredictions,
         correctPredictions: user.correctPredictions,
         championPicks: user.championPicks,
@@ -70,9 +71,9 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name, bio } = await request.json()
+    const { name, bio, emailNotifications } = await request.json()
 
-    const updateData: { name?: string; bio?: string | null } = {}
+    const updateData: { name?: string; bio?: string | null; emailNotifications?: boolean } = {}
 
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length < 1) {
@@ -95,6 +96,10 @@ export async function PATCH(request: Request) {
       }
     }
 
+    if (emailNotifications !== undefined) {
+      updateData.emailNotifications = Boolean(emailNotifications)
+    }
+
     const user = await prisma.user.update({
       where: { email: session.user.email },
       data: updateData,
@@ -102,6 +107,7 @@ export async function PATCH(request: Request) {
         id: true,
         name: true,
         bio: true,
+        emailNotifications: true,
       },
     })
 

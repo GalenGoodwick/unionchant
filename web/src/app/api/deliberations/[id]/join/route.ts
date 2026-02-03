@@ -67,6 +67,33 @@ export async function POST(
       },
     })
 
+    // If this is the showcase deliberation, retire the newest AI agent
+    if (deliberation.isShowcase) {
+      try {
+        const agentToRetire = await prisma.aIAgent.findFirst({
+          where: {
+            deliberationId: id,
+            isRetired: false,
+            isCollective: false,
+          },
+          orderBy: { createdOrder: 'desc' }, // newest first
+        })
+
+        if (agentToRetire) {
+          await prisma.aIAgent.update({
+            where: { id: agentToRetire.id },
+            data: {
+              isRetired: true,
+              retiredByUserId: user.id,
+            },
+          })
+          console.log(`[JOIN] Retired AI agent ${agentToRetire.persona} (replaced by ${user.id})`)
+        }
+      } catch (err) {
+        console.error('[JOIN] Failed to retire AI agent:', err)
+      }
+    }
+
     // Handle based on deliberation phase
     if (deliberation.phase === 'VOTING') {
       // Late joiner - add them to an existing cell so they can participate

@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import { SessionProvider } from 'next-auth/react'
 import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
+import CollectiveChat from '@/components/CollectiveChat'
 import { useOnboarding } from '@/hooks/useOnboarding'
 
 type OnboardingContextType = {
@@ -116,6 +117,38 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Collective Chat ───────────────────────────────────────────
+
+type CollectiveChatContextType = {
+  chatOpen: boolean
+  toggleChat: () => void
+}
+
+const CollectiveChatContext = createContext<CollectiveChatContextType>({
+  chatOpen: false,
+  toggleChat: () => {},
+})
+
+export function useCollectiveChat() {
+  return useContext(CollectiveChatContext)
+}
+
+function CollectiveChatGate({ children }: { children: React.ReactNode }) {
+  const [chatOpen, setChatOpen] = useState(false)
+  const toggleChat = useCallback(() => setChatOpen(prev => !prev), [])
+
+  return (
+    <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
+      {children}
+      {chatOpen && (
+        <div className="fixed bottom-4 right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] shadow-2xl rounded-xl">
+          <CollectiveChat onClose={toggleChat} />
+        </div>
+      )}
+    </CollectiveChatContext.Provider>
+  )
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
@@ -123,7 +156,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ToastProvider>
           <GuideGate>
             <OnboardingGate>
-              {children}
+              <CollectiveChatGate>
+                {children}
+              </CollectiveChatGate>
             </OnboardingGate>
           </GuideGate>
         </ToastProvider>
