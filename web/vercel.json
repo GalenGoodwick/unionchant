@@ -6,8 +6,7 @@
     },
     {
       "path": "/api/cron/ai-orchestrator",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }
-
