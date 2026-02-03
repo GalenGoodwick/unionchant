@@ -253,9 +253,10 @@ function DeliberationsList() {
                     </span>
                   </div>
                   {d.podiums?.[0] && (
-                    <p className="text-xs text-accent mb-1 truncate">
-                      Podium: {d.podiums[0].title}
-                    </p>
+                    <div className="bg-accent/10 border border-accent/25 rounded-lg px-3 py-2 mb-2">
+                      <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-0.5">Linked Podium</div>
+                      <div className="text-xs text-foreground truncate">{d.podiums[0].title}</div>
+                    </div>
                   )}
                   {d.ideas[0] && (
                     <p className="text-xs text-success mb-1 truncate">

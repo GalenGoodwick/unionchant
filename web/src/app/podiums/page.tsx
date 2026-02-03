@@ -133,10 +133,11 @@ export default function PodiumsPage() {
                       {post.body.slice(0, 180).replace(/\n/g, ' ')}
                     </p>
 
-                    {/* Linked deliberation */}
+                    {/* Linked Talk */}
                     {post.deliberation && (
-                      <div className="mt-3 text-xs bg-accent-light text-accent px-2 py-1 rounded inline-block">
-                        &#128279; &ldquo;{post.deliberation.question}&rdquo;
+                      <div className="mt-3 bg-accent/10 border border-accent/25 rounded-lg p-3">
+                        <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">Linked Talk</div>
+                        <div className="text-sm text-foreground font-medium leading-snug">&ldquo;{post.deliberation.question}&rdquo;</div>
                       </div>
                     )}
 

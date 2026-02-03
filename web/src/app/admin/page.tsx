@@ -252,7 +252,7 @@ export default function AdminPage() {
 
   const fetchDeliberations = async () => {
     try {
-      const res = await fetch('/api/admin/talks')
+      const res = await fetch('/api/admin/deliberations')
       if (res.ok) {
         const data = await res.json()
         // Ensure we have an array
@@ -370,7 +370,7 @@ export default function AdminPage() {
 
     setDeleting(id)
     try {
-      const res = await fetch(`/api/admin/talks/${id}`, {
+      const res = await fetch(`/api/admin/deliberations/${id}`, {
         method: 'DELETE',
       })
 

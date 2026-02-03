@@ -195,12 +195,38 @@ export default function PodiumPageClient() {
           ))}
         </article>
 
-        {/* Join deliberation CTA */}
+        {/* Join Talk CTA */}
         {podium.deliberation && (
-          <div className="mb-8">
+          <div className="mb-8 border border-accent/25 rounded-xl overflow-hidden">
+            <div className="bg-accent/10 px-4 py-2 text-xs font-semibold text-accent uppercase tracking-wider">
+              Linked Talk
+            </div>
             <Link
               href={`/talks/${podium.deliberation.id}`}
-              className="block w-full text-center bg-accent text-white font-semibold py-3 rounded-xl hover:bg-accent-hover transition-colors"
+              className="block p-4 hover:bg-surface/50 transition-colors"
+            >
+              <div className="text-foreground font-medium mb-1">
+                &ldquo;{podium.deliberation.question}&rdquo;
+              </div>
+              {podium.deliberation.description && (
+                <p className="text-xs text-muted mb-2 line-clamp-2">{podium.deliberation.description}</p>
+              )}
+              <div className="flex items-center gap-3 text-xs text-muted">
+                <span className="font-mono">{podium.deliberation._count.members} participants</span>
+                <span className="font-mono">{podium.deliberation._count.ideas} ideas</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  podium.deliberation.phase === 'SUBMISSION' ? 'bg-accent/20 text-accent' :
+                  podium.deliberation.phase === 'VOTING' ? 'bg-warning/20 text-warning' :
+                  podium.deliberation.phase === 'COMPLETED' ? 'bg-success/20 text-success' :
+                  'bg-purple/20 text-purple'
+                }`}>
+                  {phaseLabel(podium.deliberation.phase)}
+                </span>
+              </div>
+            </Link>
+            <Link
+              href={`/talks/${podium.deliberation.id}`}
+              className="block w-full text-center bg-accent text-white font-semibold py-3 hover:bg-accent-hover transition-colors"
             >
               Join the Talk &rarr;
             </Link>
@@ -210,7 +236,16 @@ export default function PodiumPageClient() {
         {/* Footer actions */}
         <div className="border-t border-border pt-4 flex justify-between items-center text-sm text-muted">
           <div className="flex gap-4">
-            <button className="hover:text-foreground transition-colors">Share</button>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href)
+                  .then(() => showToast('Link copied', 'success'))
+                  .catch(() => showToast('Failed to copy', 'error'))
+              }}
+              className="hover:text-foreground transition-colors"
+            >
+              Share
+            </button>
           </div>
           {isAuthor && (
             <div className="flex gap-4">

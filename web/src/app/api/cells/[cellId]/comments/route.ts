@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 // GET /api/cells/[cellId]/comments - Get all comments for a cell (local + up-pollinated)
 export async function GET(
@@ -225,6 +226,11 @@ export async function POST(
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    const limited = await checkRateLimit('comment', user.id)
+    if (limited) {
+      return NextResponse.json({ error: 'Too many comments. Slow down.' }, { status: 429 })
     }
 
     const cell = await prisma.cell.findUnique({
