@@ -77,7 +77,7 @@ export default function FeedPage() {
 
       {/* Tab Bar */}
       <div className="sticky top-0 z-30 bg-surface border-b border-border">
-        <div className="max-w-xl mx-auto flex">
+        <div className="max-w-xl mx-auto flex" role="tablist">
           <TabButton
             label="Feed"
             active={tab === 'your-turn'}
@@ -128,8 +128,10 @@ export default function FeedPage() {
 function TabButton({ label, active, badge, onClick }: { label: string; active: boolean; badge?: number; onClick: () => void }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
-      className={`flex-1 py-2.5 text-center text-xs font-medium transition-colors border-b-2 ${
+      className={`flex-1 py-2.5 text-center text-sm font-medium transition-colors border-b-2 ${
         active
           ? 'text-foreground border-accent'
           : 'text-muted border-transparent hover:text-foreground'
@@ -169,7 +171,7 @@ function ActivityTab({ pulse, activity }: { pulse?: PulseStats; activity: Activi
       {/* Platform Pulse */}
       {pulse && (
         <div className="bg-surface border border-border rounded-xl p-4">
-          <div className="text-[10px] uppercase tracking-widest text-muted-light font-semibold mb-3">Platform Pulse</div>
+          <div className="text-xs uppercase tracking-widest text-muted-light font-semibold mb-3">Platform Pulse</div>
           <div className="grid grid-cols-2 gap-3">
             <PulseStat value={pulse.activeVoters} label="Active Voters" color="text-accent" />
             <PulseStat value={pulse.inProgress} label="In Progress" color="text-warning" />
@@ -224,8 +226,8 @@ function ActivityTimelineItem({ item }: { item: ActivityItem }) {
         <div className="text-base flex-shrink-0">{icon}</div>
         <div className="min-w-0">
           <div className="text-xs text-foreground leading-relaxed">{item.title}</div>
-          {item.body && <div className="text-[10px] text-muted mt-0.5">{item.body}</div>}
-          <div className="text-[10px] text-muted-light mt-1">{timeAgo(item.createdAt)}</div>
+          {item.body && <div className="text-xs text-muted mt-0.5">{item.body}</div>}
+          <div className="text-xs text-muted-light mt-1">{timeAgo(item.createdAt)}</div>
         </div>
       </div>
     </div>
@@ -261,14 +263,14 @@ function ResultCard({ entry }: { entry: FeedEntry }) {
       <Question text={d.question} />
       {entry.champion && (
         <div className="mt-2 bg-success-bg border border-success/20 rounded-lg p-2.5">
-          <div className="text-xs text-foreground">&ldquo;{entry.champion.text}&rdquo;</div>
+          <div className="text-sm text-foreground">&ldquo;{entry.champion.text}&rdquo;</div>
           {entry.winnerVoteCount !== undefined && (
-            <div className="text-[10px] text-success mt-1">{entry.winnerVoteCount} votes in final round</div>
+            <div className="text-xs text-success mt-1">{entry.winnerVoteCount} votes in final round</div>
           )}
         </div>
       )}
       {entry.myIdea && (
-        <div className={`text-[10px] mt-1.5 font-medium ${entry.myIdea.status === 'WINNER' ? 'text-success' : 'text-muted'}`}>
+        <div className={`text-xs mt-1.5 font-medium ${entry.myIdea.status === 'WINNER' ? 'text-success' : 'text-muted'}`}>
           {entry.myIdea.status === 'WINNER' ? 'Your pick won!' : `Your pick: ${entry.myIdea.status.toLowerCase()}`}
         </div>
       )}
@@ -386,18 +388,18 @@ function Card({
 
 function Badge({ color, bg, children }: { color: string; bg: string; children: React.ReactNode }) {
   return (
-    <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ color, backgroundColor: bg }}>
+    <span className="text-sm font-semibold px-2 py-0.5 rounded" style={{ color, backgroundColor: bg }}>
       {children}
     </span>
   )
 }
 
 function Question({ text }: { text: string }) {
-  return <div className="text-base font-serif font-semibold text-foreground mt-2 leading-snug">&ldquo;{text}&rdquo;</div>
+  return <div className="text-lg font-serif font-semibold text-foreground mt-2 leading-snug">&ldquo;{text}&rdquo;</div>
 }
 
 function Meta({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs text-muted mt-2 flex flex-wrap gap-1.5">{children}</div>
+  return <div className="text-sm text-muted mt-2 flex flex-wrap gap-1.5">{children}</div>
 }
 
 // ── PodiumsSummaryCard ─────────────────────────────────────────
@@ -418,19 +420,19 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
                 href={`/podium/${p.id}`}
                 className="flex-1 min-w-0"
               >
-                <div className="text-xs font-semibold truncate text-foreground">
+                <div className="text-sm font-semibold truncate text-foreground">
                   {p.title}
                 </div>
-                <div className="text-[10px] text-muted-light">
+                <div className="text-sm text-muted-light">
                   {p.authorName}
-                  {p.isAI && <span className="text-purple text-[8px] ml-1">AI</span>}
+                  {p.isAI && <span className="text-purple text-xs ml-1">AI</span>}
                   {' \u00B7 '}{timeAgo(p.createdAt)}
                 </div>
               </Link>
               {p.deliberationId && (
                 <Link
                   href={`/talks/${p.deliberationId}`}
-                  className="text-[10px] bg-accent/15 text-accent px-2 py-1 rounded font-medium shrink-0 hover:bg-accent/25 transition-colors"
+                  className="text-xs bg-accent/15 text-accent px-2 py-1 rounded font-medium shrink-0 hover:bg-accent/25 transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Join Talk &rarr;
@@ -453,7 +455,7 @@ function WaitingCard({ entry }: { entry: FeedEntry }) {
       <Card accentColor="var(--color-border)" href={`/talks/${d.id}`}>
         <div className="flex justify-between items-center">
           <Badge color="var(--color-muted)" bg="rgba(113,113,122,0.1)">{'\u23F3'} Waiting &middot; Tier {d.tier}</Badge>
-          {d.votingDeadline && <span className="text-[11px] font-mono text-muted-light">{timeLeft(d.votingDeadline)}</span>}
+          {d.votingDeadline && <span className="text-xs font-mono text-muted-light">{timeLeft(d.votingDeadline)}</span>}
         </div>
         <Question text={d.question} />
         <Meta>
@@ -502,8 +504,8 @@ function AdvancedCard({ entry }: { entry: FeedEntry }) {
       <Question text={d.question} />
       {myIdea && (
         <div className="mt-2 bg-success-bg border border-success/20 rounded-lg p-2.5">
-          <div className="text-xs text-foreground">&ldquo;{myIdea.text}&rdquo;</div>
-          <div className="text-[10px] text-success mt-1">
+          <div className="text-sm text-foreground">&ldquo;{myIdea.text}&rdquo;</div>
+          <div className="text-xs text-success mt-1">
             Tier {(entry.cell?.tier ?? d.tier) > 1 ? (entry.cell?.tier ?? d.tier) - 1 : 1} &rarr; Tier {entry.cell?.tier ?? d.tier}
             {entry.cell && ` \u00B7 Won with ${entry.cell.votedCount}/${entry.cell.memberCount} votes`}
           </div>
@@ -521,7 +523,7 @@ function PodiumCard({ entry }: { entry: FeedEntry }) {
   return (
     <Card href={`/podium/${p.id}`} pinned={entry.pinned}>
       {entry.pinned && (
-        <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>
+        <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>
       )}
       <div className="flex items-center gap-2 mb-2">
         {p.authorImage ? (
@@ -533,11 +535,11 @@ function PodiumCard({ entry }: { entry: FeedEntry }) {
         )}
         <span className="text-sm font-medium text-foreground">{p.authorName}</span>
         {p.isAI && (
-          <span className="text-[10px] font-medium text-purple bg-purple-bg px-1.5 py-0.5 rounded">AI</span>
+          <span className="text-xs font-medium text-purple bg-purple-bg px-1.5 py-0.5 rounded">AI</span>
         )}
-        <span className="text-xs text-muted ml-auto">{timeAgo(p.createdAt)}</span>
+        <span className="text-sm text-muted ml-auto">{timeAgo(p.createdAt)}</span>
       </div>
-      <div className="text-base font-bold text-foreground leading-snug">{p.title}</div>
+      <div className="text-lg font-bold text-foreground leading-snug">{p.title}</div>
       <div className="text-sm text-muted mt-1 line-clamp-2">{p.preview}</div>
       {p.deliberationId && p.deliberationQuestion && (
         <Link
@@ -546,8 +548,8 @@ function PodiumCard({ entry }: { entry: FeedEntry }) {
           className="mt-3 flex items-center justify-between bg-accent/10 border border-accent/25 rounded-lg p-2.5 hover:bg-accent/15 transition-colors"
         >
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] uppercase tracking-wider text-accent font-semibold">Linked Talk</div>
-            <div className="text-xs text-foreground truncate">&ldquo;{p.deliberationQuestion}&rdquo;</div>
+            <div className="text-xs uppercase tracking-wider text-accent font-semibold">Linked Talk</div>
+            <div className="text-sm text-foreground truncate">&ldquo;{p.deliberationQuestion}&rdquo;</div>
           </div>
           <span className="text-xs bg-accent text-white px-2.5 py-1 rounded font-medium shrink-0 ml-2">
             Join &rarr;
@@ -567,18 +569,18 @@ function VoteNowCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-warning)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-warning)" bg="var(--color-warning-bg)">Vote Now &middot; Tier {d.tier}</Badge>
-        <span className="text-[11px] font-mono font-semibold text-warning">{d.votingDeadline ? timeLeft(d.votingDeadline) : 'Open'}</span>
+        <span className="text-xs font-mono font-semibold text-warning">{d.votingDeadline ? timeLeft(d.votingDeadline) : 'Facilitated'}</span>
       </div>
       <Question text={d.question} />
       {cell && cell.ideas.length > 0 && (
         <div className="mt-2 flex flex-col gap-[3px]">
           {cell.ideas.slice(0, 2).map((idea) => (
-            <div key={idea.id} className="text-[11px] text-muted px-2 py-[5px] bg-background rounded-md truncate">
+            <div key={idea.id} className="text-sm text-muted px-2 py-[5px] bg-background rounded-md truncate">
               {idea.text}
             </div>
           ))}
           {cell.ideas.length > 2 && (
-            <div className="text-[10px] text-muted-light text-center py-0.5">+ {cell.ideas.length - 2} more ideas</div>
+            <div className="text-xs text-muted-light text-center py-0.5">+ {cell.ideas.length - 2} more ideas</div>
           )}
         </div>
       )}
@@ -605,9 +607,9 @@ function DeliberateCard({ entry }: { entry: FeedEntry }) {
       <Question text={d.question} />
       {cell && cell.ideas.length > 0 && (
         <div className="mt-3 bg-blue-bg border border-blue/15 rounded-lg p-3">
-          <div className="text-[10px] uppercase tracking-wider text-blue font-semibold mb-1">Your cell&rsquo;s ideas</div>
+          <div className="text-xs uppercase tracking-wider text-blue font-semibold mb-1">Your cell&rsquo;s ideas</div>
           {cell.ideas.map((idea, i) => (
-            <div key={idea.id} className="text-[11px] text-subtle leading-relaxed">
+            <div key={idea.id} className="text-sm text-subtle leading-relaxed">
               {i + 1}. {idea.text}
             </div>
           ))}
@@ -615,14 +617,14 @@ function DeliberateCard({ entry }: { entry: FeedEntry }) {
       )}
       {cell?.latestComment && (
         <div className="mt-2 bg-background border border-border rounded-lg p-2.5">
-          <div className="text-[10px] text-muted mb-0.5">Latest comment:</div>
-          <div className="text-[11px] text-foreground italic leading-relaxed">&ldquo;{cell.latestComment.text}&rdquo;</div>
-          <div className="text-[10px] text-muted mt-0.5">&mdash; {cell.latestComment.authorName}</div>
+          <div className="text-xs text-muted mb-0.5">Latest comment:</div>
+          <div className="text-sm text-foreground italic leading-relaxed">&ldquo;{cell.latestComment.text}&rdquo;</div>
+          <div className="text-xs text-muted mt-0.5">&mdash; {cell.latestComment.authorName}</div>
         </div>
       )}
       <div className="mt-2 flex items-center justify-between">
         <span className="text-sm font-medium text-blue">Read ideas &amp; discuss &rarr;</span>
-        <span className="text-[11px] font-mono text-muted">{cell?.discussionDeadline ? `Voting opens in ${timeLeft(cell.discussionDeadline)}` : 'Facilitator opens voting'}</span>
+        <span className="text-xs font-mono text-muted">{cell?.discussionDeadline ? `Voting opens in ${timeLeft(cell.discussionDeadline)}` : 'Facilitator opens voting'}</span>
       </div>
     </Card>
   )
@@ -636,7 +638,7 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">{'\u{1F4A1}'} Submit Ideas</Badge>
-        <span className="text-[11px] text-muted-light">{d.submissionDeadline ? `${timeLeft(d.submissionDeadline)} left` : 'Open'}</span>
+        <span className="text-xs text-muted-light">{d.submissionDeadline ? `${timeLeft(d.submissionDeadline)} left` : 'Facilitated'}</span>
       </div>
       <Question text={d.question} />
       <Meta>
@@ -657,9 +659,9 @@ function JoinCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">
-          Join &middot; {d.phase === 'SUBMISSION' ? 'Open' : `Tier ${d.tier}`}
+          Join &middot; {d.phase === 'SUBMISSION' ? 'Accepting Ideas' : `Tier ${d.tier}`}
         </Badge>
-        {d.submissionDeadline && <span className="text-[11px] text-muted-light">{timeLeft(d.submissionDeadline)} left</span>}
+        {d.submissionDeadline && <span className="text-xs text-muted-light">{timeLeft(d.submissionDeadline)} left</span>}
       </div>
       <Question text={d.question} />
       {d.communityName && <div className="text-xs text-muted mt-1">{d.communityName}</div>}
@@ -670,8 +672,8 @@ function JoinCard({ entry }: { entry: FeedEntry }) {
       </Meta>
       {/* Full-width join button */}
       <div className="mt-3">
-        <div className="w-full bg-accent text-white text-center py-2 rounded-lg text-xs font-semibold">
-          Join This Deliberation
+        <div className="w-full bg-accent text-white text-center py-2 rounded-lg text-sm font-semibold">
+          Join This Talk
         </div>
       </div>
     </Card>
@@ -686,12 +688,12 @@ function ChampionCardInline({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-purple)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-purple)" bg="var(--color-purple-bg)">{'\u2605'} Accepting New Ideas</Badge>
-        <span className="text-[11px] font-mono font-semibold text-purple">Open</span>
+        <span className="text-xs font-mono font-semibold text-purple">Facilitated</span>
       </div>
       <Question text={d.question} />
       {entry.champion && (
         <div className="mt-3 bg-success-bg border border-success/20 rounded-lg p-2.5">
-          <div className="text-[10px] uppercase tracking-wider text-success font-semibold mb-0.5">Current Priority</div>
+          <div className="text-xs uppercase tracking-wider text-success font-semibold mb-0.5">Current Priority</div>
           <div className="text-sm text-foreground">&ldquo;{entry.champion.text}&rdquo;</div>
         </div>
       )}
@@ -711,7 +713,7 @@ function ChallengeCard({ entry }: { entry: FeedEntry }) {
     <Card accentColor="var(--color-orange)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-orange)" bg="var(--color-orange-bg)">Challenge Vote &middot; Round {d.challengeRound + 1} &middot; Tier {d.tier}</Badge>
-        <span className="text-[11px] font-mono font-semibold text-orange">{d.votingDeadline ? `${timeLeft(d.votingDeadline)} left` : 'Open'}</span>
+        <span className="text-xs font-mono font-semibold text-orange">{d.votingDeadline ? `${timeLeft(d.votingDeadline)} left` : 'Facilitated'}</span>
       </div>
       <Question text={d.question} />
       <Meta>
@@ -719,7 +721,7 @@ function ChallengeCard({ entry }: { entry: FeedEntry }) {
       </Meta>
       {entry.champion && (
         <div className="mt-3 bg-orange-bg border border-orange/20 rounded-lg p-2.5">
-          <div className="text-[10px] uppercase tracking-wider text-orange font-semibold mb-0.5">Defending Priority</div>
+          <div className="text-xs uppercase tracking-wider text-orange font-semibold mb-0.5">Defending Priority</div>
           <div className="text-sm text-foreground">&ldquo;{entry.champion.text}&rdquo;</div>
         </div>
       )}
@@ -737,12 +739,12 @@ function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">Extra Vote &middot; Tier {d.tier}</Badge>
         {entry.secondVoteDeadline && (
-          <span className="text-[11px] font-mono font-semibold text-accent">{timeLeft(entry.secondVoteDeadline)} left</span>
+          <span className="text-xs font-mono font-semibold text-accent">{timeLeft(entry.secondVoteDeadline)} left</span>
         )}
       </div>
       <Question text={d.question} />
       <div className="mt-2 bg-accent-light border border-accent/20 rounded-lg p-2.5">
-        <div className="text-xs text-muted">You already voted. The facilitator opened a window for you to vote in a second cell with different ideas.</div>
+        <div className="text-sm text-muted">You already voted. The facilitator opened a window for you to vote in a second cell with different ideas.</div>
       </div>
       <div className="mt-2 text-sm font-medium text-accent">Cast extra vote &rarr;</div>
     </Card>

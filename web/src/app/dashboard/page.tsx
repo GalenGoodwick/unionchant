@@ -137,10 +137,10 @@ export default function DashboardPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`px-2 py-0.5 rounded text-white text-xs ${phaseColors[d.phase] || 'bg-muted'}`}>
+                    <span className={`px-2 py-0.5 rounded text-white text-sm ${phaseColors[d.phase] || 'bg-muted'}`}>
                       {phaseLabel(d.phase)}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-xs ${d.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-surface-hover text-muted border border-border'}`}>
+                    <span className={`px-2 py-0.5 rounded text-sm ${d.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-surface-hover text-muted border border-border'}`}>
                       {d.isPublic ? 'Public' : 'Private'}
                     </span>
                   </div>
@@ -189,14 +189,14 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="text-foreground font-medium truncate">{c.name}</h3>
-                      <span className="text-xs px-2 py-0.5 rounded bg-accent/10 text-accent shrink-0">
+                      <span className="text-sm px-2 py-0.5 rounded bg-accent/10 text-accent shrink-0">
                         {c.role}
                       </span>
                     </div>
                     {c.description && (
                       <p className="text-muted text-sm mt-1 line-clamp-2">{c.description}</p>
                     )}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+                    <div className="flex items-center gap-3 mt-2 text-sm text-muted">
                       <span>{c._count.members} members</span>
                       <span>{c._count.deliberations} talks</span>
                     </div>
@@ -251,7 +251,7 @@ export default function DashboardPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+                    <div className="flex items-center gap-3 mt-2 text-sm text-muted">
                       <span>{p.views} views</span>
                       <span>{new Date(p.createdAt).toLocaleDateString()}</span>
                     </div>

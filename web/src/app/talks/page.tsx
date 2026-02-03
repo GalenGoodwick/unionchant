@@ -180,7 +180,7 @@ function DeliberationsList() {
                     : 'bg-surface text-muted border border-border hover:border-border-strong'
                 }`}
               >
-                {phase === 'all' ? 'All' : phase.charAt(0) + phase.slice(1).toLowerCase()}
+                {phase === 'all' ? 'All' : phaseLabel(phase)}
               </button>
             ))}
         </div>
@@ -232,9 +232,9 @@ function DeliberationsList() {
       {/* Table - Desktop / Card list - Mobile */}
       <div className="bg-background rounded-lg border border-border overflow-hidden">
         {loading ? (
-          <div className="p-8 flex justify-center"><Spinner label="Loading deliberations" /></div>
+          <div className="p-8 flex justify-center"><Spinner label="Loading talks" /></div>
         ) : filteredDeliberations.length === 0 ? (
-          <div className="p-8 text-center text-muted">No deliberations found</div>
+          <div className="p-8 text-center text-muted">No talks found</div>
         ) : (
           <>
             <div className="space-y-3 p-3">
@@ -248,22 +248,22 @@ function DeliberationsList() {
                     <Link href={`/talks/${d.id}`} className="text-foreground hover:text-accent font-medium text-sm flex-1">
                       {d.question.length > 50 ? d.question.slice(0, 50) + '...' : d.question}
                     </Link>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
-                      {d.phase}
+                    <span className={`px-2 py-0.5 rounded text-sm font-medium shrink-0 ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
+                      {phaseLabel(d.phase)}
                     </span>
                   </div>
                   {d.podiums?.[0] && (
                     <div className="bg-accent/10 border border-accent/25 rounded-lg px-3 py-2 mb-2">
-                      <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-0.5">Linked Podium</div>
-                      <div className="text-xs text-foreground truncate">{d.podiums[0].title}</div>
+                      <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-0.5">Linked Podium</div>
+                      <div className="text-sm text-foreground truncate">{d.podiums[0].title}</div>
                     </div>
                   )}
                   {d.ideas[0] && (
-                    <p className="text-xs text-success mb-1 truncate">
+                    <p className="text-sm text-success mb-1 truncate">
                       Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}
                     </p>
                   )}
-                  <div className="flex gap-3 text-xs text-muted flex-wrap">
+                  <div className="flex gap-3 text-sm text-muted flex-wrap">
                     <span>{getVotingTrigger(d)}</span>
                     <span className="font-mono">{d._count.members} members</span>
                     <span className="font-mono">{d._count.ideas} ideas</span>
@@ -272,7 +272,7 @@ function DeliberationsList() {
                   {d.tags && d.tags.length > 0 && (
                     <div className="flex gap-1 mt-2">
                       {d.tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="text-xs bg-background text-muted px-1.5 py-0.5 rounded border border-border">
+                        <span key={tag} className="text-sm bg-background text-muted px-1.5 py-0.5 rounded border border-border">
                           {tag}
                         </span>
                       ))}

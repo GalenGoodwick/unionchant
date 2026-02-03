@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 import LandingCTA from '@/components/LandingCTA'
 
 export const metadata: Metadata = {
-  title: 'Union Chant - Collective Decision Making',
+  title: 'Union Chant - Holding Quiet Hope',
   description: 'One place where humanity decides together. Submit ideas, deliberate in small groups, reach consensus at any scale.',
 }
 
@@ -17,7 +17,7 @@ export default function Home() {
       <section className="bg-header text-white">
         <div className="max-w-5xl mx-auto px-6 py-24 md:py-36 text-center">
           <p className="text-accent-light text-sm font-medium tracking-widest uppercase mb-6">
-            Collective Decision Making
+            Holding Quiet Hope
           </p>
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-8 leading-[1.1] tracking-tight">
             What if a million people{' '}

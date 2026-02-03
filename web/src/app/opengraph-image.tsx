@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og'
 
 export const runtime = 'edge'
 
-export const alt = 'Union Chant - Query your crowd. Get a collective answer.'
+export const alt = 'Union Chant - Holding Quiet Hope'
 export const size = {
   width: 1200,
   height: 630,
@@ -11,34 +11,33 @@ export const size = {
 export const contentType = 'image/png'
 
 export default async function Image() {
-  // Fibonacci sunflower spiral — represents ideas converging through tiers
-  // Outer dots = many participants, inner dots = winners advancing, center = collective answer
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5)) // ~137.508 degrees
-  const spiralCx = 880
-  const spiralCy = 315
-  const numDots = 100
-
-  const dots: { x: number; y: number; size: number; r: number; g: number; b: number; opacity: number }[] = []
-
-  for (let i = 1; i <= numDots; i++) {
-    const radius = 11 * Math.sqrt(i)
-    const theta = i * goldenAngle
-    const x = spiralCx + radius * Math.cos(theta)
-    const y = spiralCy + radius * Math.sin(theta)
-
-    const t = i / numDots // 0 = near center, 1 = outer edge
-
-    // Inner dots are larger and brighter (winners), outer are smaller and dimmer (many participants)
-    const dotSize = Math.max(2.5, 9 - t * 7)
-    const opacity = Math.max(0.12, 1 - t * 0.88)
-
-    // Color: inner = bright cyan (#0891b2), outer = slate (#475569)
-    const r = Math.round(71 * t + 8 * (1 - t))
-    const g = Math.round(85 * t + 145 * (1 - t))
-    const b = Math.round(105 * t + 178 * (1 - t))
-
-    dots.push({ x, y, size: dotSize, r, g, b, opacity })
-  }
+  // Logo constellation: gold → blue → pink branching pattern
+  const gold = { x: 160, y: 315, r: 28 }
+  const blues = [
+    { x: 340, y: 200, r: 20 },
+    { x: 360, y: 315, r: 20 },
+    { x: 340, y: 430, r: 20 },
+  ]
+  const pinkGroups = [
+    // from blue 0
+    [
+      { x: 480, y: 150, r: 14 },
+      { x: 490, y: 195, r: 14 },
+      { x: 480, y: 240, r: 14 },
+    ],
+    // from blue 1
+    [
+      { x: 500, y: 270, r: 14 },
+      { x: 510, y: 315, r: 14 },
+      { x: 500, y: 360, r: 14 },
+    ],
+    // from blue 2
+    [
+      { x: 480, y: 390, r: 14 },
+      { x: 490, y: 435, r: 14 },
+      { x: 480, y: 480, r: 14 },
+    ],
+  ]
 
   return new ImageResponse(
     (
@@ -48,110 +47,185 @@ export default async function Image() {
           width: '100%',
           display: 'flex',
           backgroundColor: '#0f172a',
-          backgroundImage: 'radial-gradient(circle at 73% 50%, #164e63 0%, transparent 40%), radial-gradient(circle at 20% 30%, #1e3a5f 0%, transparent 45%)',
+          backgroundImage: 'radial-gradient(circle at 25% 50%, #1a1a3e 0%, transparent 50%), radial-gradient(circle at 75% 40%, #1e293b 0%, transparent 45%)',
           position: 'relative',
           overflow: 'hidden',
         }}
       >
-        {/* Text - left side */}
+        {/* Gold → Blue connection lines */}
+        {blues.map((b, i) => (
+          <div
+            key={`gb-${i}`}
+            style={{
+              position: 'absolute',
+              left: gold.x,
+              top: gold.y,
+              width: Math.sqrt((b.x - gold.x) ** 2 + (b.y - gold.y) ** 2),
+              height: 3,
+              background: 'linear-gradient(to right, #e8b84b, #3b82f6)',
+              transformOrigin: '0 50%',
+              transform: `rotate(${Math.atan2(b.y - gold.y, b.x - gold.x) * (180 / Math.PI)}deg)`,
+              opacity: 0.6,
+            }}
+          />
+        ))}
+
+        {/* Blue → Pink connection lines */}
+        {blues.map((b, bi) =>
+          pinkGroups[bi].map((p, pi) => (
+            <div
+              key={`bp-${bi}-${pi}`}
+              style={{
+                position: 'absolute',
+                left: b.x,
+                top: b.y,
+                width: Math.sqrt((p.x - b.x) ** 2 + (p.y - b.y) ** 2),
+                height: 2,
+                background: 'linear-gradient(to right, #3b82f6, #ec4899)',
+                transformOrigin: '0 50%',
+                transform: `rotate(${Math.atan2(p.y - b.y, p.x - b.x) * (180 / Math.PI)}deg)`,
+                opacity: 0.5,
+              }}
+            />
+          ))
+        )}
+
+        {/* Gold glow */}
         <div
           style={{
+            position: 'absolute',
+            left: gold.x - 50,
+            top: gold.y - 50,
+            width: 100,
+            height: 100,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(232, 184, 75, 0.35) 0%, transparent 70%)',
+          }}
+        />
+
+        {/* Gold dot */}
+        <div
+          style={{
+            position: 'absolute',
+            left: gold.x - gold.r,
+            top: gold.y - gold.r,
+            width: gold.r * 2,
+            height: gold.r * 2,
+            borderRadius: '50%',
+            backgroundColor: '#e8b84b',
+            boxShadow: '0 0 30px rgba(232, 184, 75, 0.5)',
+          }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            left: gold.x - 18,
+            top: gold.y - 18,
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            backgroundColor: '#f0c95c',
+            opacity: 0.6,
+          }}
+        />
+
+        {/* Blue dots */}
+        {blues.map((b, i) => (
+          <div key={`blue-${i}`}>
+            <div
+              style={{
+                position: 'absolute',
+                left: b.x - 35,
+                top: b.y - 35,
+                width: 70,
+                height: 70,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(59, 130, 246, 0.3) 0%, transparent 70%)',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                left: b.x - b.r,
+                top: b.y - b.r,
+                width: b.r * 2,
+                height: b.r * 2,
+                borderRadius: '50%',
+                backgroundColor: ['#3b82f6', '#2563eb', '#1d4ed8'][i],
+                boxShadow: '0 0 20px rgba(59, 130, 246, 0.4)',
+              }}
+            />
+          </div>
+        ))}
+
+        {/* Pink dots */}
+        {pinkGroups.flat().map((p, i) => (
+          <div key={`pink-${i}`}>
+            <div
+              style={{
+                position: 'absolute',
+                left: p.x - 22,
+                top: p.y - 22,
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(236, 72, 153, 0.25) 0%, transparent 70%)',
+              }}
+            />
+            <div
+              style={{
+                position: 'absolute',
+                left: p.x - p.r,
+                top: p.y - p.r,
+                width: p.r * 2,
+                height: p.r * 2,
+                borderRadius: '50%',
+                backgroundColor: ['#f472b6', '#ec4899', '#db2777'][i % 3],
+                boxShadow: '0 0 14px rgba(236, 72, 153, 0.3)',
+              }}
+            />
+          </div>
+        ))}
+
+        {/* Text - right side */}
+        <div
+          style={{
+            position: 'absolute',
+            right: 80,
+            top: 0,
+            bottom: 0,
+            width: '50%',
             display: 'flex',
             flexDirection: 'column',
             justifyContent: 'center',
-            paddingLeft: 80,
-            paddingRight: 40,
-            width: '55%',
+            alignItems: 'flex-end',
           }}
         >
           <div
             style={{
-              fontSize: 64,
+              display: 'flex',
+              fontSize: 72,
               fontWeight: 700,
-              color: '#ffffff',
-              marginBottom: 20,
               fontFamily: 'serif',
+              marginBottom: 16,
             }}
           >
-            Union Chant
+            <span style={{ color: '#e8b84b' }}>Union</span>
+            <span style={{ color: '#ffffff', marginLeft: 18 }}> </span>
+            <span style={{ color: '#3b82f6' }}>Chant</span>
           </div>
           <div
             style={{
-              display: 'flex',
-              flexDirection: 'column',
               fontSize: 28,
-              color: '#0891b2',
-              lineHeight: 1.4,
-              fontWeight: 600,
-              marginBottom: 32,
+              color: '#94a3b8',
+              fontWeight: 400,
+              fontStyle: 'italic',
+              letterSpacing: '0.04em',
             }}
           >
-            <span>Query your crowd.</span>
-            <span>Get a collective answer.</span>
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              gap: 24,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#0891b2' }} />
-              <span style={{ fontSize: 14, color: '#94a3b8' }}>Ask</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#0891b2', opacity: 0.7 }} />
-              <span style={{ fontSize: 14, color: '#94a3b8' }}>Discuss</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#0891b2', opacity: 0.4 }} />
-              <span style={{ fontSize: 14, color: '#94a3b8' }}>Decide</span>
-            </div>
+            Holding Quiet Hope
           </div>
         </div>
-
-        {/* Spiral fractal - right side */}
-        {/* Center glow */}
-        <div
-          style={{
-            position: 'absolute',
-            left: spiralCx - 40,
-            top: spiralCy - 40,
-            width: 80,
-            height: 80,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(8, 145, 178, 0.3) 0%, transparent 70%)',
-          }}
-        />
-        {/* Center dot */}
-        <div
-          style={{
-            position: 'absolute',
-            left: spiralCx - 7,
-            top: spiralCy - 7,
-            width: 14,
-            height: 14,
-            borderRadius: '50%',
-            backgroundColor: '#0891b2',
-            boxShadow: '0 0 20px rgba(8, 145, 178, 0.6)',
-          }}
-        />
-
-        {/* Spiral dots */}
-        {dots.map((dot, i) => (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              left: dot.x - dot.size / 2,
-              top: dot.y - dot.size / 2,
-              width: dot.size,
-              height: dot.size,
-              borderRadius: '50%',
-              backgroundColor: `rgba(${dot.r}, ${dot.g}, ${dot.b}, ${dot.opacity})`,
-            }}
-          />
-        ))}
       </div>
     ),
     {

@@ -125,6 +125,10 @@
   --color-blue-border: #60a5fa;
 }
 
+html {
+  font-size: 17px;
+}
+
 body {
   background: var(--color-background);
   color: var(--color-foreground);

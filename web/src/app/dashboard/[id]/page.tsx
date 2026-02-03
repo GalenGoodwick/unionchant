@@ -168,7 +168,7 @@ export default function DashboardDetailPage() {
   const handleDelete = async () => {
     setDeleting(true)
     try {
-      const res = await fetch(`/api/admin/talks/${deliberationId}`, { method: 'DELETE' })
+      const res = await fetch(`/api/admin/deliberations/${deliberationId}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json()
         setActionMessage(`Error: ${data.error || 'Failed to delete'}`)

@@ -519,7 +519,7 @@ export default function DemoPage() {
       activeIdeas = allIdeas.filter(idea => uniqueAdvancing.includes(idea.id))
 
       if (isFinalShowdown) {
-        setStatusMessage(`Final showdown complete! Champion determined by ${Object.values(globalVoteCounts).reduce((a, b) => a + b, 0)} votes across all cells.`)
+        setStatusMessage(`Final showdown complete! Priority determined by ${Object.values(globalVoteCounts).reduce((a, b) => a + b, 0)} votes across all cells.`)
       } else {
         setStatusMessage(`Tier ${tier} complete! ${activeIdeas.length} ideas advancing.`)
       }
@@ -549,7 +549,7 @@ export default function DemoPage() {
       setPhase('completed')
       // Mark all tiers as completed
       setTierSummaries(prev => prev.map(t => ({ ...t, status: 'completed' })))
-      setStatusMessage(`Champion determined through ${tier - 1} tiers of deliberation!`)
+      setStatusMessage(`Priority determined through ${tier - 1} tiers of deliberation!`)
       await waitForContinue(`One idea survived scrutiny from many independent groups across ${tier - 1} tiers. That's a stronger mandate than any poll.`)
     }
 
@@ -603,7 +603,7 @@ export default function DemoPage() {
                   <p><strong>2.</strong> Ideas are grouped into cells of 5 ideas, 5 people each</p>
                   <p><strong>3.</strong> Each cell deliberates (discusses trade-offs) then votes</p>
                   <p><strong>4.</strong> Winners advance to the next tier, losers are eliminated</p>
-                  <p><strong>5.</strong> Process repeats until one champion emerges</p>
+                  <p><strong>5.</strong> Process repeats until one priority emerges</p>
                 </div>
                 <button
                   onClick={startDemo}
@@ -639,7 +639,7 @@ export default function DemoPage() {
                 <div className="text-foreground font-medium">{statusMessage}</div>
                 {champion && (
                   <div className="mt-3 pt-3 border-t border-success/30">
-                    <div className="text-success text-xs font-semibold uppercase tracking-wide mb-1">Champion</div>
+                    <div className="text-success text-xs font-semibold uppercase tracking-wide mb-1">Priority</div>
                     <div className="text-foreground font-bold">{champion.text}</div>
                     <div className="text-muted text-xs mt-1">From {ideas.length} ideas → 1 winner through {currentTier} tiers</div>
                   </div>

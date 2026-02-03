@@ -156,6 +156,8 @@ function Section({
       <button
         onClick={() => setOpen(!open)}
         className="w-full px-4 py-3 flex justify-between items-center text-left"
+        aria-expanded={open}
+        aria-label={`${title}, ${open ? 'collapse' : 'expand'}`}
       >
         <div className="flex items-center gap-2">
           <span className="font-semibold text-foreground">{title}</span>
@@ -494,6 +496,8 @@ function CellDiscussion({ cellId, isParticipant, ideas }: {
       <button
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-2 text-muted hover:text-foreground text-sm"
+        aria-expanded={expanded}
+        aria-label={`Discussion (${totalCount}), ${expanded ? 'collapse' : 'expand'}`}
       >
         <svg className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -568,6 +572,7 @@ function CellDiscussion({ cellId, isParticipant, ideas }: {
                             : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
                         }`}
                         title={c.userHasUpvoted ? 'You upvoted this' : 'Upvote to help this comment reach more people'}
+                        aria-label={`Upvote comment, ${c.upvoteCount || 0} upvotes`}
                       >
                         <svg className="w-3 h-3" fill={c.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
@@ -980,7 +985,7 @@ function TierProgressPanel({ deliberationId, currentTier, onRefresh }: { deliber
           <div className="bg-surface rounded-xl max-w-md w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-border flex justify-between items-center">
               <h3 className="font-bold">Cell Details</h3>
-              <button onClick={() => setSelectedCell(null)} className="text-muted hover:text-foreground">✕</button>
+              <button onClick={() => setSelectedCell(null)} className="text-muted hover:text-foreground" aria-label="Close cell details">✕</button>
             </div>
             <div className="p-4 space-y-4">
               {/* Status */}
@@ -1659,7 +1664,7 @@ export default function DeliberationPageClient() {
             <h1 className="text-xl font-bold text-foreground leading-tight">{deliberation.question}</h1>
             <div className="flex gap-1.5 shrink-0 items-center">
               <span className={`text-xs font-semibold px-2 py-1 rounded ${phaseColor} bg-surface`}>
-                {effectivePhase}
+                {phaseLabel(effectivePhase)}
               </span>
               <span className={`text-xs font-semibold px-2 py-1 rounded ${deliberation.isPublic ? 'text-success bg-success-bg' : 'text-error bg-error-bg'}`}>
                 {deliberation.isPublic ? 'Public' : 'Private'}

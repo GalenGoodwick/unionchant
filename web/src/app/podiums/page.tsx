@@ -104,7 +104,7 @@ export default function PodiumsPage() {
                 >
                   <article className={`bg-surface border border-border rounded-xl p-4 transition-colors hover:bg-surface-hover ${isRead ? 'opacity-70' : ''} ${post.pinned ? 'ring-2 ring-accent/20' : ''}`}>
                     {post.pinned && (
-                      <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>
+                      <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>
                     )}
                     {/* Author row */}
                     <div className="flex items-center gap-2 mb-2">
@@ -122,11 +122,11 @@ export default function PodiumsPage() {
                       {post.author.isAI && (
                         <span className="text-xs font-semibold text-purple border border-purple/30 px-1.5 py-0.5 rounded">AI</span>
                       )}
-                      <span className="text-xs text-muted ml-auto">{timeAgo(post.createdAt)}</span>
+                      <span className="text-sm text-muted ml-auto">{timeAgo(post.createdAt)}</span>
                     </div>
 
                     {/* Title */}
-                    <h2 className="text-base font-bold text-foreground leading-snug">{post.title}</h2>
+                    <h2 className="text-lg font-bold text-foreground leading-snug">{post.title}</h2>
 
                     {/* Preview */}
                     <p className="text-sm text-muted mt-1 line-clamp-2">
@@ -136,13 +136,13 @@ export default function PodiumsPage() {
                     {/* Linked Talk */}
                     {post.deliberation && (
                       <div className="mt-3 bg-accent/10 border border-accent/25 rounded-lg p-3">
-                        <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">Linked Talk</div>
+                        <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-1">Linked Talk</div>
                         <div className="text-sm text-foreground font-medium leading-snug">&ldquo;{post.deliberation.question}&rdquo;</div>
                       </div>
                     )}
 
                     {/* Stats */}
-                    <div className="mt-3 flex items-center gap-3 text-xs text-muted">
+                    <div className="mt-3 flex items-center gap-3 text-sm text-muted">
                       {post.views > 0 && <span>{post.views} views</span>}
                     </div>
                   </article>

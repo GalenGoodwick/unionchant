@@ -620,8 +620,8 @@ discussionEndsAt      DateTime? // when discussion period ends for this cell
 ### Known Bugs
 
 1. **Real user cell assignment**: During challenge rounds, real users may not be assigned to early tier cells (by design - batching)
-2. **Accumulation signifier bug**: UI shows accumulation state incorrectly during phase transitions
-3. **Cell color updates**: Cells with 5/5 votes not turning green immediately - relying on timeout instead of vote completion trigger
+2. ~~**Accumulation signifier bug**~~ — FIXED
+3. ~~**Cell color updates**~~ — FIXED
 4. ~~**"Join and Vote" button issues**~~ — FIXED (Feb 2026: ChampionCard checks /join response, JoinVotingCard calls /join first, handles alreadyInCell)
 5. **Cell click does nothing**: No detail view when clicking a cell on deliberation page
 6. **Challenger idea fallback**: Shows "Challenger idea #" instead of AI-generated text when Haiku fails

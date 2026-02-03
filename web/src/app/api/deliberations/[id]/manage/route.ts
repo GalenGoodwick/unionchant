@@ -150,6 +150,7 @@ export async function PATCH(
       submissionEndsAt: true,
       ideaGoal: true,
       accumulationEnabled: true,
+      discussionDurationMs: true,
     }
 
     const data: Record<string, unknown> = {}

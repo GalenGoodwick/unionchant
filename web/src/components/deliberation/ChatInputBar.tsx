@@ -68,6 +68,7 @@ export default function ChatInputBar({
           type="submit"
           disabled={submitting || !newComment.trim()}
           className="w-9 h-9 rounded-full bg-accent hover:bg-accent-hover disabled:opacity-50 text-white flex items-center justify-center shrink-0 transition-colors"
+          aria-label="Send message"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5M5 12l7-7 7 7" />

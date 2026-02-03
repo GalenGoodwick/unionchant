@@ -49,7 +49,7 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
-    { href: '/feed', label: 'Feed', authRequired: true, highlight: true },
+    { href: '/feed', label: 'Feed', authRequired: true },
     { href: '/groups', label: 'Groups' },
     { href: '/talks', label: 'Talks' },
     { href: '/podiums', label: 'Podiums' },
@@ -59,42 +59,42 @@ export default function Header() {
   return (
     <header className="bg-header text-white relative">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
-        <Link href="/" className="flex items-center gap-2.5 hover:text-accent-light transition-colors">
+        <Link href="/" className="flex items-center gap-2.5 hover:text-accent transition-colors">
           <Image src="/logo.svg" alt="" width={32} height={32} />
           <div className="flex flex-col leading-none">
             <span className="text-xl font-semibold font-serif">Union Chant</span>
-            <span className="text-[10px] text-white/50 tracking-wider uppercase">continuous consensus</span>
+            <span className="text-[10px] text-white/50 tracking-wider uppercase">holding quiet hope</span>
           </div>
         </Link>
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-4 text-sm">
-          {session && (
-            <Link
-              href="/talks/new"
-              className="text-accent-light hover:text-white transition-colors font-medium"
-            >
-              Create
-            </Link>
-          )}
           {navLinks.map(link => (
             (!link.authRequired || session) && (
               <Link
                 key={link.href}
                 href={link.href}
-                className={link.highlight ? 'text-accent-light hover:text-white transition-colors font-medium' : 'hover:text-accent-light transition-colors'}
+                className="hover:text-accent transition-colors"
               >
                 {link.label}
               </Link>
             )
           ))}
+          {session && (
+            <Link
+              href="/talks/new"
+              className="bg-accent hover:bg-accent-hover text-white px-3 py-1 rounded-lg font-medium transition-colors"
+            >
+              + Create
+            </Link>
+          )}
           {isAdmin && (
             <Link href="/admin" className="text-orange hover:text-orange-hover transition-colors">
               Admin
             </Link>
           )}
           {session && (
-            <Link href="/dashboard" className="hover:text-accent-light transition-colors">
+            <Link href="/dashboard" className="hover:text-accent transition-colors">
               Manage
             </Link>
           )}
@@ -113,14 +113,14 @@ export default function Header() {
             needsOnboarding ? (
               <button
                 onClick={openOnboarding}
-                className="text-accent-light hover:text-white transition-colors text-sm font-medium"
+                className="text-accent hover:text-white transition-colors text-sm font-medium"
               >
                 Set up profile
               </button>
             ) : (
               <Link
                 href="/profile"
-                className="flex items-center gap-2 hover:text-accent-light transition-colors"
+                className="flex items-center gap-2 hover:text-accent transition-colors"
               >
                 <ProfileAvatar
                   image={session.user.image}
@@ -133,7 +133,7 @@ export default function Header() {
               </Link>
             )
           ) : (
-            <Link href="/auth/signin" className="hover:text-accent-light transition-colors">
+            <Link href="/auth/signin" className="hover:text-accent transition-colors">
               Sign In
             </Link>
           )}
@@ -164,27 +164,27 @@ export default function Header() {
       {menuOpen && (
         <div className="md:hidden absolute top-full left-0 right-0 bg-header border-t border-header-hover z-50">
           <nav className="flex flex-col p-4 space-y-3 text-sm">
-            {session && (
-              <Link
-                href="/talks/new"
-                onClick={() => setMenuOpen(false)}
-                className="py-2 px-4 rounded-lg text-accent-light hover:bg-header-hover transition-colors font-medium"
-              >
-                Create
-              </Link>
-            )}
             {navLinks.map(link => (
               (!link.authRequired || session) && (
                 <Link
                   key={link.href}
                   href={link.href}
                   onClick={() => setMenuOpen(false)}
-                  className={`py-2 px-4 rounded-lg transition-colors ${link.highlight ? 'text-accent-light hover:bg-header-hover' : 'hover:bg-header-hover'}`}
+                  className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
                 >
                   {link.label}
                 </Link>
               )
             ))}
+            {session && (
+              <Link
+                href="/talks/new"
+                onClick={() => setMenuOpen(false)}
+                className="py-2 px-4 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium transition-colors text-center"
+              >
+                + Create
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"

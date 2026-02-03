@@ -10,7 +10,7 @@ const steps = [
   {
     title: 'Submit Your Ideas',
     icon: '💡',
-    description: 'When a deliberation is in the submission phase, anyone can submit their idea. Share your best solution to the question being asked.',
+    description: 'When a talk is open for ideas, anyone can submit their answer. Share your best solution to the question being asked.',
     tip: 'Be clear and concise. Your idea competes with others, so make it count!',
   },
   {
@@ -22,7 +22,7 @@ const steps = [
   {
     title: 'Discuss & Up-Pollinate',
     icon: '💬',
-    description: 'Share thoughts with your cell during voting. If your comment gets upvotes, it "up-pollinates" to other cells discussing the same ideas—your insight can reach thousands!',
+    description: 'Before voting opens, your cell discusses all 5 ideas together. If your comment gets upvotes, it "up-pollinates" to other cells—your insight can reach thousands!',
     tip: 'Great comments spread organically. Help others see what you see.',
   },
   {
@@ -38,9 +38,9 @@ const steps = [
     tip: 'Even if your idea lost earlier, you can still vote for the winner.',
   },
   {
-    title: 'Challenge the Champion',
+    title: 'Challenge the Priority',
     icon: '👑',
-    description: 'In Rolling Mode, the champion can be challenged! Submit new ideas during the accumulation period. If challengers beat the champion, there\'s a new winner.',
+    description: 'In Rolling Mode, the current priority can be challenged! Submit new ideas while the talk is accepting new ideas. If a challenger wins, there\'s a new priority.',
     tip: 'Great decisions aren\'t set in stone—they can evolve over time.',
   },
 ]
