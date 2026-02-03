@@ -398,12 +398,11 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
       </Link>
       <div className="mt-3 flex flex-col gap-1.5">
         {podiums.map((p) => (
-            <Link
-              key={p.id}
-              href={`/podium/${p.id}`}
-              className="flex items-center gap-2"
-            >
-              <div className="flex-1 min-w-0">
+            <div key={p.id} className="flex items-center gap-2">
+              <Link
+                href={`/podium/${p.id}`}
+                className="flex-1 min-w-0"
+              >
                 <div className="text-xs font-semibold truncate text-foreground">
                   {p.title}
                 </div>
@@ -412,8 +411,17 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
                   {p.isAI && <span className="text-purple text-[8px] ml-1">AI</span>}
                   {' \u00B7 '}{timeAgo(p.createdAt)}
                 </div>
-              </div>
-            </Link>
+              </Link>
+              {p.deliberationId && (
+                <Link
+                  href={`/talks/${p.deliberationId}`}
+                  className="text-[10px] bg-accent/15 text-accent px-2 py-1 rounded font-medium shrink-0 hover:bg-accent/25 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  Join Talk &rarr;
+                </Link>
+              )}
+            </div>
           ))}
       </div>
     </Card>
@@ -516,10 +524,20 @@ function PodiumCard({ entry }: { entry: FeedEntry }) {
       </div>
       <div className="text-base font-bold text-foreground leading-snug">{p.title}</div>
       <div className="text-sm text-muted mt-1 line-clamp-2">{p.preview}</div>
-      {p.deliberationQuestion && (
-        <div className="mt-3 text-xs bg-accent-light text-accent px-2 py-1 rounded inline-block">
-          Linked: &ldquo;{p.deliberationQuestion}&rdquo;
-        </div>
+      {p.deliberationId && p.deliberationQuestion && (
+        <Link
+          href={`/talks/${p.deliberationId}`}
+          onClick={(e) => e.stopPropagation()}
+          className="mt-3 flex items-center justify-between bg-accent/10 border border-accent/25 rounded-lg p-2.5 hover:bg-accent/15 transition-colors"
+        >
+          <div className="min-w-0 flex-1">
+            <div className="text-[10px] uppercase tracking-wider text-accent font-semibold">Linked Talk</div>
+            <div className="text-xs text-foreground truncate">&ldquo;{p.deliberationQuestion}&rdquo;</div>
+          </div>
+          <span className="text-xs bg-accent text-white px-2.5 py-1 rounded font-medium shrink-0 ml-2">
+            Join &rarr;
+          </span>
+        </Link>
       )}
     </Card>
   )

@@ -32,9 +32,10 @@ function NewPodiumPageInner() {
 
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
-  const [deliberationId, setDeliberationId] = useState<string | null>(
-    searchParams.get('deliberationId')
-  )
+  const [linkedDelibs, setLinkedDelibs] = useState<DelibOption[]>(() => {
+    const prelinked = searchParams.get('deliberationId')
+    return prelinked ? [{ id: prelinked, question: '...', phase: '' }] : []
+  })
   const [deliberations, setDeliberations] = useState<DelibOption[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -46,11 +47,11 @@ function NewPodiumPageInner() {
     }
   }, [status, router])
 
-  // Fetch user's deliberations for linking
+  // Fetch deliberations for linking
   useEffect(() => {
     const fetchDelibs = async () => {
       try {
-        const res = await fetch('/api/deliberations?mine=true&limit=50')
+        const res = await fetch('/api/deliberations')
         if (res.ok) {
           const data = await res.json()
           const items = (data.items || data).map((d: { id: string; question: string; phase: string }) => ({
@@ -59,9 +60,17 @@ function NewPodiumPageInner() {
             phase: d.phase,
           }))
           setDeliberations(items)
+          // Resolve prelinked deliberation question
+          setLinkedDelibs(prev => prev.map(ld => {
+            if (ld.question === '...') {
+              const found = items.find((i: DelibOption) => i.id === ld.id)
+              return found || ld
+            }
+            return ld
+          }))
         }
       } catch {
-        // Non-critical, linking is optional
+        // Non-critical
       }
     }
 
@@ -84,18 +93,29 @@ function NewPodiumPageInner() {
 
     setSubmitting(true)
     try {
+      // Create podium with first linked deliberation (if any)
       const res = await fetch('/api/podiums', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: title.trim(),
           body: body.trim(),
-          deliberationId,
+          deliberationId: linkedDelibs[0]?.id || null,
         }),
       })
 
       if (res.ok) {
         const podium = await res.json()
+
+        // Link additional deliberations via PATCH
+        for (const ld of linkedDelibs.slice(1)) {
+          await fetch(`/api/podiums/${podium.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deliberationId: ld.id }),
+          }).catch(() => {})
+        }
+
         showToast('Published!', 'success')
         router.push(`/podium/${podium.id}`)
       } else {
@@ -117,11 +137,19 @@ function NewPodiumPageInner() {
     )
   }
 
+  const linkedIds = new Set(linkedDelibs.map(d => d.id))
   const filteredDelibs = deliberations.filter(d =>
-    d.question.toLowerCase().includes(searchQuery.toLowerCase())
+    !linkedIds.has(d.id) && d.question.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const linkedDelib = deliberations.find(d => d.id === deliberationId)
+  const addDelib = (d: DelibOption) => {
+    setLinkedDelibs(prev => [...prev, d])
+    setSearchQuery('')
+  }
+
+  const removeDelib = (id: string) => {
+    setLinkedDelibs(prev => prev.filter(d => d.id !== id))
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -167,62 +195,61 @@ function NewPodiumPageInner() {
           {body.length.toLocaleString()}/{BODY_MAX.toLocaleString()}
         </div>
 
-        {/* Link deliberation */}
+        {/* Link talks */}
         <div className="border-t border-border pt-6 mt-6">
           <div className="text-sm font-semibold text-foreground mb-3">
-            Link a talk <span className="text-muted font-normal">(optional)</span>
+            Link talks <span className="text-muted font-normal">(optional)</span>
           </div>
 
-          {linkedDelib ? (
-            <div className="bg-accent/10 border border-accent/25 rounded-lg p-3 flex justify-between items-start">
-              <div>
-                <div className="text-sm text-foreground font-medium">&ldquo;{linkedDelib.question}&rdquo;</div>
-                <div className="text-xs text-muted mt-1">{linkedDelib.phase}</div>
-              </div>
-              <button
-                onClick={() => setDeliberationId(null)}
-                className="text-muted hover:text-foreground text-sm ml-4"
-              >
-                &times;
-              </button>
-            </div>
-          ) : (
-            <>
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search your talks..."
-                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted outline-none mb-2"
-              />
-              {searchQuery && filteredDelibs.length > 0 && (
-                <div className="bg-surface border border-border rounded-lg overflow-hidden max-h-48 overflow-y-auto">
-                  {filteredDelibs.slice(0, 5).map(d => (
-                    <button
-                      key={d.id}
-                      onClick={() => {
-                        setDeliberationId(d.id)
-                        setSearchQuery('')
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-background transition-colors border-b border-border last:border-0"
-                    >
-                      <div className="text-sm text-foreground">{d.question}</div>
-                      <div className="text-xs text-muted">{d.phase}</div>
-                    </button>
-                  ))}
+          {/* Currently linked */}
+          {linkedDelibs.length > 0 && (
+            <div className="flex flex-col gap-2 mb-3">
+              {linkedDelibs.map(d => (
+                <div key={d.id} className="bg-accent/10 border border-accent/25 rounded-lg p-3 flex justify-between items-start">
+                  <div>
+                    <div className="text-sm text-foreground font-medium">&ldquo;{d.question}&rdquo;</div>
+                    {d.phase && <div className="text-xs text-muted mt-1">{d.phase}</div>}
+                  </div>
+                  <button
+                    onClick={() => removeDelib(d.id)}
+                    className="text-muted hover:text-foreground text-sm ml-4"
+                  >
+                    &times;
+                  </button>
                 </div>
-              )}
-              {searchQuery && filteredDelibs.length === 0 && (
-                <div className="text-xs text-muted py-2">No matching talks found</div>
-              )}
-            </>
+              ))}
+            </div>
+          )}
+
+          {/* Search to add more */}
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search talks to link..."
+            className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted outline-none mb-2"
+          />
+          {searchQuery && filteredDelibs.length > 0 && (
+            <div className="bg-surface border border-border rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+              {filteredDelibs.slice(0, 5).map(d => (
+                <button
+                  key={d.id}
+                  onClick={() => addDelib(d)}
+                  className="w-full text-left px-3 py-2 hover:bg-background transition-colors border-b border-border last:border-0"
+                >
+                  <div className="text-sm text-foreground">{d.question}</div>
+                  <div className="text-xs text-muted">{d.phase}</div>
+                </button>
+              ))}
+            </div>
+          )}
+          {searchQuery && filteredDelibs.length === 0 && (
+            <div className="text-xs text-muted py-2">No matching talks found</div>
           )}
 
           <div className="text-xs text-muted mt-3">
-            Linking a talk adds a &ldquo;Join the Talk&rdquo; button to your post.{' '}
-            <Link href="/talks/new" className="text-accent hover:text-accent-hover">
-              Create a new talk
-            </Link>
+            Linking talks adds &ldquo;Join the Talk&rdquo; cards to your post, and
+            your post will appear on each talk&apos;s page too.
           </div>
         </div>
       </div>

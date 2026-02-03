@@ -18,10 +18,12 @@ type PodiumItem = {
     image: string | null
     isAI: boolean
   }
-  deliberation: {
+  deliberations: {
     id: string
     question: string
-  } | null
+    phase: string
+    _count: { members: number; ideas: number }
+  }[]
 }
 
 export default function PodiumsPage() {
@@ -133,10 +135,25 @@ export default function PodiumsPage() {
                       {post.body.slice(0, 180).replace(/\n/g, ' ')}
                     </p>
 
-                    {/* Linked deliberation */}
-                    {post.deliberation && (
-                      <div className="mt-3 text-xs bg-accent-light text-accent px-2 py-1 rounded inline-block">
-                        &#128279; &ldquo;{post.deliberation.question}&rdquo;
+                    {/* Linked Talks */}
+                    {post.deliberations?.length > 0 && (
+                      <div className="mt-3 flex flex-col gap-2">
+                        {post.deliberations.map(d => (
+                          <div key={d.id} className="bg-accent/10 border border-accent/25 rounded-lg p-3">
+                            <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1">Linked Talk</div>
+                            <div className="text-sm text-foreground font-medium leading-snug">&ldquo;{d.question}&rdquo;</div>
+                            <div className="flex items-center gap-2 mt-1.5 text-xs text-muted">
+                              <span className={`px-1.5 py-0.5 rounded font-medium text-[10px] ${
+                                d.phase === 'SUBMISSION' ? 'bg-accent/20 text-accent' :
+                                d.phase === 'VOTING' ? 'bg-warning/20 text-warning' :
+                                d.phase === 'COMPLETED' ? 'bg-success/20 text-success' :
+                                'bg-purple/20 text-purple'
+                              }`}>{d.phase === 'ACCUMULATING' ? 'Accepting Ideas' : d.phase}</span>
+                              <span className="font-mono">{d._count.members} joined</span>
+                              <span className="font-mono">{d._count.ideas} ideas</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
 

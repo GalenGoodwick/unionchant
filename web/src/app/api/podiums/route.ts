@@ -10,12 +10,20 @@ export async function GET(req: NextRequest) {
   try {
     const authorId = req.nextUrl.searchParams.get('authorId')
     const deliberationId = req.nextUrl.searchParams.get('deliberationId')
+    const search = req.nextUrl.searchParams.get('search')
+    const unlinked = req.nextUrl.searchParams.get('unlinked')
     const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') || '20'), 50)
     const cursor = req.nextUrl.searchParams.get('cursor')
 
     const where: Record<string, unknown> = {}
     if (authorId) where.authorId = authorId
-    if (deliberationId) where.deliberationId = deliberationId
+    if (deliberationId) {
+      where.deliberationLinks = { some: { deliberationId } }
+    }
+    if (search) where.title = { contains: search, mode: 'insensitive' }
+    if (unlinked === 'true') {
+      where.deliberationLinks = { none: {} }
+    }
 
     const podiums = await prisma.podium.findMany({
       where,
@@ -26,13 +34,18 @@ export async function GET(req: NextRequest) {
         author: {
           select: { id: true, name: true, image: true, isAI: true },
         },
-        deliberation: {
-          select: {
-            id: true,
-            question: true,
-            phase: true,
-            _count: { select: { members: true, ideas: true } },
+        deliberationLinks: {
+          include: {
+            deliberation: {
+              select: {
+                id: true,
+                question: true,
+                phase: true,
+                _count: { select: { members: true, ideas: true } },
+              },
+            },
           },
+          orderBy: { createdAt: 'desc' },
         },
       },
     })
@@ -40,8 +53,14 @@ export async function GET(req: NextRequest) {
     const hasMore = podiums.length > limit
     if (hasMore) podiums.pop()
 
+    // Flatten for backwards-compat: add `deliberations` array to each podium
+    const items = podiums.map(p => ({
+      ...p,
+      deliberations: p.deliberationLinks.map(l => l.deliberation),
+    }))
+
     return NextResponse.json({
-      items: podiums,
+      items,
       nextCursor: hasMore ? podiums[podiums.length - 1]?.id : null,
     })
   } catch (error) {
@@ -110,16 +129,27 @@ export async function POST(req: NextRequest) {
         title: title.trim(),
         body: bodyText.trim(),
         authorId: user.id,
-        deliberationId: deliberationId || null,
+        ...(deliberationId ? {
+          deliberationLinks: {
+            create: { deliberationId },
+          },
+        } : {}),
       },
       include: {
         author: { select: { id: true, name: true, image: true } },
-        deliberation: { select: { id: true, question: true, phase: true } },
+        deliberationLinks: {
+          include: {
+            deliberation: { select: { id: true, question: true, phase: true } },
+          },
+        },
       },
     })
 
     invalidatePodiumCache()
-    return NextResponse.json(podium, { status: 201 })
+    return NextResponse.json({
+      ...podium,
+      deliberations: podium.deliberationLinks.map(l => l.deliberation),
+    }, { status: 201 })
   } catch (error) {
     console.error('Error creating podium:', error)
     return NextResponse.json({ error: 'Failed to create' }, { status: 500 })

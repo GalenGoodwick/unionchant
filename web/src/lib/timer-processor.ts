@@ -200,8 +200,8 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
       votingTimeoutMs: true,
       _count: { select: { ideas: true } },
       cells: {
-        where: { status: 'VOTING' },
-        select: { id: true }
+        where: { status: { in: ['VOTING', 'DELIBERATING'] } },
+        select: { id: true, status: true, discussionEndsAt: true }
       }
     }
   })
@@ -222,6 +222,30 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
       transitioned = true
     } catch (err) {
       console.error(`Lazy transition failed for ${deliberationId}:`, err)
+    }
+  }
+
+  // Check expired discussions (DELIBERATING → VOTING)
+  if (deliberation.phase === 'VOTING') {
+    const expiredDiscussionCells = deliberation.cells.filter(
+      c => c.status === 'DELIBERATING' && c.discussionEndsAt && c.discussionEndsAt <= now
+    )
+    for (const cell of expiredDiscussionCells) {
+      try {
+        await prisma.cell.updateMany({
+          where: { id: cell.id, status: 'DELIBERATING' },
+          data: {
+            status: 'VOTING',
+            votingStartedAt: now,
+            votingDeadline: deliberation.votingTimeoutMs > 0
+              ? new Date(now.getTime() + deliberation.votingTimeoutMs)
+              : null,
+          },
+        })
+        transitioned = true
+      } catch (err) {
+        console.error(`Lazy discussion transition failed for ${cell.id}:`, err)
+      }
     }
   }
 

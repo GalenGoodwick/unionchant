@@ -30,8 +30,10 @@ function NewDeliberationForm() {
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
   const [communityOnly, setCommunityOnly] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [podiums, setPodiums] = useState<{ id: string; title: string }[]>([])
-  const [selectedPodiumId, setSelectedPodiumId] = useState<string | null>(null)
+  const [selectedPodium, setSelectedPodium] = useState<{ id: string; title: string } | null>(null)
+  const [podiumSearch, setPodiumSearch] = useState('')
+  const [podiumResults, setPodiumResults] = useState<{ id: string; title: string; author: { name: string | null } }[]>([])
+  const [podiumSearching, setPodiumSearching] = useState(false)
 
   const handleCaptchaVerify = useCallback((token: string) => {
     setCaptchaToken(token)
@@ -76,16 +78,31 @@ function NewDeliberationForm() {
           }
         })
         .catch(() => {})
-      // Fetch user's unlinked podiums
-      fetch(`/api/podiums?authorId=${session?.user?.id || ''}&limit=50`)
-        .then(res => res.ok ? res.json() : { items: [] })
-        .then(data => {
-          const unlinked = (data.items || []).filter((p: any) => !p.deliberation)
-          setPodiums(unlinked.map((p: any) => ({ id: p.id, title: p.title })))
-        })
-        .catch(() => {})
+      // Podium search is handled on-demand, not on mount
     }
   }, [status, communitySlug, session?.user?.id])
+
+  // Debounced podium search (server-side)
+  useEffect(() => {
+    if (podiumSearch.trim().length < 2) {
+      setPodiumResults([])
+      return
+    }
+    setPodiumSearching(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/podiums?search=${encodeURIComponent(podiumSearch.trim())}&unlinked=true&limit=5`)
+        if (res.ok) {
+          const data = await res.json()
+          const items = (data.items || [])
+            .map((p: any) => ({ id: p.id, title: p.title, author: { name: p.author?.name || null } }))
+          setPodiumResults(items)
+        }
+      } catch { /* silent */ }
+      setPodiumSearching(false)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [podiumSearch])
 
   if (status === 'loading') {
     return (
@@ -164,12 +181,15 @@ function NewDeliberationForm() {
       const deliberation = await res.json()
 
       // Link podium if selected
-      if (selectedPodiumId) {
-        await fetch(`/api/podiums/${selectedPodiumId}`, {
+      if (selectedPodium) {
+        const linkRes = await fetch(`/api/podiums/${selectedPodium.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ deliberationId: deliberation.id }),
-        }).catch(() => {}) // non-critical
+        }).catch(() => null)
+        if (linkRes && !linkRes.ok) {
+          console.warn('Failed to link podium:', await linkRes.text().catch(() => ''))
+        }
       }
 
       router.push(`/talks/${deliberation.id}`)
@@ -291,22 +311,59 @@ function NewDeliberationForm() {
             )}
 
             {/* Link Podium */}
-            {podiums.length > 0 && (
-              <div>
-                <label className="block text-foreground font-medium mb-2">Link a Podium post (optional)</label>
-                <select
-                  value={selectedPodiumId || ''}
-                  onChange={e => setSelectedPodiumId(e.target.value || null)}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:border-accent"
-                >
-                  <option value="">None</option>
-                  {podiums.map(p => (
-                    <option key={p.id} value={p.id}>{p.title}</option>
-                  ))}
-                </select>
-                <p className="text-muted-light text-sm mt-1">Attach a post that explains the context for this talk</p>
-              </div>
-            )}
+            <div>
+              <label className="block text-foreground font-medium mb-2">Link a Podium post (optional)</label>
+              {selectedPodium ? (
+                <div className="bg-accent/10 border border-accent/25 rounded-lg p-3 flex justify-between items-start">
+                  <div>
+                    <div className="text-sm text-foreground font-medium">{selectedPodium.title}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPodium(null)}
+                    className="text-muted hover:text-foreground text-sm ml-4"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    value={podiumSearch}
+                    onChange={e => setPodiumSearch(e.target.value)}
+                    placeholder="Search podium posts by title..."
+                    className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                  />
+                  {podiumSearch.trim().length >= 2 && podiumResults.length > 0 && (
+                    <div className="bg-surface border border-border rounded-lg overflow-hidden mt-1 max-h-48 overflow-y-auto">
+                      {podiumResults.map(p => (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => {
+                            setSelectedPodium({ id: p.id, title: p.title })
+                            setPodiumSearch('')
+                            setPodiumResults([])
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-background transition-colors border-b border-border last:border-0"
+                        >
+                          <div className="text-sm text-foreground">{p.title}</div>
+                          {p.author.name && <div className="text-xs text-muted">by {p.author.name}</div>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {podiumSearch.trim().length >= 2 && !podiumSearching && podiumResults.length === 0 && (
+                    <div className="text-xs text-muted mt-2">No matching podium posts found</div>
+                  )}
+                </>
+              )}
+              <p className="text-muted-light text-sm mt-1">
+                Attach a post that explains context.{' '}
+                <Link href="/podium/new" className="text-accent hover:underline">Write a new one</Link>
+              </p>
+            </div>
 
             {/* Default settings summary */}
             <div className="bg-surface border border-border rounded-lg p-4">

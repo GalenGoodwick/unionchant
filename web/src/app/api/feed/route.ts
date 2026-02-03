@@ -65,6 +65,7 @@ export type FeedEntry = {
     isAI: boolean
     views: number
     createdAt: string
+    deliberationId?: string | null
     deliberationQuestion?: string | null
   }
   podiums?: {
@@ -73,6 +74,8 @@ export type FeedEntry = {
     authorName: string
     isAI: boolean
     createdAt: string
+    deliberationId?: string | null
+    deliberationQuestion?: string | null
   }[]
   // For extra vote cards
   secondVoteDeadline?: string
@@ -161,7 +164,13 @@ async function getPodiums() {
       pinned: true,
       createdAt: true,
       author: { select: { name: true, image: true, isAI: true } },
-      deliberation: { select: { question: true } },
+      deliberationLinks: {
+        take: 3,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          deliberation: { select: { id: true, question: true, phase: true } },
+        },
+      },
     },
   })
 
@@ -418,6 +427,8 @@ async function buildYourTurnFeed(
       authorName: p.author?.name || 'Anonymous',
       isAI: p.author?.isAI || false,
       createdAt: p.createdAt.toISOString(),
+      deliberationId: p.deliberationLinks?.[0]?.deliberation?.id || null,
+      deliberationQuestion: p.deliberationLinks?.[0]?.deliberation?.question || null,
     })),
   }
 

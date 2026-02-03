@@ -186,7 +186,7 @@ export function useDeliberation(id: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ideaId }),
       })
-      if (res.ok) { fetchCells(); fetchDeliberation() }
+      if (res.ok) { showToast('Vote recorded', 'success'); fetchCells(); fetchDeliberation() }
       else { const d = await res.json(); showToast(d.error || 'Failed', 'error') }
     } finally {
       setVoting(null)

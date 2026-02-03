@@ -181,7 +181,7 @@ model Deliberation {
   cells         Cell[]
   watchers      Watch[]
   predictions   Prediction[]
-  podiums       Podium[]
+  podiumLinks   PodiumDeliberation[]
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -696,9 +696,8 @@ model Podium {
   authorId        String
   author          User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
-  // Optional link to deliberation (cross-linking)
-  deliberationId  String?
-  deliberation    Deliberation? @relation(fields: [deliberationId], references: [id], onDelete: SetNull)
+  // Many-to-many deliberation links
+  deliberationLinks PodiumDeliberation[]
 
   views           Int      @default(0)
   pinned          Boolean  @default(false)
@@ -707,8 +706,20 @@ model Podium {
   updatedAt       DateTime @updatedAt
 
   @@index([authorId])
-  @@index([deliberationId])
   @@index([createdAt])
+}
+
+model PodiumDeliberation {
+  id              String       @id @default(cuid())
+  podiumId        String
+  podium          Podium       @relation(fields: [podiumId], references: [id], onDelete: Cascade)
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+
+  @@unique([podiumId, deliberationId])
+  @@index([podiumId])
+  @@index([deliberationId])
 }
 
 // ============ CRON EXECUTION LOG ============
