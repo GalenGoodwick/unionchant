@@ -76,11 +76,11 @@ function NewDeliberationForm() {
           }
         })
         .catch(() => {})
-      // Fetch user's unlinked podiums
-      fetch(`/api/podiums?authorId=${session?.user?.id || ''}&limit=50`)
+      // Fetch unlinked podiums (any author — deliberation creator can link any)
+      fetch('/api/podiums?limit=50')
         .then(res => res.ok ? res.json() : { items: [] })
         .then(data => {
-          const unlinked = (data.items || []).filter((p: any) => !p.deliberation)
+          const unlinked = (data.items || []).filter((p: any) => !p.deliberationId && !p.deliberation)
           setPodiums(unlinked.map((p: any) => ({ id: p.id, title: p.title })))
         })
         .catch(() => {})
@@ -165,11 +165,14 @@ function NewDeliberationForm() {
 
       // Link podium if selected
       if (selectedPodiumId) {
-        await fetch(`/api/podiums/${selectedPodiumId}`, {
+        const linkRes = await fetch(`/api/podiums/${selectedPodiumId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ deliberationId: deliberation.id }),
-        }).catch(() => {}) // non-critical
+        })
+        if (!linkRes.ok) {
+          console.error('Failed to link podium:', await linkRes.text())
+        }
       }
 
       router.push(`/talks/${deliberation.id}`)

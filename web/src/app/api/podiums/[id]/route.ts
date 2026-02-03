@@ -78,12 +78,38 @@ export async function PATCH(
     const isAdmin = user?.role === 'ADMIN'
     const isAuthor = podium.authorId === user?.id
 
-    if (!isAuthor && !isAdmin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
     const body = await req.json()
     const data: Record<string, unknown> = {}
+
+    // deliberationId linking — podium author, deliberation creator, or admin can link
+    if (body.deliberationId !== undefined) {
+      if (body.deliberationId) {
+        const delib = await prisma.deliberation.findUnique({
+          where: { id: body.deliberationId },
+          select: { id: true, creatorId: true },
+        })
+        if (!delib) {
+          return NextResponse.json({ error: 'Linked deliberation not found' }, { status: 404 })
+        }
+        const isDelibCreator = delib.creatorId === user?.id
+        if (!isAuthor && !isDelibCreator && !isAdmin) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        }
+        data.deliberationId = body.deliberationId
+      } else {
+        // Unlinking — only podium author or admin
+        if (!isAuthor && !isAdmin) {
+          return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+        }
+        data.deliberationId = null
+      }
+    }
+
+    // All other fields require podium author or admin
+    const hasOtherFields = body.title !== undefined || body.body !== undefined || body.pinned !== undefined
+    if (hasOtherFields && !isAuthor && !isAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     // Admin-only: toggle pinned
     if (body.pinned !== undefined && isAdmin) {
@@ -115,19 +141,6 @@ export async function PATCH(
         return NextResponse.json({ error: `Body: ${check.reason}` }, { status: 400 })
       }
       data.body = bodyText
-    }
-
-    if (body.deliberationId !== undefined) {
-      if (body.deliberationId) {
-        const delib = await prisma.deliberation.findUnique({
-          where: { id: body.deliberationId },
-          select: { id: true },
-        })
-        if (!delib) {
-          return NextResponse.json({ error: 'Linked deliberation not found' }, { status: 404 })
-        }
-      }
-      data.deliberationId = body.deliberationId || null
     }
 
     const updated = await prisma.podium.update({
