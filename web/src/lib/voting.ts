@@ -491,9 +491,9 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   // In final showdown, don't mark individual winners/losers - wait for cross-cell tally
   if (!isFinalShowdown) {
-    // Count votes per idea (only first votes — second votes don't affect tally)
+    // Count votes per idea (including second votes — they fill gaps when participation drops)
     const voteCounts: Record<string, number> = {}
-    cell.votes.filter((vote: { isSecondVote: boolean }) => !vote.isSecondVote).forEach((vote: { ideaId: string }) => {
+    cell.votes.forEach(vote => {
       voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
     })
 
