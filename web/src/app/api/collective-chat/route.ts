@@ -5,8 +5,6 @@ import { prisma } from '@/lib/prisma'
 import { callClaude } from '@/lib/claude'
 import { checkRateLimit } from '@/lib/rate-limit'
 
-const ONE_DAY_MS = 86400000
-
 // GET /api/collective-chat - Returns last 50 messages + user's existing collective Talk
 export async function GET(req: NextRequest) {
   try {
@@ -39,8 +37,9 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/collective-chat - Send a message, get AI response, auto-create Talk
-// Every message creates a Talk. Replacing an existing Talk is rate-limited for free users.
+// POST /api/collective-chat - Send a chat message and get AI response
+// Chat is ALWAYS FREE. Does NOT create a Talk.
+// Use /api/collective-chat/set-talk to explicitly create a Talk.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -62,13 +61,7 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: {
-        id: true,
-        name: true,
-        emailNotifications: true,
-        subscriptionTier: true,
-        lastCollectiveTalkChangeAt: true,
-      },
+      select: { id: true, name: true, emailNotifications: true },
     })
 
     if (!user) {
@@ -83,7 +76,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { message, model = 'haiku', replaceExisting = false } = body
+    const { message, model = 'haiku' } = body
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
@@ -100,42 +93,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Check if user already has a collective Talk
-    const existingTalk = await prisma.deliberation.findFirst({
-      where: { creatorId: user.id, fromCollective: true },
-      select: { id: true, question: true },
-    })
-
-    if (existingTalk && !replaceExisting) {
-      return NextResponse.json({
-        error: 'HAS_EXISTING_TALK',
-        existingTalk: { id: existingTalk.id, question: existingTalk.question },
-        message: 'You already have a collective Talk. Sending a new message will replace it.',
-      }, { status: 409 })
-    }
-
-    // Rate limit Talk replacement: free users = 1 change per day
-    if (existingTalk && replaceExisting && user.subscriptionTier === 'free') {
-      if (user.lastCollectiveTalkChangeAt) {
-        const timeSinceLastChange = Date.now() - user.lastCollectiveTalkChangeAt.getTime()
-        if (timeSinceLastChange < ONE_DAY_MS) {
-          const hoursLeft = Math.ceil((ONE_DAY_MS - timeSinceLastChange) / 3600000)
-          return NextResponse.json({
-            error: 'RATE_LIMITED',
-            message: `Free accounts can change their Talk once per day. Try again in ${hoursLeft}h.`,
-            hoursLeft,
-            upgradeUrl: '/pricing',
-          }, { status: 429 })
-        }
-      }
-    }
-
-    // If replacing, delete the old Talk first
-    if (existingTalk && replaceExisting) {
-      await deleteDeliberation(existingTalk.id)
-      console.log(`[Collective Chat] Deleted existing Talk ${existingTalk.id} for user ${user.id}`)
-    }
-
     // Save user message to chat
     const userMessage = await prisma.collectiveMessage.create({
       data: {
@@ -146,45 +103,6 @@ export async function POST(req: NextRequest) {
         model,
       },
     })
-
-    // Create a new Talk from this message with default facilitation settings
-    const inviteCode = Math.random().toString(36).substring(2, 10)
-    const submissionDurationMs = 86400000 // 24 hours
-    const newTalk = await prisma.deliberation.create({
-      data: {
-        creatorId: user.id,
-        question: message.trim(),
-        isPublic: true,
-        fromCollective: true,
-        phase: 'SUBMISSION',
-        accumulationEnabled: true,
-        submissionDurationMs,
-        votingTimeoutMs: 3600000,
-        secondVoteTimeoutMs: 900000,
-        accumulationTimeoutMs: 86400000,
-        inviteCode,
-        submissionEndsAt: new Date(Date.now() + submissionDurationMs),
-      },
-    })
-
-    // Add creator as member
-    await prisma.deliberationMember.create({
-      data: {
-        deliberationId: newTalk.id,
-        userId: user.id,
-        role: 'CREATOR',
-      },
-    })
-
-    // Update rate limit timestamp (for Talk replacement tracking)
-    if (existingTalk) {
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { lastCollectiveTalkChangeAt: new Date() },
-      })
-    }
-
-    console.log(`[Collective Chat] Created Talk ${newTalk.id} from message by ${user.id}`)
 
     // Build context and get AI response
     const deliberation = await prisma.deliberation.findFirst({
@@ -248,12 +166,8 @@ ${topIdeas}
 RECENT CELL DISCUSSION:
 ${recentComments}
 
-IMPORTANT CONTEXT:
-The human just posted: "${message.trim()}"
-This message has automatically created a new Talk (deliberation) that others can join and deliberate on.
-
 YOUR ROLE:
-You represent the collective wisdom emerging from this deliberation. You are thoughtful, nuanced, and genuinely curious about the human's perspective. Acknowledge that their message has become a Talk that others can now join. Engage with their idea substantively. Keep responses concise (2-4 sentences unless asked for more). Be warm but substantive.`
+You represent the collective wisdom emerging from this deliberation. You are thoughtful, nuanced, and genuinely curious about the human's perspective. If the human has a compelling idea, encourage them to "set it as a Talk" so others can deliberate on it. Keep responses concise (2-4 sentences unless asked for more). Be warm but substantive.`
 
     const recentMessages = await prisma.collectiveMessage.findMany({
       orderBy: { createdAt: 'desc' },
@@ -278,8 +192,8 @@ You represent the collective wisdom emerging from this deliberation. You are tho
       return NextResponse.json({
         error: errMsg.includes('ANTHROPIC_API_KEY')
           ? 'AI service not configured. Please contact the administrator.'
-          : 'AI is temporarily unavailable. Your Talk was still created.',
-        talkCreated: { id: newTalk.id, question: newTalk.question },
+          : 'AI is temporarily unavailable. Please try again.',
+        userMessageId: userMessage.id,
       }, { status: 503 })
     }
 
@@ -288,7 +202,6 @@ You represent the collective wisdom emerging from this deliberation. You are tho
         reply: '',
         messageId: null,
         userMessageId: userMessage.id,
-        talkCreated: { id: newTalk.id, question: newTalk.question },
       })
     }
 
@@ -304,52 +217,9 @@ You represent the collective wisdom emerging from this deliberation. You are tho
       reply: reply.trim(),
       messageId: assistantMessage.id,
       userMessageId: userMessage.id,
-      talkCreated: { id: newTalk.id, question: newTalk.question },
     })
   } catch (error) {
     console.error('[Collective Chat] POST error:', error)
     return NextResponse.json({ error: 'Failed to process message' }, { status: 500 })
   }
-}
-
-// ── Deliberation deletion (same pattern as admin endpoint) ────
-
-async function deleteDeliberation(deliberationId: string) {
-  const cells = await prisma.cell.findMany({
-    where: { deliberationId },
-    select: { id: true },
-  })
-  const cellIds = cells.map(c => c.id)
-
-  const ideas = await prisma.idea.findMany({
-    where: { deliberationId },
-    select: { id: true },
-  })
-  const ideaIds = ideas.map(i => i.id)
-
-  if (cellIds.length > 0) {
-    await prisma.commentUpvote.deleteMany({ where: { comment: { cellId: { in: cellIds } } } })
-    await prisma.comment.updateMany({
-      where: { cellId: { in: cellIds }, replyToId: { not: null } },
-      data: { replyToId: null },
-    })
-    await prisma.comment.deleteMany({ where: { cellId: { in: cellIds } } })
-    await prisma.vote.deleteMany({ where: { cellId: { in: cellIds } } })
-    await prisma.prediction.deleteMany({ where: { cellId: { in: cellIds } } })
-    await prisma.cellParticipation.deleteMany({ where: { cellId: { in: cellIds } } })
-    await prisma.cellIdea.deleteMany({ where: { cellId: { in: cellIds } } })
-    await prisma.cell.deleteMany({ where: { id: { in: cellIds } } })
-  }
-
-  if (ideaIds.length > 0) {
-    await prisma.notification.deleteMany({ where: { ideaId: { in: ideaIds } } })
-  }
-
-  await prisma.notification.deleteMany({ where: { deliberationId } })
-  await prisma.prediction.deleteMany({ where: { deliberationId } })
-  await prisma.watch.deleteMany({ where: { deliberationId } })
-  await prisma.aIAgent.deleteMany({ where: { deliberationId } })
-  await prisma.idea.deleteMany({ where: { deliberationId } })
-  await prisma.deliberationMember.deleteMany({ where: { deliberationId } })
-  await prisma.deliberation.delete({ where: { id: deliberationId } })
 }

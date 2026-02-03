@@ -80,6 +80,7 @@ export type Deliberation = {
   userSubmittedIdea?: { id: string; text: string } | null
   userSubmittedChallenger?: { id: string; text: string } | null
   followedUserIds?: string[]
+  fromCollective?: boolean
 }
 
 export type Prediction = {
