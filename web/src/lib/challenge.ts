@@ -113,13 +113,8 @@ export async function startChallengeRound(deliberationId: string) {
   })
 
   if (!champion) {
-    // Champion was deleted (moderation, user deletion, etc.) — complete the deliberation
-    console.log(`startChallengeRound: champion not found for ${deliberationId}, completing deliberation`)
-    await prisma.deliberation.update({
-      where: { id: deliberationId },
-      data: { phase: 'COMPLETED', championId: null },
-    })
-    return null
+    console.error(`startChallengeRound: champion not found for ${deliberationId} — this should not happen`)
+    throw new Error('No champion found for challenge round')
   }
 
   // Get accumulated ideas (new submissions during accumulation)
