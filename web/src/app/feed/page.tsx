@@ -387,44 +387,22 @@ function Meta({ children }: { children: React.ReactNode }) {
 
 function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
   const podiums = entry.podiums || []
-  const [readIds, setReadIds] = useState<Set<string>>(new Set())
-
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('podiums-read') || '[]')
-      setReadIds(new Set(stored))
-    } catch {}
-  }, [])
-
-  const unreadCount = podiums.filter((p) => !readIds.has(p.id)).length
-
   if (podiums.length === 0) return null
 
   return (
     <Card accentColor="var(--color-muted)" pinned>
-      <div className="flex justify-between items-center">
-        <Link href="/podiums">
-          <Badge color="var(--color-muted)" bg="var(--color-muted-light/.1)">{'\u270E'} Podiums</Badge>
-        </Link>
-        {unreadCount > 0 && (
-          <span className="text-[10px] text-accent font-semibold">{unreadCount} unread</span>
-        )}
-      </div>
+      <Link href="/podiums">
+        <Badge color="var(--color-muted)" bg="var(--color-muted-light/.1)">{'\u270E'} Podiums</Badge>
+      </Link>
       <div className="mt-3 flex flex-col gap-1.5">
-        {podiums.map((p) => {
-          const isRead = readIds.has(p.id)
-          return (
+        {podiums.map((p) => (
             <Link
               key={p.id}
               href={`/podium/${p.id}`}
-              className={`flex items-center gap-2 ${isRead ? 'opacity-50' : ''}`}
+              className="flex items-center gap-2"
             >
-              <div
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ background: isRead ? 'transparent' : 'var(--color-accent)' }}
-              />
               <div className="flex-1 min-w-0">
-                <div className={`text-xs font-semibold truncate ${isRead ? 'text-muted' : 'text-foreground'}`}>
+                <div className="text-xs font-semibold truncate text-foreground">
                   {p.title}
                 </div>
                 <div className="text-[10px] text-muted-light">
@@ -434,8 +412,7 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
                 </div>
               </div>
             </Link>
-          )
-        })}
+          ))}
       </div>
     </Card>
   )

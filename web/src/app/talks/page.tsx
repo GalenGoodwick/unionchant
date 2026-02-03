@@ -161,16 +161,15 @@ function DeliberationsList() {
 
       {/* Filters */}
       <div className="bg-background rounded-lg border border-border p-3 sm:p-4 mb-6 space-y-3">
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
-          <input
-            type="text"
-            placeholder="Search talks..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-0 focus:outline-none focus:border-accent"
-          />
-          <div className="flex gap-1 sm:gap-2 flex-wrap">
-            {['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'].map(phase => (
+        <input
+          type="text"
+          placeholder="Search talks..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+        />
+        <div className="flex gap-1 sm:gap-2 flex-wrap">
+          {['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'].map(phase => (
               <button
                 key={phase}
                 onClick={() => setPhaseFilter(phase)}
@@ -183,7 +182,6 @@ function DeliberationsList() {
                 {phase === 'all' ? 'All' : phase.charAt(0) + phase.slice(1).toLowerCase()}
               </button>
             ))}
-          </div>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-muted text-sm">Sort:</span>
