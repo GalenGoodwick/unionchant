@@ -312,6 +312,12 @@ export default function DashboardDetailPage() {
             >
               View Details &rarr;
             </Link>
+            <Link
+              href={`/dashboard/${deliberation.id}/analytics`}
+              className="text-accent hover:underline text-sm"
+            >
+              Analytics &rarr;
+            </Link>
           </div>
         </div>
 
