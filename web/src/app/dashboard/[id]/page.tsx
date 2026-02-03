@@ -422,16 +422,40 @@ export default function DashboardDetailPage() {
                       </div>
                     )}
 
-                    <button
-                      onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
-                      disabled={actionLoading === 'start-voting' || deliberation._count.ideas < 2}
-                      className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
-                    >
-                      {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting'}
-                    </button>
-                    <p className="text-xs text-muted">
-                      Creates cells of ~5 people and begins tiered voting. Ideas can no longer be submitted.
-                    </p>
+                    {/* Show different button text if resuming vs first start */}
+                    {deliberation._count.cells > 0 ? (
+                      <>
+                        <div className="bg-warning-bg border border-warning rounded-lg p-3 mb-2">
+                          <p className="text-sm text-warning font-medium">Submissions reopened</p>
+                          <p className="text-xs text-foreground mt-1">
+                            Existing cells and votes are preserved. New ideas will get new cells when you close submissions.
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
+                          disabled={actionLoading === 'start-voting'}
+                          className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {actionLoading === 'start-voting' ? 'Creating cells...' : 'Close Submissions & Resume Voting'}
+                        </button>
+                        <p className="text-xs text-muted">
+                          Creates new cells for newly submitted ideas and resumes voting. Available members are assigned to new cells.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
+                          disabled={actionLoading === 'start-voting' || deliberation._count.ideas < 2}
+                          className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting'}
+                        </button>
+                        <p className="text-xs text-muted">
+                          Creates cells of ~5 people and begins tiered voting. Ideas can no longer be submitted.
+                        </p>
+                      </>
+                    )}
                   </>
                 )}
 

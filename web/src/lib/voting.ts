@@ -249,9 +249,27 @@ export async function startVotingPhase(deliberationId: string) {
     }
   }
 
+  // Check if this is a resume (existing cells from a previous voting round)
+  const existingActiveCells = await prisma.cell.findMany({
+    where: {
+      deliberationId,
+      status: { in: ['VOTING', 'DELIBERATING'] },
+    },
+    include: {
+      participants: { select: { userId: true } },
+    },
+  })
+  const isResume = existingActiveCells.length > 0
+  const membersInActiveCells = new Set(
+    existingActiveCells.flatMap(c => c.participants.map(p => p.userId))
+  )
+
   // Create cells for Tier 1 - each cell gets UNIQUE ideas (no sharing)
   const ideas = deliberation.ideas
-  const members = deliberation.members
+  // When resuming, exclude members who are already in active cells
+  const members = isResume
+    ? deliberation.members.filter(m => !membersInActiveCells.has(m.userId))
+    : deliberation.members
 
   // Shuffle ideas and members for random assignment
   const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
@@ -400,11 +418,12 @@ export async function startVotingPhase(deliberationId: string) {
   }
 
   // Update deliberation phase and start tier timer
+  // When resuming, preserve the current tier (new ideas enter at tier 1 alongside)
   await prisma.deliberation.update({
     where: { id: deliberationId },
     data: {
       phase: 'VOTING',
-      currentTier: 1,
+      ...(!isResume && { currentTier: 1 }),
       currentTierStartedAt: new Date(),
     },
   })
@@ -421,8 +440,8 @@ export async function startVotingPhase(deliberationId: string) {
 
   return {
     success: true,
-    reason: 'VOTING_STARTED',
-    message: 'Voting started',
+    reason: isResume ? 'VOTING_RESUMED' : 'VOTING_STARTED',
+    message: isResume ? `Voting resumed with ${cells.length} new cells` : 'Voting started',
     cellsCreated: cells.length,
     tier: 1
   }
