@@ -198,6 +198,7 @@ export default function DashboardDetailPage() {
           'force-next-tier': `Processed ${data.cellsProcessed || 0} cells`,
           'release-extra-votes': `Extra votes released! ${data.eligibleUsers || 0} users eligible (${data.windowMinutes || 15}min window)`,
           'start-challenge': 'Challenge round started!',
+          'advance-discussion': `Voting opened for ${data.cellsAdvanced || 0} cells`,
         }
         setActionMessage(messages[action] || 'Done!')
         fetchDeliberation()
@@ -369,6 +370,16 @@ export default function DashboardDetailPage() {
                 >
                   {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting Now'}
                 </button>
+
+                {deliberation.cells.some(c => c.status === 'DELIBERATING') && (
+                  <button
+                    onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
+                    disabled={actionLoading === 'advance-discussion'}
+                    className="w-full bg-blue hover:bg-blue/80 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-4 py-2 rounded transition-colors"
+                  >
+                    {actionLoading === 'advance-discussion' ? 'Opening...' : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
+                  </button>
+                )}
 
                 {!confirmForce ? (
                   <button

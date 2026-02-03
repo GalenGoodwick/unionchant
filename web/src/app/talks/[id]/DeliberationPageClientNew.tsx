@@ -733,6 +733,17 @@ export default function DeliberationPageClient() {
           ]} />
         </div>
 
+        {/* Linked Podium - inline link */}
+        {linkedPodiums.length > 0 && (
+          <Link
+            href={`/podium/${linkedPodiums[0].id}`}
+            className="flex items-center gap-2 text-sm text-accent hover:underline mb-4"
+          >
+            <span className="text-xs bg-accent-light text-accent px-1.5 py-0.5 rounded font-medium">Podium</span>
+            {linkedPodiums[0].title}
+          </Link>
+        )}
+
         {/* Auth prompts */}
         {!d.session && (
           <Link href="/auth/signin" className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium mb-4">
@@ -764,12 +775,12 @@ export default function DeliberationPageClient() {
         {/* Phase body */}
         <PhaseBody d={d} />
 
-        {/* Linked Podium Posts */}
-        {linkedPodiums.length > 0 && (
+        {/* Additional Linked Podium Posts (if more than 1) */}
+        {linkedPodiums.length > 1 && (
           <div className="mt-6">
             <h3 className="text-sm font-semibold text-muted uppercase tracking-wide mb-2">Related Posts</h3>
             <div className="space-y-2">
-              {linkedPodiums.map(p => (
+              {linkedPodiums.slice(1).map(p => (
                 <Link
                   key={p.id}
                   href={`/podium/${p.id}`}

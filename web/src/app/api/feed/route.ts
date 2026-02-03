@@ -21,6 +21,7 @@ export type FeedEntryKind =
   | 'completed'
   | 'waiting'
   | 'advanced'
+  | 'extra_vote'
   | 'podiums_summary'
 
 export type FeedEntry = {
@@ -73,6 +74,8 @@ export type FeedEntry = {
     isAI: boolean
     createdAt: string
   }[]
+  // For extra vote cards
+  secondVoteDeadline?: string
   // For completed/results cards
   winnerVoteCount?: number
   totalParticipants?: number
@@ -171,6 +174,7 @@ type UserContext = {
   memberDelibIds: Set<string>
   cellsByDelib: Map<string, any>
   ideaByDelib: Map<string, any>
+  extraVoteEligible: Map<string, string> // deliberationId -> deadline ISO
 }
 
 async function getUserContext(email: string): Promise<UserContext | null> {
@@ -273,7 +277,36 @@ async function getUserContext(email: string): Promise<UserContext | null> {
     })
   }
 
-  return { id: user.id, memberDelibIds, cellsByDelib, ideaByDelib }
+  // Check for extra vote eligibility: user has completed cell with secondVotesEnabled
+  // and deadline hasn't passed, and user doesn't already have an active cell in that delib
+  const extraVoteEligible = new Map<string, string>()
+  const extraVoteCells = await prisma.cellParticipation.findMany({
+    where: {
+      userId: user.id,
+      cell: {
+        status: 'COMPLETED',
+        secondVotesEnabled: true,
+        secondVoteDeadline: { gt: new Date() },
+      },
+    },
+    select: {
+      cell: {
+        select: {
+          deliberationId: true,
+          secondVoteDeadline: true,
+        },
+      },
+    },
+  })
+  for (const cp of extraVoteCells) {
+    const delibId = cp.cell.deliberationId
+    // Only eligible if user doesn't already have an active (non-completed) cell for this delib
+    if (!cellsByDelib.has(delibId) && cp.cell.secondVoteDeadline) {
+      extraVoteEligible.set(delibId, cp.cell.secondVoteDeadline.toISOString())
+    }
+  }
+
+  return { id: user.id, memberDelibIds, cellsByDelib, ideaByDelib, extraVoteEligible }
 }
 
 // ── Tab Handlers ───────────────────────────────────────────────
@@ -323,6 +356,18 @@ async function buildYourTurnFeed(
     // Advanced card: user's idea is advancing
     if (myIdea?.status === 'ADVANCING') {
       entries.push({ kind: 'advanced', id: `advanced-${d.id}`, priority: 15, ...base })
+      continue
+    }
+
+    // Extra vote: facilitator released second votes, user is eligible
+    if (d.phase === 'VOTING' && userCtx?.extraVoteEligible.has(d.id)) {
+      entries.push({
+        kind: 'extra_vote',
+        id: `extra-${d.id}`,
+        priority: 85,
+        secondVoteDeadline: userCtx.extraVoteEligible.get(d.id),
+        ...base,
+      })
       continue
     }
 

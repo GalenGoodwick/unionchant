@@ -29,6 +29,9 @@ function NewDeliberationForm() {
   const [communities, setCommunities] = useState<CommunityOption[]>([])
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
   const [communityOnly, setCommunityOnly] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [podiums, setPodiums] = useState<{ id: string; title: string }[]>([])
+  const [selectedPodiumId, setSelectedPodiumId] = useState<string | null>(null)
 
   const handleCaptchaVerify = useCallback((token: string) => {
     setCaptchaToken(token)
@@ -46,17 +49,17 @@ function NewDeliberationForm() {
     submissionHours: 24,
     votingMinutes: 60,
     accumulationDays: 1,
-    accumulationMode: 'timer' as 'timer' | 'manual',
+    accumulationMode: 'manual' as 'timer' | 'manual',
     // Goal settings
-    startMode: 'timer' as 'timer' | 'ideas' | 'manual',
+    startMode: 'manual' as 'timer' | 'ideas' | 'manual',
     ideaGoal: 10,
     // Winner mode: 'ends' | 'rolling'
     winnerMode: 'ends' as 'ends' | 'rolling',
-    // Tier advance mode: 'timer' = auto-advance after X min, 'natural' = advance when all votes are in or facilitator forces
-    tierAdvanceMode: 'timer' as 'timer' | 'natural',
-    // Discussion time per tier: 'timer' = timed, 'none' = skip, 'manual' = facilitator advances
-    discussionMode: 'timer' as 'timer' | 'none' | 'manual',
-    discussionMinutes: 120, // default 2h
+    // Tier advance mode
+    tierAdvanceMode: 'natural' as 'timer' | 'natural',
+    // Discussion mode
+    discussionMode: 'manual' as 'timer' | 'none' | 'manual',
+    discussionMinutes: 120,
   })
 
   useEffect(() => {
@@ -73,8 +76,16 @@ function NewDeliberationForm() {
           }
         })
         .catch(() => {})
+      // Fetch user's unlinked podiums
+      fetch(`/api/podiums?authorId=${session?.user?.id || ''}&limit=50`)
+        .then(res => res.ok ? res.json() : { items: [] })
+        .then(data => {
+          const unlinked = (data.items || []).filter((p: any) => !p.deliberation)
+          setPodiums(unlinked.map((p: any) => ({ id: p.id, title: p.title })))
+        })
+        .catch(() => {})
     }
-  }, [status, communitySlug])
+  }, [status, communitySlug, session?.user?.id])
 
   if (status === 'loading') {
     return (
@@ -129,7 +140,6 @@ function NewDeliberationForm() {
           description: formData.description,
           isPublic: true,
           tags,
-          // Timer settings (only for timer mode)
           submissionDurationMs: formData.startMode === 'timer' ? formData.submissionHours * 60 * 60 * 1000 : null,
           votingTimeoutMs: formData.tierAdvanceMode === 'natural' ? 0 : formData.votingMinutes * 60 * 1000,
           discussionDurationMs: formData.discussionMode === 'timer'
@@ -139,7 +149,6 @@ function NewDeliberationForm() {
           accumulationTimeoutMs: formData.winnerMode === 'rolling' && formData.accumulationMode === 'timer'
             ? formData.accumulationDays * 24 * 60 * 60 * 1000
             : null,
-          // Goal settings
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
@@ -153,12 +162,38 @@ function NewDeliberationForm() {
       }
 
       const deliberation = await res.json()
+
+      // Link podium if selected
+      if (selectedPodiumId) {
+        await fetch(`/api/podiums/${selectedPodiumId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deliberationId: deliberation.id }),
+        }).catch(() => {}) // non-critical
+      }
+
       router.push(`/talks/${deliberation.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setLoading(false)
     }
   }
+
+  // Summary of current settings for the simple view
+  const settingsSummary: string[] = []
+  if (formData.startMode === 'manual') settingsSummary.push('You start voting manually')
+  else if (formData.startMode === 'timer') settingsSummary.push(`Voting starts after ${formData.submissionHours}h`)
+  else if (formData.startMode === 'ideas') settingsSummary.push(`Voting starts at ${formData.ideaGoal} ideas`)
+
+  if (formData.tierAdvanceMode === 'natural') settingsSummary.push('No vote timer')
+  else settingsSummary.push(`${formData.votingMinutes}min per round`)
+
+  if (formData.discussionMode === 'manual') settingsSummary.push('You open voting after discussion')
+  else if (formData.discussionMode === 'none') settingsSummary.push('No discussion phase')
+  else settingsSummary.push(`${formData.discussionMinutes}min discussion`)
+
+  if (formData.winnerMode === 'rolling') settingsSummary.push('Rolling mode')
+  else settingsSummary.push('Ends when winner chosen')
 
   return (
     <div className="min-h-screen bg-surface">
@@ -173,329 +208,39 @@ function NewDeliberationForm() {
           <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-6">Start a New Talk</h1>
 
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* BASIC SECTION */}
-            <div className="space-y-6">
-              <div>
-                <label htmlFor="question" className="block text-foreground font-medium mb-2">
-                  Question *
-                </label>
-                <input
-                  type="text"
-                  id="question"
-                  required
-                  maxLength={200}
-                  placeholder="What should we decide on?"
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
-                  value={formData.question}
-                  onChange={(e) => setFormData({ ...formData, question: e.target.value })}
-                />
-                <p className="text-muted-light text-xs mt-1 text-right">{formData.question.length}/200</p>
-              </div>
+            {/* Question */}
+            <div>
+              <label htmlFor="question" className="block text-foreground font-medium mb-2">
+                Question *
+              </label>
+              <input
+                type="text"
+                id="question"
+                required
+                maxLength={200}
+                placeholder="What should we decide on?"
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.question}
+                onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+              />
+              <p className="text-muted-light text-xs mt-1 text-right">{formData.question.length}/200</p>
+            </div>
 
-              <div>
-                <label htmlFor="description" className="block text-foreground font-medium mb-2">
-                  Description (optional)
-                </label>
-                <textarea
-                  id="description"
-                  rows={3}
-                  maxLength={500}
-                  placeholder="Provide more context about this talk..."
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                />
-                <p className="text-muted-light text-xs mt-1 text-right">{formData.description.length}/500</p>
-              </div>
-
-              {/* Voting Start Mode */}
-              <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">When to Start Voting</h2>
-
-                <div className="space-y-3">
-                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="startMode"
-                      value="timer"
-                      checked={formData.startMode === 'timer'}
-                      onChange={() => setFormData({ ...formData, startMode: 'timer' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">After a set time</div>
-                      <div className="text-muted text-sm">Voting starts after the submission period ends</div>
-                      {formData.startMode === 'timer' && (
-                        <div className="mt-3">
-                          <label className="block text-muted text-sm mb-1">Submission period (hours)</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={168}
-                            value={formData.submissionHours || ''}
-                            onChange={(e) => setFormData({ ...formData, submissionHours: parseInt(e.target.value) || 0 })}
-                            className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="startMode"
-                      value="ideas"
-                      checked={formData.startMode === 'ideas'}
-                      onChange={() => setFormData({ ...formData, startMode: 'ideas' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">After enough ideas</div>
-                      <div className="text-muted text-sm">Voting starts automatically when the idea goal is reached</div>
-                      {formData.startMode === 'ideas' && (
-                        <div className="mt-3">
-                          <label className="block text-muted text-sm mb-1">Number of ideas</label>
-                          <input
-                            type="number"
-                            min={2}
-                            max={1000}
-                            value={formData.ideaGoal || ''}
-                            onChange={(e) => setFormData({ ...formData, ideaGoal: parseInt(e.target.value) || 0 })}
-                            className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="startMode"
-                      value="manual"
-                      checked={formData.startMode === 'manual'}
-                      onChange={() => setFormData({ ...formData, startMode: 'manual' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">When I trigger voting</div>
-                      <div className="text-muted text-sm">You control when voting starts - great for live events</div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Voting Time Per Tier */}
-              <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Tier Advancement</h2>
-
-                <div className="space-y-3">
-                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="tierAdvanceMode"
-                      value="timer"
-                      checked={formData.tierAdvanceMode === 'timer'}
-                      onChange={() => setFormData({ ...formData, tierAdvanceMode: 'timer' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">Timer per tier</div>
-                      <div className="text-muted text-sm">Each tier has a time limit. Ends when all vote or the timer expires.</div>
-                      {formData.tierAdvanceMode === 'timer' && (
-                        <div className="mt-3">
-                          <label className="block text-muted text-sm mb-1">Time limit (minutes)</label>
-                          <input
-                            type="number"
-                            min={5}
-                            max={1440}
-                            value={formData.votingMinutes || ''}
-                            onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 0 })}
-                            className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-3 p-3 border border-border rounded-lg cursor-pointer hover:border-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="tierAdvanceMode"
-                      value="natural"
-                      checked={formData.tierAdvanceMode === 'natural'}
-                      onChange={() => setFormData({ ...formData, tierAdvanceMode: 'natural' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">No timer</div>
-                      <div className="text-muted text-sm">Tiers advance when all participants have voted, or when you force the next round from the manage page.</div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Discussion Time Per Tier */}
-              <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Discussion Time Per Tier</h2>
-                <p className="text-muted text-sm mb-4">Before voting opens, cell members can read all ideas and discuss. This leads to more informed decisions.</p>
-
-                <div className="space-y-3">
-                  <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                    formData.discussionMode === 'timer' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="discussionMode"
-                      value="timer"
-                      checked={formData.discussionMode === 'timer'}
-                      onChange={() => setFormData({ ...formData, discussionMode: 'timer' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">Timed discussion</div>
-                      <div className="text-muted text-sm">Cells discuss for a set time before voting opens automatically.</div>
-                      {formData.discussionMode === 'timer' && (
-                        <div className="mt-3">
-                          <label className="block text-muted text-sm mb-1">Discussion time (minutes)</label>
-                          <input
-                            type="number"
-                            min={5}
-                            max={1440}
-                            value={formData.discussionMinutes || ''}
-                            onChange={(e) => setFormData({ ...formData, discussionMinutes: parseInt(e.target.value) || 0 })}
-                            className="w-32 bg-background border border-border rounded-lg px-3 py-2 text-foreground focus:outline-none focus:border-accent font-mono"
-                          />
-                        </div>
-                      )}
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                    formData.discussionMode === 'none' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="discussionMode"
-                      value="none"
-                      checked={formData.discussionMode === 'none'}
-                      onChange={() => setFormData({ ...formData, discussionMode: 'none' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">No discussion</div>
-                      <div className="text-muted text-sm">Voting opens immediately when cells form.</div>
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                    formData.discussionMode === 'manual' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="discussionMode"
-                      value="manual"
-                      checked={formData.discussionMode === 'manual'}
-                      onChange={() => setFormData({ ...formData, discussionMode: 'manual' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">Facilitator opens voting</div>
-                      <div className="text-muted text-sm">Discussion has no timer. You manually open voting from the manage page when the cell is ready.</div>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* What Happens When Winner is Chosen */}
-              <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">When a Winner is Chosen</h2>
-
-                <div className="space-y-3">
-                  {/* Option 1: Just ends */}
-                  <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                    formData.winnerMode === 'ends' ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="winnerMode"
-                      value="ends"
-                      checked={formData.winnerMode === 'ends'}
-                      onChange={() => setFormData({ ...formData, winnerMode: 'ends' })}
-                      className="mt-1 w-4 h-4 text-accent"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">Just ends</div>
-                      <div className="text-muted text-sm">The talk completes when a priority is chosen</div>
-                    </div>
-                  </label>
-
-                  {/* Option 2: Rolling Mode */}
-                  <label className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                    formData.winnerMode === 'rolling' ? 'border-purple bg-purple/5' : 'border-border hover:border-purple'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="winnerMode"
-                      value="rolling"
-                      checked={formData.winnerMode === 'rolling'}
-                      onChange={() => setFormData({ ...formData, winnerMode: 'rolling' })}
-                      className="mt-1 w-4 h-4 text-purple"
-                    />
-                    <div className="flex-1">
-                      <div className="text-foreground font-medium">Rolling Mode (continuous challenges)</div>
-                      <div className="text-muted text-sm">Winner becomes the priority that challengers can compete against</div>
-
-                      {formData.winnerMode === 'rolling' && (
-                        <div className="mt-3 space-y-2">
-                          <label className="block text-muted text-sm mb-1">When to start challenge rounds</label>
-                          <label className="flex items-start gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="accumulationMode"
-                              value="timer"
-                              checked={formData.accumulationMode === 'timer'}
-                              onChange={() => setFormData({ ...formData, accumulationMode: 'timer' })}
-                              className="mt-1 w-3.5 h-3.5 text-purple"
-                            />
-                            <div>
-                              <span className="text-foreground text-sm">After a set period</span>
-                              {formData.accumulationMode === 'timer' && (
-                                <div className="mt-2 flex items-center gap-2">
-                                  <input
-                                    type="number"
-                                    min={1}
-                                    max={30}
-                                    value={formData.accumulationDays || ''}
-                                    onChange={(e) => setFormData({ ...formData, accumulationDays: parseInt(e.target.value) || 0 })}
-                                    className="w-20 bg-surface border border-border rounded px-3 py-1.5 text-foreground focus:outline-none focus:border-purple font-mono text-sm"
-                                  />
-                                  <span className="text-muted text-sm">days to collect challengers</span>
-                                </div>
-                              )}
-                            </div>
-                          </label>
-                          <label className="flex items-start gap-2 cursor-pointer">
-                            <input
-                              type="radio"
-                              name="accumulationMode"
-                              value="manual"
-                              checked={formData.accumulationMode === 'manual'}
-                              onChange={() => setFormData({ ...formData, accumulationMode: 'manual' })}
-                              className="mt-1 w-3.5 h-3.5 text-purple"
-                            />
-                            <div>
-                              <span className="text-foreground text-sm">When I trigger it</span>
-                              <p className="text-muted-light text-xs">You decide when to start each challenge round</p>
-                            </div>
-                          </label>
-                        </div>
-                      )}
-                    </div>
-                  </label>
-                </div>
-              </div>
+            {/* Description */}
+            <div>
+              <label htmlFor="description" className="block text-foreground font-medium mb-2">
+                Description (optional)
+              </label>
+              <textarea
+                id="description"
+                rows={3}
+                maxLength={500}
+                placeholder="Provide more context about this talk..."
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              />
+              <p className="text-muted-light text-xs mt-1 text-right">{formData.description.length}/500</p>
             </div>
 
             {/* Tags */}
@@ -516,8 +261,8 @@ function NewDeliberationForm() {
 
             {/* Community Selector */}
             {communities.length > 0 && (
-              <div className="border-t border-border pt-6 mt-6">
-                <h2 className="text-lg font-semibold text-foreground mb-4">Group (optional)</h2>
+              <div>
+                <label className="block text-foreground font-medium mb-2">Group (optional)</label>
                 <select
                   value={selectedCommunityId || ''}
                   onChange={e => {
@@ -542,6 +287,182 @@ function NewDeliberationForm() {
                     <span className="text-foreground text-sm">Community only (not visible in public feed)</span>
                   </label>
                 )}
+              </div>
+            )}
+
+            {/* Link Podium */}
+            {podiums.length > 0 && (
+              <div>
+                <label className="block text-foreground font-medium mb-2">Link a Podium post (optional)</label>
+                <select
+                  value={selectedPodiumId || ''}
+                  onChange={e => setSelectedPodiumId(e.target.value || null)}
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:border-accent"
+                >
+                  <option value="">None</option>
+                  {podiums.map(p => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                </select>
+                <p className="text-muted-light text-sm mt-1">Attach a post that explains the context for this talk</p>
+              </div>
+            )}
+
+            {/* Default settings summary */}
+            <div className="bg-surface border border-border rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-sm font-semibold text-foreground">Settings</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="text-accent text-sm hover:underline"
+                >
+                  {showAdvanced ? 'Hide options' : 'Customize'}
+                </button>
+              </div>
+              {!showAdvanced && (
+                <div className="flex flex-wrap gap-2">
+                  {settingsSummary.map((s, i) => (
+                    <span key={i} className="text-xs bg-background text-muted px-2 py-1 rounded border border-border">{s}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Advanced Settings (collapsible) */}
+            {showAdvanced && (
+              <div className="space-y-5 border border-border rounded-lg p-4 bg-surface">
+                {/* When to Start Voting */}
+                <div>
+                  <label className="block text-foreground font-medium text-sm mb-2">When to start voting</label>
+                  <select
+                    value={formData.startMode}
+                    onChange={(e) => setFormData({ ...formData, startMode: e.target.value as 'timer' | 'ideas' | 'manual' })}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
+                  >
+                    <option value="manual">When I trigger it</option>
+                    <option value="timer">After a set time</option>
+                    <option value="ideas">After enough ideas</option>
+                  </select>
+                  {formData.startMode === 'timer' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={168}
+                        value={formData.submissionHours || ''}
+                        onChange={(e) => setFormData({ ...formData, submissionHours: parseInt(e.target.value) || 0 })}
+                        className="w-24 bg-background border border-border rounded px-3 py-1.5 text-foreground font-mono text-sm focus:outline-none focus:border-accent"
+                      />
+                      <span className="text-muted text-sm">hours for submissions</span>
+                    </div>
+                  )}
+                  {formData.startMode === 'ideas' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={2}
+                        max={1000}
+                        value={formData.ideaGoal || ''}
+                        onChange={(e) => setFormData({ ...formData, ideaGoal: parseInt(e.target.value) || 0 })}
+                        className="w-24 bg-background border border-border rounded px-3 py-1.5 text-foreground font-mono text-sm focus:outline-none focus:border-accent"
+                      />
+                      <span className="text-muted text-sm">ideas to start</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Discussion Mode */}
+                <div>
+                  <label className="block text-foreground font-medium text-sm mb-2">Discussion before voting</label>
+                  <select
+                    value={formData.discussionMode}
+                    onChange={(e) => setFormData({ ...formData, discussionMode: e.target.value as 'timer' | 'none' | 'manual' })}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
+                  >
+                    <option value="manual">I open voting when ready</option>
+                    <option value="timer">Timed discussion</option>
+                    <option value="none">No discussion — vote immediately</option>
+                  </select>
+                  {formData.discussionMode === 'timer' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        value={formData.discussionMinutes || ''}
+                        onChange={(e) => setFormData({ ...formData, discussionMinutes: parseInt(e.target.value) || 0 })}
+                        className="w-24 bg-background border border-border rounded px-3 py-1.5 text-foreground font-mono text-sm focus:outline-none focus:border-accent"
+                      />
+                      <span className="text-muted text-sm">minutes to discuss</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Tier Advancement */}
+                <div>
+                  <label className="block text-foreground font-medium text-sm mb-2">Vote timer per round</label>
+                  <select
+                    value={formData.tierAdvanceMode}
+                    onChange={(e) => setFormData({ ...formData, tierAdvanceMode: e.target.value as 'timer' | 'natural' })}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
+                  >
+                    <option value="natural">No timer — ends when all vote or I force it</option>
+                    <option value="timer">Time limit per round</option>
+                  </select>
+                  {formData.tierAdvanceMode === 'timer' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        value={formData.votingMinutes || ''}
+                        onChange={(e) => setFormData({ ...formData, votingMinutes: parseInt(e.target.value) || 0 })}
+                        className="w-24 bg-background border border-border rounded px-3 py-1.5 text-foreground font-mono text-sm focus:outline-none focus:border-accent"
+                      />
+                      <span className="text-muted text-sm">minutes per round</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Winner Mode */}
+                <div>
+                  <label className="block text-foreground font-medium text-sm mb-2">When a winner is chosen</label>
+                  <select
+                    value={formData.winnerMode}
+                    onChange={(e) => setFormData({ ...formData, winnerMode: e.target.value as 'ends' | 'rolling' })}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
+                  >
+                    <option value="ends">Talk ends</option>
+                    <option value="rolling">Rolling mode — challengers can compete against the winner</option>
+                  </select>
+                  {formData.winnerMode === 'rolling' && (
+                    <div className="mt-2">
+                      <label className="block text-muted text-xs mb-1">Challenge rounds start</label>
+                      <select
+                        value={formData.accumulationMode}
+                        onChange={(e) => setFormData({ ...formData, accumulationMode: e.target.value as 'timer' | 'manual' })}
+                        className="w-full bg-background border border-border rounded px-3 py-1.5 text-foreground text-sm focus:outline-none focus:border-accent"
+                      >
+                        <option value="manual">When I trigger it</option>
+                        <option value="timer">After a set period</option>
+                      </select>
+                      {formData.accumulationMode === 'timer' && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={formData.accumulationDays || ''}
+                            onChange={(e) => setFormData({ ...formData, accumulationDays: parseInt(e.target.value) || 0 })}
+                            className="w-20 bg-background border border-border rounded px-3 py-1.5 text-foreground font-mono text-sm focus:outline-none focus:border-accent"
+                          />
+                          <span className="text-muted text-sm">days to collect challengers</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 

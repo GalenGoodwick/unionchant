@@ -326,6 +326,8 @@ function FeedCard({ entry }: { entry: FeedEntry }) {
       return <ChampionCardInline entry={entry} />
     case 'challenge':
       return <ChallengeCard entry={entry} />
+    case 'extra_vote':
+      return <ExtraVoteCard entry={entry} />
     case 'completed':
       return <CompletedCard entry={entry} />
     case 'waiting':
@@ -689,6 +691,27 @@ function ChallengeCard({ entry }: { entry: FeedEntry }) {
         </div>
       )}
       <div className="mt-2 text-sm font-medium text-orange">Vote &rarr;</div>
+    </Card>
+  )
+}
+
+// ── Extra Vote ────────────────────────────────────────────────
+
+function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
+  const d = entry.deliberation!
+  return (
+    <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
+      <div className="flex justify-between items-center">
+        <Badge color="var(--color-accent)" bg="var(--color-accent-light)">Extra Vote &middot; Tier {d.tier}</Badge>
+        {entry.secondVoteDeadline && (
+          <span className="text-[11px] font-mono font-semibold text-accent">{timeLeft(entry.secondVoteDeadline)} left</span>
+        )}
+      </div>
+      <Question text={d.question} />
+      <div className="mt-2 bg-accent-light border border-accent/20 rounded-lg p-2.5">
+        <div className="text-xs text-muted">You already voted. The facilitator opened a window for you to vote in a second cell with different ideas.</div>
+      </div>
+      <div className="mt-2 text-sm font-medium text-accent">Cast extra vote &rarr;</div>
     </Card>
   )
 }

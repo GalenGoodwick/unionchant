@@ -278,6 +278,23 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
+        {/* Podiums */}
+        <section className="mb-12">
+          <h2 className="text-2xl font-semibold text-foreground mb-4">Podiums</h2>
+          <div className="bg-background rounded-lg border border-border p-6">
+            <p className="text-subtle mb-4">
+              <strong className="text-foreground">Podiums</strong> are long-form posts where users explain context,
+              make arguments, or share research related to a talk. Think of them as opinion pieces that drive participation.
+            </p>
+            <ul className="text-subtle space-y-2 text-sm">
+              <li>• <strong className="text-foreground">Link to a talk:</strong> When creating a talk, you can attach an existing podium post. The linked post appears on the talk detail page so participants have context before voting.</li>
+              <li>• <strong className="text-foreground">Write a podium post:</strong> Go to <Link href="/podium/new" className="text-accent hover:underline">Podium &rarr; Write New</Link> to publish a post. You can link it to an existing talk or create a new talk from it.</li>
+              <li>• <strong className="text-foreground">Cross-linking:</strong> Podium posts linked to a talk show up on the talk detail page. The talk also appears on the podium post page with a &ldquo;Join&rdquo; button.</li>
+              <li>• <strong className="text-foreground">Comments:</strong> Podium posts have their own comment threads, separate from cell discussions.</li>
+            </ul>
+          </div>
+        </section>
+
         {/* FAQ */}
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">FAQ</h2>

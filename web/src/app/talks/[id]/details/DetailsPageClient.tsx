@@ -16,7 +16,6 @@ import TierProgressPanel from '@/components/deliberation/TierProgressPanel'
 import VotingCell from '@/components/deliberation/VotingCell'
 import HistoryPanel from '@/components/deliberation/HistoryPanel'
 import CommentsPanel from '@/components/deliberation/CommentsPanel'
-import PredictionsPanel from '@/components/deliberation/PredictionsPanel'
 import Section from '@/components/deliberation/Section'
 
 export default function DetailsPageClient() {
@@ -105,14 +104,6 @@ export default function DetailsPageClient() {
             deliberationId={id}
             currentTier={delib.currentTier}
             onRefresh={d.handleRefresh}
-          />
-        )}
-
-        {/* Predictions */}
-        {delib.phase === 'VOTING' && (
-          <PredictionsPanel
-            deliberationId={id}
-            currentTier={delib.currentTier}
           />
         )}
 

@@ -30,6 +30,11 @@ export async function GET(req: NextRequest) {
         _count: {
           select: { members: true, ideas: true },
         },
+        podiums: {
+          select: { id: true, title: true },
+          take: 1,
+          orderBy: { createdAt: 'desc' as const },
+        },
       },
     })
 

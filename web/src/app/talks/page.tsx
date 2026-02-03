@@ -28,6 +28,7 @@ type Deliberation = {
     status?: UserStatus
   }
   ideas: { text: string }[]
+  podiums: { id: string; title: string }[]
   _count: {
     members: number
     ideas: number
@@ -251,6 +252,11 @@ function DeliberationsList() {
                       {d.phase}
                     </span>
                   </div>
+                  {d.podiums?.[0] && (
+                    <p className="text-xs text-accent mb-1 truncate">
+                      Podium: {d.podiums[0].title}
+                    </p>
+                  )}
                   {d.ideas[0] && (
                     <p className="text-xs text-success mb-1 truncate">
                       Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}

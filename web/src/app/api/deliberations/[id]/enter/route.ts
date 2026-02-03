@@ -79,7 +79,7 @@ export async function POST(
     })
 
     // Check if user has an active (not completed) cell
-    const activeParticipation = existingParticipations.find(p => p.cell.status === 'VOTING')
+    const activeParticipation = existingParticipations.find(p => p.cell.status === 'VOTING' || p.cell.status === 'DELIBERATING')
     if (activeParticipation) {
       // Already in an active cell, return it
       return NextResponse.json({
@@ -129,11 +129,13 @@ export async function POST(
     )
 
     // Filter to find cells with DIFFERENT ideas than what user already voted on
+    // Allow joining DELIBERATING or VOTING cells (latecomers can join discussion)
+    const MAX_CELL_SIZE = 7
     const cellsWithSpots = await prisma.cell.findMany({
       where: {
         deliberationId,
         tier: deliberation.currentTier,
-        status: 'VOTING',
+        status: { in: ['VOTING', 'DELIBERATING'] },
         id: { notIn: userCellIds },
         // Exclude cells that share ANY ideas with cells user already voted in
         ...(userVotedIdeaIds.length > 0 ? {
@@ -162,13 +164,12 @@ export async function POST(
       },
     })
 
-    // Prefer cells with fewer participants, but allow joining any voting cell
-    // Sort by participant count to fill smaller cells first
-    const sortedCells = cellsWithSpots.sort((a, b) =>
-      a._count.participants - b._count.participants
-    )
+    // Filter to cells under capacity (max 7), prefer smaller cells
+    const availableCells = cellsWithSpots
+      .filter(c => c._count.participants < MAX_CELL_SIZE)
+      .sort((a, b) => a._count.participants - b._count.participants)
 
-    const cellToJoin = sortedCells[0]
+    const cellToJoin = availableCells[0]
 
     if (!cellToJoin) {
       // Check if there are cells but they all have the same ideas
