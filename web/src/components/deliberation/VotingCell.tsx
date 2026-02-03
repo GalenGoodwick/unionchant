@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import CountdownTimer from '@/components/CountdownTimer'
 import { useToast } from '@/components/Toast'
@@ -56,6 +56,25 @@ export default function VotingCell({
   const [submittingRevision, setSubmittingRevision] = useState(false)
   const [confirmingRevision, setConfirmingRevision] = useState<string | null>(null)
   const [showEdit, setShowEdit] = useState<Record<string, boolean>>({}) // toggle original vs proposed
+
+  // Track text changes for flash effect (cross-cell edit propagation)
+  const [flashIds, setFlashIds] = useState<Set<string>>(new Set())
+  const prevTexts = useRef<Record<string, string>>({})
+  useEffect(() => {
+    const newFlash = new Set<string>()
+    for (const ci of cell.ideas) {
+      const prev = prevTexts.current[ci.idea.id]
+      if (prev !== undefined && prev !== ci.idea.text) {
+        newFlash.add(ci.idea.id)
+      }
+      prevTexts.current[ci.idea.id] = ci.idea.text
+    }
+    if (newFlash.size > 0) {
+      setFlashIds(newFlash)
+      const timer = setTimeout(() => setFlashIds(new Set()), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [cell.ideas])
 
   const totalSpent = Object.values(xp).reduce((sum, v) => sum + v, 0)
   const remaining = 10 - totalSpent
@@ -216,6 +235,7 @@ export default function VotingCell({
         {cell.ideas.map(({ idea }) => {
           const isWinner = idea.status === 'ADVANCING' || idea.status === 'WINNER'
           const isEliminated = idea.status === 'ELIMINATED'
+          const isFlashing = flashIds.has(idea.id)
           const allocated = xp[idea.id] || 0
           const votedXP = existingAllocation[idea.id] || 0
           const revision = revisions[idea.id]
@@ -228,6 +248,7 @@ export default function VotingCell({
             <div key={idea.id}>
               <div
                 className={`p-2 rounded text-sm transition-all ${
+                  isFlashing ? 'animate-idea-flash ring-2 ring-blue' :
                   isWinner ? 'bg-success-bg border border-success' :
                   isEliminated ? 'bg-surface text-muted border border-border' :
                   allocated > 0 ? 'bg-accent-light border border-accent' :

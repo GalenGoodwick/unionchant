@@ -154,3 +154,17 @@ body {
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-serif);
 }
+
+/* Flash animation for cross-cell edit propagation */
+@keyframes idea-flash {
+  0% { background-color: var(--color-blue); opacity: 0.8; }
+  25% { background-color: var(--color-blue-bg); opacity: 1; }
+  50% { background-color: var(--color-blue); opacity: 0.6; }
+  100% { background-color: var(--color-blue-bg); opacity: 1; }
+}
+
+.animate-idea-flash {
+  animation: idea-flash 1.5s ease-in-out;
+  background-color: var(--color-blue-bg);
+  border-color: var(--color-blue);
+}
