@@ -9,7 +9,7 @@ const EXEMPT_PATHS = [
   '/api/og',
 ]
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   // Only check mutations to API routes
   if (!MUTATION_METHODS.includes(req.method) || !req.nextUrl.pathname.startsWith('/api/')) {
     return NextResponse.next()
