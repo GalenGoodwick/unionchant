@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
 import { useOnboardingContext, useGuideContext } from '@/app/providers'
@@ -43,6 +44,8 @@ export default function Header() {
   const { isAdmin } = useAdmin()
   const { needsOnboarding, openOnboarding } = useOnboardingContext()
   const { openGuide } = useGuideContext()
+  const pathname = usePathname()
+  const isFeed = pathname === '/feed'
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navLinks = [
@@ -66,6 +69,14 @@ export default function Header() {
 
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-4 text-sm">
+          {session && (
+            <Link
+              href="/talks/new"
+              className="text-accent-light hover:text-white transition-colors font-medium"
+            >
+              Create
+            </Link>
+          )}
           {navLinks.map(link => (
             (!link.authRequired || session) && (
               <Link
@@ -87,17 +98,7 @@ export default function Header() {
               Manage
             </Link>
           )}
-          {session && (
-            <Link
-              href="/talks/new"
-              className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-bold flex items-center justify-center"
-              aria-label="Create talk"
-              title="Create talk"
-            >
-              +
-            </Link>
-          )}
-          {session && (
+          {session && isFeed && (
             <button
               onClick={openGuide}
               className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-medium flex items-center justify-center"
@@ -163,6 +164,15 @@ export default function Header() {
       {menuOpen && (
         <div className="md:hidden absolute top-full left-0 right-0 bg-header border-t border-header-hover z-50">
           <nav className="flex flex-col p-4 space-y-3 text-sm">
+            {session && (
+              <Link
+                href="/talks/new"
+                onClick={() => setMenuOpen(false)}
+                className="py-2 px-4 rounded-lg text-accent-light hover:bg-header-hover transition-colors font-medium"
+              >
+                Create
+              </Link>
+            )}
             {navLinks.map(link => (
               (!link.authRequired || session) && (
                 <Link
@@ -186,16 +196,6 @@ export default function Header() {
             )}
             {session && (
               <Link
-                href="/talks/new"
-                onClick={() => setMenuOpen(false)}
-                className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors flex items-center gap-2"
-              >
-                <span className="w-5 h-5 rounded-full border border-white/30 text-white/60 text-xs font-bold flex items-center justify-center">+</span>
-                Create Talk
-              </Link>
-            )}
-            {session && (
-              <Link
                 href="/dashboard"
                 onClick={() => setMenuOpen(false)}
                 className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
@@ -203,7 +203,7 @@ export default function Header() {
                 Dashboard
               </Link>
             )}
-            {session && (
+            {session && isFeed && (
               <button
                 onClick={() => { setMenuOpen(false); openGuide() }}
                 className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors text-left flex items-center gap-2"

@@ -1201,6 +1201,77 @@ export default function AdminPage() {
             <button
               onClick={async () => {
                 setCreating(true)
+                setCreateStatus('Creating deliberation in discussion mode...')
+                try {
+                  const question = testQuestion.trim() || `Discussion Test ${Date.now()}`
+
+                  // Step 1: Create deliberation with manual discussion mode
+                  const createRes = await fetch('/api/deliberations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      question,
+                      description: 'Test deliberation with cells in DELIBERATING mode (manual advance)',
+                      isPublic: true,
+                      tags: ['test'],
+                      discussionDurationMs: -1, // Manual discussion - no auto-advance
+                      votingTimeoutMs: votingMinutes * 60 * 1000,
+                    }),
+                  })
+
+                  if (!createRes.ok) {
+                    const err = await createRes.json()
+                    throw new Error(err.error || 'Failed to create')
+                  }
+
+                  const deliberation = await createRes.json()
+                  const delibId = deliberation.id
+
+                  // Step 2: Populate with test users and ideas
+                  setCreateStatus('Populating 20 test users and ideas...')
+                  const populateRes = await fetch('/api/admin/test/populate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      deliberationId: delibId,
+                      userCount: 20,
+                      ideasPerUser: 1
+                    }),
+                  })
+
+                  if (!populateRes.ok) {
+                    const err = await populateRes.json()
+                    throw new Error(err.error || 'Failed to populate')
+                  }
+
+                  // Step 3: Start voting (cells created as DELIBERATING due to discussionDurationMs)
+                  setCreateStatus('Starting discussion phase (cells as DELIBERATING)...')
+                  const startRes = await fetch(`/api/deliberations/${delibId}/start-voting`, {
+                    method: 'POST',
+                  })
+
+                  if (!startRes.ok) {
+                    const err = await startRes.json()
+                    throw new Error(err.error || 'Failed to start voting')
+                  }
+
+                  setCreateStatus('Done! Redirecting...')
+                  router.push(`/admin/deliberation/${delibId}`)
+
+                } catch (err) {
+                  setCreateStatus(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`)
+                } finally {
+                  setCreating(false)
+                }
+              }}
+              disabled={creating}
+              className="bg-blue hover:bg-blue/80 disabled:bg-muted text-white px-4 py-2 rounded transition-colors text-sm"
+            >
+              Discussion Test
+            </button>
+            <button
+              onClick={async () => {
+                setCreating(true)
                 setCreateStatus('Creating private demo deliberation...')
                 try {
                   const res = await fetch('/api/admin/test/create-private-demo', { method: 'POST' })

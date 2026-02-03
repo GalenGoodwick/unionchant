@@ -1,8 +1,8 @@
 import { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Deliberations',
-  description: 'Browse and join public deliberations. Participate in collective decision-making on Union Chant.',
+  title: 'Talks',
+  description: 'Browse and join open talks. Submit ideas, discuss in small groups, and vote to find collective answers.',
 }
 
 export default function DeliberationsLayout({

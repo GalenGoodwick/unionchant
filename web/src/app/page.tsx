@@ -129,7 +129,7 @@ export default function Home() {
             people or 8 billion.
           </p>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 mb-16">
+          <div className="grid grid-cols-3 gap-6 md:gap-8 mb-16 max-w-lg mx-auto">
             <div>
               <div className="text-4xl md:text-5xl font-bold font-mono text-accent-light mb-2">
                 5
@@ -147,12 +147,6 @@ export default function Home() {
                 14
               </div>
               <div className="text-white/50 text-sm">rounds for all of humanity</div>
-            </div>
-            <div>
-              <div className="text-4xl md:text-5xl font-bold font-mono text-accent-light mb-2">
-                100%
-              </div>
-              <div className="text-white/50 text-sm">participation rate</div>
             </div>
           </div>
 

@@ -1,11 +1,11 @@
 {
   "name": "Union Chant",
   "short_name": "Union Chant",
-  "description": "Collective decision-making for the modern age",
+  "description": "Query your crowd. Get a collective answer.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f172a",
-  "theme_color": "#4f46e5",
+  "theme_color": "#0c4a6e",
   "orientation": "portrait-primary",
   "icons": [
     {

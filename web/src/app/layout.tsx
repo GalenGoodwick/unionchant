@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     default: 'Union Chant - Collective Decision Making',
     template: '%s | Union Chant',
   },
-  description: 'Collective decision-making for the modern age. Small group deliberation at any scale.',
+  description: 'Query your crowd. Get a collective answer. Small group deliberation at any scale.',
   manifest: '/manifest.json',
   keywords: ['democracy', 'voting', 'deliberation', 'collective decision making', 'consensus', 'small groups'],
   authors: [{ name: 'Union Chant' }],
@@ -42,12 +42,12 @@ export const metadata: Metadata = {
     url: '/',
     siteName: 'Union Chant',
     title: 'Union Chant - Collective Decision Making',
-    description: 'Scale is not achieved by enlarging a conversation. It is achieved by multiplying conversations.',
+    description: 'Query your crowd. Get a collective answer. Small group deliberation at any scale.',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Union Chant - Collective Decision Making',
-    description: 'Small group deliberation at any scale. True democracy through structured conversation.',
+    description: 'Query your crowd. Get a collective answer. Small group deliberation at any scale.',
   },
   robots: {
     index: true,
