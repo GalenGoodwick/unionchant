@@ -76,8 +76,8 @@ function NewDeliberationForm() {
           }
         })
         .catch(() => {})
-      // Fetch unlinked podiums (any author — deliberation creator can link any)
-      fetch('/api/podiums?limit=50')
+      // Fetch user's own unlinked podiums
+      fetch(`/api/podiums?authorId=${session?.user?.id || ''}&limit=50`)
         .then(res => res.ok ? res.json() : { items: [] })
         .then(data => {
           const unlinked = (data.items || []).filter((p: any) => !p.deliberationId && !p.deliberation)

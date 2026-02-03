@@ -81,34 +81,24 @@ export async function PATCH(
     const body = await req.json()
     const data: Record<string, unknown> = {}
 
-    // deliberationId linking — podium author, deliberation creator, or admin can link
+    if (!isAuthor && !isAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // deliberationId linking
     if (body.deliberationId !== undefined) {
       if (body.deliberationId) {
         const delib = await prisma.deliberation.findUnique({
           where: { id: body.deliberationId },
-          select: { id: true, creatorId: true },
+          select: { id: true },
         })
         if (!delib) {
           return NextResponse.json({ error: 'Linked deliberation not found' }, { status: 404 })
         }
-        const isDelibCreator = delib.creatorId === user?.id
-        if (!isAuthor && !isDelibCreator && !isAdmin) {
-          return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-        }
         data.deliberationId = body.deliberationId
       } else {
-        // Unlinking — only podium author or admin
-        if (!isAuthor && !isAdmin) {
-          return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-        }
         data.deliberationId = null
       }
-    }
-
-    // All other fields require podium author or admin
-    const hasOtherFields = body.title !== undefined || body.body !== undefined || body.pinned !== undefined
-    if (hasOtherFields && !isAuthor && !isAdmin) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
     // Admin-only: toggle pinned
