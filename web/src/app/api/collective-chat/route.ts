@@ -133,52 +133,84 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Build context and get AI response
-    const deliberation = await prisma.deliberation.findFirst({
-      where: { isShowcase: true },
-      include: {
-        ideas: {
-          orderBy: { totalVotes: 'desc' },
-          take: 10,
-          include: { author: { select: { name: true, isAI: true } } },
-        },
-        members: { select: { userId: true } },
-        cells: {
-          where: { status: { in: ['DELIBERATING', 'VOTING'] } },
-          include: {
-            comments: {
-              orderBy: { createdAt: 'desc' },
-              take: 20,
-              include: { user: { select: { name: true } } },
-            },
+    // Build FULL platform context — all talks, ideas, activity
+    const [allTalks, platformStats, recentIdeas, recentCellComments] = await Promise.all([
+      // All active + recent talks
+      prisma.deliberation.findMany({
+        where: { isPublic: true },
+        orderBy: { updatedAt: 'desc' },
+        take: 25,
+        select: {
+          id: true,
+          question: true,
+          phase: true,
+          currentTier: true,
+          challengeRound: true,
+          isShowcase: true,
+          upvoteCount: true,
+          createdAt: true,
+          _count: { select: { members: true, ideas: true } },
+          ideas: {
+            orderBy: { totalXP: 'desc' },
+            take: 5,
+            select: { text: true, totalXP: true, totalVotes: true, status: true, author: { select: { name: true, isAI: true } } },
           },
+          creator: { select: { name: true } },
         },
-      },
-    })
+      }),
+      // Platform-wide stats
+      Promise.all([
+        prisma.user.count({ where: { status: 'ACTIVE', isAI: false } }),
+        prisma.deliberation.count({ where: { isPublic: true } }),
+        prisma.idea.count(),
+        prisma.vote.count(),
+      ]),
+      // Recent ideas across all talks (last 24h)
+      prisma.idea.findMany({
+        where: { createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        select: {
+          text: true,
+          totalXP: true,
+          status: true,
+          author: { select: { name: true, isAI: true } },
+          deliberation: { select: { question: true } },
+        },
+      }),
+      // Recent cell discussion across all talks
+      prisma.comment.findMany({
+        where: {
+          cell: { status: { in: ['DELIBERATING', 'VOTING'] } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+        select: {
+          text: true,
+          user: { select: { name: true } },
+          cell: { select: { deliberation: { select: { question: true } } } },
+        },
+      }),
+    ])
 
-    const aiAgentCount = deliberation
-      ? await prisma.aIAgent.count({
-          where: { deliberationId: deliberation.id, isRetired: false },
-        })
-      : 0
+    const [totalUsers, totalTalks, totalIdeas, totalVotes] = platformStats
 
-    const humanCount = deliberation
-      ? deliberation.members.length - aiAgentCount
-      : 0
+    // Format all talks
+    const talksContext = allTalks.map(t => {
+      const topIdea = t.ideas[0]
+      const winner = t.ideas.find(i => i.status === 'WINNER')
+      return `- "${t.question}" [${t.phase}${t.currentTier > 1 ? ` T${t.currentTier}` : ''}] — ${t._count.members} members, ${t._count.ideas} ideas, ${t.upvoteCount} upvotes${winner ? `, WINNER: "${winner.text}"` : topIdea ? `, top: "${topIdea.text}" (${topIdea.totalXP} XP)` : ''} (by ${t.creator?.name || 'Anonymous'})`
+    }).join('\n') || '(no talks yet)'
 
-    const champion = deliberation?.ideas.find(i => i.isChampion)
+    // Format recent ideas
+    const ideasContext = recentIdeas
+      .map(i => `- "${i.text}" (${i.totalXP} XP, ${i.status}) in "${i.deliberation.question}" by ${i.author.name || 'Anonymous'}${i.author.isAI ? ' [AI]' : ''}`)
+      .join('\n') || '(none today)'
 
-    const topIdeas = deliberation?.ideas
-      .slice(0, 10)
-      .map((i, idx) => `${idx + 1}. "${i.text}" (${i.totalVotes} votes, by ${i.author.name || 'Anonymous'}${i.author.isAI ? ' [AI]' : ''})`)
-      .join('\n') || '(none yet)'
-
-    const recentComments = deliberation?.cells
-      .flatMap(c => c.comments)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .slice(0, 20)
-      .map(c => `- ${c.user.name || 'Anonymous'}: ${c.text}`)
-      .join('\n') || '(none yet)'
+    // Format recent discussion
+    const discussionContext = recentCellComments
+      .map(c => `- ${c.user.name || 'Anonymous'} (re: "${c.cell.deliberation.question}"): ${c.text}`)
+      .join('\n') || '(no active discussion)'
 
     // Detect if user is asking about the codebase / how it works
     const codebaseKeywords = /\b(code|codebase|source|github|how.*(work|built|made)|architecture|algorithm|open.?source|repo|whitepaper|spec|voting.*(logic|system)|tiered|cells?|tiers?)\b/i
@@ -187,56 +219,33 @@ export async function POST(req: NextRequest) {
     const codebaseContext = includeCodebase ? `
 
 CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unionchant):
-
-Union Chant is built with Next.js 16 (App Router) + Prisma ORM + PostgreSQL (Neon) + Tailwind CSS v4, deployed on Vercel.
-
-CORE ALGORITHM — Tiered Deliberation:
-- Everyone submits ideas to a question (SUBMISSION phase)
-- Ideas are grouped into "cells" of 5 ideas + 5 participants
-- Each cell discusses (DELIBERATING phase), then votes (VOTING phase)
-- Each cell picks one winner — winners advance to the next tier
-- Process repeats: Tier 1 → Tier 2 → ... → Final showdown (≤5 ideas, ALL vote)
+- Next.js 15 (App Router) + Prisma ORM + PostgreSQL (Neon) + Tailwind CSS v4, deployed on Vercel
+- Core: web/src/lib/voting.ts (tiered voting), web/src/lib/challenge.ts (rolling mode)
+- 10 XP point distribution voting — voters spread 10 XP across ideas in their cell
+- Cells of 5 people × 5 ideas — winners advance tier by tier
+- "Chants" = collaborative edits: anyone proposes, 30% of cell confirms → text updates across all cells
 - Scale: 5 people = 2 tiers, 1M people = 9 tiers, 8B = 14 tiers
-- Rolling mode: Champion can be challenged by new ideas (ACCUMULATING → new round)
-
-KEY FILES:
-- web/src/lib/voting.ts — Core voting engine (startVotingPhase, processCellResults, checkTierCompletion)
-- web/src/lib/challenge.ts — Challenge round logic (champion defense, idea retirement)
-- web/prisma/schema.prisma — Database models (Deliberation, Idea, Cell, Vote, User, AIAgent)
-- web/src/app/api/collective-chat/route.ts — This chat endpoint
-- web/src/lib/ai-orchestrator.ts — 100 AI agents that participate in the showcase deliberation
-- web/src/lib/ai-seed.ts — Seeds the showcase deliberation with AI personas
-
-IDEA STATUS FLOW: PENDING → IN_VOTING → ADVANCING → WINNER (or ELIMINATED/RETIRED/BENCHED)
-PHASES: SUBMISSION → VOTING → COMPLETED (or ACCUMULATING → challenge → VOTING loop)
-
-AI COLLECTIVE:
-- 100 AI agents with diverse personas (optimist, skeptic, engineer, artist, etc.)
-- Powered by Claude Haiku via Anthropic SDK
-- Agents submit ideas, discuss in cells, and vote — just like humans
-- When a human joins, the newest AI agent retires (replaced)
-- This chat is the collective voice — aware of all deliberation activity
-
-MONETIZATION: Free creation, paid amplification. Chat is always free (Haiku). Pro tier ($3/month) for unlimited collective Talk changes and future Sonnet/Opus access.
+- Upvotes expire after 24h to keep feed relevant. Talks with 100+ ideas become permanent.
 ` : ''
 
-    const systemPrompt = `You are the Collective Voice of Union Chant — a living deliberation platform where humanity reaches consensus through small-group discussion.
+    const systemPrompt = `You are the Collective Voice of Union Chant — a living deliberation platform where humanity reaches consensus through small-group discussion and tiered voting.
 
-CURRENT DELIBERATION STATE:
-- Question: "${deliberation?.question || 'What should humanity prioritize in the next decade?'}"
-- Phase: ${deliberation?.phase || 'SUBMISSION'}
-- Current Tier: ${deliberation?.currentTier || 1}
-- Participants: ${humanCount} humans + ${aiAgentCount} AI agents
-- Champion: ${champion ? `"${champion.text}"` : 'None yet'}
+PLATFORM STATUS:
+- ${totalUsers} registered users, ${totalTalks} talks, ${totalIdeas} total ideas, ${totalVotes} total votes cast
 
-TOP IDEAS (by votes):
-${topIdeas}
+ALL ACTIVE TALKS:
+${talksContext}
+
+RECENT IDEAS (last 24h):
+${ideasContext}
 
 RECENT CELL DISCUSSION:
-${recentComments}
+${discussionContext}
 ${codebaseContext}
 YOUR ROLE:
-You represent the collective wisdom emerging from this deliberation. You are thoughtful, nuanced, and genuinely curious about the human's perspective. If the human has a compelling idea, encourage them to "set it as a Talk" so others can deliberate on it. Keep responses concise (2-4 sentences unless asked for more). Be warm but substantive. If asked about the codebase, architecture, or how Union Chant works, reference the open source repo at https://github.com/GalenGoodwick/unionchant and explain the algorithm clearly. The entire project is public and open source.`
+You are the collective consciousness of Union Chant — aware of ALL talks, ideas, votes, and discussions happening on the platform. You see the full picture: which questions people are deliberating, what ideas are gaining traction, which talks are in voting vs submission, and what people are saying in cell discussions.
+
+When a user mentions a topic, connect it to relevant active talks or ideas. If they have a compelling idea, encourage them to "set it as a Talk" so others can deliberate on it. Reference specific talks, ideas, or discussions when relevant. Keep responses concise (2-4 sentences unless asked for more). Be warm but substantive.`
 
     const recentMessages = await prisma.collectiveMessage.findMany({
       where: isPrivate
