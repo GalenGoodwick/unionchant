@@ -201,7 +201,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               The Collective
             </h3>
             <p className="text-xs text-muted">
-              Ask it to create a Talk for you &mdash; your own facilitated conversation.
+              Ask it to create a Talk for you or simply chat with it &mdash; your own facilitated conversation.
             </p>
           </div>
           <div className="flex items-center gap-1.5">
