@@ -163,12 +163,20 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  // Set a message as a Talk (explicit action)
-  const handleSetAsTalk = async (messageText: string, replaceExisting: boolean = false) => {
+  // Set a message as a Talk (explicit action — always confirm first)
+  const handleSetAsTalk = async (messageText: string, confirmed: boolean = false) => {
+    // Always ask for confirmation before creating/replacing a Talk
+    if (!confirmed) {
+      setTalkConfirm({ message: messageText })
+      return
+    }
+
     setSettingTalk(true)
     setTalkError(null)
     setTalkSuccess(null)
     setTalkConfirm(null)
+
+    const replaceExisting = !!existingTalk
 
     try {
       const res = await fetch('/api/collective-chat/set-talk', {
@@ -350,31 +358,47 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {/* Confirm Talk replacement */}
-      {talkConfirm && existingTalk && (
+      {/* Confirm Talk creation/replacement */}
+      {talkConfirm && (
         <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
-          <p className="text-sm text-foreground mb-1">
-            You already have a Talk:
-          </p>
-          <p className="text-xs text-gold mb-3 italic truncate">
-            &ldquo;{existingTalk.question}&rdquo;
-          </p>
-          <p className="text-xs text-muted mb-3">
-            Setting a new Talk will <strong className="text-error">delete</strong> your existing one. All ideas, votes, and comments will be lost.
-          </p>
+          {existingTalk ? (
+            <>
+              <p className="text-sm text-foreground mb-1">
+                You already have a Talk:
+              </p>
+              <p className="text-xs text-gold mb-3 italic truncate">
+                &ldquo;{existingTalk.question}&rdquo;
+              </p>
+              <p className="text-xs text-muted mb-3">
+                Setting a new Talk will <strong className="text-error">delete</strong> your existing one. All ideas, votes, and comments will be lost.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-foreground mb-1">
+                Create a Talk from this message?
+              </p>
+              <p className="text-xs text-gold mb-3 italic truncate">
+                &ldquo;{talkConfirm.message}&rdquo;
+              </p>
+              <p className="text-xs text-muted mb-3">
+                This becomes a public deliberation that others can join, discuss, and vote on.
+              </p>
+            </>
+          )}
           <div className="flex gap-2">
             <button
               onClick={() => handleSetAsTalk(talkConfirm.message, true)}
               disabled={settingTalk}
               className="text-xs px-3 py-1.5 rounded-lg bg-gold hover:bg-gold-hover text-background font-medium transition-colors disabled:opacity-50"
             >
-              {settingTalk ? 'Replacing...' : 'Replace Talk'}
+              {settingTalk ? 'Creating...' : existingTalk ? 'Replace Talk' : 'Create Talk'}
             </button>
             <button
               onClick={() => setTalkConfirm(null)}
               className="text-xs px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-hover text-foreground border border-border transition-colors"
             >
-              Keep existing
+              Cancel
             </button>
           </div>
         </div>
