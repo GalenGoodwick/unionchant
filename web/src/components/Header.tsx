@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname } from 'next/navigation'
@@ -48,6 +48,13 @@ export default function Header() {
   const pathname = usePathname()
   const isFeed = pathname === '/feed'
   const [menuOpen, setMenuOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 100)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
   const navLinks = [
     { href: '/feed', label: 'Feed', authRequired: true },
@@ -158,21 +165,8 @@ export default function Header() {
           )}
         </nav>
 
-        {/* Mobile: collective + notification + burger */}
+        {/* Mobile: notification + burger */}
         <div className="flex items-center gap-3 md:hidden">
-          <button
-            onClick={toggleChat}
-            className={`p-1.5 rounded-lg transition-colors ${
-              chatOpen ? 'text-gold' : 'text-white/70 hover:text-gold'
-            }`}
-            aria-label="Collective Consciousness"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              <circle cx="12" cy="12" r="3" />
-              <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
-              <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
-            </svg>
-          </button>
           {session && <NotificationBell onOpen={() => setMenuOpen(false)} />}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
@@ -235,6 +229,19 @@ export default function Header() {
                 Dashboard
               </Link>
             )}
+            <button
+              onClick={() => { setMenuOpen(false); toggleChat() }}
+              className={`py-2 px-4 rounded-lg transition-colors text-left flex items-center gap-2 ${
+                chatOpen ? 'text-gold bg-gold/10' : 'hover:bg-header-hover'
+              }`}
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                <circle cx="12" cy="12" r="3" />
+                <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
+                <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
+              </svg>
+              Collective
+            </button>
             {session && isFeed && (
               <button
                 onClick={() => { setMenuOpen(false); openGuide() }}
@@ -281,6 +288,21 @@ export default function Header() {
             </div>
           </nav>
         </div>
+      )}
+      {/* Mobile floating Collective button — appears on scroll */}
+      {!chatOpen && scrolled && (
+        <button
+          onClick={toggleChat}
+          className="fixed bottom-4 right-4 z-50 md:hidden w-12 h-12 rounded-full bg-gold text-header shadow-lg flex items-center justify-center"
+          aria-label="Open Collective"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+            <circle cx="12" cy="12" r="3" />
+            <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
+            <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
+          </svg>
+          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-gold rounded-full animate-pulse border border-header" />
+        </button>
       )}
     </header>
   )
