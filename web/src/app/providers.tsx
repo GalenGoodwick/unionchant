@@ -142,21 +142,21 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   return (
     <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
       {children}
+      {/* Backdrop on mobile */}
       {chatOpen && (
-        <>
-          {/* Backdrop on mobile */}
-          <div
-            className="fixed inset-0 z-40 bg-black/50 md:hidden"
-            onClick={toggleChat}
-          />
-          {/* Chat panel — constrained on mobile, floating on desktop */}
-          <div className="fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-14 md:top-auto md:left-auto rounded-t-xl">
-            <div className="h-full md:h-[480px] flex flex-col">
-              <CollectiveChat onClose={toggleChat} />
-            </div>
-          </div>
-        </>
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={toggleChat}
+        />
       )}
+      {/* Chat panel — always mounted (preloads messages), hidden when closed */}
+      <div className={`fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-14 md:top-auto md:left-auto rounded-t-xl transition-transform duration-200 ${
+        chatOpen ? 'translate-y-0 opacity-100' : 'translate-y-full pointer-events-none opacity-0'
+      }`}>
+        <div className="h-full md:h-[480px] flex flex-col">
+          <CollectiveChat onClose={toggleChat} />
+        </div>
+      </div>
     </CollectiveChatContext.Provider>
   )
 }

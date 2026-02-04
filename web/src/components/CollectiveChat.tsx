@@ -96,7 +96,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     setShowSkip(distanceFromBottom > 100)
   }, [])
 
-  // Fetch messages once on mount
+  // Fetch messages once on mount, scroll to bottom when loaded
+  const initialScrollDone = useRef(false)
   useEffect(() => {
     const fetchMessages = async () => {
       try {
@@ -105,6 +106,11 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           const data = await res.json()
           setMessages(data.messages)
           setHasMore(!!data.hasMore)
+          // Scroll to bottom after messages render
+          requestAnimationFrame(() => {
+            scrollToBottom(false)
+            initialScrollDone.current = true
+          })
         }
       } catch {
         // Silently fail
@@ -112,7 +118,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
 
     fetchMessages()
-  }, [])
+  }, [scrollToBottom])
 
   // Only auto-scroll if user is already near the bottom
   const isNearBottomRef = useRef(true)
