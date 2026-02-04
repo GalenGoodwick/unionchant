@@ -1,7 +1,6 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
 import { SessionProvider } from 'next-auth/react'
 import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
@@ -138,19 +137,12 @@ export function useCollectiveChat() {
 
 function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   const [chatOpen, setChatOpen] = useState(false)
-  const pathname = usePathname()
-  const isLanding = pathname === '/'
   const toggleChat = useCallback(() => setChatOpen(prev => !prev), [])
-
-  // Auto-close chat on landing page
-  useEffect(() => {
-    if (isLanding && chatOpen) setChatOpen(false)
-  }, [isLanding, chatOpen])
 
   return (
     <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
       {children}
-      {chatOpen && !isLanding && (
+      {chatOpen && (
         <>
           {/* Backdrop on mobile */}
           <div
