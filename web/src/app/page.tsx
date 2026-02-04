@@ -112,7 +112,7 @@ export default function Home() {
               href="/how-it-works"
               className="text-accent hover:text-accent-hover font-medium transition-colors"
             >
-              See the full algorithm &rarr;
+              See the full process &rarr;
             </Link>
           </div>
         </div>
@@ -125,7 +125,7 @@ export default function Home() {
             The math is remarkable
           </h2>
           <p className="text-white/60 mb-16 text-lg max-w-2xl mx-auto">
-            Each tier reduces ideas by 80%. The same algorithm handles 25
+            Each tier reduces ideas by 80%. The same process handles 25
             people or 8 billion.
           </p>
 
@@ -194,7 +194,7 @@ export default function Home() {
                 Every voice is heard
               </h3>
               <p className="text-muted leading-relaxed">
-                In a group of 5, you can&apos;t be drowned out. No algorithm
+                In a group of 5, you can&apos;t be drowned out. No system
                 buries your comment. No one can shout you down. Your perspective
                 gets genuine consideration.
               </p>

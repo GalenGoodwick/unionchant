@@ -294,11 +294,11 @@ export default function Header() {
           </nav>
         </div>
       )}
-      {/* Mobile floating Collective button — always visible */}
+      {/* Floating Collective button */}
       {!chatOpen && (
         <button
           onClick={toggleChat}
-          className="fixed bottom-4 right-4 z-50 md:hidden w-12 h-12 rounded-full bg-gold text-header shadow-lg flex items-center justify-center"
+          className="fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-gold text-header shadow-lg flex items-center justify-center"
           aria-label="Open Collective"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
