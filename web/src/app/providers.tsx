@@ -139,13 +139,21 @@ export function useCollectiveChat() {
 function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   const [chatOpen, setChatOpen] = useState(false)
   const pathname = usePathname()
-  const toggleChat = useCallback(() => setChatOpen(prev => !prev), [])
-  const showPanel = chatOpen && pathname !== '/'
+  const isLanding = pathname === '/'
+  const toggleChat = useCallback(() => {
+    if (isLanding) return
+    setChatOpen(prev => !prev)
+  }, [isLanding])
+
+  // Close chat if user navigates to landing page
+  useEffect(() => {
+    if (isLanding) setChatOpen(false)
+  }, [isLanding])
 
   return (
     <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
       {children}
-      {showPanel && (
+      {chatOpen && (
         <>
           {/* Backdrop on mobile */}
           <div
