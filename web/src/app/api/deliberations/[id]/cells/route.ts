@@ -61,21 +61,37 @@ export async function GET(
             user: { select: { id: true, name: true, image: true, status: true } },
           },
         },
-        votes: true, // Include ALL votes to count them
       },
       orderBy: { tier: 'asc' },
     })
 
+    // Fetch votes with xpPoints via raw SQL (field invisible to Prisma runtime client)
+    const cellIds = cells.map(c => c.id)
+    const allVotes = cellIds.length > 0
+      ? await prisma.$queryRaw<{ id: string; cellId: string; userId: string; ideaId: string; xpPoints: number }[]>`
+          SELECT id, "cellId", "userId", "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${cellIds})
+        `
+      : []
+
+    // Group votes by cell
+    const votesByCell: Record<string, typeof allVotes> = {}
+    for (const v of allVotes) {
+      if (!votesByCell[v.cellId]) votesByCell[v.cellId] = []
+      votesByCell[v.cellId].push(v)
+    }
+
     // Transform to include vote counts per idea and user's vote
     const cellsWithVoteCounts = cells.map(cell => {
+      const cellVotes = votesByCell[cell.id] || []
+
       // Count votes per idea
       const voteCounts: Record<string, number> = {}
-      cell.votes.forEach(vote => {
+      cellVotes.forEach(vote => {
         voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
       })
 
       // Get all of user's votes in this cell (one per idea allocation)
-      const userVotes = cell.votes.filter(v => v.userId === user.id)
+      const userVotes = cellVotes.filter(v => v.userId === user.id)
 
       return {
         ...cell,

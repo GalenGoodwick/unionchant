@@ -22,13 +22,18 @@ export async function GET() {
     }
 
     // Get counts separately
-    const [ideasCount, votesCount, commentsCount, deliberationsCreatedCount, membershipsCount] = await Promise.all([
+    const [ideasCount, votesCount, commentsCount, deliberationsCreatedCount, membershipsCount, xpResult] = await Promise.all([
       prisma.idea.count({ where: { authorId: user.id } }),
       prisma.vote.count({ where: { userId: user.id } }),
       prisma.comment.count({ where: { userId: user.id } }),
       prisma.deliberation.count({ where: { creatorId: user.id } }),
       prisma.deliberationMember.count({ where: { userId: user.id } }),
+      prisma.$queryRaw<{ total: bigint | null }[]>`
+        SELECT COALESCE(SUM("xpPoints"), 0) + (SELECT COUNT(*) * 5 FROM "Idea" WHERE "authorId" = ${user.id}) as total
+        FROM "Vote" WHERE "userId" = ${user.id}
+      `,
     ])
+    const totalXP = Number(xpResult[0]?.total || 0)
 
     return NextResponse.json({
       user: {
@@ -47,6 +52,7 @@ export async function GET() {
         championPicks: user.championPicks,
         currentStreak: user.currentStreak,
         bestStreak: user.bestStreak,
+        totalXP,
         stats: {
           ideas: ideasCount,
           votes: votesCount,

@@ -10,7 +10,7 @@
 import { prisma } from '@/lib/prisma'
 
 const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
-const CAPTCHA_VALID_HOURS = 24
+const CAPTCHA_VALID_HOURS = Infinity
 
 export type CaptchaResult = {
   success: boolean

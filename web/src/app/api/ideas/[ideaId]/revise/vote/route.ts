@@ -3,7 +3,25 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+type RawRevision = {
+  id: string
+  proposedText: string
+  proposedById: string
+  status: string
+  approvals: number
+  required: number
+  cellId: string
+}
+
+type RawVote = {
+  userId: string
+  approve: boolean
+  userName: string | null
+}
+
 // POST /api/ideas/[ideaId]/revise/vote - Confirm or reject a pending revision
+// Unanimous yes = approved (text updates across all cells)
+// Any no = immediately rejected
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ ideaId: string }> }
@@ -15,7 +33,6 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Look up user by email (consistent with vote route)
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
     })
@@ -28,89 +45,105 @@ export async function POST(
       return NextResponse.json({ error: 'approve must be a boolean' }, { status: 400 })
     }
 
-    // Find pending revision for this idea
-    const revision = await prisma.ideaRevision.findFirst({
-      where: { ideaId, status: 'pending' },
-      include: {
-        cell: {
-          include: {
-            participants: { select: { userId: true, status: true } },
-          },
-        },
-      },
-    })
+    // Find pending revision via raw SQL
+    const revisions = await prisma.$queryRaw<RawRevision[]>`
+      SELECT id, "proposedText", "proposedById", status, approvals, required, "cellId"
+      FROM "IdeaRevision"
+      WHERE "ideaId" = ${ideaId} AND status = 'pending'
+      ORDER BY "createdAt" DESC LIMIT 1
+    `
 
-    if (!revision) {
+    if (revisions.length === 0) {
       return NextResponse.json({ error: 'No pending revision found' }, { status: 404 })
     }
+    const revision = revisions[0]
 
-    // Must be a cell participant (but not the proposer)
-    const isParticipant = revision.cell.participants.some(
+    // Check user is a cell participant
+    const cell = await prisma.cell.findUnique({
+      where: { id: revision.cellId },
+      include: { participants: { select: { userId: true, status: true } } },
+    })
+
+    const isParticipant = cell?.participants.some(
       p => p.userId === user.id && (p.status === 'ACTIVE' || p.status === 'VOTED')
     )
-
     if (!isParticipant) {
       return NextResponse.json({ error: 'You must be a cell participant' }, { status: 403 })
     }
 
     if (revision.proposedById === user.id) {
-      return NextResponse.json({ error: 'You cannot confirm your own revision' }, { status: 403 })
+      return NextResponse.json({ error: 'You cannot vote on your own edit' }, { status: 403 })
     }
 
-    // Upsert the vote (allows toggling)
-    await prisma.ideaRevisionVote.upsert({
-      where: {
-        revisionId_userId: {
-          revisionId: revision.id,
-          userId: user.id,
-        },
-      },
-      create: {
-        revisionId: revision.id,
-        userId: user.id,
-        approve,
-      },
-      update: { approve },
-    })
-
-    // Count confirmations
-    const allVotes = await prisma.ideaRevisionVote.findMany({
-      where: { revisionId: revision.id },
-      include: { user: { select: { name: true } } },
-    })
-
-    const confirmCount = allVotes.filter(v => v.approve).length
-
-    // Threshold met → approve and update idea text
-    if (confirmCount >= revision.required) {
-      await prisma.$transaction([
-        prisma.ideaRevision.update({
-          where: { id: revision.id },
-          data: { status: 'approved', approvals: confirmCount },
-        }),
-        prisma.idea.update({
-          where: { id: ideaId },
-          data: { text: revision.proposedText },
-        }),
-      ])
-
+    // ── Any NO vote = immediate rejection ──
+    if (!approve) {
+      await prisma.$executeRaw`
+        UPDATE "IdeaRevision" SET status = 'rejected' WHERE id = ${revision.id}
+      `
       return NextResponse.json({
-        status: 'approved',
-        approvals: confirmCount,
-        required: revision.required,
-        voters: allVotes.map(v => ({ name: v.user.name, approve: v.approve })),
+        status: 'rejected',
+        message: 'Edit was rejected — one member disagreed.',
       })
     }
 
-    // Still pending
+    // ── YES vote — record it ──
+    const existingVote = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "IdeaRevisionVote" WHERE "revisionId" = ${revision.id} AND "userId" = ${user.id}
+    `
+    if (existingVote.length > 0) {
+      await prisma.$executeRaw`
+        UPDATE "IdeaRevisionVote" SET approve = true WHERE "revisionId" = ${revision.id} AND "userId" = ${user.id}
+      `
+    } else {
+      const voteId = `cvt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+      await prisma.$executeRaw`
+        INSERT INTO "IdeaRevisionVote" (id, "revisionId", "userId", approve, "createdAt")
+        VALUES (${voteId}, ${revision.id}, ${user.id}, true, NOW())
+      `
+    }
+
+    // Count yes votes
+    const yesVotes = await prisma.$queryRaw<RawVote[]>`
+      SELECT rv."userId", rv.approve, u.name as "userName"
+      FROM "IdeaRevisionVote" rv
+      JOIN "User" u ON u.id = rv."userId"
+      WHERE rv."revisionId" = ${revision.id} AND rv.approve = true
+    `
+
+    // Required = all active participants minus the proposer (unanimous)
+    const activeParticipants = cell!.participants.filter(
+      p => p.status === 'ACTIVE' || p.status === 'VOTED'
+    )
+    const required = activeParticipants.filter(p => p.userId !== revision.proposedById).length
+
+    // Unanimous yes → approve and update idea text across all cells
+    if (yesVotes.length >= required) {
+      await prisma.$executeRaw`
+        UPDATE "IdeaRevision" SET status = 'approved', approvals = ${yesVotes.length} WHERE id = ${revision.id}
+      `
+      await prisma.idea.update({
+        where: { id: ideaId },
+        data: { text: revision.proposedText },
+      })
+
+      return NextResponse.json({
+        status: 'approved',
+        approvals: yesVotes.length,
+        required,
+        voters: yesVotes.map(v => ({ name: v.userName, approve: true })),
+      })
+    }
+
+    // Still pending — waiting for more yes votes
     return NextResponse.json({
       status: 'pending',
-      approvals: confirmCount,
-      required: revision.required,
-      voters: allVotes.map(v => ({ name: v.user.name, approve: v.approve })),
+      approvals: yesVotes.length,
+      required,
+      voters: yesVotes.map(v => ({ name: v.userName, approve: true })),
     })
   } catch (error) {
-    console.error('Error voting on revision:', error)
-    return NextResponse.json({ error: 'Failed to confirm edit' }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Error voting on revision:', errMsg, error)
+    return NextResponse.json({ error: `Failed to confirm edit: ${errMsg}` }, { status: 500 })
   }
 }

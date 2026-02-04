@@ -39,6 +39,7 @@ export async function GET(
             status: true,
             tier: true,
             totalVotes: true,
+            totalXP: true,
             isChampion: true,
           },
         },

@@ -24,6 +24,16 @@ function SignInForm() {
   const handleCredentialsLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+
+    if (!email.trim()) {
+      setError('Please enter your email')
+      return
+    }
+    if (!password) {
+      setError('Please enter your password')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -87,6 +97,16 @@ function SignInForm() {
       {authError === 'expired-token' && (
         <div className="bg-error-bg border border-error text-error text-sm p-3 rounded-lg mb-4 text-center">
           Verification link expired. Please sign up again.
+        </div>
+      )}
+
+      {authError && authError !== 'expired-token' && (
+        <div className="bg-error-bg border border-error text-error text-sm p-3 rounded-lg mb-4 text-center">
+          {authError === 'OAuthAccountNotLinked'
+            ? 'This email is already registered with a different sign-in method. Try email/password instead.'
+            : authError === 'AccessDenied'
+              ? 'Access denied. Your account may be suspended.'
+              : `Sign-in failed (${authError}). Please try again.`}
         </div>
       )}
 

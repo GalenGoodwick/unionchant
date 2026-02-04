@@ -9,14 +9,18 @@ import { getCachedPodiums, setCachedPodiums } from '@/lib/podium-cache'
 let discoveryCache: { data: any[]; ts: number } | null = null
 const DISCOVERY_TTL = 30_000
 
-// Per-user+tab response cache (15s TTL, avoids redundant DB queries during polling)
+// Per-user+tab response cache (TTL matched to client polling intervals)
 const responseCache = new Map<string, { data: FeedResponse; ts: number }>()
-const RESPONSE_TTL = 15_000
+const RESPONSE_TTL: Record<TabParam, number> = {
+  'your-turn': 15_000,  // polls every 15s
+  'activity':  30_000,  // polls every 30s
+  'results':   60_000,  // polls every 60s
+}
 const MAX_CACHE_ENTRIES = 500
 
-function getCachedResponse(key: string): FeedResponse | null {
+function getCachedResponse(key: string, tab: TabParam): FeedResponse | null {
   const entry = responseCache.get(key)
-  if (entry && Date.now() - entry.ts < RESPONSE_TTL) return entry.data
+  if (entry && Date.now() - entry.ts < RESPONSE_TTL[tab]) return entry.data
   if (entry) responseCache.delete(key)
   return null
 }
@@ -717,8 +721,8 @@ export async function GET(request: NextRequest) {
   const tab = (request.nextUrl.searchParams.get('tab') || 'your-turn') as TabParam
   const cacheKey = `${session?.user?.email || 'anon'}:${tab}`
 
-  // Return cached response if fresh (15s TTL)
-  const cached = getCachedResponse(cacheKey)
+  // Return cached response if fresh (TTL matched to tab's polling interval)
+  const cached = getCachedResponse(cacheKey, tab)
   if (cached) return NextResponse.json(cached)
 
   let response: FeedResponse

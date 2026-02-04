@@ -31,13 +31,18 @@ export async function GET(
 
     // Get counts separately for reliability
     // Core stats (these tables always exist)
-    const [ideasCount, votesCount, commentsCount, deliberationsCreatedCount, membershipsCount] = await Promise.all([
+    const [ideasCount, votesCount, commentsCount, deliberationsCreatedCount, membershipsCount, xpResult] = await Promise.all([
       prisma.idea.count({ where: { authorId: id } }),
       prisma.vote.count({ where: { userId: id } }),
       prisma.comment.count({ where: { userId: id } }),
       prisma.deliberation.count({ where: { creatorId: id } }),
       prisma.deliberationMember.count({ where: { userId: id } }),
+      prisma.$queryRaw<{ total: bigint | null }[]>`
+        SELECT COALESCE(SUM("xpPoints"), 0) + (SELECT COUNT(*) * 5 FROM "Idea" WHERE "authorId" = ${id}) as total
+        FROM "Vote" WHERE "userId" = ${id}
+      `,
     ])
+    const totalXP = Number(xpResult[0]?.total || 0)
 
     // Enhanced stats - wrapped in try/catch so profile still loads if any query fails
     let followersCount = 0
@@ -162,6 +167,7 @@ export async function GET(
         followersCount,
         followingCount,
         isFollowing: !!isFollowingRecord,
+        totalXP,
         stats: {
           ideas: ideasCount,
           votes: votesCount,

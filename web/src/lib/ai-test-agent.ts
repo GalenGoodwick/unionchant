@@ -302,7 +302,8 @@ export async function joinDeliberation(deliberationId: string, userId: string): 
 }
 
 /**
- * Cast a vote in a cell
+ * Cast a vote in a cell — distributes 10 XP across ideas
+ * favoredIdeaId gets 7 XP, others get 2 and 1
  */
 export async function castVote(
   cellId: string,
@@ -316,25 +317,41 @@ export async function castVote(
     })
 
     if (existing) {
-      await prisma.vote.update({
-        where: { id: existing.id },
-        data: { ideaId },
-      })
-    } else {
-      await prisma.vote.create({
-        data: {
-          cellId,
-          userId,
-          ideaId,
-          xpPoints: 10,
-        },
-      })
+      // Already voted — delete old votes and re-create
+      await prisma.vote.deleteMany({ where: { cellId, userId } })
+    }
 
-      // Update idea vote count and XP
-      await prisma.idea.update({
-        where: { id: ideaId },
-        data: { totalVotes: { increment: 1 }, totalXP: { increment: 10 } },
-      })
+    // Get all ideas in this cell for XP distribution
+    const cellIdeas = await prisma.cellIdea.findMany({
+      where: { cellId },
+      select: { ideaId: true },
+    })
+    const allIdeaIds = cellIdeas.map(ci => ci.ideaId)
+
+    // Distribute 10 XP: 7 to favorite, 2 to second, 1 to third
+    const allocations: { ideaId: string; xp: number }[] = [{ ideaId, xp: 7 }]
+    const others = allIdeaIds.filter(id => id !== ideaId)
+    if (others.length > 0) allocations.push({ ideaId: others[0], xp: 2 })
+    if (others.length > 1) allocations.push({ ideaId: others[1], xp: 1 })
+    const allocated = allocations.reduce((s, a) => s + a.xp, 0)
+    if (allocated < 10) allocations[0].xp += (10 - allocated)
+
+    // Create vote records
+    // Create votes via raw SQL (xpPoints invisible to Prisma runtime client)
+    for (const a of allocations) {
+      const voteId = `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+      await prisma.$executeRaw`
+        INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt")
+        VALUES (${voteId}, ${cellId}, ${userId}, ${a.ideaId}, ${a.xp}, NOW())
+        ON CONFLICT DO NOTHING
+      `
+    }
+
+    // Update idea vote counts and XP
+    for (const alloc of allocations) {
+      await prisma.$executeRaw`
+        UPDATE "Idea" SET "totalXP" = "totalXP" + ${alloc.xp}, "totalVotes" = "totalVotes" + ${existing ? 0 : 1} WHERE id = ${alloc.ideaId}
+      `
     }
 
     // Update participation status
@@ -345,12 +362,12 @@ export async function castVote(
 
     testProgress.votescast++
 
-    // Check if all participants have voted - trigger cell completion
+    // Check if all participants have voted — count unique voters
     const cell = await prisma.cell.findUnique({
       where: { id: cellId },
       include: {
         participants: true,
-        votes: true,
+        votes: { select: { userId: true } },
       },
     })
 
@@ -358,9 +375,9 @@ export async function castVote(
       const activeParticipants = cell.participants.filter(
         p => p.status === 'ACTIVE' || p.status === 'VOTED'
       ).length
-      const voteCount = cell.votes.length
+      const uniqueVoters = new Set(cell.votes.map(v => v.userId)).size
 
-      if (voteCount >= activeParticipants && activeParticipants > 0) {
+      if (uniqueVoters >= activeParticipants && activeParticipants > 0) {
         const { processCellResults } = await import('./voting')
         await processCellResults(cellId, false)
       }
@@ -799,9 +816,10 @@ export async function runAgentTest(
         return getTestProgress()
       }
 
-      // BATCH VOTING: Collect all votes across all cells, then create them in one operation
+      // BATCH VOTING: Collect all XP allocations across all cells
       const allVotes: { cellId: string; userId: string; ideaId: string; xpPoints: number }[] = []
-      const ideaVoteCounts: Map<string, number> = new Map()
+      const ideaXPTotals: Map<string, number> = new Map()
+      const ideaVoterCounts: Map<string, number> = new Map()
       const participationUpdates: { cellId: string; userId: string }[] = []
 
       for (const cell of currentDelib.cells) {
@@ -812,7 +830,7 @@ export async function runAgentTest(
 
         if (ideas.length === 0) continue
 
-        // Get existing votes to avoid duplicates
+        // Get existing voters to avoid duplicates
         const existingVotes = await prisma.vote.findMany({
           where: { cellId: cell.id },
           select: { userId: true },
@@ -825,17 +843,25 @@ export async function runAgentTest(
           // Skip non-test users (real users) — don't vote on their behalf
           if (!agentIds.includes(participant.userId)) continue
 
-          // Random vote
-          const chosenIdea = ideas[Math.floor(Math.random() * ideas.length)]
-          allVotes.push({
-            cellId: cell.id,
-            userId: participant.userId,
-            ideaId: chosenIdea.id,
-            xpPoints: 10,
-          })
+          // Distribute 10 XP: 7 to favorite (random), 2 to second, 1 to third
+          const shuffled = [...ideas].sort(() => Math.random() - 0.5)
+          const allocations: { id: string; xp: number }[] = [{ id: shuffled[0].id, xp: 7 }]
+          if (shuffled.length > 1) allocations.push({ id: shuffled[1].id, xp: 2 })
+          if (shuffled.length > 2) allocations.push({ id: shuffled[2].id, xp: 1 })
+          const allocated = allocations.reduce((s, a) => s + a.xp, 0)
+          if (allocated < 10) allocations[0].xp += (10 - allocated)
 
-          // Track vote counts per idea
-          ideaVoteCounts.set(chosenIdea.id, (ideaVoteCounts.get(chosenIdea.id) || 0) + 1)
+          for (const alloc of allocations) {
+            allVotes.push({
+              cellId: cell.id,
+              userId: participant.userId,
+              ideaId: alloc.id,
+              xpPoints: alloc.xp,
+            })
+            ideaXPTotals.set(alloc.id, (ideaXPTotals.get(alloc.id) || 0) + alloc.xp)
+          }
+          // Track unique voter count per idea (the favorite)
+          ideaVoterCounts.set(shuffled[0].id, (ideaVoterCounts.get(shuffled[0].id) || 0) + 1)
 
           participationUpdates.push({
             cellId: cell.id,
@@ -844,24 +870,33 @@ export async function runAgentTest(
         }
       }
 
-      addTestLog(`Voting: ${allVotes.length} votes across ${currentDelib.cells.length} cells (${currentDelib.cells.length * 5 - allVotes.length} skipped non-test)`)
+      const voterCount = participationUpdates.length
+      addTestLog(`Voting: ${voterCount} voters (${allVotes.length} XP allocations) across ${currentDelib.cells.length} cells`)
 
-      // Batch create all votes
+      // Batch create all votes via raw SQL (xpPoints invisible to Prisma runtime)
       if (allVotes.length > 0) {
-        const voteResult = await prisma.vote.createMany({
-          data: allVotes,
-          skipDuplicates: true,
-        })
-        testProgress.votescast += voteResult.count
-        addTestLog(`Votes inserted: ${voteResult.count}/${allVotes.length}`)
+        let insertCount = 0
+        for (const v of allVotes) {
+          const voteId = `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+          try {
+            await prisma.$executeRaw`
+              INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt")
+              VALUES (${voteId}, ${v.cellId}, ${v.userId}, ${v.ideaId}, ${v.xpPoints}, NOW())
+              ON CONFLICT DO NOTHING
+            `
+            insertCount++
+          } catch { /* skip duplicates */ }
+        }
+        testProgress.votescast += voterCount
+        addTestLog(`Votes inserted: ${insertCount}/${allVotes.length}`)
 
-        // Batch update idea vote counts
-        addTestLog(`Updating vote counts for ${ideaVoteCounts.size} ideas...`)
-        for (const [ideaId, count] of ideaVoteCounts) {
-          await prisma.idea.update({
-            where: { id: ideaId },
-            data: { totalVotes: { increment: count }, totalXP: { increment: count * 10 } },
-          })
+        // Batch update idea XP totals
+        addTestLog(`Updating XP for ${ideaXPTotals.size} ideas...`)
+        for (const [ideaId, xp] of ideaXPTotals) {
+          const voters = ideaVoterCounts.get(ideaId) || 0
+          await prisma.$executeRaw`
+            UPDATE "Idea" SET "totalXP" = "totalXP" + ${xp}, "totalVotes" = "totalVotes" + ${voters} WHERE id = ${ideaId}
+          `
         }
 
         // Batch update participation status

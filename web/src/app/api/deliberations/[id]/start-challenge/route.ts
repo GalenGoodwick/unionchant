@@ -42,6 +42,27 @@ export async function POST(
 
   try {
     const result = await startChallengeRound(id)
+
+    // Handle cases where the challenge didn't actually start
+    if (!result) {
+      return NextResponse.json(
+        { error: 'Challenge round already in progress' },
+        { status: 409 }
+      )
+    }
+    if (result.completed) {
+      return NextResponse.json(
+        { error: `No challenger ideas available. ${result.reason || 'Talk has been completed.'}` },
+        { status: 400 }
+      )
+    }
+    if (result.extended) {
+      return NextResponse.json(
+        { error: `No challenger ideas to compete. ${result.reason || 'Submit new ideas first.'}` },
+        { status: 400 }
+      )
+    }
+
     return NextResponse.json(result)
   } catch (error) {
     console.error('Failed to start challenge round:', error)

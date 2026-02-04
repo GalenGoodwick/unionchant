@@ -44,7 +44,7 @@ export async function POST(
 
     const body = await req.json()
     const { allocations } = body as {
-      allocations: { ideaId: string; points: number }[]
+      allocations: { ideaId: string; points: number; revisionId?: string }[]
     }
 
     // Validate allocations
@@ -131,37 +131,31 @@ export async function POST(
 
       // Delete existing votes for this user in this cell
       if (wasChange) {
-        await tx.vote.deleteMany({
-          where: { cellId, userId: user.id },
-        })
+        await tx.$executeRaw`DELETE FROM "Vote" WHERE "cellId" = ${cellId} AND "userId" = ${user.id}`
       }
 
-      // Create new vote records (one per allocation)
+      // Create new vote records via raw SQL (xpPoints field invisible to Prisma runtime)
       const now = new Date()
-      await tx.vote.createMany({
-        data: allocations.map(a => ({
-          cellId,
-          userId: user.id,
-          ideaId: a.ideaId,
-          xpPoints: a.points,
-          votedAt: now,
-        })),
-      })
+      for (const a of allocations) {
+        const voteId = `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+        await tx.$executeRaw`
+          INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt")
+          VALUES (${voteId}, ${cellId}, ${user.id}, ${a.ideaId}, ${a.points}, ${now})
+        `
+      }
 
       // Recalculate totalVotes and totalXP for all ideas in this cell
       for (const ci of cell.ideas) {
         const ideaId = (ci as { ideaId: string }).ideaId
-        const ideaVotes = await tx.vote.findMany({
-          where: { cellId, ideaId },
-          select: { xpPoints: true, userId: true },
-        })
+        const ideaVotes = await tx.$queryRaw<{ userId: string; xpPoints: number }[]>`
+          SELECT "userId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cellId} AND "ideaId" = ${ideaId}
+        `
         const uniqueVoters = new Set(ideaVotes.map(v => v.userId)).size
         const xpSum = ideaVotes.reduce((sum, v) => sum + v.xpPoints, 0)
 
-        await tx.idea.update({
-          where: { id: ideaId },
-          data: { totalVotes: uniqueVoters, totalXP: xpSum },
-        })
+        await tx.$executeRaw`
+          UPDATE "Idea" SET "totalVotes" = ${uniqueVoters}, "totalXP" = ${xpSum} WHERE id = ${ideaId}
+        `
       }
 
       // Update participant status
@@ -170,12 +164,40 @@ export async function POST(
         data: { status: 'VOTED', votedAt: now },
       })
 
+      // ── Chant detection: if a pending revision exists and ALL cell XP goes to that idea, auto-approve ──
+      const allCellVotes = await tx.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+        SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cellId}
+      `
+      const totalCellXP = allCellVotes.reduce((s, v) => s + v.xpPoints, 0)
+
+      if (totalCellXP > 0) {
+        const xpByIdea: Record<string, number> = {}
+        for (const v of allCellVotes) {
+          xpByIdea[v.ideaId] = (xpByIdea[v.ideaId] || 0) + v.xpPoints
+        }
+
+        // Find pending revisions for ideas in this cell via raw SQL
+        const pendingRevisions = await tx.$queryRaw<{ id: string; ideaId: string; proposedText: string }[]>`
+          SELECT id, "ideaId", "proposedText" FROM "IdeaRevision"
+          WHERE "cellId" = ${cellId} AND status = 'pending'
+        `
+
+        for (const rev of pendingRevisions) {
+          if (xpByIdea[rev.ideaId] === totalCellXP) {
+            // 100% of cell XP on this idea — auto-approve the chant
+            await tx.$executeRaw`UPDATE "IdeaRevision" SET status = 'approved', approvals = 999 WHERE id = ${rev.id} AND status = 'pending'`
+            await tx.idea.update({
+              where: { id: rev.ideaId },
+              data: { text: rev.proposedText },
+            })
+          }
+        }
+      }
+
       // Check if all participants have voted
-      const votedUserIds = await tx.vote.findMany({
-        where: { cellId },
-        select: { userId: true },
-        distinct: ['userId'],
-      })
+      const votedUserIds = await tx.$queryRaw<{ userId: string }[]>`
+        SELECT DISTINCT "userId" FROM "Vote" WHERE "cellId" = ${cellId}
+      `
 
       const activeParticipantCount = cell.participants.filter(
         (p: { status: string }) => p.status === 'ACTIVE' || p.status === 'VOTED'
@@ -307,7 +329,8 @@ export async function POST(
       return NextResponse.json({ error: 'Busy, please retry', retryable: true }, { status: 409 })
     }
 
-    console.error('Error casting vote:', error)
-    return NextResponse.json({ error: 'Failed to cast vote' }, { status: 500 })
+    const errMsg = error instanceof Error ? error.message : 'Unknown error'
+    console.error('Error casting vote:', errMsg, error)
+    return NextResponse.json({ error: `Failed to cast vote: ${errMsg}` }, { status: 500 })
   }
 }

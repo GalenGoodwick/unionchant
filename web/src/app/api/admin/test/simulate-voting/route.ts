@@ -137,37 +137,79 @@ export async function POST(req: NextRequest) {
         unvotedParticipants = allUnvotedParticipants.slice(votesToLeaveOpen)
       }
 
-      // Build vote batch
-      const voteBatch: { cellId: string; userId: string; ideaId: string }[] = []
+      // Build XP allocation votes — each user distributes 10 XP across ideas
+      const voteBatch: { cellId: string; userId: string; ideaId: string; xpPoints: number }[] = []
       for (let i = 0; i < unvotedParticipants.length; i++) {
         const participant = unvotedParticipants[i]
-        const ideaIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
-        const ideaToVote = cell.ideas[Math.min(ideaIndex, cell.ideas.length - 1)]
-        if (!ideaToVote) continue
+        const cellIdeas = cell.ideas.map(ci => ci.ideaId)
+        if (cellIdeas.length === 0) continue
 
-        voteBatch.push({
-          cellId: cell.id,
-          userId: participant.userId,
-          ideaId: ideaToVote.ideaId,
-        })
+        // 60% of voters favor idea 0, 40% favor idea 1
+        const favorIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
+        const favorId = cellIdeas[Math.min(favorIndex, cellIdeas.length - 1)]
+
+        // Distribute 10 XP: 7 to favorite, 2 to second pick, 1 to third
+        const allocations: { ideaId: string; xp: number }[] = []
+        allocations.push({ ideaId: favorId, xp: 7 })
+        if (cellIdeas.length > 1) {
+          const secondId = cellIdeas[favorIndex === 0 ? 1 : 0]
+          allocations.push({ ideaId: secondId, xp: 2 })
+        }
+        if (cellIdeas.length > 2) {
+          const thirdIdx = cellIdeas.findIndex(id => !allocations.some(a => a.ideaId === id))
+          if (thirdIdx >= 0) allocations.push({ ideaId: cellIdeas[thirdIdx], xp: 1 })
+        }
+        // If only 1-2 ideas, put remaining XP on favorite
+        const allocated = allocations.reduce((s, a) => s + a.xp, 0)
+        if (allocated < 10) {
+          allocations[0].xp += (10 - allocated)
+        }
+
+        for (const alloc of allocations) {
+          voteBatch.push({
+            cellId: cell.id,
+            userId: participant.userId,
+            ideaId: alloc.ideaId,
+            xpPoints: alloc.xp,
+          })
+        }
       }
 
-      // Batch insert votes with skipDuplicates to prevent unique constraint errors
+      // Batch insert votes via raw SQL (xpPoints invisible to Prisma runtime)
       if (voteBatch.length > 0) {
-        const result = await prisma.vote.createMany({
-          data: voteBatch,
-          skipDuplicates: true,
-        })
-        votesCreated += result.count
+        for (const v of voteBatch) {
+          const voteId = `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+          try {
+            await prisma.$executeRaw`
+              INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt")
+              VALUES (${voteId}, ${v.cellId}, ${v.userId}, ${v.ideaId}, ${v.xpPoints}, NOW())
+              ON CONFLICT DO NOTHING
+            `
+            votesCreated++
+          } catch { /* skip duplicates */ }
+        }
       }
 
-      // Check if cell is now complete and process it
-      const updatedCell = await prisma.cell.findUnique({
-        where: { id: cell.id },
-        include: { votes: true, participants: true },
-      })
+      // Update idea XP totals after votes
+      for (const ci of cell.ideas) {
+        const totalXP = voteBatch
+          .filter(v => v.ideaId === ci.ideaId)
+          .reduce((s, v) => s + v.xpPoints, 0)
+        if (totalXP > 0) {
+          const voterCount = new Set(voteBatch.filter(v => v.ideaId === ci.ideaId).map(v => v.userId)).size
+          await prisma.$executeRaw`
+            UPDATE "Idea" SET "totalXP" = "totalXP" + ${totalXP}, "totalVotes" = "totalVotes" + ${voterCount} WHERE id = ${ci.ideaId}
+          `
+        }
+      }
 
-      if (updatedCell && updatedCell.votes.length >= updatedCell.participants.length) {
+      // Check if cell is now complete — count unique voters (not vote records, since each voter has multiple XP allocations)
+      const cellVotes = await prisma.vote.findMany({
+        where: { cellId: cell.id },
+        select: { userId: true },
+      })
+      const uniqueVoters = new Set(cellVotes.map(v => v.userId))
+      if (uniqueVoters.size >= cell.participants.length) {
         await processCellResults(cell.id)
       }
     }

@@ -50,10 +50,18 @@ export const authOptions: NextAuthOptions = {
         })
 
         if (!user || !user.passwordHash) return null
-        if (user.status === 'BANNED' || user.status === 'DELETED') return null
+        if (user.status === 'BANNED') return null
 
         const valid = await bcrypt.compare(credentials.password, user.passwordHash)
         if (!valid) return null
+
+        // Reactivate self-deleted accounts on login
+        if (user.status === 'DELETED') {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { status: 'ACTIVE', deletedAt: null },
+          })
+        }
 
         return { id: user.id, email: user.email, name: user.name, image: user.image }
       },
@@ -67,15 +75,22 @@ export const authOptions: NextAuthOptions = {
       // Skip status check for credentials (already handled in authorize)
       if (account?.provider === 'credentials') return true
 
-      // Check if user is banned or deleted
+      // Check if user is banned (deleted users can reactivate by logging in)
       try {
         if (user?.email) {
           const dbUser = await prisma.user.findUnique({
             where: { email: user.email },
-            select: { status: true },
+            select: { id: true, status: true },
           })
-          if (dbUser?.status === 'BANNED' || dbUser?.status === 'DELETED') {
+          if (dbUser?.status === 'BANNED') {
             return false
+          }
+          // Reactivate self-deleted accounts on OAuth login
+          if (dbUser?.status === 'DELETED') {
+            await prisma.user.update({
+              where: { id: dbUser.id },
+              data: { status: 'ACTIVE', deletedAt: null },
+            })
           }
         }
       } catch (error) {

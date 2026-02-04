@@ -75,14 +75,22 @@ function ChatBubble({
           <button
             onClick={() => onUpvote(comment.id)}
             disabled={upvoting === comment.id || comment.userHasUpvoted}
-            className={`flex items-center gap-0.5 text-[10px] transition-colors ${
+            className={`group relative flex items-center gap-0.5 text-[10px] transition-colors ${
               comment.userHasUpvoted
                 ? 'text-purple'
                 : 'text-muted hover:text-purple'
             }`}
           >
-            <svg className="w-3 h-3" fill={comment.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-44 rounded bg-surface-hover px-2 py-1 text-[10px] text-foreground text-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg border border-border z-10">
+              {comment.userHasUpvoted ? 'You pollinated this' : 'Pollinate — enough upvotes carry this comment to higher tiers'}
+            </span>
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 19V5" />
+              <path d="M5 12l7-7 7 7" />
+              {comment.userHasUpvoted && <>
+                <path d="M8 2l-2 2" opacity={0.6} />
+                <path d="M16 2l2 2" opacity={0.6} />
+              </>}
             </svg>
             {(comment.upvoteCount || 0) > 0 && (
               <span className="font-mono">{comment.upvoteCount}</span>

@@ -381,21 +381,17 @@ Choose the idea that best aligns with your values and perspective. Respond with 
     return { action: 'error', detail: 'No ideas to vote on' }
   }
 
-  // Cast the vote (AI allocates all 10 XP to chosen idea)
-  await prisma.vote.create({
-    data: {
-      cellId: cell.id,
-      userId: agent.user.id,
-      ideaId: chosenIdea.id,
-      xpPoints: 10,
-    },
-  })
+  // Cast the vote via raw SQL (xpPoints invisible to Prisma runtime client)
+  const voteId = `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+  await prisma.$executeRaw`
+    INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt")
+    VALUES (${voteId}, ${cell.id}, ${agent.user.id}, ${chosenIdea.id}, 10, NOW())
+  `
 
   // Update idea vote count and XP
-  await prisma.idea.update({
-    where: { id: chosenIdea.id },
-    data: { totalVotes: { increment: 1 }, totalXP: { increment: 10 } },
-  })
+  await prisma.$executeRaw`
+    UPDATE "Idea" SET "totalVotes" = "totalVotes" + 1, "totalXP" = "totalXP" + 10 WHERE id = ${chosenIdea.id}
+  `
 
   // Update participation status
   await prisma.cellParticipation.updateMany({

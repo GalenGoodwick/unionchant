@@ -124,31 +124,52 @@ export async function POST(req: NextRequest) {
         const votedUserIds = new Set(cell.votes.map(v => v.userId))
         const unvotedParticipants = cell.participants.filter(p => !votedUserIds.has(p.userId))
 
-        // Simulate votes - concentrate on first idea
+        // Simulate XP allocation votes — distribute 10 XP per voter
+        const cellIdeas = cell.ideas.map(ci => ci.ideaId)
         for (let i = 0; i < unvotedParticipants.length; i++) {
           const participant = unvotedParticipants[i]
-          const ideaIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
-          const ideaToVote = cell.ideas[Math.min(ideaIndex, cell.ideas.length - 1)]
+          if (cellIdeas.length === 0) continue
 
-          if (!ideaToVote) continue
+          // 60% favor idea 0, 40% favor idea 1
+          const favorIndex = i < Math.ceil(unvotedParticipants.length * 0.6) ? 0 : 1
+          const favorId = cellIdeas[Math.min(favorIndex, cellIdeas.length - 1)]
 
-          await prisma.vote.create({
-            data: {
-              cellId: cell.id,
-              userId: participant.userId,
-              ideaId: ideaToVote.ideaId,
-            },
-          })
+          // Distribute: 7 to favorite, 2 to second, 1 to third
+          const allocations: { ideaId: string; xp: number }[] = [{ ideaId: favorId, xp: 7 }]
+          if (cellIdeas.length > 1) {
+            allocations.push({ ideaId: cellIdeas[favorIndex === 0 ? 1 : 0], xp: 2 })
+          }
+          if (cellIdeas.length > 2) {
+            const thirdIdx = cellIdeas.findIndex(id => !allocations.some(a => a.ideaId === id))
+            if (thirdIdx >= 0) allocations.push({ ideaId: cellIdeas[thirdIdx], xp: 1 })
+          }
+          const allocated = allocations.reduce((s, a) => s + a.xp, 0)
+          if (allocated < 10) allocations[0].xp += (10 - allocated)
+
+          for (const alloc of allocations) {
+            const voteId = `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`
+            await prisma.$executeRaw`
+              INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt")
+              VALUES (${voteId}, ${cell.id}, ${participant.userId}, ${alloc.ideaId}, ${alloc.xp}, NOW())
+            `
+          }
           votesCreated++
+
+          // Update idea XP totals
+          for (const alloc of allocations) {
+            await prisma.$executeRaw`
+              UPDATE "Idea" SET "totalXP" = "totalXP" + ${alloc.xp}, "totalVotes" = "totalVotes" + 1 WHERE id = ${alloc.ideaId}
+            `
+          }
         }
 
-        // Process cell if complete
-        const updatedCell = await prisma.cell.findUnique({
-          where: { id: cell.id },
-          include: { votes: true, participants: true },
+        // Process cell if all participants voted (check unique userIds)
+        const allVotes = await prisma.vote.findMany({
+          where: { cellId: cell.id },
+          select: { userId: true },
         })
-
-        if (updatedCell && updatedCell.votes.length >= updatedCell.participants.length) {
+        const uniqueVoters = new Set(allVotes.map(v => v.userId))
+        if (uniqueVoters.size >= cell.participants.length) {
           await processCellResults(cell.id)
         }
       }

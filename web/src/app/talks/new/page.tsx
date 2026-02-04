@@ -226,7 +226,7 @@ function NewDeliberationForm() {
                 id="question"
                 required
                 maxLength={200}
-                placeholder="What should we decide on?"
+                placeholder="What should our top priority be this quarter?"
                 className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
                 value={formData.question}
                 onChange={(e) => setFormData({ ...formData, question: e.target.value })}

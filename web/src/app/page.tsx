@@ -2,7 +2,6 @@ import Link from 'next/link'
 import { Metadata } from 'next'
 import Header from '@/components/Header'
 import LandingCTA from '@/components/LandingCTA'
-import CollectiveChat from '@/components/CollectiveChat'
 
 export const metadata: Metadata = {
   title: 'Union Chant - Holding Quiet Hope',
@@ -14,18 +13,11 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      {/* ── Collective Chat — first thing mobile users see ── */}
-      <section className="bg-header border-b border-gold-border">
-        <div className="max-w-xl mx-auto px-4 py-6">
-          <CollectiveChat />
-        </div>
-      </section>
-
       {/* ── Hero ── */}
       <section className="bg-header text-white">
         <div className="max-w-5xl mx-auto px-6 py-24 md:py-36 text-center">
           <p className="text-accent-light text-sm font-medium tracking-widest uppercase mb-6">
-            Holding Quiet Hope
+            Continuous Consensus
           </p>
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-8 leading-[1.1] tracking-tight">
             What if a million people{' '}
@@ -49,12 +41,12 @@ export default function Home() {
               The best conversations happen in small groups
             </h2>
             <p className="text-lg text-subtle leading-relaxed mb-6">
-              Think about the best discussions you&apos;ve ever had. They
+              Think about the best discussions you&apos;ve ever experienced. They
               probably weren&apos;t in a stadium or a comment section. They were
               around a table, with a few people who had time to actually listen.
             </p>
             <p className="text-lg text-subtle leading-relaxed">
-              Union Chant takes this insight and scales it. Instead of putting
+              Union Chant provides this insight and scales it. Instead of putting
               everyone in one noisy room, we create{' '}
               <em className="text-foreground">thousands</em> of small
               conversations happening in parallel&mdash;then connect them

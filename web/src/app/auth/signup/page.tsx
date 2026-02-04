@@ -15,6 +15,8 @@ export default function SignUpPage() {
   const [success, setSuccess] = useState(false)
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const handleCaptchaExpire = useCallback(() => setCaptchaToken(null), [])
+  const [resending, setResending] = useState(false)
+  const [resent, setResent] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -42,18 +44,50 @@ export default function SignUpPage() {
     }
   }
 
+  const handleResend = async () => {
+    setResending(true)
+    try {
+      await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      setResent(true)
+    } catch {
+      // ignore
+    } finally {
+      setResending(false)
+    }
+  }
+
   if (success) {
     return (
       <div className="min-h-screen bg-surface flex items-center justify-center">
         <div className="bg-background rounded-lg p-8 max-w-md w-full mx-4 border border-border text-center">
           <div className="text-4xl mb-4">&#9993;</div>
           <h1 className="text-2xl font-bold text-foreground mb-2">Check your email</h1>
-          <p className="text-muted mb-6">
+          <p className="text-muted mb-4">
             We sent a verification link to <strong>{email}</strong>. Click the link to verify your account.
           </p>
-          <Link href="/auth/signin" className="text-accent hover:text-accent-hover">
-            Go to sign in
-          </Link>
+          <p className="text-muted text-sm mb-6">
+            Check your spam/junk folder if you don&apos;t see it.
+          </p>
+          {resent ? (
+            <p className="text-success text-sm mb-4">Verification email resent.</p>
+          ) : (
+            <button
+              onClick={handleResend}
+              disabled={resending}
+              className="text-accent hover:text-accent-hover text-sm mb-4 disabled:opacity-50"
+            >
+              {resending ? 'Resending...' : 'Didn\'t get it? Resend verification email'}
+            </button>
+          )}
+          <div>
+            <Link href="/auth/signin" className="text-accent hover:text-accent-hover">
+              Go to sign in
+            </Link>
+          </div>
         </div>
       </div>
     )
