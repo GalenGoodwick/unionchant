@@ -51,7 +51,11 @@ function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: 
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+    <div
+      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"
+      role="status"
+      aria-live="polite"
+    >
       {toasts.map(toast => (
         <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
       ))}
@@ -75,6 +79,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
 
   return (
     <div
+      role="alert"
       className={`${colors[toast.type]} px-4 py-3 rounded-lg shadow-lg flex items-center justify-between gap-3 animate-in slide-in-from-right`}
     >
       <p className="text-sm">{toast.message}</p>

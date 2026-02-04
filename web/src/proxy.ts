@@ -7,6 +7,7 @@ const EXEMPT_PATHS = [
   '/api/cron/',
   '/api/auth/',
   '/api/og',
+  '/api/admin/test/',
 ]
 
 export function proxy(req: NextRequest) {
@@ -22,11 +23,14 @@ export function proxy(req: NextRequest) {
 
   // Validate Origin header (OWASP recommended)
   const origin = req.headers.get('origin')
-  if (origin) {
-    const allowed = req.nextUrl.origin
-    if (origin !== allowed) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  if (!origin) {
+    // No Origin header on a mutation — block it
+    return NextResponse.json({ error: 'Forbidden: missing origin' }, { status: 403 })
+  }
+
+  const allowed = req.nextUrl.origin
+  if (origin !== allowed) {
+    return NextResponse.json({ error: 'Forbidden: origin mismatch' }, { status: 403 })
   }
 
   return NextResponse.next()

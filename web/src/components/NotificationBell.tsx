@@ -145,7 +145,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
           setIsOpen(next)
           if (next) onOpen?.()
         }}
-        className="relative p-1 text-muted-light hover:text-foreground transition-colors"
+        className="relative p-2 text-muted-light hover:text-foreground transition-colors"
         aria-label="Notifications"
       >
         <svg

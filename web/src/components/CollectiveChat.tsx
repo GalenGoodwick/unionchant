@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 interface Message {
@@ -14,12 +15,54 @@ interface Message {
   createdAt: string
 }
 
-interface ExistingTalk {
-  id: string
-  question: string
+// Parse [action:navigate:/path]Label[/action] tags + bare /talks/ID links
+function parseMessageContent(content: string): ReactNode[] {
+  const parts: ReactNode[] = []
+  // Match both action tags and bare /talks/ links
+  const regex = /\[action:navigate:(\/[^\]]+)\]([^\[]+)\[\/action\]|(\/talks\/[a-zA-Z0-9_-]+)/g
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(content)) !== null) {
+    // Add text before this match
+    if (match.index > lastIndex) {
+      parts.push(content.slice(lastIndex, match.index))
+    }
+
+    if (match[1] && match[2]) {
+      // Action tag: [action:navigate:/path]Label[/action]
+      parts.push(
+        <ActionButton key={`action-${match.index}`} path={match[1]} label={match[2]} />
+      )
+    } else if (match[3]) {
+      // Bare /talks/ID link
+      parts.push(
+        <ActionButton key={`link-${match.index}`} path={match[3]} label={match[3]} />
+      )
+    }
+
+    lastIndex = match.index + match[0].length
+  }
+
+  // Add remaining text
+  if (lastIndex < content.length) {
+    parts.push(content.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : [content]
 }
 
-type ChatMode = 'collective' | 'private'
+function ActionButton({ path, label }: { path: string; label: string }) {
+  const router = useRouter()
+  return (
+    <button
+      onClick={() => router.push(path)}
+      className="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 rounded bg-gold/15 text-gold hover:bg-gold/25 text-xs font-medium border border-gold-border transition-colors"
+    >
+      {label} &rarr;
+    </button>
+  )
+}
 
 export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const { data: session } = useSession()
@@ -27,16 +70,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [existingTalk, setExistingTalk] = useState<ExistingTalk | null>(null)
-  const [mode, setMode] = useState<ChatMode>('collective')
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-
-  // Set-as-Talk state
-  const [settingTalk, setSettingTalk] = useState(false)
-  const [talkConfirm, setTalkConfirm] = useState<{ message: string } | null>(null)
-  const [talkError, setTalkError] = useState<string | null>(null)
-  const [talkSuccess, setTalkSuccess] = useState<string | null>(null)
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -61,37 +96,38 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     setShowSkip(distanceFromBottom > 100)
   }, [])
 
-  // Poll for messages every 10 seconds
+  // Fetch messages once on mount
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const url = mode === 'private'
-          ? '/api/collective-chat?mode=private'
-          : '/api/collective-chat'
-        const res = await fetch(url)
+        const res = await fetch('/api/collective-chat')
         if (res.ok) {
           const data = await res.json()
           setMessages(data.messages)
           setHasMore(!!data.hasMore)
-          if (data.existingTalk) {
-            setExistingTalk(data.existingTalk)
-          }
         }
       } catch {
-        // Silently fail polling
+        // Silently fail
       }
     }
 
     fetchMessages()
-    const interval = setInterval(fetchMessages, 10000)
-    return () => clearInterval(interval)
-  }, [mode])
+  }, [])
 
+  // Only auto-scroll if user is already near the bottom
+  const isNearBottomRef = useRef(true)
   useEffect(() => {
-    scrollToBottom()
+    const el = chatContainerRef.current
+    if (!el) return
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+    isNearBottomRef.current = distanceFromBottom < 100
+  })
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      scrollToBottom()
+    }
   }, [messages, scrollToBottom])
 
-  // Chat send — free, no Talk creation
   const handleSend = async () => {
     if (!input.trim() || sending) return
     const messageText = input.trim()
@@ -103,7 +139,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const res = await fetch('/api/collective-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, model: 'haiku', isPrivate: mode === 'private' }),
+        body: JSON.stringify({ message: messageText }),
       })
 
       const data = await res.json()
@@ -115,7 +151,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       }
 
       // Refetch messages
-      const messagesRes = await fetch(mode === 'private' ? '/api/collective-chat?mode=private' : '/api/collective-chat')
+      const messagesRes = await fetch('/api/collective-chat')
       if (messagesRes.ok) {
         const messagesData = await messagesRes.json()
         setMessages(messagesData.messages)
@@ -128,63 +164,12 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  // Set a message as a Talk (explicit action — always confirm first)
-  const handleSetAsTalk = async (messageText: string, confirmed: boolean = false) => {
-    // Always ask for confirmation before creating/replacing a Talk
-    if (!confirmed) {
-      setTalkConfirm({ message: messageText })
-      return
-    }
-
-    setSettingTalk(true)
-    setTalkError(null)
-    setTalkSuccess(null)
-    setTalkConfirm(null)
-
-    const replaceExisting = !!existingTalk
-
-    try {
-      const res = await fetch('/api/collective-chat/set-talk', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText, replaceExisting }),
-      })
-
-      const data = await res.json()
-
-      if (!res.ok) {
-        if (data.error === 'HAS_EXISTING_TALK' && !replaceExisting) {
-          setTalkConfirm({ message: messageText })
-          setExistingTalk(data.existingTalk)
-          return
-        }
-        if (data.error === 'RATE_LIMITED') {
-          setTalkError(data.message)
-          return
-        }
-        setTalkError(data.error || 'Failed to create Talk')
-        return
-      }
-
-      setExistingTalk(data.talk)
-      setTalkSuccess(data.talk.id)
-      setTimeout(() => setTalkSuccess(null), 10000)
-    } catch {
-      setTalkError('Failed to create Talk. Please try again.')
-    } finally {
-      setSettingTalk(false)
-    }
-  }
-
   const loadOlderMessages = async () => {
     if (!messages.length || loadingMore) return
     setLoadingMore(true)
     try {
       const oldest = messages[0].createdAt
-      const url = mode === 'private'
-        ? `/api/collective-chat?mode=private&before=${oldest}`
-        : `/api/collective-chat?before=${oldest}`
-      const res = await fetch(url)
+      const res = await fetch(`/api/collective-chat?before=${oldest}`)
       if (res.ok) {
         const data = await res.json()
         if (data.messages.length > 0) {
@@ -216,25 +201,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               The Collective
             </h3>
             <p className="text-xs text-muted">
-              {mode === 'private'
-                ? 'Private conversation — only you can see these messages.'
-                : 'Ask it to create a Talk for you or simply chat with it \u2014 your own facilitated conversation.'}
+              Your personal AI guide to Union Chant.
             </p>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gold-bg text-gold border border-gold-border font-mono">
-              Haiku
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted-light border border-border font-mono cursor-not-allowed" title="Coming soon">
-              Sonnet
-            </span>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-surface text-muted-light border border-border font-mono cursor-not-allowed" title="Coming soon">
-              Opus
-            </span>
             {onClose && (
               <button
                 onClick={onClose}
-                className="ml-1 p-1.5 rounded-lg text-gold hover:text-foreground hover:bg-gold/10 transition-colors"
+                className="ml-1 p-2.5 rounded-lg text-gold hover:text-foreground hover:bg-gold/10 transition-colors"
                 aria-label="Close chat"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -245,47 +219,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       </div>
-
-      {/* Mode tabs */}
-      {session && (
-        <div className="flex border-b border-gold-border">
-          <button
-            onClick={() => setMode('collective')}
-            className={`flex-1 py-1.5 text-xs font-medium text-center transition-colors border-b-2 ${
-              mode === 'collective'
-                ? 'text-gold border-gold'
-                : 'text-muted border-transparent hover:text-foreground'
-            }`}
-          >
-            Collective
-          </button>
-          <button
-            onClick={() => setMode('private')}
-            className={`flex-1 py-1.5 text-xs font-medium text-center transition-colors border-b-2 ${
-              mode === 'private'
-                ? 'text-gold border-gold'
-                : 'text-muted border-transparent hover:text-foreground'
-            }`}
-          >
-            Tune Out
-          </button>
-        </div>
-      )}
-
-      {/* Your active Talk */}
-      {existingTalk && !talkConfirm && (
-        <div className="px-4 py-2 border-b border-gold-border bg-gold-bg">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-gold-muted font-mono uppercase">Your Talk</span>
-            <Link
-              href={`/talks/${existingTalk.id}`}
-              className="flex-1 text-xs text-gold hover:text-gold-hover truncate transition-colors"
-            >
-              {existingTalk.question}
-            </Link>
-          </div>
-        </div>
-      )}
 
       {/* Messages */}
       <div
@@ -298,7 +231,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             <button
               onClick={loadOlderMessages}
               disabled={loadingMore}
-              className="text-[10px] px-3 py-1 rounded-full bg-surface-hover text-muted hover:text-foreground border border-border transition-colors disabled:opacity-50"
+              className="text-[11px] px-3 py-1.5 rounded-full bg-surface-hover text-muted hover:text-foreground border border-border transition-colors disabled:opacity-50"
             >
               {loadingMore ? 'Loading...' : 'Load older messages'}
             </button>
@@ -306,21 +239,10 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         )}
         {messages.length === 0 && (
           <div className="text-center text-muted text-sm py-12">
-            {mode === 'private' ? (
-              <>
-                <p className="mb-1 text-gold/80">Private conversation</p>
-                <p className="text-muted-light text-xs">
-                  Messages here are only visible to you.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="mb-1 text-gold/80">100 AI agents are deliberating.</p>
-                <p className="text-muted-light text-xs">
-                  Chat freely. Set your best idea as a Talk.
-                </p>
-              </>
-            )}
+            <p className="mb-1 text-gold/80">The Collective</p>
+            <p className="text-muted-light text-xs">
+              Ask about talks, get voting reminders, or explore the platform.
+            </p>
           </div>
         )}
 
@@ -348,7 +270,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                   Collective
                 </div>
               )}
-              <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+              <div className="whitespace-pre-wrap leading-relaxed">
+                {parseMessageContent(msg.content)}
+              </div>
             </div>
             <div className="flex items-center gap-2 mt-0.5 px-1">
               <span className="text-[9px] text-muted-light">
@@ -357,17 +281,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                   minute: '2-digit',
                 })}
               </span>
-              {/* Set as Talk button on user messages */}
-              {msg.role === 'user' && session?.user && msg.userId && (
-                <button
-                  onClick={() => handleSetAsTalk(msg.content)}
-                  disabled={settingTalk}
-                  className="text-[9px] text-gold/60 hover:text-gold transition-colors disabled:opacity-50"
-                  title="Set this message as your Talk"
-                >
-                  {settingTalk ? '...' : 'Set as Talk'}
-                </button>
-              )}
             </div>
           </div>
         ))}
@@ -375,7 +288,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         {sending && (
           <div className="flex items-start">
             <div className="bg-gold-bg border border-gold-border rounded-lg px-3 py-2 text-sm text-muted">
-              <div className="text-[10px] text-gold mb-0.5 font-mono">Collective</div>
+              <div className="text-[10px] text-gold mb-0.5 font-mono">Guide</div>
               <span className="animate-pulse">Thinking...</span>
             </div>
           </div>
@@ -389,84 +302,15 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         <div className="flex justify-center -mt-10 relative z-10 pointer-events-none">
           <button
             onClick={() => scrollToBottom()}
-            className="pointer-events-auto text-[10px] px-3 py-1 rounded-full bg-gold text-background font-medium shadow-lg hover:bg-gold-hover transition-colors"
+            className="pointer-events-auto text-[11px] px-3 py-1.5 rounded-full bg-gold text-background font-medium shadow-lg hover:bg-gold-hover transition-colors"
           >
             Skip to present
           </button>
         </div>
       )}
 
-      {/* Confirm Talk creation/replacement */}
-      {talkConfirm && (
-        <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
-          {existingTalk ? (
-            <>
-              <p className="text-sm text-foreground mb-1">
-                You already have a Talk:
-              </p>
-              <p className="text-xs text-gold mb-3 italic truncate">
-                &ldquo;{existingTalk.question}&rdquo;
-              </p>
-              <p className="text-xs text-muted mb-3">
-                Setting a new Talk will <strong className="text-error">delete</strong> your existing one. All ideas, votes, and comments will be lost.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-foreground mb-1">
-                Create a Talk from this message?
-              </p>
-              <p className="text-xs text-gold mb-3 italic truncate">
-                &ldquo;{talkConfirm.message}&rdquo;
-              </p>
-              <p className="text-xs text-muted mb-3">
-                This becomes a public deliberation that others can join, discuss, and vote on.
-              </p>
-            </>
-          )}
-          <div className="flex gap-2">
-            <button
-              onClick={() => handleSetAsTalk(talkConfirm.message, true)}
-              disabled={settingTalk}
-              className="text-xs px-3 py-1.5 rounded-lg bg-gold hover:bg-gold-hover text-background font-medium transition-colors disabled:opacity-50"
-            >
-              {settingTalk ? 'Creating...' : existingTalk ? 'Replace Talk' : 'Create Talk'}
-            </button>
-            <button
-              onClick={() => setTalkConfirm(null)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-surface hover:bg-surface-hover text-foreground border border-border transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Talk success */}
-      {talkSuccess && !talkConfirm && (
-        <div className="px-4 py-2 border-t border-gold-border bg-success-bg text-success text-xs flex items-center justify-between">
-          <span>Talk created! Others can now deliberate on your idea.</span>
-          <Link
-            href={`/talks/${talkSuccess}`}
-            className="ml-2 shrink-0 px-3 py-1 rounded-lg bg-success text-white font-medium hover:bg-success-hover transition-colors"
-          >
-            View Talk
-          </Link>
-        </div>
-      )}
-
-      {/* Talk error (rate limit etc) */}
-      {talkError && !talkConfirm && (
-        <div className="px-4 py-2 border-t border-gold-border bg-error-bg text-error text-xs">
-          {talkError}
-          <Link href="/pricing" className="ml-1 underline hover:text-error-hover">
-            Upgrade for unlimited
-          </Link>
-        </div>
-      )}
-
       {/* Error */}
-      {error && !talkConfirm && (
+      {error && (
         <div className="px-4 py-2 border-t border-error-border bg-error-bg text-error text-xs">
           {error}
         </div>
@@ -481,14 +325,16 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Chat with the collective..."
-              disabled={sending || !!talkConfirm}
+              placeholder="Ask anything..."
+              disabled={sending}
               maxLength={2000}
+              aria-label="Chat message"
               className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || sending || !!talkConfirm}
+              disabled={!input.trim() || sending}
+              aria-label="Send message"
               className="px-4 py-2 bg-gold hover:bg-gold-hover text-background text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Send

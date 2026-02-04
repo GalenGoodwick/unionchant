@@ -3,14 +3,22 @@
 import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Header from '@/components/Header'
 import ShareMenu from '@/components/ShareMenu'
 import { FullPageSpinner } from '@/components/Spinner'
+import { useToast } from '@/components/Toast'
 import { getDisplayName } from '@/lib/user'
 import { phaseLabel } from '@/lib/labels'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
+
+type ChatMessage = {
+  id: string
+  text: string
+  createdAt: string
+  user: { id: string; name: string | null; image: string | null }
+}
 
 type Member = {
   id: string
@@ -56,6 +64,236 @@ function timeAgo(date: string): string {
   const days = Math.floor(hours / 24)
   if (days < 30) return `${days}d ago`
   return new Date(date).toLocaleDateString()
+}
+
+function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: Member[]; isOwnerOrAdmin: boolean }) {
+  const { showToast } = useToast()
+  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [newMsg, setNewMsg] = useState('')
+  const [sending, setSending] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [hasMore, setHasMore] = useState(false)
+  const [expanded, setExpanded] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const isNearBottom = useRef(true)
+
+  const memberRoles = useRef(new Map<string, string>())
+  useEffect(() => {
+    const m = new Map<string, string>()
+    members.forEach(mb => m.set(mb.user.id, mb.role))
+    memberRoles.current = m
+  }, [members])
+
+  const fetchMessages = useCallback(async (before?: string) => {
+    try {
+      const url = `/api/communities/${slug}/chat${before ? `?before=${before}` : ''}`
+      const res = await fetch(url)
+      if (!res.ok) return
+      const data = await res.json()
+      if (before) {
+        setMessages(prev => [...data.messages, ...prev])
+      } else {
+        setMessages(data.messages)
+      }
+      setHasMore(data.hasMore)
+    } catch {}
+    setLoading(false)
+  }, [slug])
+
+  useEffect(() => {
+    fetchMessages()
+    const interval = setInterval(() => fetchMessages(), 8000)
+    return () => clearInterval(interval)
+  }, [fetchMessages])
+
+  useEffect(() => {
+    if (isNearBottom.current && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages.length])
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    isNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newMsg.trim() || sending) return
+    setSending(true)
+    try {
+      const res = await fetch(`/api/communities/${slug}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newMsg }),
+      })
+      if (res.ok) {
+        const msg = await res.json()
+        setMessages(prev => [...prev, msg])
+        setNewMsg('')
+        isNearBottom.current = true
+      } else {
+        const data = await res.json()
+        showToast(data.error || 'Failed to send', 'error')
+      }
+    } catch {
+      showToast('Failed to send message', 'error')
+    }
+    setSending(false)
+  }
+
+  const handleDelete = async (messageId: string) => {
+    try {
+      const res = await fetch(`/api/communities/${slug}/chat/${messageId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setMessages(prev => prev.filter(m => m.id !== messageId))
+      } else {
+        const data = await res.json()
+        showToast(data.error || 'Failed to delete', 'error')
+      }
+    } catch {
+      showToast('Failed to delete message', 'error')
+    }
+  }
+
+  const handleBan = async (userId: string, userName: string) => {
+    if (!confirm(`Ban ${userName} from this group permanently?`)) return
+    try {
+      const res = await fetch(`/api/communities/${slug}/ban`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      if (res.ok) {
+        showToast(`${userName} has been banned`, 'success')
+        setMessages(prev => prev.filter(m => m.user.id !== userId))
+      } else {
+        const data = await res.json()
+        showToast(data.error || 'Failed to ban', 'error')
+      }
+    } catch {
+      showToast('Failed to ban user', 'error')
+    }
+  }
+
+  const formatTime = (d: string) => {
+    const diff = Date.now() - new Date(d).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'now'
+    if (mins < 60) return `${mins}m`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h`
+    return `${Math.floor(hours / 24)}d`
+  }
+
+  return (
+    <div className="bg-surface border border-border rounded-xl mb-6 overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-3 hover:bg-surface-hover transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <svg className={`w-4 h-4 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <h2 className="text-sm font-semibold text-foreground">Group Chat</h2>
+          {messages.length > 0 && (
+            <span className="text-xs text-muted font-mono">{messages.length}</span>
+          )}
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border">
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="max-h-64 overflow-y-auto p-3 space-y-2"
+          >
+            {hasMore && (
+              <button
+                onClick={() => messages.length > 0 && fetchMessages(messages[0].createdAt)}
+                className="w-full text-xs text-accent hover:text-accent-hover py-1"
+              >
+                Load older messages
+              </button>
+            )}
+            {loading ? (
+              <p className="text-muted text-sm text-center py-4">Loading...</p>
+            ) : messages.length === 0 ? (
+              <p className="text-muted text-sm text-center py-4">No messages yet. Say hello!</p>
+            ) : (
+              messages.map(msg => {
+                const role = memberRoles.current.get(msg.user.id)
+                return (
+                  <div key={msg.id} className="relative group flex gap-2">
+                    {msg.user.image ? (
+                      <img src={msg.user.image} alt="" className="w-6 h-6 rounded-full shrink-0 mt-0.5" />
+                    ) : (
+                      <span className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent shrink-0 mt-0.5">
+                        {(msg.user.name || '?').charAt(0).toUpperCase()}
+                      </span>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-xs font-medium text-foreground">{msg.user.name || 'Anonymous'}</span>
+                        {(role === 'OWNER' || role === 'ADMIN') && (
+                          <span className="text-[10px] px-1 py-0 rounded bg-accent/10 text-accent">
+                            {role === 'OWNER' ? 'Owner' : 'Admin'}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-muted">{formatTime(msg.createdAt)}</span>
+                        {isOwnerOrAdmin && role !== 'OWNER' && role !== 'ADMIN' && (
+                          <button
+                            onClick={() => handleBan(msg.user.id, msg.user.name || 'this user')}
+                            className="text-[10px] text-muted hover:text-error transition-colors"
+                            title="Ban user"
+                          >
+                            ban
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground break-words">{msg.text}</p>
+                    </div>
+                    {isOwnerOrAdmin && (
+                      <button
+                        onClick={() => handleDelete(msg.id)}
+                        className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center rounded text-muted opacity-0 group-hover:opacity-100 hover:text-error hover:bg-error/10 transition-all text-sm"
+                        title="Delete message"
+                      >
+                        &times;
+                      </button>
+                    )}
+                  </div>
+                )
+              })
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <form onSubmit={handleSend} className="border-t border-border p-2 flex gap-2">
+            <input
+              type="text"
+              value={newMsg}
+              onChange={e => setNewMsg(e.target.value)}
+              placeholder="Message..."
+              maxLength={2000}
+              className="flex-1 bg-background border border-border rounded px-3 py-1.5 text-sm text-foreground placeholder-muted focus:outline-none focus:border-accent"
+            />
+            <button
+              type="submit"
+              disabled={sending || !newMsg.trim()}
+              className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-sm disabled:opacity-50"
+            >
+              {sending ? '...' : 'Send'}
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function CommunityPageClient() {
@@ -269,6 +507,9 @@ export default function CommunityPageClient() {
             + New Talk in this Group
           </Link>
         )}
+
+        {/* Group Chat — members only */}
+        {isMember && <GroupChat slug={slug} members={community.members} isOwnerOrAdmin={isOwnerOrAdmin} />}
 
         {/* Active questions */}
         <div className="mb-6">

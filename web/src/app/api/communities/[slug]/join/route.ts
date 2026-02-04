@@ -41,6 +41,14 @@ export async function POST(
       return NextResponse.json({ error: 'This community is private. Use an invite link to join.' }, { status: 403 })
     }
 
+    // Check if banned
+    const ban = await prisma.communityBan.findUnique({
+      where: { communityId_userId: { communityId: community.id, userId: user.id } },
+    })
+    if (ban) {
+      return NextResponse.json({ error: 'You have been banned from this group' }, { status: 403 })
+    }
+
     // Check if already a member
     const existing = await prisma.communityMember.findUnique({
       where: { communityId_userId: { communityId: community.id, userId: user.id } },

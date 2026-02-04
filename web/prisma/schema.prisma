@@ -101,6 +101,13 @@ model User {
   // Idea revision relations
   ideaRevisionsProposed IdeaRevision[]     @relation("RevisionProposer")
   ideaRevisionVotes     IdeaRevisionVote[] @relation("RevisionVoter")
+
+  // Group chat
+  groupMessages         GroupMessage[]      @relation("GroupMessages")
+
+  // Community bans
+  communityBans         CommunityBan[]      @relation("CommunityBans")
+  communityBansMade     CommunityBan[]      @relation("CommunityBansMade")
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -574,6 +581,7 @@ enum NotificationType {
   FOLLOWED_NEW_DELIB   // Someone you follow created a new deliberation
   FOLLOWED_VOTED       // Someone you follow voted in a deliberation you're not in
   CONTENT_REMOVED      // Your content was removed by a moderator
+  COMMUNITY_BAN        // You banned a user from a group
 }
 
 // ============ COMMUNITIES ============
@@ -604,6 +612,8 @@ model Community {
 
   members       CommunityMember[]
   deliberations Deliberation[]
+  chatMessages  GroupMessage[]
+  bans          CommunityBan[]
 
   @@index([creatorId])
   @@index([isPublic])
@@ -846,4 +856,32 @@ model CollectiveMessage {
   @@index([createdAt])
   @@index([userId, isPrivate])
   @@index([userId, createdAt])
+}
+
+model CommunityBan {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("CommunityBans", fields: [userId], references: [id], onDelete: Cascade)
+  bannedById  String
+  bannedBy    User      @relation("CommunityBansMade", fields: [bannedById], references: [id])
+  reason      String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([communityId, userId])
+  @@index([communityId])
+  @@index([userId])
+}
+
+model GroupMessage {
+  id          String    @id @default(cuid())
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation("GroupMessages", fields: [userId], references: [id], onDelete: Cascade)
+  text        String    @db.Text
+  createdAt   DateTime  @default(now())
+
+  @@index([communityId, createdAt])
 }

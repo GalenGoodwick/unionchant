@@ -69,6 +69,10 @@ export default function CommunitySettingsPage() {
   const [inviteSending, setInviteSending] = useState(false)
   const [inviteResult, setInviteResult] = useState('')
 
+  // Banned users
+  type BannedUser = { id: string; user: { id: string; name: string | null; image: string | null }; bannedBy: { name: string | null }; createdAt: string; reason: string | null }
+  const [bannedUsers, setBannedUsers] = useState<BannedUser[]>([])
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/auth/signin')
@@ -88,6 +92,7 @@ export default function CommunitySettingsPage() {
             isPublic: data.isPublic,
             postingPermission: data.postingPermission || 'anyone',
           })
+          fetch(`/api/communities/${slug}/ban`).then(r => r.ok ? r.json() : []).then(setBannedUsers).catch(() => {})
         })
         .catch(err => setError(err.message))
         .finally(() => setLoading(false))
@@ -152,6 +157,59 @@ export default function CommunitySettingsPage() {
       setCommunity(updated)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove')
+    }
+  }
+
+  const handlePurgeChat = async () => {
+    if (!confirm('Delete ALL chat messages in this group? This cannot be undone.')) return
+    try {
+      const res = await fetch(`/api/communities/${slug}/chat`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      const data = await res.json()
+      setSuccess(`Purged ${data.deleted} message(s)`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to purge chat')
+    }
+  }
+
+  const handleBanMember = async (userId: string, userName: string) => {
+    if (!confirm(`Permanently ban ${userName} from this group? They will not be able to rejoin.`)) return
+    try {
+      const res = await fetch(`/api/communities/${slug}/ban`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      setSuccess(`${userName} has been banned`)
+      setTimeout(() => setSuccess(''), 3000)
+      const updated = await fetch(`/api/communities/${slug}`).then(r => r.json())
+      setCommunity(updated)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to ban user')
+    }
+  }
+
+  const handleUnban = async (banId: string, userId: string, userName: string) => {
+    if (!confirm(`Unban ${userName}? They will be able to rejoin the group.`)) return
+    try {
+      const res = await fetch(`/api/communities/${slug}/ban/${userId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      setBannedUsers(prev => prev.filter(b => b.id !== banId))
+      setSuccess(`${userName} has been unbanned`)
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unban')
     }
   }
 
@@ -317,6 +375,18 @@ export default function CommunitySettingsPage() {
           </form>
         </div>
 
+        {/* Purge Chat */}
+        <div className="bg-surface border border-border rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-2">Group Chat</h2>
+          <p className="text-muted text-sm mb-4">Delete all chat messages in this group.</p>
+          <button
+            onClick={handlePurgeChat}
+            className="bg-error/10 text-error border border-error/30 hover:bg-error/20 px-4 py-2 rounded-xl font-medium text-sm transition-colors"
+          >
+            Purge All Messages
+          </button>
+        </div>
+
         {/* Members */}
         <div className="bg-surface border border-border rounded-xl p-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">
@@ -359,15 +429,29 @@ export default function CommunitySettingsPage() {
                         >
                           Remove
                         </button>
+                        <button
+                          onClick={() => handleBanMember(m.user.id, getDisplayName(m.user))}
+                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error text-white hover:bg-error-hover transition-colors"
+                        >
+                          Ban
+                        </button>
                       </>
                     )}
                     {m.role === 'MEMBER' && community.userRole === 'ADMIN' && (
-                      <button
-                        onClick={() => handleRemoveMember(m.user.id)}
-                        className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
-                      >
-                        Remove
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleRemoveMember(m.user.id)}
+                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                        >
+                          Remove
+                        </button>
+                        <button
+                          onClick={() => handleBanMember(m.user.id, getDisplayName(m.user))}
+                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error text-white hover:bg-error-hover transition-colors"
+                        >
+                          Ban
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -375,6 +459,37 @@ export default function CommunitySettingsPage() {
             })}
           </div>
         </div>
+
+        {/* Banned Users */}
+        {bannedUsers.length > 0 && (
+          <div className="bg-surface border border-border rounded-xl p-6 mt-6">
+            <h2 className="text-lg font-semibold text-foreground mb-4">
+              Banned Users ({bannedUsers.length})
+            </h2>
+            <div className="space-y-2">
+              {bannedUsers.map(b => (
+                <div key={b.id} className="flex items-center justify-between p-3 bg-background rounded-xl border border-border">
+                  <div className="flex items-center gap-3">
+                    <MemberAvatar image={b.user.image} name={b.user.name} />
+                    <div>
+                      <span className="text-foreground text-sm font-medium">{b.user.name || 'Unknown'}</span>
+                      <p className="text-xs text-muted">
+                        Banned by {b.bannedBy.name || 'admin'}
+                        {b.reason && <> &middot; {b.reason}</>}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleUnban(b.id, b.user.id, b.user.name || 'this user')}
+                    className="text-xs px-3 py-1.5 rounded-xl font-medium bg-success/10 text-success border border-success/30 hover:bg-success/20 transition-colors"
+                  >
+                    Unban
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

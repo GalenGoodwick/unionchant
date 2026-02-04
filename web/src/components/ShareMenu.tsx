@@ -174,7 +174,7 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
         <button
           ref={buttonRef}
           onClick={handleShare}
-          className="text-muted hover:text-foreground transition-colors p-1"
+          className="text-muted hover:text-foreground transition-colors p-2"
           title="Share"
           aria-label="Share"
         >

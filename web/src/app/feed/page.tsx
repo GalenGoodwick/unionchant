@@ -150,21 +150,25 @@ function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEnt
 
   if (allItems.length === 0) return <EmptyFeed authenticated={authenticated} />
 
-  // Split: upvoted (has upvotes, sorted by count desc) vs new (no upvotes or everything by recency)
+  // Split: upvoted (has upvotes, sorted by count desc) vs new (no upvotes)
+  const podiumsSummary = allItems.find(e => e.kind === 'podiums_summary')
   const upvoted = allItems
-    .filter(e => (e.deliberation?.upvoteCount ?? 0) > 0)
+    .filter(e => (e.deliberation?.upvoteCount ?? 0) > 0 && e.kind !== 'podiums_summary')
     .sort((a, b) => (b.deliberation?.upvoteCount ?? 0) - (a.deliberation?.upvoteCount ?? 0))
-  const fresh = allItems.filter(e => (e.deliberation?.upvoteCount ?? 0) === 0 || e.kind === 'podiums_summary')
+  const fresh = allItems.filter(e => (e.deliberation?.upvoteCount ?? 0) === 0 && e.kind !== 'podiums_summary')
 
-  const upvotedList = upvoted.length > 0 ? (
+  const upvotedList = (
     <div className="flex flex-col gap-3">
-      {upvoted.map((entry) => (
-        <FeedCard key={entry.id} entry={entry} />
-      ))}
-    </div>
-  ) : (
-    <div className="text-center py-8 text-muted text-sm bg-surface border border-border rounded-xl">
-      No upvoted talks yet
+      {podiumsSummary && <FeedCard key={podiumsSummary.id} entry={podiumsSummary} />}
+      {upvoted.length > 0 ? (
+        upvoted.map((entry) => (
+          <FeedCard key={entry.id} entry={entry} />
+        ))
+      ) : (
+        <div className="text-center py-8 text-muted text-sm bg-surface border border-border rounded-xl">
+          No upvoted talks yet
+        </div>
+      )}
     </div>
   )
 
@@ -183,8 +187,10 @@ function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEnt
   return (
     <>
       {/* Mobile: sub-tabs to switch between Upvoted and New */}
-      <div className="flex md:hidden border-b border-border mb-4">
+      <div className="flex md:hidden border-b border-border mb-4" role="tablist" aria-label="Feed columns">
         <button
+          role="tab"
+          aria-selected={mobileSubTab === 'upvoted'}
           onClick={() => setMobileSubTab('upvoted')}
           className={`flex-1 py-2 text-center text-xs font-medium transition-colors border-b-2 ${
             mobileSubTab === 'upvoted' ? 'text-foreground border-accent' : 'text-muted border-transparent'
@@ -193,6 +199,8 @@ function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEnt
           Upvoted <span className="font-mono text-muted">{upvoted.length}</span>
         </button>
         <button
+          role="tab"
+          aria-selected={mobileSubTab === 'new'}
           onClick={() => setMobileSubTab('new')}
           className={`flex-1 py-2 text-center text-xs font-medium transition-colors border-b-2 ${
             mobileSubTab === 'new' ? 'text-foreground border-accent' : 'text-muted border-transparent'

@@ -181,7 +181,7 @@ export default function CellDiscussion({ cellId, isParticipant, ideas }: {
                     <button
                       onClick={() => handleUpvote(c.id)}
                       disabled={upvoting === c.id || c.userHasUpvoted}
-                      className={`group relative ml-2 flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                      className={`group relative ml-2 flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-colors ${
                         c.userHasUpvoted
                           ? 'bg-purple-bg text-purple'
                           : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'

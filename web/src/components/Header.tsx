@@ -100,14 +100,14 @@ export default function Header() {
             </Link>
           )}
           {session && (
-            <Link href="/dashboard" className="hover:text-accent transition-colors">
+            <Link href="/dashboard" className="text-orange hover:text-orange-hover transition-colors">
               Manage
             </Link>
           )}
           {session && (
             <button
               onClick={openGuide}
-              className="w-6 h-6 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-medium flex items-center justify-center"
+              className="w-8 h-8 rounded-full border border-white/30 text-white/60 hover:text-white hover:border-white/60 transition-colors text-xs font-medium flex items-center justify-center"
               aria-label="How it works"
               title="How it works"
             >
@@ -116,7 +116,7 @@ export default function Header() {
           )}
           <button
             onClick={toggleChat}
-            className={`relative group flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors ${
+            className={`relative group flex items-center gap-1.5 px-2.5 py-2 rounded-lg transition-colors ${
               chatOpen
                 ? 'bg-gold/20 text-gold'
                 : 'hover:bg-header-hover text-white/70 hover:text-gold'
@@ -173,6 +173,7 @@ export default function Header() {
             onClick={() => setMenuOpen(!menuOpen)}
             className="p-2 hover:bg-header-hover rounded-lg transition-colors"
             aria-label="Toggle menu"
+            aria-expanded={menuOpen}
           >
             {menuOpen ? (
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -225,9 +226,9 @@ export default function Header() {
               <Link
                 href="/dashboard"
                 onClick={() => setMenuOpen(false)}
-                className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
+                className="py-2 px-4 rounded-lg text-orange hover:bg-header-hover transition-colors"
               >
-                Dashboard
+                Manage
               </Link>
             )}
             <button

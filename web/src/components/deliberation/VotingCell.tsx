@@ -198,6 +198,7 @@ export default function VotingCell({
                     step={1}
                     value={allocated}
                     onChange={e => setSlider(idea.id, parseInt(e.target.value) || 0)}
+                    aria-label={`Vote points for: ${idea.text.slice(0, 50)}`}
                     className="flex-1 h-1.5 rounded-full appearance-none cursor-pointer bg-border [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:shadow-md"
                   />
                   <span className="text-xs font-mono text-accent w-4 text-right">{allocated}</span>
@@ -213,6 +214,7 @@ export default function VotingCell({
         <button
           onClick={handleSubmit}
           disabled={remaining !== 0 || voting === cell.id}
+          aria-label={editing ? 'Update your vote' : 'Submit your vote'}
           className="w-full mt-3 py-2 rounded-lg bg-warning hover:bg-warning-hover text-black text-sm font-medium disabled:opacity-40 transition-colors"
         >
           {voting === cell.id ? 'Submitting...' : editing ? 'Update Vote' : 'Submit Vote'}
