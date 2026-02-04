@@ -163,6 +163,7 @@ model Deliberation {
   discussionDurationMs  Int?     // null = no discussion (skip to voting). e.g. 7200000 = 2h. -1 = manual advance only
   accumulationEnabled   Boolean  @default(true)
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
+  continuousFlow        Boolean  @default(false)     // Tier 1: submit + vote in parallel; tier 2+: new ideas pool for next round
   isPublic              Boolean  @default(true)
 
   // Goal-based auto-start (null = unlimited/manual start)
@@ -397,12 +398,13 @@ model Vote {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   ideaId          String
   idea            Idea     @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  revisionId      String?                    // XP for an edit (null = original idea)
 
   xpPoints        Int      @default(10)      // 1-10 XP allocated to this idea
   isSecondVote    Boolean  @default(false)
   votedAt         DateTime @default(now())
 
-  @@unique([cellId, userId, ideaId])          // one allocation per user per idea
+  @@unique([cellId, userId, ideaId, revisionId]) // one allocation per user per idea/edit
   @@index([cellId])
   @@index([ideaId])
   @@index([cellId, userId])
@@ -843,4 +845,5 @@ model CollectiveMessage {
 
   @@index([createdAt])
   @@index([userId, isPrivate])
+  @@index([userId, createdAt])
 }

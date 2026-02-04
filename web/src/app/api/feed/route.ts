@@ -151,6 +151,7 @@ async function getDiscovery() {
       phase: true,
       currentTier: true,
       challengeRound: true,
+      continuousFlow: true,
       submissionEndsAt: true,
       votingTimeoutMs: true,
       currentTierStartedAt: true,
@@ -254,7 +255,7 @@ async function getUserContext(email: string): Promise<UserContext | null> {
         },
       },
       ideas: {
-        where: { status: { in: ['ADVANCING', 'WINNER', 'IN_VOTING'] } },
+        where: { status: { in: ['SUBMITTED', 'ADVANCING', 'WINNER', 'IN_VOTING'] } },
         select: { id: true, text: true, status: true, deliberationId: true, totalVotes: true, tier: true },
         take: 20,
       },
@@ -386,6 +387,16 @@ async function buildYourTurnFeed(
       myIdea,
     }
 
+    // Idea submission open: show submit card alongside vote cards
+    // Must come BEFORE continue statements so it's not skipped
+    if (d.continuousFlow && d.phase === 'VOTING') {
+      if (d.currentTier === 1 && !myIdea) {
+        entries.push({ kind: 'submit', id: `submit-cf-${d.id}`, priority: 60, ...base })
+      } else if (d.currentTier > 1) {
+        entries.push({ kind: 'champion', id: `champ-cf-${d.id}`, priority: 40, ...base })
+      }
+    }
+
     // Waiting card: user has cell, already voted, cell still voting
     if (d.phase === 'VOTING' && cell && cell.myVote && cell.status === 'VOTING') {
       entries.push({ kind: 'waiting', id: `waiting-${d.id}`, priority: 5, ...base })
@@ -474,9 +485,10 @@ async function buildActivityFeed(userId: string | null): Promise<FeedResponse> {
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  const last7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   // Run pulse stats queries in parallel
-  const [activeVoters, inProgress, ideasToday, votesToday, notifications] = await Promise.all([
+  const [activeVoters, inProgress, ideasToday, votesToday] = await Promise.all([
     prisma.vote.findMany({
       where: { votedAt: { gte: last24h } },
       select: { userId: true },
@@ -491,34 +503,142 @@ async function buildActivityFeed(userId: string | null): Promise<FeedResponse> {
     prisma.vote.count({
       where: { votedAt: { gte: today } },
     }),
-    // Get recent notifications for activity timeline
-    userId
-      ? prisma.notification.findMany({
-          where: { userId },
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-          select: {
-            id: true,
-            type: true,
-            title: true,
-            body: true,
-            deliberationId: true,
-            createdAt: true,
-          },
-        })
-      : [],
   ])
+
+  // User action queries — run in parallel, each wrapped so one failure doesn't break the feed
+  let userVotes: any[] = []
+  let userIdeas: any[] = []
+  let userComments: any[] = []
+  let userJoins: any[] = []
+
+  if (userId) {
+    const results = await Promise.allSettled([
+      prisma.vote.findMany({
+        where: { userId, votedAt: { gte: last7d } },
+        select: {
+          id: true,
+          votedAt: true,
+          cell: {
+            select: {
+              id: true,
+              tier: true,
+              deliberation: { select: { id: true, question: true } },
+            },
+          },
+        },
+        orderBy: { votedAt: 'desc' },
+        distinct: ['cellId'],
+        take: 15,
+      }),
+      prisma.idea.findMany({
+        where: { authorId: userId, createdAt: { gte: last7d } },
+        select: {
+          id: true,
+          text: true,
+          createdAt: true,
+          deliberation: { select: { id: true, question: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+      }),
+      prisma.comment.findMany({
+        where: { userId, createdAt: { gte: last7d } },
+        select: {
+          id: true,
+          text: true,
+          createdAt: true,
+          cell: {
+            select: {
+              tier: true,
+              deliberation: { select: { id: true, question: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 15,
+      }),
+      prisma.deliberationMember.findMany({
+        where: { userId, joinedAt: { gte: last7d } },
+        select: {
+          id: true,
+          joinedAt: true,
+          deliberation: { select: { id: true, question: true } },
+        },
+        orderBy: { joinedAt: 'desc' },
+        take: 15,
+      }),
+    ])
+    userVotes = results[0].status === 'fulfilled' ? results[0].value : []
+    userIdeas = results[1].status === 'fulfilled' ? results[1].value : []
+    userComments = results[2].status === 'fulfilled' ? results[2].value : []
+    userJoins = results[3].status === 'fulfilled' ? results[3].value : []
+
+    for (const r of results) {
+      if (r.status === 'rejected') console.error('Activity query failed:', r.reason)
+    }
+  }
 
   const pulse: PulseStats = { activeVoters, inProgress, ideasToday, votesToday }
 
-  const activity: ActivityItem[] = (notifications as any[]).map((n) => ({
-    id: n.id,
-    type: n.type,
-    title: n.title,
-    body: n.body,
-    deliberationId: n.deliberationId,
-    createdAt: n.createdAt.toISOString(),
-  }))
+  const activity: ActivityItem[] = []
+
+  // User's own votes
+  for (const v of userVotes as any[]) {
+    const q = v.cell?.deliberation?.question
+    if (!q) continue
+    activity.push({
+      id: `vote-${v.id}`,
+      type: 'USER_VOTED',
+      title: `You voted in Tier ${v.cell.tier}`,
+      body: q.length > 80 ? q.slice(0, 80) + '...' : q,
+      deliberationId: v.cell.deliberation.id,
+      createdAt: v.votedAt.toISOString(),
+    })
+  }
+
+  // User's own ideas
+  for (const idea of userIdeas as any[]) {
+    activity.push({
+      id: `idea-${idea.id}`,
+      type: 'USER_SUBMITTED_IDEA',
+      title: 'You submitted an idea',
+      body: idea.text.length > 80 ? idea.text.slice(0, 80) + '...' : idea.text,
+      deliberationId: idea.deliberation.id,
+      createdAt: idea.createdAt.toISOString(),
+    })
+  }
+
+  // User's own comments
+  for (const c of userComments as any[]) {
+    const q = c.cell?.deliberation?.question
+    if (!q) continue
+    activity.push({
+      id: `comment-${c.id}`,
+      type: 'USER_COMMENTED',
+      title: `You commented in Tier ${c.cell.tier}`,
+      body: c.text.length > 80 ? c.text.slice(0, 80) + '...' : c.text,
+      deliberationId: c.cell.deliberation.id,
+      createdAt: c.createdAt.toISOString(),
+    })
+  }
+
+  // User's own joins
+  for (const j of userJoins as any[]) {
+    activity.push({
+      id: `join-${j.id}`,
+      type: 'USER_JOINED',
+      title: 'You joined a talk',
+      body: j.deliberation.question.length > 80 ? j.deliberation.question.slice(0, 80) + '...' : j.deliberation.question,
+      deliberationId: j.deliberation.id,
+      createdAt: j.joinedAt.toISOString(),
+    })
+  }
+
+  // Sort all activity by date descending
+  activity.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+
+  // Limit to 30 items
+  activity.splice(30)
 
   return { items: [], pulse, activity }
 }

@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { useAdmin } from '@/hooks/useAdmin'
 import { useOnboardingContext, useGuideContext, useCollectiveChat } from '@/app/providers'
@@ -45,16 +44,15 @@ export default function Header() {
   const { needsOnboarding, openOnboarding } = useOnboardingContext()
   const { openGuide } = useGuideContext()
   const { chatOpen, toggleChat } = useCollectiveChat()
-  const pathname = usePathname()
-  const isFeed = pathname === '/feed'
   const [menuOpen, setMenuOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
+  const [userXP, setUserXP] = useState<number | null>(null)
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 100)
-    window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+    if (!session?.user?.email) return
+    fetch('/api/user/me').then(r => r.json()).then(d => {
+      if (d.user?.totalXP != null) setUserXP(d.user.totalXP)
+    }).catch(() => {})
+  }, [session?.user?.email])
 
   const navLinks = [
     { href: '/feed', label: 'Feed', authRequired: true },
@@ -76,7 +74,15 @@ export default function Header() {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-4 text-sm">
+        <nav className="hidden md:flex items-center gap-2 text-sm">
+          {session && (
+            <Link
+              href="/talks/new"
+              className="bg-accent hover:bg-accent-hover text-white px-3 py-1 rounded-lg font-medium transition-colors"
+            >
+              + Create
+            </Link>
+          )}
           {navLinks.map(link => (
             (!link.authRequired || session) && (
               <Link
@@ -88,14 +94,6 @@ export default function Header() {
               </Link>
             )
           ))}
-          {session && (
-            <Link
-              href="/talks/new"
-              className="bg-accent hover:bg-accent-hover text-white px-3 py-1 rounded-lg font-medium transition-colors"
-            >
-              + Create
-            </Link>
-          )}
           {isAdmin && (
             <Link href="/admin" className="text-orange hover:text-orange-hover transition-colors">
               Admin
@@ -156,6 +154,9 @@ export default function Header() {
                   textClass="text-xs"
                 />
                 <span className="hidden sm:inline">{session.user.name || 'Profile'}</span>
+                {userXP != null && userXP > 0 && (
+                  <span className="text-xs font-mono text-warning bg-warning/10 px-1.5 py-0.5 rounded">{userXP} XP</span>
+                )}
               </Link>
             )
           ) : (
@@ -242,7 +243,7 @@ export default function Header() {
               </svg>
               Collective
             </button>
-            {session && isFeed && (
+            {session && (
               <button
                 onClick={() => { setMenuOpen(false); openGuide() }}
                 className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors text-left flex items-center gap-2"
@@ -274,6 +275,9 @@ export default function Header() {
                       textClass="text-sm"
                     />
                     <span>{session.user.name || 'Profile'}</span>
+                    {userXP != null && userXP > 0 && (
+                      <span className="text-xs font-mono text-warning bg-warning/10 px-1.5 py-0.5 rounded ml-auto">{userXP} XP</span>
+                    )}
                   </Link>
                 )
               ) : (
@@ -289,8 +293,8 @@ export default function Header() {
           </nav>
         </div>
       )}
-      {/* Mobile floating Collective button — appears on scroll */}
-      {!chatOpen && scrolled && (
+      {/* Mobile floating Collective button — always visible */}
+      {!chatOpen && (
         <button
           onClick={toggleChat}
           className="fixed bottom-4 right-4 z-50 md:hidden w-12 h-12 rounded-full bg-gold text-header shadow-lg flex items-center justify-center"

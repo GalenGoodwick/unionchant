@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { startVotingPhase } from '@/lib/voting'
+import { startVotingPhase, tryCreateContinuousFlowCell } from '@/lib/voting'
 import { moderateContent } from '@/lib/moderation'
-import { verifyCaptcha } from '@/lib/captcha'
 import { checkDeliberationAccess } from '@/lib/privacy'
 import { checkRateLimit } from '@/lib/rate-limit'
 
@@ -77,8 +76,13 @@ export async function POST(
       return NextResponse.json({ error: 'Deliberation has ended' }, { status: 400 })
     }
 
+    // Continuous flow: idea submission is open during voting
+    const isContinuousFlow = deliberation.continuousFlow && deliberation.phase === 'VOTING'
+    const isContinuousFlowTier1 = isContinuousFlow && deliberation.currentTier === 1
+
     // Check if user has already submitted an idea in this phase
-    if (deliberation.phase === 'SUBMISSION') {
+    if (deliberation.phase === 'SUBMISSION' || isContinuousFlowTier1) {
+      // Regular idea submission — one per user
       const existingIdea = await prisma.idea.findFirst({
         where: {
           deliberationId: id,
@@ -89,14 +93,27 @@ export async function POST(
       if (existingIdea) {
         return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
       }
-    } else if (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') {
-      // Check if user already submitted a challenger for this round
+    } else if (isContinuousFlow && deliberation.currentTier > 1) {
+      // Continuous flow tier 2+: ideas pool for next round
       const existingChallenger = await prisma.idea.findFirst({
         where: {
           deliberationId: id,
           authorId: user.id,
-          isNew: true, // Challengers
-          status: 'PENDING', // Not yet used in a challenge round
+          isNew: true,
+          status: 'PENDING',
+        },
+      })
+      if (existingChallenger) {
+        return NextResponse.json({ error: 'You have already submitted an idea for the next round' }, { status: 400 })
+      }
+    } else if (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') {
+      // Non-continuous-flow: challenger submission pools for next round
+      const existingChallenger = await prisma.idea.findFirst({
+        where: {
+          deliberationId: id,
+          authorId: user.id,
+          isNew: true,
+          status: 'PENDING',
         },
       })
       if (existingChallenger) {
@@ -105,13 +122,7 @@ export async function POST(
     }
 
     const body = await req.json()
-    const { text, captchaToken } = body
-
-    // Verify CAPTCHA (checks if user verified in last 24h, or verifies token)
-    const captchaResult = await verifyCaptcha(captchaToken, user.id)
-    if (!captchaResult.success) {
-      return NextResponse.json({ error: captchaResult.error || 'CAPTCHA verification failed' }, { status: 400 })
-    }
+    const { text } = body
 
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Idea text is required' }, { status: 400 })
@@ -139,8 +150,8 @@ export async function POST(
       return NextResponse.json({ error: 'This idea has already been submitted' }, { status: 400 })
     }
 
-    // Ideas submitted during VOTING or ACCUMULATING are marked for next round
-    const isAccumulated = deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING'
+    // Continuous flow tier 1: regular idea (SUBMITTED). Tier 2+ or non-CF: challenger (PENDING).
+    const isAccumulated = (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') && !isContinuousFlowTier1
 
     const idea = await prisma.idea.create({
       data: {
@@ -164,6 +175,15 @@ export async function POST(
         } catch (err) {
           console.error('Failed to auto-start voting on idea goal:', err)
         }
+      }
+    }
+
+    // Continuous flow: try to create a new tier 1 cell from unassigned ideas
+    if (isContinuousFlowTier1) {
+      try {
+        await tryCreateContinuousFlowCell(id)
+      } catch (err) {
+        console.error('Failed to create continuous flow cell:', err)
       }
     }
 

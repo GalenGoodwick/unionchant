@@ -17,7 +17,7 @@ export default function CellDiscussion({ cellId, isParticipant, ideas }: {
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [upvoting, setUpvoting] = useState<string | null>(null)
 
   const fetchComments = async () => {
@@ -87,6 +87,10 @@ export default function CellDiscussion({ cellId, isParticipant, ideas }: {
         method: 'POST',
       })
       if (res.ok) {
+        const data = await res.json()
+        if (data.upPollinated) {
+          showToast(`Comment pollinated to Tier ${data.newTier}!`, 'success')
+        }
         fetchComments()
       }
     } catch (err) {
@@ -148,6 +152,8 @@ export default function CellDiscussion({ cellId, isParticipant, ideas }: {
             </div>
           )}
 
+          <p className="text-xs text-muted mb-2">Upvoted comments get carried to higher-tier cells so the best arguments follow winning ideas.</p>
+
           <div className="space-y-2 max-h-40 overflow-y-auto mb-2">
             {loading ? (
               <p className="text-muted text-sm">Loading...</p>
@@ -175,15 +181,22 @@ export default function CellDiscussion({ cellId, isParticipant, ideas }: {
                     <button
                       onClick={() => handleUpvote(c.id)}
                       disabled={upvoting === c.id || c.userHasUpvoted}
-                      className={`ml-2 flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                      className={`group relative ml-2 flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                         c.userHasUpvoted
                           ? 'bg-purple-bg text-purple'
                           : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
                       }`}
-                      title={c.userHasUpvoted ? 'You upvoted this' : 'Upvote to help this comment reach more people'}
                     >
-                      <svg className="w-3 h-3" fill={c.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-44 rounded bg-surface-hover px-2 py-1 text-[10px] text-foreground text-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg border border-border z-10">
+                        {c.userHasUpvoted ? 'You pollinated this' : 'Pollinate — enough upvotes carry this comment to higher tiers'}
+                      </span>
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 19V5" />
+                        <path d="M5 12l7-7 7 7" />
+                        {c.userHasUpvoted && <>
+                          <path d="M8 2l-2 2" opacity={0.6} />
+                          <path d="M16 2l2 2" opacity={0.6} />
+                        </>}
                       </svg>
                       <span className="font-mono">{c.upvoteCount || 0}</span>
                     </button>

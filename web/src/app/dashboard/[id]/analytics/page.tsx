@@ -266,7 +266,7 @@ export default function AnalyticsPage() {
                   <span className="text-foreground truncate flex-1" title={idea.text}>
                     {idea.text.length > 60 ? idea.text.slice(0, 60) + '...' : idea.text}
                   </span>
-                  <span className="font-mono text-foreground shrink-0">{idea.totalVotes}v</span>
+                  <span className="font-mono text-foreground shrink-0">{idea.totalVotes} VP</span>
                   <span className="font-mono text-muted shrink-0">T{idea.tier}</span>
                   <span className={`text-xs shrink-0 ${statusColors[idea.status] || 'text-muted'}`}>
                     {idea.status}

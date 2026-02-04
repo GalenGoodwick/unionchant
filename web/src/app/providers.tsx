@@ -150,8 +150,8 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
             onClick={toggleChat}
           />
           {/* Chat panel — constrained on mobile, floating on desktop */}
-          <div className="fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-16 md:top-auto md:left-auto rounded-t-xl">
-            <div className="h-full md:h-auto max-h-[calc(100vh-4rem)] md:max-h-[500px]">
+          <div className="fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-14 md:top-auto md:left-auto rounded-t-xl">
+            <div className="h-full md:h-[480px] flex flex-col">
               <CollectiveChat onClose={toggleChat} />
             </div>
           </div>

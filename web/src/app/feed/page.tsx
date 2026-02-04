@@ -92,7 +92,7 @@ export default function FeedPage() {
         </div>
       </div>
 
-      <main className="max-w-xl mx-auto px-4 py-4">
+      <main className={`mx-auto px-4 py-4 ${tab === 'your-turn' ? 'max-w-5xl' : 'max-w-xl'}`}>
         {error && (
           <div className="bg-error-bg border border-error/20 rounded-lg p-4 mb-4 text-center">
             <p className="text-sm text-error mb-2">Could not load feed</p>
@@ -145,16 +145,90 @@ function TabButton({ label, active, badge, onClick }: { label: string; active: b
 // ── Your Turn Tab ─────────────────────────────────────────────
 
 function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEntry[]; actionableCount: number; authenticated: boolean }) {
-  const actionable = items.filter((e) => e.priority >= 40)
+  const [mobileSubTab, setMobileSubTab] = useState<'upvoted' | 'new'>('upvoted')
+  const allItems = items.filter((e) => e.priority >= 5)
 
-  if (actionable.length === 0) return <EmptyFeed authenticated={authenticated} />
+  if (allItems.length === 0) return <EmptyFeed authenticated={authenticated} />
 
-  return (
+  // Split: upvoted (has upvotes, sorted by count desc) vs new (no upvotes or everything by recency)
+  const upvoted = allItems
+    .filter(e => (e.deliberation?.upvoteCount ?? 0) > 0)
+    .sort((a, b) => (b.deliberation?.upvoteCount ?? 0) - (a.deliberation?.upvoteCount ?? 0))
+  const fresh = allItems.filter(e => (e.deliberation?.upvoteCount ?? 0) === 0 || e.kind === 'podiums_summary')
+
+  const upvotedList = upvoted.length > 0 ? (
     <div className="flex flex-col gap-3">
-      {actionable.map((entry) => (
+      {upvoted.map((entry) => (
         <FeedCard key={entry.id} entry={entry} />
       ))}
     </div>
+  ) : (
+    <div className="text-center py-8 text-muted text-sm bg-surface border border-border rounded-xl">
+      No upvoted talks yet
+    </div>
+  )
+
+  const freshList = fresh.length > 0 ? (
+    <div className="flex flex-col gap-3">
+      {fresh.map((entry) => (
+        <FeedCard key={entry.id} entry={entry} />
+      ))}
+    </div>
+  ) : (
+    <div className="text-center py-8 text-muted text-sm bg-surface border border-border rounded-xl">
+      No new talks
+    </div>
+  )
+
+  return (
+    <>
+      {/* Mobile: sub-tabs to switch between Upvoted and New */}
+      <div className="flex md:hidden border-b border-border mb-4">
+        <button
+          onClick={() => setMobileSubTab('upvoted')}
+          className={`flex-1 py-2 text-center text-xs font-medium transition-colors border-b-2 ${
+            mobileSubTab === 'upvoted' ? 'text-foreground border-accent' : 'text-muted border-transparent'
+          }`}
+        >
+          Upvoted <span className="font-mono text-muted">{upvoted.length}</span>
+        </button>
+        <button
+          onClick={() => setMobileSubTab('new')}
+          className={`flex-1 py-2 text-center text-xs font-medium transition-colors border-b-2 ${
+            mobileSubTab === 'new' ? 'text-foreground border-accent' : 'text-muted border-transparent'
+          }`}
+        >
+          New <span className="font-mono text-muted">{fresh.length}</span>
+        </button>
+      </div>
+
+      {/* Mobile: show selected sub-tab */}
+      <div className="md:hidden">
+        {mobileSubTab === 'upvoted' ? upvotedList : freshList}
+      </div>
+
+      {/* Desktop: side-by-side columns */}
+      <div className="hidden md:grid md:grid-cols-2 gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            </svg>
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">Upvoted</h2>
+            <span className="text-xs text-muted font-mono">{upvoted.length}</span>
+          </div>
+          {upvotedList}
+        </div>
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-accent text-sm">&#10022;</span>
+            <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">New</h2>
+            <span className="text-xs text-muted font-mono">{fresh.length}</span>
+          </div>
+          {freshList}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -198,19 +272,10 @@ function PulseStat({ value, label, color }: { value: number; label: string; colo
 }
 
 const ACTIVITY_ICONS: Record<string, string> = {
-  COMMENT_REPLY: '\u{1F4AC}',
-  COMMENT_UPVOTE: '\u{1F44D}',
-  COMMENT_UP_POLLINATE: '\u{1F338}',
-  IDEA_ADVANCING: '\u2B06\uFE0F',
-  IDEA_WON: '\u{1F3C6}',
-  VOTE_NEEDED: '\u{1F5F3}\uFE0F',
-  DELIBERATION_UPDATE: '\u{1F4E2}',
-  FOLLOW: '\u{1F464}',
-  COMMUNITY_INVITE: '\u{1F4E8}',
-  COMMUNITY_NEW_DELIB: '\u{1F195}',
-  FOLLOWED_NEW_DELIB: '\u{1F4DD}',
-  FOLLOWED_VOTED: '\u{1F5F3}\uFE0F',
-  CONTENT_REMOVED: '\u{26A0}\uFE0F',
+  USER_VOTED: '\u{2705}',
+  USER_SUBMITTED_IDEA: '\u{1F4A1}',
+  USER_COMMENTED: '\u{1F4AC}',
+  USER_JOINED: '\u{1F44B}',
 }
 
 function ActivityTimelineItem({ item }: { item: ActivityItem }) {
@@ -263,7 +328,7 @@ function ResultCard({ entry }: { entry: FeedEntry }) {
         <div className="mt-2 bg-success-bg border border-success/20 rounded-lg p-2.5">
           <div className="text-sm text-foreground">&ldquo;{entry.champion.text}&rdquo;</div>
           {entry.winnerVoteCount !== undefined && (
-            <div className="text-xs text-success mt-1">{entry.winnerVoteCount} votes in final round</div>
+            <div className="text-xs text-success mt-1">{entry.winnerVoteCount} VP in final round</div>
           )}
         </div>
       )}
@@ -632,7 +697,7 @@ function VoteNowCard({ entry }: { entry: FeedEntry }) {
         <span>&middot;</span>
         {cell && <span>Your cell: {cell.votedCount}/{cell.memberCount} voted</span>}
       </Meta>
-      <div className="mt-2 text-sm font-medium text-warning">Allocate your 10 XP &rarr;</div>
+      <div className="mt-2 text-sm font-medium text-warning">Allocate your 10 Vote Points &rarr;</div>
     </Card>
   )
 }

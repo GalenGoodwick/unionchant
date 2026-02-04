@@ -19,6 +19,7 @@ export function useDeliberation(id: string) {
   // Action states
   const [newIdea, setNewIdea] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [ideaError, setIdeaError] = useState('')
   const [joining, setJoining] = useState(false)
   const [startingVote, setStartingVote] = useState(false)
   const [startingChallenge, setStartingChallenge] = useState(false)
@@ -123,13 +124,25 @@ export function useDeliberation(id: string) {
     e.preventDefault()
     if (!newIdea.trim()) return
     setSubmitting(true)
+    setIdeaError('')
     try {
       const res = await fetch(`/api/deliberations/${id}/ideas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: newIdea }),
       })
-      if (res.ok) { setNewIdea(''); fetchDeliberation() }
+      if (res.ok) {
+        setNewIdea('')
+        fetchDeliberation()
+      } else {
+        const data = await res.json()
+        const msg = data.error || 'Failed to submit idea'
+        setIdeaError(msg)
+        showToast(msg, 'error')
+      }
+    } catch {
+      setIdeaError('Failed to submit idea')
+      showToast('Failed to submit idea', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -296,6 +309,7 @@ export function useDeliberation(id: string) {
     setNewIdea,
     submitting,
     handleSubmitIdea,
+    ideaError,
 
     // Actions
     joining,

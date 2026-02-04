@@ -102,6 +102,7 @@ export async function POST(req: NextRequest) {
       discussionDurationMs,
       accumulationEnabled,
       accumulationTimeoutMs,
+      continuousFlow,
       ideaGoal,
       captchaToken,
       // Community integration
@@ -166,6 +167,7 @@ export async function POST(req: NextRequest) {
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
+        ...(continuousFlow !== undefined && { continuousFlow }),
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
         // Community integration

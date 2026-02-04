@@ -247,7 +247,7 @@ function SubmissionBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
               <IdeaCard
                 key={idea.id}
                 idea={idea}
-                meta={idea.totalXP > 0 ? `${idea.totalXP} XP` : undefined}
+                meta={idea.totalXP > 0 ? `${idea.totalXP} VP` : undefined}
               />
             ))}
           </div>
@@ -277,7 +277,7 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
         />
       )}
 
-      {/* Voting cell — XP allocation UI */}
+      {/* Voting cell — Vote Point allocation UI */}
       {displayCell ? (
         <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
       ) : d.cellsLoaded && !d.isInCurrentTier && d.session ? (
@@ -316,7 +316,7 @@ function AccumulatingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
       {d.winner && (
         <WinnerCard
           winner={d.winner}
-          voteStats={`${d.winner.totalXP} XP`}
+          voteStats={`${d.winner.totalXP} VP`}
         />
       )}
 
@@ -413,7 +413,7 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
 
   return (
     <div className="space-y-4">
-      {/* Defender card — display only (XP allocation happens in VotingCell) */}
+      {/* Defender card — display only (Vote Point allocation happens in VotingCell) */}
       {d.defender && (
         <DefenderCard
           defender={d.defender}
@@ -421,7 +421,7 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
         />
       )}
 
-      {/* Voting cell — XP allocation UI */}
+      {/* Voting cell — Vote Point allocation UI */}
       {displayCell ? (
         <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
       ) : null}
@@ -459,7 +459,7 @@ function PhaseBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   return (
     <div className="space-y-4">
       {d.winner && (
-        <WinnerCard winner={d.winner} voteStats={`${d.winner.totalXP} XP · Final`} />
+        <WinnerCard winner={d.winner} voteStats={`${d.winner.totalXP} VP · Final`} />
       )}
       <div className="bg-success-bg border border-success rounded-[10px] p-4 text-center">
         <p className="text-success font-medium">This deliberation has concluded</p>

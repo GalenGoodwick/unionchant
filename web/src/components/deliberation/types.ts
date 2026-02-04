@@ -71,6 +71,7 @@ export type Deliberation = {
   accumulationEndsAt: string | null
   challengeRound: number
   accumulationEnabled: boolean
+  continuousFlow: boolean
   championId: string | null
   ideaGoal: number | null
   creator: { id: string; name: string | null; status?: UserStatus }

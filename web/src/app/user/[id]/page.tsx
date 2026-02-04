@@ -14,6 +14,7 @@ interface UserProfile {
   image: string | null
   bio: string | null
   joinedAt: string
+  totalXP: number
   followersCount: number
   followingCount: number
   isFollowing: boolean
@@ -217,8 +218,8 @@ export default function UserProfilePage() {
         {/* Stats Grid */}
         <h2 className="text-lg font-semibold text-foreground mb-3">Activity</h2>
         <div className="grid grid-cols-2 grid-cols-2 gap-3 mb-6">
+          <StatCard label="Vote Points" value={profile.totalXP || 0} icon="VP" />
           <StatCard label="Ideas" value={profile.stats.ideas} icon="💡" />
-          <StatCard label="Votes" value={profile.stats.votes} icon="✓" />
           <StatCard label="Comments" value={profile.stats.comments} icon="💬" />
           <StatCard label="Created" value={profile.stats.deliberationsCreated} icon="📝" />
           <StatCard label="Joined" value={profile.stats.deliberationsJoined} icon="👥" />

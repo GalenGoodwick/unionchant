@@ -56,7 +56,7 @@ export default function ChampionBox({ winner, phase, ideas, creatorId, currentUs
                   <FollowButton userId={winner.author.id} initialFollowing={followedUserIds.includes(winner.author.id)} followLabel="Follow Winner" followingLabel="Winner Followed" />
                 )}
               </div>
-              <div className="text-xs text-muted">{winner.totalVotes} votes</div>
+              <div className="text-xs text-muted">{winner.totalXP || winner.totalVotes} VP</div>
             </div>
           )}
           {isAccumulating && hasWinner && (
@@ -75,7 +75,7 @@ export default function ChampionBox({ winner, phase, ideas, creatorId, currentUs
                 <div className="flex-1 min-w-0">
                   <span className="text-foreground">{idea.text}</span>
                   <span className="text-muted text-xs ml-1.5">
-                    {idea.author ? getDisplayName(idea.author) : 'Anonymous'} · {idea.totalVotes} votes
+                    {idea.author ? getDisplayName(idea.author) : 'Anonymous'} · {idea.totalXP || idea.totalVotes} VP
                   </span>
                 </div>
               </div>

@@ -266,7 +266,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
                       <p className="text-foreground text-sm">{idea.text}</p>
                       <div className="flex justify-between text-xs text-muted mt-1">
                         <span>by {idea.author?.name || 'Anonymous'}</span>
-                        {idea.voteCount !== undefined && <span>{idea.voteCount} votes</span>}
+                        {idea.voteCount !== undefined && <span>{idea.voteCount} VP</span>}
                       </div>
                     </div>
                   ))}

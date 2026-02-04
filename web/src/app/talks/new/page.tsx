@@ -60,6 +60,8 @@ function NewDeliberationForm() {
     // Discussion mode
     discussionMode: 'manual' as 'timer' | 'none' | 'manual',
     discussionMinutes: 120,
+    // Continuous flow
+    continuousFlow: false,
   })
 
   useEffect(() => {
@@ -150,6 +152,7 @@ function NewDeliberationForm() {
             ? formData.accumulationDays * 24 * 60 * 60 * 1000
             : null,
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
+          continuousFlow: formData.continuousFlow,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
           captchaToken,
@@ -197,6 +200,8 @@ function NewDeliberationForm() {
 
   if (formData.winnerMode === 'rolling') settingsSummary.push('Rolling mode')
   else settingsSummary.push('Ends when winner chosen')
+
+  if (formData.continuousFlow) settingsSummary.push('Continuous flow')
 
   return (
     <div className="min-h-screen bg-surface">
@@ -465,6 +470,20 @@ function NewDeliberationForm() {
                       )}
                     </div>
                   )}
+                </div>
+
+                {/* Continuous Flow */}
+                <div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.continuousFlow}
+                      onChange={(e) => setFormData({ ...formData, continuousFlow: e.target.checked })}
+                      className="rounded border-border text-accent focus:ring-accent"
+                    />
+                    <span className="text-foreground font-medium text-sm">Continuous flow</span>
+                  </label>
+                  <p className="text-muted text-xs mt-1 ml-6">Ideas can be submitted during Tier 1 voting. New ideas create additional cells. After Tier 1, new ideas pool for the next round.</p>
                 </div>
               </div>
             )}

@@ -18,6 +18,18 @@ import HistoryPanel from '@/components/deliberation/HistoryPanel'
 import CommentsPanel from '@/components/deliberation/CommentsPanel'
 import Section from '@/components/deliberation/Section'
 
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  return new Date(dateStr).toLocaleDateString()
+}
+
 export default function DetailsPageClient() {
   const params = useParams()
   const id = params.id as string
@@ -35,6 +47,43 @@ export default function DetailsPageClient() {
 
   const delib = d.deliberation
 
+  // Phase banner config
+  const phaseBanner: Record<string, { icon: string; bg: string; border: string; text: string; label: string }> = {
+    SUBMISSION: {
+      icon: '💡',
+      bg: 'bg-accent-light',
+      border: 'border-accent',
+      text: 'text-accent',
+      label: `Collecting ideas — ${delib.ideas.length} submitted so far`,
+    },
+    VOTING: {
+      icon: '🗳️',
+      bg: 'bg-warning-bg',
+      border: 'border-warning',
+      text: 'text-warning',
+      label: delib.continuousFlow
+        ? delib.currentTier === 1
+          ? `Tier 1 — accepting ideas + voting`
+          : `Tier ${delib.currentTier} voting — ideas pool for next round`
+        : `Tier ${delib.currentTier} voting in progress`,
+    },
+    ACCUMULATING: {
+      icon: '👑',
+      bg: 'bg-purple-bg',
+      border: 'border-purple',
+      text: 'text-purple',
+      label: 'Priority declared — accepting challengers',
+    },
+    COMPLETED: {
+      icon: '🏆',
+      bg: 'bg-success-bg',
+      border: 'border-success',
+      text: 'text-success',
+      label: 'Consensus reached',
+    },
+  }
+  const banner = phaseBanner[d.effectivePhase] || phaseBanner.SUBMISSION
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -43,7 +92,7 @@ export default function DetailsPageClient() {
         {/* Top bar */}
         <div className="flex items-center justify-between mb-3">
           <Link href={`/talks/${id}`} className="text-muted hover:text-foreground text-sm">
-            ← Back to deliberation
+            &larr; Back to talk
           </Link>
           <div className="flex items-center gap-2">
             {d.session && d.session.user?.id !== delib.creatorId && (
@@ -56,20 +105,70 @@ export default function DetailsPageClient() {
           </div>
         </div>
 
-        {/* Compact header */}
+        {/* Question + meta */}
         <div className="mb-4">
-          <div className="flex justify-between items-start gap-2 mb-1">
-            <h1 className="text-lg font-bold text-foreground leading-tight">{delib.question}</h1>
-            <span className={`text-xs font-semibold px-2 py-1 rounded shrink-0 ${d.phaseColor} bg-surface`}>
-              {d.effectivePhase}
-            </span>
+          <h1 className="text-xl font-bold text-foreground leading-tight mb-1.5">{delib.question}</h1>
+          <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
+            <span>by {delib.creator?.name || 'Anonymous'}</span>
+            <span>&middot;</span>
+            <span>{timeAgo(delib.createdAt)}</span>
+            {delib.organization && (
+              <>
+                <span>&middot;</span>
+                <span>{delib.organization}</span>
+              </>
+            )}
           </div>
-          <StatsRow items={[
-            { label: 'Tier', value: delib.currentTier, color: 'text-accent' },
-            { label: 'Ideas', value: delib.ideas.length },
-            { label: 'Members', value: delib._count.members },
-          ]} />
         </div>
+
+        {/* Description */}
+        {delib.description && (
+          <div className="bg-surface rounded-lg border border-border p-4 mb-4">
+            <p className="text-sm text-foreground">{delib.description}</p>
+          </div>
+        )}
+
+        {/* Phase banner */}
+        <div className={`${banner.bg} border ${banner.border} rounded-lg p-3 mb-4 flex items-center gap-3`}>
+          <span className="text-xl">{banner.icon}</span>
+          <div>
+            <div className={`text-sm font-semibold ${banner.text}`}>{banner.label}</div>
+            <StatsRow items={[
+              { label: 'Tier', value: delib.currentTier, color: 'text-accent' },
+              { label: 'Ideas', value: delib.ideas.length },
+              { label: 'Members', value: delib._count.members },
+            ]} />
+          </div>
+        </div>
+
+        {/* Champion / Priority */}
+        {d.winner && (
+          <div className={`rounded-lg p-4 mb-4 border ${
+            d.effectivePhase === 'ACCUMULATING'
+              ? 'bg-purple-bg border-purple'
+              : 'bg-success-bg border-success'
+          }`}>
+            <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+              d.effectivePhase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
+            }`}>
+              {d.effectivePhase === 'ACCUMULATING' ? 'Current Priority' : 'Priority'}
+            </div>
+            <p className="text-foreground font-medium">{d.winner.text}</p>
+            <p className="text-xs text-muted mt-1">
+              {d.winner.totalXP} VP &middot; by {getDisplayName(d.winner.author)}
+            </p>
+          </div>
+        )}
+
+        {/* Defender in challenge */}
+        {d.defender && delib.challengeRound > 0 && (
+          <div className="bg-orange-bg border border-orange rounded-lg p-3 mb-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-orange mb-1">
+              Defending Priority (Round {delib.challengeRound + 1})
+            </div>
+            <p className="text-foreground text-sm">{d.defender.text}</p>
+          </div>
+        )}
 
         {/* Tier Funnel at top */}
         <div className="mb-4">
@@ -80,13 +179,6 @@ export default function DetailsPageClient() {
             ideas={delib.ideas}
           />
         </div>
-
-        {/* Description */}
-        {delib.description && (
-          <div className="bg-surface rounded-lg border border-border p-4 mb-4">
-            <p className="text-sm text-foreground">{delib.description}</p>
-          </div>
-        )}
 
         {/* Full Tier Funnel */}
         {(delib.phase === 'VOTING' || delib.phase === 'COMPLETED') && (
@@ -212,7 +304,7 @@ export default function DetailsPageClient() {
                           {idea.status}
                         </span>
                         {idea.totalXP > 0 && (
-                          <p className="text-xs text-muted font-mono">{idea.totalXP} XP</p>
+                          <p className="text-xs text-muted font-mono">{idea.totalXP} VP</p>
                         )}
                       </div>
                     </div>

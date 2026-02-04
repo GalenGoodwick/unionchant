@@ -179,7 +179,7 @@ export async function startVotingPhase(deliberationId: string) {
   const deliberation = await prisma.deliberation.findUnique({
     where: { id: deliberationId },
     include: {
-      ideas: { where: { status: 'SUBMITTED' } },
+      ideas: { where: { status: { in: ['SUBMITTED', 'IN_VOTING', 'PENDING'] } } },
       members: { where: { role: { in: ['CREATOR', 'PARTICIPANT'] } } },
     },
   })
@@ -192,19 +192,12 @@ export async function startVotingPhase(deliberationId: string) {
     throw new Error('Deliberation is not in submission phase')
   }
 
-  // Edge case: No ideas submitted
+  // Edge case: No ideas submitted — do NOT auto-complete, just return error
   if (deliberation.ideas.length === 0) {
-    await prisma.deliberation.update({
-      where: { id: deliberationId },
-      data: {
-        phase: 'COMPLETED',
-        completedAt: new Date(),
-      },
-    })
     return {
       success: false,
       reason: 'NO_IDEAS',
-      message: 'No ideas were submitted'
+      message: 'No ideas were submitted. The deliberation remains in submission phase.'
     }
   }
 
@@ -428,6 +421,20 @@ export async function startVotingPhase(deliberationId: string) {
     },
   })
 
+  // In-app notifications for all members
+  const memberIds = deliberation.members.map(m => m.userId)
+  if (memberIds.length > 0) {
+    prisma.notification.createMany({
+      data: memberIds.map(userId => ({
+        userId,
+        type: 'VOTE_NEEDED' as const,
+        title: 'Voting is open',
+        body: deliberation.question.length > 80 ? deliberation.question.slice(0, 80) + '...' : deliberation.question,
+        deliberationId,
+      })),
+    }).catch(err => console.error('Failed to create voting notifications:', err))
+  }
+
   // Send push notifications to all members
   sendPushToDeliberation(
     deliberationId,
@@ -451,12 +458,22 @@ export async function startVotingPhase(deliberationId: string) {
  * Process cell results and handle tier completion
  */
 export async function processCellResults(cellId: string, isTimeout = false) {
-  // If timeout with zero votes, complete the cell (don't extend indefinitely)
+  // If timeout with zero votes, reset the cell — wait for facilitator or all votes in
   if (isTimeout) {
     const voteCount = await prisma.vote.count({ where: { cellId } })
     if (voteCount === 0) {
-      console.log(`Cell ${cellId}: zero votes on timeout, completing cell as timeout`)
-      // Fall through to normal completion — cell completes with no winner
+      const cell = await prisma.cell.findUnique({
+        where: { id: cellId },
+        select: { deliberation: { select: { votingTimeoutMs: true } } },
+      })
+      const timeoutMs = cell?.deliberation?.votingTimeoutMs
+      const newDeadline = timeoutMs ? new Date(Date.now() + timeoutMs) : null
+      await prisma.cell.update({
+        where: { id: cellId },
+        data: { votingDeadline: newDeadline },
+      })
+      console.log(`Cell ${cellId}: zero votes on timeout, ${newDeadline ? `resetting deadline to ${newDeadline.toISOString()}` : 'clearing deadline — waiting for facilitator or all votes'}`)
+      return null
     }
   }
 
@@ -510,22 +527,41 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   // In final showdown, don't mark individual winners/losers - wait for cross-cell tally
   if (!isFinalShowdown) {
-    // Sum XP points per idea
+    // Sum XP points per idea via raw SQL (xpPoints invisible to Prisma runtime client)
+    const cellVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+      SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cellId}
+    `
     const xpTotals: Record<string, number> = {}
-    cell.votes.forEach((vote: { ideaId: string; xpPoints: number }) => {
+    cellVotes.forEach(vote => {
       xpTotals[vote.ideaId] = (xpTotals[vote.ideaId] || 0) + vote.xpPoints
     })
 
     // Find winner(s) — ideas with most XP
+    // Minimum threshold: with only 1 voter, ideas need >= 4 XP to advance
+    const voterResult = await prisma.$queryRaw<{ cnt: bigint }[]>`
+      SELECT COUNT(DISTINCT "userId") as cnt FROM "Vote" WHERE "cellId" = ${cellId}
+    `
+    const numVoters = Number(voterResult[0]?.cnt || 0)
+    const minXPToAdvance = numVoters <= 1 ? 4 : 0
     const maxXP = Math.max(...Object.values(xpTotals), 0)
 
     if (maxXP === 0) {
       // No votes cast — all ideas advance
       winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
     } else {
-      winnerIds = Object.entries(xpTotals)
-        .filter(([, total]) => total === maxXP)
-        .map(([id]) => id)
+      // Filter by minimum threshold, then pick the highest
+      const qualifiedIdeas = Object.entries(xpTotals).filter(([, total]) => total >= minXPToAdvance)
+
+      if (qualifiedIdeas.length === 0) {
+        // No ideas met the minimum threshold — all advance (fallback)
+        winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
+        console.log(`Cell ${cellId}: No ideas met ${minXPToAdvance} XP threshold with ${numVoters} voter(s), all advance`)
+      } else {
+        const qualifiedMax = Math.max(...qualifiedIdeas.map(([, t]) => t))
+        winnerIds = qualifiedIdeas
+          .filter(([, total]) => total === qualifiedMax)
+          .map(([id]) => id)
+      }
 
       loserIds = cell.ideas
         .map((ci: { ideaId: string }) => ci.ideaId)
@@ -682,6 +718,30 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     return
   }
 
+  // CONTINUOUS FLOW GUARD: During tier 1 with continuous flow, don't auto-advance
+  // if there are unassigned ideas or enough members to form another cell.
+  // The facilitator must explicitly close submissions via the close-submissions endpoint.
+  if (tier === 1) {
+    const fullDelib = await prisma.deliberation.findUnique({
+      where: { id: deliberationId },
+      select: { continuousFlow: true },
+    })
+    if (fullDelib?.continuousFlow) {
+      // Check for unassigned SUBMITTED ideas (not yet in any cell)
+      const unassignedIdeas = await prisma.idea.count({
+        where: {
+          deliberationId,
+          status: 'SUBMITTED',
+          cellIdeas: { none: {} },
+        },
+      })
+      if (unassignedIdeas > 0) {
+        console.log(`checkTierCompletion: continuous flow tier 1, ${unassignedIdeas} unassigned ideas — waiting for facilitator to close submissions`)
+        return
+      }
+    }
+  }
+
   // Check if this is a final showdown (all cells have same ideas, ≤4 ideas)
   const firstCellIdeaIds = cells[0]?.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort() || []
   const allCellsHaveSameIdeas = cells.every(cell => {
@@ -692,12 +752,14 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
   // FINAL SHOWDOWN: Cross-cell tallying when all cells vote on same ≤5 ideas
   if (allCellsHaveSameIdeas && firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0) {
-    // Sum XP points across ALL cells
+    // Sum XP points across ALL cells via raw SQL (xpPoints invisible to Prisma runtime client)
+    const cellIds = cells.map(c => c.id)
+    const allVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+      SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${cellIds})
+    `
     const crossCellTally: Record<string, number> = {}
-    for (const cell of cells) {
-      for (const vote of cell.votes) {
-        crossCellTally[vote.ideaId] = (crossCellTally[vote.ideaId] || 0) + (vote as { xpPoints: number }).xpPoints
-      }
+    for (const vote of allVotes) {
+      crossCellTally[vote.ideaId] = (crossCellTally[vote.ideaId] || 0) + vote.xpPoints
     }
 
     // Find the winner (most total XP)
@@ -1124,4 +1186,104 @@ export async function addLateJoinerToCell(deliberationId: string, userId: string
   })
 
   return { success: true, cellId: targetCell.id }
+}
+
+/**
+ * Continuous Flow: Try to create a new tier 1 cell from unassigned ideas + members.
+ * Called after each idea submission during VOTING phase with continuousFlow enabled.
+ * Only creates a cell if there are 5+ unassigned ideas AND 3+ unassigned members.
+ */
+export async function tryCreateContinuousFlowCell(deliberationId: string): Promise<{ cellCreated: boolean; cellId?: string }> {
+  const deliberation = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+    select: {
+      id: true,
+      phase: true,
+      continuousFlow: true,
+      currentTier: true,
+      votingTimeoutMs: true,
+      discussionDurationMs: true,
+    },
+  })
+
+  if (!deliberation || deliberation.phase !== 'VOTING' || !deliberation.continuousFlow || deliberation.currentTier !== 1) {
+    return { cellCreated: false }
+  }
+
+  // Find unassigned ideas: status SUBMITTED and not in any cell
+  const unassignedIdeas = await prisma.idea.findMany({
+    where: {
+      deliberationId,
+      status: 'SUBMITTED',
+      cellIdeas: { none: {} },
+    },
+    select: { id: true, authorId: true },
+  })
+
+  if (unassignedIdeas.length < CELL_SIZE) {
+    return { cellCreated: false }
+  }
+
+  // Find unassigned members: not in any tier 1 cell
+  const membersInTier1 = await prisma.cellParticipation.findMany({
+    where: {
+      cell: { deliberationId, tier: 1 },
+    },
+    select: { userId: true },
+  })
+  const assignedUserIds = new Set(membersInTier1.map(p => p.userId))
+
+  const allMembers = await prisma.deliberationMember.findMany({
+    where: {
+      deliberationId,
+      role: { in: ['CREATOR', 'PARTICIPANT'] },
+    },
+    select: { userId: true },
+  })
+
+  const unassignedMembers = allMembers.filter(m => !assignedUserIds.has(m.userId))
+
+  if (unassignedMembers.length < 3) {
+    return { cellCreated: false }
+  }
+
+  // Take first 5 ideas and up to 5 members (min 3)
+  const cellIdeas = unassignedIdeas.slice(0, CELL_SIZE)
+  const memberCount = Math.min(unassignedMembers.length, CELL_SIZE)
+  const cellMembers = unassignedMembers.slice(0, memberCount)
+
+  // Mark ideas as IN_VOTING
+  await prisma.idea.updateMany({
+    where: { id: { in: cellIdeas.map(i => i.id) } },
+    data: { status: 'IN_VOTING', tier: 1 },
+  })
+
+  // Determine cell status based on discussion settings
+  const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
+  const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+  const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
+    ? new Date(Date.now() + deliberation.discussionDurationMs!)
+    : null
+
+  const cell = await prisma.cell.create({
+    data: {
+      deliberationId,
+      tier: 1,
+      status: cellStatus,
+      discussionEndsAt,
+      votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
+        ? new Date(Date.now() + deliberation.votingTimeoutMs)
+        : null,
+      ideas: {
+        create: cellIdeas.map(idea => ({ ideaId: idea.id })),
+      },
+      participants: {
+        create: cellMembers.map(m => ({ userId: m.userId })),
+      },
+    },
+  })
+
+  console.log(`Continuous flow: created tier 1 cell ${cell.id} with ${cellIdeas.length} ideas and ${cellMembers.length} members`)
+
+  return { cellCreated: true, cellId: cell.id }
 }

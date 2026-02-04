@@ -14,28 +14,28 @@ const steps = [
     tip: 'Be clear and concise. Your idea competes with others, so make it count!',
   },
   {
-    title: 'Spend Your 10 XP',
+    title: 'Spend Your 10 Vote Points',
     icon: '🎯',
-    description: 'Each voter gets 10 XP points to distribute across ideas in their cell. Put all 10 on your favorite, or spread them to show nuanced support. Voting is always anonymous — no one can see how you allocated your XP.',
-    tip: 'You must allocate all 10 XP. The idea with the most total XP wins the cell. Only totals are shown, never individual votes.',
+    description: 'Each voter gets 10 Vote Points to distribute across ideas in their cell. Put all 10 on your favorite, or spread them to show nuanced support. Voting is always anonymous — no one can see how you allocated your Vote Points.',
+    tip: 'You must allocate all 10 Vote Points. The idea with the most total VP wins the cell. Only totals are shown, never individual votes.',
   },
   {
-    title: 'Discuss & Chant',
+    title: 'Discuss & Pollinate',
     icon: '💬',
-    description: 'Your cell discusses ideas together. Anyone can propose a chant — a revised version of any idea. Swipe between original and chant. If 30% of cell members confirm, the chant replaces the original across all cells.',
-    tip: 'Chants can up-pollinate to other cells. Strengthening ideas benefits everyone!',
+    description: 'Your cell discusses ideas together. Upvote the best comments — when a comment gets enough upvotes, it pollinates to higher-tier cells so the strongest arguments follow winning ideas.',
+    tip: 'The pollinate button is the up-arrow on each comment. A toast will confirm when your upvote carries a comment to the next tier.',
   },
   {
     title: 'Winners Advance',
     icon: '🏆',
-    description: 'The idea with the most XP in your cell advances to the next tier. This repeats: winners from Tier 1 compete in Tier 2, and so on.',
+    description: 'The idea with the most Vote Points in your cell advances to the next tier. This repeats: winners from Tier 1 compete in Tier 2, and so on.',
     tip: 'This process ensures the best ideas rise through the ranks.',
   },
   {
     title: 'Final Round',
     icon: '🎯',
-    description: 'When only a few ideas remain, ALL participants vote together. The idea with the most XP becomes the top priority!',
-    tip: 'Even if your idea lost earlier, you can still allocate XP to the winner.',
+    description: 'When only a few ideas remain, ALL participants vote together. The idea with the most Vote Points becomes the top priority!',
+    tip: 'Even if your idea lost earlier, you can still allocate Vote Points to the winner.',
   },
   {
     title: 'Challenge the Priority',
@@ -52,14 +52,14 @@ const steps = [
   {
     title: 'The Collective',
     icon: '🌐',
-    description: 'The Collective is a shared chat visible to everyone. You can auto-generate talks from any message — or create them manually at /talks/new. Collective conversations can spark deliberations that the whole community joins.',
-    tip: 'Hit "Set as Talk" on any message to auto-create a deliberation from it.',
+    description: 'The Collective is your personal AI guide. Ask about active talks, get reminders about pending votes, or have it create a talk for you.',
+    tip: 'Say "what should I do?" and the Collective will check your pending actions.',
   },
   {
     title: 'Facilitator Controls',
     icon: '🎛️',
     description: 'If you created a talk, you\'re the facilitator. Use the Manage page to start voting, open challenge rounds, set timers, and control the flow. You can move between phases freely — reopen submissions, restart voting, or close the talk at any time.',
-    tip: 'Go to your talk\'s detail page and tap the gear icon to access facilitator controls.',
+    tip: 'Go to Manage and select your talk to access facilitator controls.',
   },
 ]
 

@@ -44,6 +44,7 @@ interface Idea {
   status: string
   tier: number
   totalVotes: number
+  totalXP: number
   isChampion: boolean
 }
 
@@ -394,7 +395,7 @@ export default function AdminDeliberationPage() {
                 {deliberation.phase === 'ACCUMULATING' ? 'Champion (Accepting Challengers)' : 'Winner'}
               </div>
               <p className="text-foreground font-medium text-lg">{champion.text}</p>
-              <p className="text-muted text-sm mt-1">{champion.totalVotes} total votes</p>
+              <p className="text-muted text-sm mt-1">{champion.totalXP || champion.totalVotes} total VP</p>
             </div>
           )
         })()}
@@ -891,7 +892,7 @@ export default function AdminDeliberationPage() {
                         }`}>
                           T{idea.tier}
                         </span>
-                        <span className="text-muted font-mono">{idea.totalVotes}v</span>
+                        <span className="text-muted font-mono">{idea.totalXP || idea.totalVotes} VP</span>
                         <span className="text-foreground truncate flex-1" title={idea.text}>
                           {idea.text.slice(0, 60)}{idea.text.length > 60 ? '...' : ''}
                         </span>

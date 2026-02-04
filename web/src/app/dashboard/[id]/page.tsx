@@ -20,6 +20,7 @@ interface Deliberation {
   submissionEndsAt: string | null
   votingTimeoutMs: number
   accumulationEnabled: boolean
+  continuousFlow: boolean
   isPublic: boolean
   _count: {
     ideas: number
@@ -89,14 +90,20 @@ export default function DashboardDetailPage() {
   }>>([])
   const [podiumsLoading, setPodiumsLoading] = useState(true)
 
+  // Edit question/description
+  const [editingQuestion, setEditingQuestion] = useState(false)
+  const [questionValue, setQuestionValue] = useState('')
+  const [editingDescription, setEditingDescription] = useState(false)
+  const [descriptionValue, setDescriptionValue] = useState('')
+
   // Action state
   const [actionLoading, setActionLoading] = useState('')
   const [actionMessage, setActionMessage] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmForce, setConfirmForce] = useState(false)
-  const [confirmRelease, setConfirmRelease] = useState(false)
   const [confirmChallenge, setConfirmChallenge] = useState(false)
+  const [confirmCloseSubmissions, setConfirmCloseSubmissions] = useState(false)
 
   const fetchDeliberation = useCallback(async () => {
     try {
@@ -196,9 +203,9 @@ export default function DashboardDetailPage() {
         const messages: Record<string, string> = {
           'start-voting': 'Voting started!',
           'force-next-tier': `Processed ${data.cellsProcessed || 0} cells`,
-          'release-extra-votes': `Extra votes released! ${data.eligibleUsers || 0} users eligible (${data.windowMinutes || 15}min window)`,
           'start-challenge': 'Challenge round started!',
           'advance-discussion': `Voting opened for ${data.cellsAdvanced || 0} cells`,
+          'close-submissions': `Submissions closed. ${data.tier2Started ? 'Tier 2 started!' : 'Waiting for cells to complete.'}`,
         }
         setActionMessage(messages[action] || 'Done!')
         fetchDeliberation()
@@ -319,6 +326,12 @@ export default function DashboardDetailPage() {
             >
               Analytics &rarr;
             </Link>
+            <Link
+              href={`/podium/new?deliberationId=${deliberationId}`}
+              className="text-accent hover:underline text-sm"
+            >
+              Create Podium &rarr;
+            </Link>
           </div>
         </div>
 
@@ -338,7 +351,7 @@ export default function DashboardDetailPage() {
                 {deliberation.phase === 'ACCUMULATING' ? 'Priority (Accepting Challengers)' : 'Winner'}
               </div>
               <p className="text-foreground font-medium text-lg">{champion.text}</p>
-              <p className="text-muted text-sm mt-1">{champion.totalVotes} XP</p>
+              <p className="text-muted text-sm mt-1">{champion.totalVotes} VP</p>
             </div>
           )
         })()}
@@ -421,40 +434,15 @@ export default function DashboardDetailPage() {
                         </div>
                       </div>
                     )}
-
-                    {/* Show different button text if resuming vs first start */}
-                    {deliberation._count.cells > 0 ? (
-                      <>
-                        <div className="bg-warning-bg border border-warning rounded-lg p-3 mb-2">
-                          <p className="text-sm text-warning font-medium">Submissions reopened</p>
-                          <p className="text-xs text-foreground mt-1">
-                            Existing cells and votes are preserved. New ideas will get new cells when you close submissions.
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
-                          disabled={actionLoading === 'start-voting'}
-                          className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
-                        >
-                          {actionLoading === 'start-voting' ? 'Creating cells...' : 'Close Submissions & Resume Voting'}
-                        </button>
-                        <p className="text-xs text-muted">
-                          Creates new cells for newly submitted ideas and resumes voting. Available members are assigned to new cells.
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
-                          disabled={actionLoading === 'start-voting' || deliberation._count.ideas < 2}
-                          className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
-                        >
-                          {actionLoading === 'start-voting' ? 'Starting...' : 'Start Voting'}
-                        </button>
-                        <p className="text-xs text-muted">
-                          Creates cells of ~5 people and begins tiered voting. Ideas can no longer be submitted.
-                        </p>
-                      </>
+                    <button
+                      onClick={() => handleAction('start-voting', `/api/deliberations/${deliberationId}/start-voting`)}
+                      disabled={actionLoading === 'start-voting' || deliberation._count.ideas < 2}
+                      className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-4 py-2.5 rounded-lg transition-colors"
+                    >
+                      {actionLoading === 'start-voting' ? 'Creating cells...' : 'Start Voting'}
+                    </button>
+                    {deliberation._count.ideas < 2 && (
+                      <p className="text-xs text-muted">Need at least 2 ideas to start voting.</p>
                     )}
                   </>
                 )}
@@ -462,59 +450,74 @@ export default function DashboardDetailPage() {
                 {/* ═══ PHASE: VOTING ═══ */}
                 {deliberation.phase === 'VOTING' && (
                   <>
-                    {/* Voting progress bar */}
-                    {(() => {
-                      const votingCells = deliberation.cells.filter(c => c.status === 'VOTING')
-                      const completedCells = deliberation.cells.filter(c => c.status === 'COMPLETED')
-                      const totalCells = votingCells.length + completedCells.length
-                      const progress = totalCells > 0 ? Math.round((completedCells.length / totalCells) * 100) : 0
-                      return totalCells > 0 ? (
-                        <div className="mb-2">
-                          <div className="flex justify-between text-xs text-muted mb-1">
-                            <span>Tier {deliberation.currentTier} progress</span>
-                            <span>{completedCells.length}/{totalCells} cells</span>
-                          </div>
-                          <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-warning rounded-full transition-all"
-                              style={{ width: `${progress}%` }}
-                            />
-                          </div>
-                        </div>
-                      ) : null
-                    })()}
-
-                    {/* Open voting for deliberating cells */}
-                    {deliberation.cells.some(c => c.status === 'DELIBERATING') && (
+                    <div className="flex gap-2 text-xs text-muted flex-wrap">
+                      <span>Tier {deliberation.currentTier}</span>
+                      <span>{deliberation.cells.filter(c => c.status === 'VOTING').length} cells voting</span>
+                      <span>{deliberation.cells.filter(c => c.status === 'DELIBERATING').length} discussing</span>
+                      <span>{deliberation.cells.filter(c => c.status === 'COMPLETED').length} done</span>
+                    </div>
+                    {/* Idea Submission: Open / Close */}
+                    {deliberation.continuousFlow ? (
                       <>
                         <button
-                          onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
-                          disabled={actionLoading === 'advance-discussion'}
-                          className="w-full bg-blue hover:bg-blue-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                          onClick={async () => { await patchSettings({ continuousFlow: false }) }}
+                          disabled={saving}
+                          className="w-full border border-accent text-accent hover:bg-accent-light font-medium px-4 py-2.5 rounded-lg transition-colors"
                         >
-                          {actionLoading === 'advance-discussion' ? 'Opening...' : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
+                          {saving ? 'Saving...' : 'Close Idea Submission'}
                         </button>
-                        <p className="text-xs text-muted">
-                          Ends discussion early and opens voting for cells still in deliberation.
+                        <p className="text-xs text-muted mt-1">
+                          {deliberation.currentTier <= 1
+                            ? 'New ideas join Tier 1 voting directly.'
+                            : 'New ideas pool for the next round (accumulation).'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={async () => { await patchSettings({ continuousFlow: true }) }}
+                          disabled={saving}
+                          className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {saving ? 'Saving...' : 'Open Idea Submission'}
+                        </button>
+                        <p className="text-xs text-muted mt-1">
+                          {deliberation.currentTier <= 1
+                            ? 'Opens idea submission alongside Tier 1 voting.'
+                            : 'Opens idea submission — new ideas will pool for the next round.'}
                         </p>
                       </>
                     )}
 
-                    {/* Force complete */}
-                    {!confirmForce ? (
+                    {/* Open Voting — only if cells are in discussion */}
+                    {deliberation.cells.some(c => c.status === 'DELIBERATING') && (
                       <button
-                        onClick={() => setConfirmForce(true)}
-                        disabled={actionLoading === 'force-next-tier'}
-                        className="w-full bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
+                        disabled={actionLoading === 'advance-discussion'}
+                        className="w-full bg-blue hover:bg-blue-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
                       >
-                        Force Complete Round
+                        {actionLoading === 'advance-discussion'
+                          ? 'Opening...'
+                          : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
                       </button>
+                    )}
+
+                    {/* Force Complete */}
+                    {!confirmForce ? (
+                      <>
+                        <button
+                          onClick={() => setConfirmForce(true)}
+                          disabled={actionLoading === 'force-next-tier'}
+                          className="w-full bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          Force Complete Round
+                        </button>
+                        <p className="text-xs text-muted mt-1">Ends all open cells immediately. Votes cast so far are tallied, non-voters are skipped. Top ideas advance to the next tier.</p>
+                      </>
                     ) : (
                       <div className="border border-orange rounded-lg p-3 space-y-2">
-                        <p className="text-sm text-orange font-medium">Warning</p>
-                        <p className="text-sm text-foreground">
-                          Ends the current round immediately. Votes cast so far will be tallied. Participants who haven&apos;t voted yet will be skipped.
-                        </p>
+                        <p className="text-sm text-orange font-medium">End voting now?</p>
+                        <p className="text-sm text-foreground">Tallies votes cast so far. Non-voters are skipped. Top ideas advance to the next tier.</p>
                         <div className="flex gap-2">
                           <button
                             onClick={() => { setConfirmForce(false); handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`) }}
@@ -523,67 +526,13 @@ export default function DashboardDetailPage() {
                           >
                             {actionLoading === 'force-next-tier' ? 'Processing...' : 'Confirm'}
                           </button>
-                          <button
-                            onClick={() => setConfirmForce(false)}
-                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors"
-                          >
+                          <button onClick={() => setConfirmForce(false)}
+                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors">
                             Cancel
                           </button>
                         </div>
                       </div>
                     )}
-
-                    {/* Release extra votes */}
-                    {!confirmRelease ? (
-                      <button
-                        onClick={() => setConfirmRelease(true)}
-                        disabled={actionLoading === 'release-extra-votes'}
-                        className="w-full border border-accent text-accent hover:bg-accent-light disabled:opacity-40 font-medium px-4 py-2.5 rounded-lg transition-colors"
-                      >
-                        Release Extra Votes
-                      </button>
-                    ) : (
-                      <div className="border border-accent rounded-lg p-3 space-y-2">
-                        <p className="text-sm text-accent font-medium">Extra Votes</p>
-                        <p className="text-sm text-foreground">
-                          Opens extra voting slots so more participants can join the current round. Use when people are waiting and all cells are full.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => { setConfirmRelease(false); handleAction('release-extra-votes', `/api/deliberations/${deliberationId}/release-extra-votes`) }}
-                            disabled={actionLoading === 'release-extra-votes'}
-                            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
-                          >
-                            {actionLoading === 'release-extra-votes' ? 'Releasing...' : 'Confirm'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmRelease(false)}
-                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Toggle: reopen submissions */}
-                    <div className="pt-2 border-t border-border">
-                      <p className="text-xs text-muted mb-2">State Controls</p>
-                      <button
-                        onClick={async () => {
-                          if (confirm('This will pause voting and reopen idea submission. Existing cells and votes are preserved. Continue?')) {
-                            await patchSettings({ phase: 'SUBMISSION' })
-                          }
-                        }}
-                        disabled={saving}
-                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong font-medium px-4 py-2 rounded-lg transition-colors text-sm"
-                      >
-                        Reopen Idea Submission
-                      </button>
-                      <p className="text-xs text-muted mt-1">
-                        Pauses voting and lets participants submit more ideas.
-                      </p>
-                    </div>
                   </>
                 )}
 
@@ -591,8 +540,33 @@ export default function DashboardDetailPage() {
                 {deliberation.phase === 'ACCUMULATING' && (
                   <>
                     <p className="text-sm text-purple">
-                      Accepting new ideas. Challengers can be submitted to compete against the current priority.
+                      Accepting challenger ideas. Start Round 2 when enough challengers are in.
                     </p>
+
+                    {/* Idea Submission: Open / Close */}
+                    {deliberation.continuousFlow ? (
+                      <>
+                        <button
+                          onClick={async () => { await patchSettings({ continuousFlow: false }) }}
+                          disabled={saving}
+                          className="w-full border border-accent text-accent hover:bg-accent-light font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {saving ? 'Saving...' : 'Close Idea Submission'}
+                        </button>
+                        <p className="text-xs text-muted mt-1">New ideas pool for the next round.</p>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={async () => { await patchSettings({ continuousFlow: true }) }}
+                          disabled={saving}
+                          className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {saving ? 'Saving...' : 'Open Idea Submission'}
+                        </button>
+                        <p className="text-xs text-muted mt-1">Opens idea submission — new ideas pool for the next round.</p>
+                      </>
+                    )}
 
                     {/* Start Round 2 */}
                     {!confirmChallenge ? (
@@ -605,10 +579,8 @@ export default function DashboardDetailPage() {
                       </button>
                     ) : (
                       <div className="border border-purple rounded-lg p-3 space-y-2">
-                        <p className="text-sm text-purple font-medium">Warning</p>
-                        <p className="text-sm text-foreground">
-                          Starts a new voting round. Challenger ideas compete against the current priority through tiered voting. The priority could be replaced.
-                        </p>
+                        <p className="text-sm text-purple font-medium">Start challenge round?</p>
+                        <p className="text-sm text-foreground">Challenger ideas compete against the current priority through tiered voting.</p>
                         <div className="flex gap-2">
                           <button
                             onClick={() => { setConfirmChallenge(false); handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`) }}
@@ -617,42 +589,26 @@ export default function DashboardDetailPage() {
                           >
                             {actionLoading === 'start-challenge' ? 'Starting...' : 'Confirm'}
                           </button>
-                          <button
-                            onClick={() => setConfirmChallenge(false)}
-                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors"
-                          >
+                          <button onClick={() => setConfirmChallenge(false)}
+                            className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded-lg transition-colors">
                             Cancel
                           </button>
                         </div>
                       </div>
                     )}
 
-                    {/* State controls */}
-                    <div className="pt-2 border-t border-border space-y-2">
-                      <p className="text-xs text-muted mb-1">State Controls</p>
-                      <button
-                        onClick={async () => {
-                          if (confirm('This will reopen idea submission. The current priority is preserved. Continue?')) {
-                            await patchSettings({ phase: 'SUBMISSION' })
-                          }
-                        }}
-                        disabled={saving}
-                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong font-medium px-4 py-2 rounded-lg transition-colors text-sm"
-                      >
-                        Reopen Idea Submission
-                      </button>
-                      <button
-                        onClick={async () => {
-                          if (confirm('This will close the talk and declare the current priority as final. Continue?')) {
-                            await patchSettings({ phase: 'COMPLETED' })
-                          }
-                        }}
-                        disabled={saving}
-                        className="w-full border border-success text-success hover:bg-success-bg font-medium px-4 py-2 rounded-lg transition-colors text-sm"
-                      >
-                        Close Talk (Declare Final Priority)
-                      </button>
-                    </div>
+                    {/* Close Talk */}
+                    <button
+                      onClick={async () => {
+                        if (confirm('Declare the current priority as final and close this talk?')) {
+                          await patchSettings({ phase: 'COMPLETED' })
+                        }
+                      }}
+                      disabled={saving}
+                      className="w-full border border-success text-success hover:bg-success-bg font-medium px-4 py-2 rounded-lg transition-colors text-sm"
+                    >
+                      Close Talk
+                    </button>
                   </>
                 )}
 
@@ -661,45 +617,22 @@ export default function DashboardDetailPage() {
                   <>
                     <div className="bg-success-bg border border-success rounded-lg p-3">
                       <p className="text-sm text-success font-medium">Talk Complete</p>
-                      <p className="text-xs text-foreground mt-1">
-                        The priority has been declared. You can reopen this talk to accept challengers or collect more ideas.
-                      </p>
+                      <p className="text-xs text-foreground mt-1">The priority has been declared.</p>
                     </div>
 
-                    {/* Reopen options */}
-                    <div className="space-y-2">
-                      <p className="text-xs text-muted font-medium">Reopen This Talk</p>
-
+                    {deliberation.accumulationEnabled && (
                       <button
                         onClick={async () => {
-                          if (confirm('This will accept new challenger ideas that compete against the current priority. The priority stays unless beaten. When ready, start Round 2 to begin voting. Continue?')) {
+                          if (confirm('Reopen this talk to accept new challenger ideas?')) {
                             await patchSettings({ phase: 'ACCUMULATING' })
                           }
                         }}
                         disabled={saving}
                         className="w-full bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
                       >
-                        {saving ? 'Reopening...' : 'Accept Challengers'}
+                        {saving ? 'Reopening...' : 'Reopen for Challengers'}
                       </button>
-                      <p className="text-xs text-muted">
-                        Opens for new ideas that compete against the priority. Start Round 2 when enough challengers are in.
-                      </p>
-
-                      <button
-                        onClick={async () => {
-                          if (confirm('This will reopen idea submission from scratch. All existing ideas, cells, and votes are preserved. New ideas can be submitted and will get new cells when you start voting. Continue?')) {
-                            await patchSettings({ phase: 'SUBMISSION' })
-                          }
-                        }}
-                        disabled={saving}
-                        className="w-full border border-border text-muted hover:text-foreground hover:border-border-strong disabled:opacity-40 font-medium px-4 py-2 rounded-lg transition-colors text-sm"
-                      >
-                        {saving ? 'Reopening...' : 'Reopen Idea Submission'}
-                      </button>
-                      <p className="text-xs text-muted">
-                        Collects fresh ideas, then creates new voting cells. Previous results preserved.
-                      </p>
-                    </div>
+                    )}
                   </>
                 )}
               </div>
@@ -710,6 +643,119 @@ export default function DashboardDetailPage() {
               <h2 className="text-lg font-semibold text-foreground mb-4">Settings</h2>
 
               <div className="space-y-4">
+                {/* Question */}
+                {(() => {
+                  const canEditQuestion = Date.now() - new Date(deliberation.createdAt).getTime() < 10 * 60 * 1000
+                  return (
+                    <div>
+                      <div className="text-sm text-foreground font-medium mb-1">Question</div>
+                      {canEditQuestion && editingQuestion ? (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={questionValue}
+                            onChange={(e) => setQuestionValue(e.target.value)}
+                            maxLength={2000}
+                            className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm text-foreground"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                if (!questionValue.trim()) return
+                                const ok = await patchSettings({ question: questionValue.trim() })
+                                if (ok) setEditingQuestion(false)
+                              }}
+                              disabled={saving || !questionValue.trim()}
+                              className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-sm transition-colors"
+                            >
+                              {saving ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setQuestionValue(deliberation.question)
+                                setEditingQuestion(false)
+                              }}
+                              className="text-muted hover:text-foreground text-sm transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : canEditQuestion ? (
+                        <button
+                          onClick={() => {
+                            setQuestionValue(deliberation.question)
+                            setEditingQuestion(true)
+                          }}
+                          className="text-sm text-accent hover:underline text-left"
+                        >
+                          {deliberation.question.slice(0, 80)}{deliberation.question.length > 80 ? '...' : ''} (edit)
+                        </button>
+                      ) : (
+                        <p className="text-sm text-muted">{deliberation.question}</p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* Description */}
+                {(() => {
+                  const canEditDesc = Date.now() - new Date(deliberation.createdAt).getTime() < 10 * 60 * 1000
+                  return (
+                    <div>
+                      <div className="text-sm text-foreground font-medium mb-1">Description</div>
+                      {canEditDesc && editingDescription ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={descriptionValue}
+                            onChange={(e) => setDescriptionValue(e.target.value)}
+                            maxLength={5000}
+                            rows={3}
+                            placeholder="Add a description..."
+                            className="w-full bg-background border border-border rounded px-3 py-1.5 text-sm text-foreground resize-none"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={async () => {
+                                const ok = await patchSettings({ description: descriptionValue.trim() || null })
+                                if (ok) setEditingDescription(false)
+                              }}
+                              disabled={saving}
+                              className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-sm transition-colors"
+                            >
+                              {saving ? 'Saving...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setDescriptionValue(deliberation.description || '')
+                                setEditingDescription(false)
+                              }}
+                              className="text-muted hover:text-foreground text-sm transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : canEditDesc ? (
+                        <button
+                          onClick={() => {
+                            setDescriptionValue(deliberation.description || '')
+                            setEditingDescription(true)
+                          }}
+                          className="text-sm text-accent hover:underline text-left"
+                        >
+                          {deliberation.description
+                            ? `${deliberation.description.slice(0, 80)}${deliberation.description.length > 80 ? '...' : ''} (edit)`
+                            : 'Not set (add description)'}
+                        </button>
+                      ) : (
+                        <p className="text-sm text-muted">{deliberation.description || 'Not set'}</p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+
                 {/* Public/Private Toggle */}
                 <div className="flex items-center justify-between">
                   <div>
@@ -733,61 +779,69 @@ export default function DashboardDetailPage() {
                   </button>
                 </div>
 
-                {/* Voting Timer */}
+                {/* Voting Timer — read-only after SUBMISSION */}
                 <div>
                   <div className="text-sm text-foreground font-medium mb-1">Voting time per tier</div>
-                  {editingTimer ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={1}
-                        max={1440}
-                        value={timerValue}
-                        onChange={(e) => setTimerValue(parseInt(e.target.value) || 0)}
-                        className="w-24 bg-background border border-border rounded px-3 py-1.5 text-sm font-mono"
-                      />
-                      <span className="text-sm text-muted">minutes</span>
+                  {deliberation.phase === 'SUBMISSION' ? (
+                    editingTimer ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          value={timerValue}
+                          onChange={(e) => setTimerValue(parseInt(e.target.value) || 0)}
+                          className="w-24 bg-background border border-border rounded px-3 py-1.5 text-sm font-mono"
+                        />
+                        <span className="text-sm text-muted">minutes</span>
+                        <button
+                          onClick={async () => {
+                            if (timerValue < 1) return
+                            const ok = await patchSettings({ votingTimeoutMs: timerValue * 60000 })
+                            if (ok) setEditingTimer(false)
+                          }}
+                          disabled={saving || timerValue < 1}
+                          className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-sm transition-colors"
+                        >
+                          {saving ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setTimerValue(Math.round(deliberation.votingTimeoutMs / 60000))
+                            setEditingTimer(false)
+                          }}
+                          className="text-muted hover:text-foreground text-sm transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : deliberation.votingTimeoutMs === 0 ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted">No timer (natural completion)</span>
+                        <button
+                          onClick={() => {
+                            setTimerValue(60)
+                            setEditingTimer(true)
+                          }}
+                          className="text-sm text-accent hover:underline"
+                        >
+                          (set timer)
+                        </button>
+                      </div>
+                    ) : (
                       <button
-                        onClick={async () => {
-                          if (timerValue < 1) return
-                          const ok = await patchSettings({ votingTimeoutMs: timerValue * 60000 })
-                          if (ok) setEditingTimer(false)
-                        }}
-                        disabled={saving || timerValue < 1}
-                        className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-sm transition-colors"
-                      >
-                        {saving ? 'Saving...' : 'Save'}
-                      </button>
-                      <button
-                        onClick={() => {
-                          setTimerValue(Math.round(deliberation.votingTimeoutMs / 60000))
-                          setEditingTimer(false)
-                        }}
-                        className="text-muted hover:text-foreground text-sm transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : deliberation.votingTimeoutMs === 0 ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted">No timer (natural completion)</span>
-                      <button
-                        onClick={() => {
-                          setTimerValue(60)
-                          setEditingTimer(true)
-                        }}
+                        onClick={() => setEditingTimer(true)}
                         className="text-sm text-accent hover:underline"
                       >
-                        (set timer)
+                        {Math.round(deliberation.votingTimeoutMs / 60000)} minutes (edit)
                       </button>
-                    </div>
+                    )
                   ) : (
-                    <button
-                      onClick={() => setEditingTimer(true)}
-                      className="text-sm text-accent hover:underline"
-                    >
-                      {Math.round(deliberation.votingTimeoutMs / 60000)} minutes (edit)
-                    </button>
+                    <span className="text-sm text-muted">
+                      {deliberation.votingTimeoutMs === 0
+                        ? 'No timer (natural completion)'
+                        : `${Math.round(deliberation.votingTimeoutMs / 60000)} minutes`}
+                    </span>
                   )}
                 </div>
 
@@ -985,9 +1039,9 @@ export default function DashboardDetailPage() {
                 </h2>
                 <Link
                   href={`/podium/new?deliberationId=${deliberationId}`}
-                  className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
+                  className="text-sm text-accent hover:underline"
                 >
-                  Write Post
+                  Create &rarr;
                 </Link>
               </div>
 
@@ -1026,40 +1080,6 @@ export default function DashboardDetailPage() {
               )}
             </div>
 
-            {/* Danger Zone */}
-            <div className="bg-surface border border-error/30 rounded-xl p-4">
-              <h2 className="text-lg font-semibold text-error mb-2">Danger Zone</h2>
-              {!confirmDelete ? (
-                <button
-                  onClick={() => setConfirmDelete(true)}
-                  className="w-full border border-error text-error hover:bg-error hover:text-white font-medium px-4 py-2 rounded transition-colors"
-                >
-                  Delete Talk
-                </button>
-              ) : (
-                <div className="space-y-3">
-                  <p className="text-sm text-foreground">
-                    This will permanently delete this talk and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleDelete}
-                      disabled={deleting}
-                      className="flex-1 bg-error hover:bg-error-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
-                    >
-                      {deleting ? 'Deleting...' : 'Yes, Delete Forever'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(false)}
-                      disabled={deleting}
-                      className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
 
           {/* Right Column - Info (read-only) */}
@@ -1220,7 +1240,7 @@ export default function DashboardDetailPage() {
                         }`}>
                           T{idea.tier}
                         </span>
-                        <span className="text-muted font-mono">{idea.totalVotes} XP</span>
+                        <span className="text-muted font-mono">{idea.totalVotes} VP</span>
                         <span className="text-foreground truncate flex-1" title={idea.text}>
                           {idea.text.slice(0, 60)}{idea.text.length > 60 ? '...' : ''}
                         </span>
@@ -1270,6 +1290,41 @@ export default function DashboardDetailPage() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Danger Zone — at the very end */}
+        <div className="bg-surface border border-error/30 rounded-xl p-4 mt-4">
+          <h2 className="text-lg font-semibold text-error mb-2">Danger Zone</h2>
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="w-full border border-error text-error hover:bg-error hover:text-white font-medium px-4 py-2 rounded transition-colors"
+            >
+              Delete Talk
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-foreground">
+                This will permanently delete this talk and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 bg-error hover:bg-error-hover disabled:opacity-40 text-white font-medium px-4 py-2 rounded transition-colors"
+                >
+                  {deleting ? 'Deleting...' : 'Yes, Delete Forever'}
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  disabled={deleting}
+                  className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-4 py-2 rounded transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -60,6 +60,7 @@ type Cell = {
   status: string
   votingDeadline: string | null
   finalizesAt: string | null
+  discussionEndsAt: string | null
   ideas: CellIdea[]
   participants: Participant[]
   votes: Vote[]
@@ -79,6 +80,7 @@ type Deliberation = {
   accumulationEndsAt: string | null
   challengeRound: number
   accumulationEnabled: boolean
+  continuousFlow: boolean
   championId: string | null
   ideaGoal: number | null
   creator: { id: string; name: string | null; status?: UserStatus }
@@ -233,7 +235,7 @@ function ChampionBox({ winner, phase, ideas, creatorId, currentUserId }: { winne
           </div>
           {hasWinner && winner.author && (
             <div className={`text-sm ${isAccumulating ? 'text-purple' : 'text-success'}`}>
-              {getDisplayName(winner.author)} · {winner.totalVotes} votes
+              {getDisplayName(winner.author)} · {winner.totalXP || winner.totalVotes} VP
             </div>
           )}
           {hasWinner && currentUserId && currentUserId !== winner.author.id && (
@@ -257,7 +259,7 @@ function ChampionBox({ winner, phase, ideas, creatorId, currentUserId }: { winne
                 <div className="flex-1 min-w-0">
                   <span className="text-foreground">{idea.text}</span>
                   <span className="text-muted text-xs ml-1.5">
-                    {idea.author ? getDisplayName(idea.author) : 'Anonymous'} · {idea.totalVotes} votes
+                    {idea.author ? getDisplayName(idea.author) : 'Anonymous'} · {idea.totalXP || idea.totalVotes} VP
                   </span>
                 </div>
               </div>
@@ -404,7 +406,7 @@ function CellDiscussion({ cellId, isParticipant, ideas }: {
   const [selectedIdeaId, setSelectedIdeaId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
   const [upvoting, setUpvoting] = useState<string | null>(null)
 
   const fetchComments = async () => {
@@ -569,16 +571,23 @@ function CellDiscussion({ cellId, isParticipant, ideas }: {
                       <button
                         onClick={() => handleUpvote(c.id)}
                         disabled={upvoting === c.id || c.userHasUpvoted}
-                        className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                        className={`group relative flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
                           c.userHasUpvoted
                             ? 'bg-purple-bg text-purple'
                             : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
                         }`}
-                        title={c.userHasUpvoted ? 'You upvoted this' : 'Upvote to help this comment reach more people'}
-                        aria-label={`Upvote comment, ${c.upvoteCount || 0} upvotes`}
+                        aria-label={`Pollinate comment, ${c.upvoteCount || 0} upvotes`}
                       >
-                        <svg className="w-3 h-3" fill={c.userHasUpvoted ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                        <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-44 rounded bg-surface-hover px-2 py-1 text-[10px] text-foreground text-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg border border-border z-10">
+                          {c.userHasUpvoted ? 'You pollinated this' : 'Pollinate — enough upvotes carry this comment to higher tiers'}
+                        </span>
+                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12 19V5" />
+                          <path d="M5 12l7-7 7 7" />
+                          {c.userHasUpvoted && <>
+                            <path d="M8 2l-2 2" opacity={0.6} />
+                            <path d="M16 2l2 2" opacity={0.6} />
+                          </>}
                         </svg>
                         <span className="font-mono">{c.upvoteCount || 0}</span>
                       </button>
@@ -1296,8 +1305,9 @@ export default function DeliberationPageClient() {
   const [loading, setLoading] = useState(true)
   const [newIdea, setNewIdea] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [ideaError, setIdeaError] = useState('')
   const [joining, setJoining] = useState(false)
-  const [startingVote, setStartingVote] = useState(false)
+  // startingVote removed — facilitator starts voting from manage page
   const [startingChallenge, setStartingChallenge] = useState(false)
   const [voting, setVoting] = useState<string | null>(null)
   const [enteringVoting, setEnteringVoting] = useState(false)
@@ -1403,28 +1413,31 @@ export default function DeliberationPageClient() {
     e.preventDefault()
     if (!newIdea.trim()) return
     setSubmitting(true)
+    setIdeaError('')
     try {
       const res = await fetch(`/api/deliberations/${id}/ideas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: newIdea }),
       })
-      if (res.ok) { setNewIdea(''); fetchDeliberation() }
+      if (res.ok) {
+        setNewIdea('')
+        fetchDeliberation()
+      } else {
+        const data = await res.json()
+        const msg = data.error || 'Failed to submit idea'
+        setIdeaError(msg)
+        showToast(msg, 'error')
+      }
+    } catch {
+      setIdeaError('Failed to submit idea')
+      showToast('Failed to submit idea', 'error')
     } finally {
       setSubmitting(false)
     }
   }
 
-  const handleStartVoting = async () => {
-    setStartingVote(true)
-    try {
-      const res = await fetch(`/api/deliberations/${id}/start-voting`, { method: 'POST' })
-      if (res.ok) { fetchDeliberation(); fetchCells() }
-      else { const d = await res.json(); showToast(d.error || 'Failed', 'error') }
-    } finally {
-      setStartingVote(false)
-    }
-  }
+  // handleStartVoting removed — facilitator starts voting from manage page
 
   const handleStartChallenge = async () => {
     setStartingChallenge(true)
@@ -1469,7 +1482,11 @@ export default function DeliberationPageClient() {
         body: JSON.stringify({ allocations }),
       })
       if (res.ok) { fetchCells(); fetchDeliberation() }
-      else { const d = await res.json(); showToast(d.error || 'Failed', 'error') }
+      else {
+        const d = await res.json()
+        showToast(d.error || 'Failed', 'error')
+        fetchCells(); fetchDeliberation() // refresh stale UI
+      }
     } finally {
       setVoting(null)
     }
@@ -1546,12 +1563,16 @@ export default function DeliberationPageClient() {
   const winner = deliberation.ideas.find(i => i.status === 'WINNER')
     || (deliberation.championId ? deliberation.ideas.find(i => i.id === deliberation.championId) : undefined)
   const defender = deliberation.ideas.find(i => i.status === 'DEFENDING')
+  // Cells in discussion phase (DELIBERATING status, current tier)
+  const deliberatingCells = cells.filter(
+    c => c.status === 'DELIBERATING' && c.tier === deliberation.currentTier
+  )
   // Cells where user can still vote (VOTING status, hasn't voted yet, current tier only)
   const activeCells = cells.filter(
     c => c.status === 'VOTING' && c.votes.length === 0 && c.tier === deliberation.currentTier
   )
   // Cells where user has voted or cell is completed
-  const votedCells = cells.filter(c => c.status !== 'VOTING' || c.votes.length > 0)
+  const votedCells = cells.filter(c => c.status !== 'VOTING' && c.status !== 'DELIBERATING' || c.votes.length > 0)
   // Check if user has any cells in current tier (whether voted or not)
   const currentTierCells = cells.filter(c => c.tier === deliberation.currentTier)
   const hasVotedInCurrentTier = currentTierCells.some(c => c.votes.length > 0)
@@ -1650,6 +1671,16 @@ export default function DeliberationPageClient() {
           </div>
         )}
 
+        {deliberation.continuousFlow && deliberation.phase === 'VOTING' && (
+          <div className="bg-accent-light rounded-xl px-3 py-2 mb-4">
+            <span className="text-accent text-xs">
+              {deliberation.currentTier === 1
+                ? 'Ideas still open — submit yours below'
+                : 'Ideas open — new submissions pool for next round'}
+            </span>
+          </div>
+        )}
+
         {deliberation.challengeRound > 0 && deliberation.phase === 'VOTING' && (
           <div className="bg-orange-bg border border-orange rounded-xl p-3 mb-4">
             <div className="flex justify-between items-center">
@@ -1732,75 +1763,92 @@ export default function DeliberationPageClient() {
           </div>
         </div>
 
-        {/* Submit Idea Form */}
-        {deliberation.isMember && deliberation.phase === 'SUBMISSION' && (
-          deliberation.userSubmittedIdea ? (
-            <div className="bg-success-bg border border-success rounded-xl p-3 mb-4">
-              <p className="text-success font-medium text-sm mb-1">Your idea submitted:</p>
-              <p className="text-foreground text-sm italic">"{deliberation.userSubmittedIdea.text}"</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmitIdea} className="mb-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Your idea..."
-                  value={newIdea}
-                  onChange={(e) => setNewIdea(e.target.value)}
-                  maxLength={500}
-                  className="flex-1 bg-surface border border-border rounded px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent"
-                />
-                <button
-                  type="submit"
-                  disabled={submitting || !newIdea.trim()}
-                  className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-                >
-                  {submitting ? '...' : 'Submit'}
-                </button>
-              </div>
-              {newIdea.length > 400 && (
-                <p className={`text-xs mt-1 text-right ${newIdea.length >= 500 ? 'text-error' : 'text-muted'}`}>
-                  {newIdea.length}/500
-                </p>
-              )}
-            </form>
-          )
-        )}
+        {/* Submit Idea — shows submitted idea confirmation + challenger form during VOTING/ACCUMULATING */}
+        {deliberation.isMember && (deliberation.phase === 'SUBMISSION' || effectivePhase === 'VOTING' || effectivePhase === 'ACCUMULATING') && (() => {
+          const inVotingOrAccum = effectivePhase === 'VOTING' || effectivePhase === 'ACCUMULATING'
+          const isContinuousFlowTier1 = deliberation.continuousFlow && deliberation.currentTier === 1
 
-        {/* Submit Challenger Form */}
-        {deliberation.isMember && (effectivePhase === 'VOTING' || effectivePhase === 'ACCUMULATING') && (
-          deliberation.userSubmittedChallenger ? (
-            <div className="bg-purple-bg border border-purple rounded-xl p-3 mb-4">
-              <p className="text-purple font-medium text-sm mb-1">Your challenger submitted:</p>
-              <p className="text-foreground text-sm italic">"{deliberation.userSubmittedChallenger.text}"</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmitIdea} className="mb-4">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Submit challenger..."
-                  value={newIdea}
-                  onChange={(e) => setNewIdea(e.target.value)}
-                  maxLength={500}
-                  className="flex-1 bg-surface border border-border rounded px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent"
-                />
-                <button
-                  type="submit"
-                  disabled={submitting || !newIdea.trim()}
-                  className="bg-purple hover:bg-purple-hover text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
-                >
-                  {submitting ? '...' : 'Submit'}
-                </button>
+          // During SUBMISSION or continuousFlow tier 1: show regular idea form
+          if (deliberation.phase === 'SUBMISSION' || (inVotingOrAccum && isContinuousFlowTier1)) {
+            return deliberation.userSubmittedIdea ? (
+              <div className="bg-success-bg border-success border rounded-xl p-3 mb-4">
+                <p className="text-success font-medium text-sm mb-1">Your idea submitted:</p>
+                <p className="text-foreground text-sm italic">&ldquo;{deliberation.userSubmittedIdea.text}&rdquo;</p>
               </div>
-              {newIdea.length > 400 && (
-                <p className={`text-xs mt-1 text-right ${newIdea.length >= 500 ? 'text-error' : 'text-muted'}`}>
-                  {newIdea.length}/500
-                </p>
+            ) : (
+              <form onSubmit={handleSubmitIdea} className="mb-4">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Your idea..."
+                    value={newIdea}
+                    onChange={(e) => setNewIdea(e.target.value)}
+                    maxLength={500}
+                    className="flex-1 bg-surface border border-border rounded px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent"
+                  />
+                  <button
+                    type="submit"
+                    disabled={submitting || !newIdea.trim()}
+                    className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+                  >
+                    {submitting ? '...' : 'Submit'}
+                  </button>
+                </div>
+                {newIdea.length > 400 && (
+                  <p className={`text-xs mt-1 text-right ${newIdea.length >= 500 ? 'text-error' : 'text-muted'}`}>
+                    {newIdea.length}/500
+                  </p>
+                )}
+                {ideaError && <p className="text-error text-xs mt-1">{ideaError}</p>}
+              </form>
+            )
+          }
+
+          // During VOTING/ACCUMULATING (non-continuousFlow or tier 2+):
+          // Show regular idea confirmation + challenger form
+          return (
+            <>
+              {deliberation.userSubmittedIdea && (
+                <div className="bg-success-bg border-success border rounded-xl p-3 mb-4">
+                  <p className="text-success font-medium text-sm mb-1">Your idea submitted:</p>
+                  <p className="text-foreground text-sm italic">&ldquo;{deliberation.userSubmittedIdea.text}&rdquo;</p>
+                </div>
               )}
-            </form>
+              {deliberation.userSubmittedChallenger ? (
+                <div className="bg-purple-bg border-purple border rounded-xl p-3 mb-4">
+                  <p className="text-purple font-medium text-sm mb-1">Your challenger (pools for next round):</p>
+                  <p className="text-foreground text-sm italic">&ldquo;{deliberation.userSubmittedChallenger.text}&rdquo;</p>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitIdea} className="mb-4">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Submit idea (pools for next round)..."
+                      value={newIdea}
+                      onChange={(e) => setNewIdea(e.target.value)}
+                      maxLength={500}
+                      className="flex-1 bg-surface border border-border rounded px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent"
+                    />
+                    <button
+                      type="submit"
+                      disabled={submitting || !newIdea.trim()}
+                      className="bg-purple hover:bg-purple-hover text-white px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+                    >
+                      {submitting ? '...' : 'Submit'}
+                    </button>
+                  </div>
+                  {newIdea.length > 400 && (
+                    <p className={`text-xs mt-1 text-right ${newIdea.length >= 500 ? 'text-error' : 'text-muted'}`}>
+                      {newIdea.length}/500
+                    </p>
+                  )}
+                  {ideaError && <p className="text-error text-xs mt-1">{ideaError}</p>}
+                </form>
+              )}
+            </>
           )
-        )}
+        })()}
 
         {/* Active Voting Cells */}
         {activeCells.length > 0 && (
@@ -1862,6 +1910,42 @@ export default function DeliberationPageClient() {
               </p>
               <p className="text-muted text-sm">Waiting for other voters to complete this tier...</p>
             </div>
+          </Section>
+        )}
+
+        {/* Deliberating Cells — discussion before voting opens */}
+        {deliberatingCells.length > 0 && (
+          <Section
+            title="Discussion"
+            badge={<span className="w-2 h-2 bg-blue rounded-full animate-pulse" />}
+            defaultOpen={true}
+          >
+            {deliberatingCells.map(cell => (
+              <div key={cell.id} className="rounded-lg border border-blue bg-blue-bg p-3 mb-3">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-blue font-medium text-sm">Tier {cell.tier} — Read & Discuss</span>
+                  {cell.discussionEndsAt ? (
+                    <CountdownTimer deadline={cell.discussionEndsAt} onExpire={handleRefresh} compact label="Voting opens in" />
+                  ) : (
+                    <span className="text-xs text-muted">Facilitator opens voting</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted mb-3">Read the ideas below and discuss before voting opens.</p>
+                <div className="space-y-1.5 mb-2">
+                  {cell.ideas.map(({ idea }, i) => (
+                    <div key={idea.id} className="bg-background border border-border rounded p-2 text-sm">
+                      <p className="text-foreground">{idea.text}</p>
+                      <p className="text-xs text-muted mt-0.5">{getDisplayName(idea.author)}</p>
+                    </div>
+                  ))}
+                </div>
+                <CellDiscussion
+                  cellId={cell.id}
+                  isParticipant={true}
+                  ideas={cell.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text }))}
+                />
+              </div>
+            ))}
           </Section>
         )}
 
@@ -2009,8 +2093,8 @@ export default function DeliberationPageClient() {
                         }`}>
                           {idea.status}
                         </span>
-                        {idea.totalVotes > 0 && (
-                          <p className="text-xs text-muted font-mono">{idea.totalVotes}v</p>
+                        {(idea.totalXP > 0 || idea.totalVotes > 0) && (
+                          <p className="text-xs text-muted font-mono">{idea.totalXP || idea.totalVotes} VP</p>
                         )}
                       </div>
                     </div>
