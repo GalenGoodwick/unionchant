@@ -260,6 +260,13 @@ function PricingContent() {
                   >
                     Sign up
                   </Link>
+                ) : tier.price === null ? (
+                  <Link
+                    href="/contact"
+                    className="block text-center w-full py-3 px-6 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium transition-colors text-sm"
+                  >
+                    Contact us
+                  </Link>
                 ) : (
                   <button
                     onClick={() => handleCheckout(tier.priceEnv!)}
@@ -272,11 +279,9 @@ function PricingContent() {
                   >
                     {loading === tier.priceEnv
                       ? 'Loading...'
-                      : tier.price === null
-                        ? 'Contact support'
-                        : isDowngrade
-                          ? 'Downgrade'
-                          : `Upgrade to ${tier.name}`}
+                      : isDowngrade
+                        ? 'Downgrade'
+                        : `Upgrade to ${tier.name}`}
                   </button>
                 )}
               </div>

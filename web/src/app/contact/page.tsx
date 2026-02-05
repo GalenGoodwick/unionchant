@@ -138,7 +138,7 @@ export default function ContactPage() {
         </form>
 
         <div className="mt-8 text-center text-sm text-muted">
-          <p>Or email us directly at <a href="mailto:support@unitychant.com" className="text-accent hover:underline">support@unitychant.com</a></p>
+          <p>Or email us directly at <a href="mailto:galen.goodwick@gmail.com" className="text-accent hover:underline">galen.goodwick@gmail.com</a></p>
         </div>
       </div>
     </div>

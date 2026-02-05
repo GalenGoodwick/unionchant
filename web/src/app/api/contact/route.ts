@@ -9,9 +9,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'All fields required' }, { status: 400 })
     }
 
-    // Send email to support
-    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean)
-    const supportEmail = process.env.SUPPORT_EMAIL || adminEmails[0] || 'support@unitychant.com'
+    const supportEmail = 'galen.goodwick@gmail.com'
 
     await sendEmail({
       to: supportEmail,
