@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import CaptchaModal from '@/components/CaptchaModal'
 
 interface Message {
   id: string
@@ -72,6 +73,11 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [captchaOpen, setCaptchaOpen] = useState(false)
+  const [captchaStrike, setCaptchaStrike] = useState(1)
+  const [pendingMessage, setPendingMessage] = useState('')
+  const [mutedUntil, setMutedUntil] = useState<number | null>(null)
+  const [dailyLimitHit, setDailyLimitHit] = useState(false)
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -151,6 +157,22 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const data = await res.json()
 
       if (!res.ok) {
+        if (data.error === 'CAPTCHA_REQUIRED') {
+          setCaptchaStrike(data.strike || 1)
+          setPendingMessage(messageText)
+          setCaptchaOpen(true)
+          return
+        }
+        if (data.error === 'MUTED') {
+          setMutedUntil(data.mutedUntil)
+          setCaptchaOpen(true)
+          return
+        }
+        if (data.error === 'DAILY_LIMIT') {
+          setDailyLimitHit(true)
+          setInput(messageText)
+          return
+        }
         setError(data.error || 'Failed to send message')
         setInput(messageText)
         return
@@ -187,6 +209,37 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       // Silently fail
     } finally {
       setLoadingMore(false)
+    }
+  }
+
+  const handleCaptchaVerify = async (token: string) => {
+    setCaptchaOpen(false)
+    if (!pendingMessage.trim()) return
+    setSending(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/collective-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: pendingMessage, captchaToken: token }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data.error || 'Failed to send message')
+        setInput(pendingMessage)
+      } else {
+        setPendingMessage('')
+        const messagesRes = await fetch('/api/collective-chat')
+        if (messagesRes.ok) {
+          const messagesData = await messagesRes.json()
+          setMessages(messagesData.messages)
+        }
+      }
+    } catch {
+      setError('Failed to send message. Please try again.')
+      setInput(pendingMessage)
+    } finally {
+      setSending(false)
     }
   }
 
@@ -322,6 +375,20 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
+      {/* Daily limit banner */}
+      {dailyLimitHit && (
+        <div className="px-4 py-3 border-t border-gold-border bg-gold-bg">
+          <p className="text-sm text-foreground mb-1.5">You&apos;ve reached your daily message limit.</p>
+          <p className="text-xs text-muted mb-2">Free accounts get 5 messages per day. Upgrade to Pro for unlimited access.</p>
+          <Link
+            href="/pricing"
+            className="inline-block px-3 py-1.5 bg-gold hover:bg-gold-hover text-background text-xs font-medium rounded-lg transition-colors"
+          >
+            Upgrade to Pro
+          </Link>
+        </div>
+      )}
+
       {/* Input */}
       <div className="px-4 py-3 border-t border-gold-border">
         {session ? (
@@ -329,17 +396,17 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             <input
               type="text"
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => { setInput(e.target.value); setDailyLimitHit(false) }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything..."
-              disabled={sending}
+              placeholder={dailyLimitHit ? 'Daily limit reached — upgrade for more' : 'Ask anything...'}
+              disabled={sending || dailyLimitHit}
               maxLength={2000}
               aria-label="Chat message"
               className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || sending}
+              disabled={!input.trim() || sending || dailyLimitHit}
               aria-label="Send message"
               className="px-4 py-2 bg-gold hover:bg-gold-hover text-background text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -355,6 +422,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           </Link>
         )}
       </div>
+
+      <CaptchaModal
+        open={captchaOpen}
+        strike={captchaStrike}
+        onVerify={handleCaptchaVerify}
+        onClose={() => { setCaptchaOpen(false); setMutedUntil(null) }}
+        mutedUntil={mutedUntil}
+      />
     </div>
   )
 }

@@ -1596,7 +1596,7 @@ export default function DeliberationPageClient() {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <div className="max-w-xl mx-auto px-4 py-4">
+      <div className="max-w-xl lg:max-w-5xl mx-auto px-4 py-4">
         {/* Back link */}
         <Link href="/feed" className="text-muted hover:text-foreground text-sm mb-3 inline-block">
           ← Back
@@ -1726,6 +1726,16 @@ export default function DeliberationPageClient() {
               Sign in
             </Link>
           )}
+
+          <Link
+            href={`/talks/${deliberation.id}/details`}
+            className="border border-border hover:border-accent text-foreground px-3 py-1.5 rounded text-sm flex items-center gap-1.5"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Full Details
+          </Link>
 
           <ShareMenu
             url={`/talks/${deliberation.id}`}
@@ -1859,7 +1869,7 @@ export default function DeliberationPageClient() {
           >
             <div className="space-y-3">
               {activeCells.map(cell => (
-                <VotingCell key={cell.id} cell={cell} onVote={handleVote} voting={voting} onRefresh={handleRefresh} />
+                <VotingCell key={cell.id} cell={cell} onVote={handleVote} voting={voting} onRefresh={handleRefresh} currentTier={deliberation.currentTier} />
               ))}
             </div>
           </Section>
@@ -1989,7 +1999,7 @@ export default function DeliberationPageClient() {
                         {cellIndex === 0 ? 'Primary vote' : `Extra vote ${cellIndex}`} - Tier {cell.tier}
                       </div>
                     )}
-                    <VotingCell cell={cell} onVote={handleVote} voting={voting} onRefresh={handleRefresh} />
+                    <VotingCell cell={cell} onVote={handleVote} voting={voting} onRefresh={handleRefresh} currentTier={deliberation.currentTier} />
                   </div>
                 )
               })}

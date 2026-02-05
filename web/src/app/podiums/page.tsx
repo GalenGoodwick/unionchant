@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 
 type PodiumItem = {
   id: string
@@ -56,6 +57,9 @@ export default function PodiumsPage() {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="max-w-xl mx-auto px-4 py-6">
+        <FirstVisitTooltip id="podiums-page">
+          Podiums are long-form posts where you can explain your thinking, make an argument, or provide context for a talk. Link a podium to a talk to drive informed participation.
+        </FirstVisitTooltip>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Podiums</h1>
           {session && (

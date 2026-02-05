@@ -4,7 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
 import { getCommunityMemberRole } from '@/lib/community'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimit, getChatStrike, incrementChatStrike, resetChatStrike, resetRateWindow } from '@/lib/rate-limit'
+import { verifyCaptcha } from '@/lib/captcha'
 
 // GET /api/communities/[slug]/chat — List messages (members only)
 export async function GET(
@@ -81,12 +82,36 @@ export async function POST(
       return NextResponse.json({ error: 'Members only' }, { status: 403 })
     }
 
-    // Rate limit: reuse 'comment' config (10/min)
-    if (await checkRateLimit('comment', user.id)) {
-      return NextResponse.json({ error: 'Too many messages. Please wait.' }, { status: 429 })
+    const body = await req.json()
+    const { text, captchaToken } = body
+
+    // If CAPTCHA token provided, verify it and reset limits
+    if (captchaToken) {
+      const captchaResult = await verifyCaptcha(captchaToken, user.id)
+      if (captchaResult.success) {
+        resetChatStrike(user.id)
+        resetRateWindow('comment', user.id)
+      } else {
+        return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
+      }
     }
 
-    const { text } = await req.json()
+    // Rate limit: reuse 'comment' config (10/min)
+    if (await checkRateLimit('comment', user.id)) {
+      const { strike, mutedUntil } = incrementChatStrike(user.id)
+      if (mutedUntil) {
+        return NextResponse.json({
+          error: 'MUTED',
+          mutedUntil,
+          message: 'You have been temporarily muted.',
+        }, { status: 429 })
+      }
+      return NextResponse.json({
+        error: 'CAPTCHA_REQUIRED',
+        strike,
+        message: 'Please verify you are human.',
+      }, { status: 429 })
+    }
     if (!text || typeof text !== 'string' || !text.trim()) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }

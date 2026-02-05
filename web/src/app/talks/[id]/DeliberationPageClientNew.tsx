@@ -19,12 +19,11 @@ import IdeaCard from '@/components/deliberation/IdeaCard'
 import JourneyTimeline from '@/components/deliberation/JourneyTimeline'
 import type { TimelineEntry } from '@/components/deliberation/JourneyTimeline'
 import CellMembersBar from '@/components/deliberation/CellMembersBar'
-import ChatDiscussion from '@/components/deliberation/ChatDiscussion'
-import ChatInputBar from '@/components/deliberation/ChatInputBar'
 import VotingCell from '@/components/deliberation/VotingCell'
 import WinnerCard from '@/components/deliberation/WinnerCard'
 import DefenderCard from '@/components/deliberation/DefenderCard'
 import StatsRow from '@/components/deliberation/StatsRow'
+import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 import type { Deliberation, Cell, Idea } from '@/components/deliberation/types'
 
 // ─── Collective Chat Link ───
@@ -279,7 +278,7 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
 
       {/* Voting cell — Vote Point allocation UI */}
       {displayCell ? (
-        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
+        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} currentTier={delib.currentTier} />
       ) : d.cellsLoaded && !d.isInCurrentTier && d.session ? (
         <div className="bg-warning-bg border border-warning rounded-[10px] p-4 text-center">
           <p className="text-muted text-sm mb-3">Voting in progress at Tier {delib.currentTier}</p>
@@ -423,7 +422,7 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
 
       {/* Voting cell — Vote Point allocation UI */}
       {displayCell ? (
-        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
+        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} currentTier={delib.currentTier} />
       ) : null}
 
       {/* If no cell, show join prompt */}
@@ -506,7 +505,6 @@ export default function DeliberationPageClient() {
   const activeCell = d.activeCells[0]
   const votedCurrentTierCell = d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
   const displayCell = activeCell || votedCurrentTierCell
-  const showChatInput = (d.effectivePhase === 'VOTING' || isChallenge) && displayCell
 
   // Phase badge color
   const badgeColor = {
@@ -526,7 +524,10 @@ export default function DeliberationPageClient() {
     <div className="min-h-screen bg-background flex flex-col">
       <Header />
 
-      <div className={`max-w-2xl mx-auto px-4 py-4 flex-1 flex flex-col w-full ${showChatInput ? 'pb-20' : ''}`}>
+      <div className={`max-w-2xl mx-auto px-4 py-4 flex-1 flex flex-col w-full `}>
+        <FirstVisitTooltip id="talk-detail">
+          Ideas compete in small groups of 5. Winners advance to the next tier until a priority emerges.
+        </FirstVisitTooltip>
         {/* Top bar: Back + Manage + Share */}
         <div className="flex items-center justify-between mb-3">
           <Link href="/talks" className="text-muted hover:text-foreground text-sm">
@@ -555,6 +556,15 @@ export default function DeliberationPageClient() {
                 Manage
               </Link>
             )}
+            <Link
+              href={`/talks/${delib.id}/details`}
+              className="border border-border hover:border-accent text-foreground px-3 py-1.5 rounded text-sm flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Full Details
+            </Link>
             <ShareMenu url={`/talks/${delib.id}`} text={delib.question} />
           </div>
         </div>
@@ -636,17 +646,6 @@ export default function DeliberationPageClient() {
           </button>
         )}
 
-        {/* Creator actions */}
-        {d.isCreator && delib.phase === 'SUBMISSION' && (
-          <button
-            onClick={d.handleStartVoting}
-            disabled={d.startingVote}
-            className="w-full bg-warning hover:bg-warning-hover text-black px-4 py-2.5 rounded-lg text-sm font-semibold mb-4 disabled:opacity-50"
-          >
-            {d.startingVote ? 'Starting...' : 'Start Voting'}
-          </button>
-        )}
-
         {/* Phase body */}
         <PhaseBody d={d} />
 
@@ -672,27 +671,8 @@ export default function DeliberationPageClient() {
           </div>
         )}
 
-        {/* View Details link */}
-        <div className="flex items-center justify-end mt-6 mb-4">
-          <Link
-            href={`/talks/${id}/details`}
-            className="text-accent hover:text-accent-hover text-sm font-medium flex items-center gap-1"
-          >
-            View Full Details
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          </Link>
-        </div>
       </div>
 
-      {/* Fixed chat input bar */}
-      {showChatInput && displayCell && (
-        <ChatInputBar
-          cellId={displayCell.id}
-          ideas={displayCell.ideas.map(ci => ({ id: ci.idea.id, text: ci.idea.text }))}
-        />
-      )}
     </div>
   )
 }

@@ -25,7 +25,7 @@ export async function POST(
 
     const community = await prisma.community.findUnique({
       where: { inviteCode: code },
-      select: { id: true, slug: true },
+      select: { id: true, slug: true, isPublic: true, creatorId: true },
     })
     if (!community) {
       return NextResponse.json({ error: 'Invalid invite code' }, { status: 404 })
@@ -37,6 +37,27 @@ export async function POST(
     })
     if (existing) {
       return NextResponse.json({ communitySlug: community.slug, alreadyMember: true })
+    }
+
+    // Enforce member cap for private groups based on creator's tier
+    if (!community.isPublic) {
+      const creator = await prisma.user.findUnique({
+        where: { id: community.creatorId },
+        select: { subscriptionTier: true },
+      })
+      const creatorTier = creator?.subscriptionTier || 'free'
+      const memberCaps: Record<string, number> = { pro: 500, business: 5000 }
+      if (creatorTier in memberCaps) {
+        const memberCount = await prisma.communityMember.count({
+          where: { communityId: community.id },
+        })
+        if (memberCount >= memberCaps[creatorTier]) {
+          return NextResponse.json({
+            error: 'MEMBER_LIMIT',
+            message: `This group has reached its member limit of ${memberCaps[creatorTier].toLocaleString()}.`,
+          }, { status: 403 })
+        }
+      }
     }
 
     await prisma.communityMember.create({

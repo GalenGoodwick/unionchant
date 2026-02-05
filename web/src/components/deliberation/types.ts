@@ -44,6 +44,8 @@ export type CommentWithUpvote = Comment & {
   isUpPollinated?: boolean
   sourceTier?: number
   linkedIdea?: { id: string; text: string } | null
+  spreadCount?: number
+  ideaId?: string | null
 }
 
 export type Cell = {

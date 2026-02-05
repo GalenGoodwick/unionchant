@@ -28,6 +28,15 @@ export default function SettingsPage() {
   const [profileSuccess, setProfileSuccess] = useState(false)
   const [currentBio, setCurrentBio] = useState<string | null>(null)
 
+  // Email preferences
+  const [emailPrefs, setEmailPrefs] = useState({
+    emailVoting: true,
+    emailResults: true,
+    emailSocial: true,
+    emailCommunity: true,
+    emailNews: true,
+  })
+
   const {
     isSupported,
     isSubscribed,
@@ -53,6 +62,13 @@ export default function SettingsPage() {
           setCurrentBio(data.user.bio)
           setProfileBio(data.user.bio || '')
           setProfileName(data.user.name || '')
+          setEmailPrefs({
+            emailVoting: data.user.emailVoting ?? true,
+            emailResults: data.user.emailResults ?? true,
+            emailSocial: data.user.emailSocial ?? true,
+            emailCommunity: data.user.emailCommunity ?? true,
+            emailNews: data.user.emailNews ?? true,
+          })
         }
       } catch (error) {
         console.error('Error fetching user data:', error)
@@ -91,6 +107,21 @@ export default function SettingsPage() {
       setProfileError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setProfileSaving(false)
+    }
+  }
+
+  const handleEmailPrefToggle = async (key: keyof typeof emailPrefs) => {
+    const newValue = !emailPrefs[key]
+    setEmailPrefs(prev => ({ ...prev, [key]: newValue }))
+    try {
+      await fetch('/api/user/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: newValue }),
+      })
+    } catch {
+      // Revert on failure
+      setEmailPrefs(prev => ({ ...prev, [key]: !newValue }))
     }
   }
 
@@ -338,6 +369,42 @@ export default function SettingsPage() {
           )}
         </section>
 
+        {/* Email Notifications Section */}
+        <section className="bg-background rounded-xl p-6 border border-border mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Email Notifications</h2>
+          <p className="text-muted text-sm mb-4">
+            Choose which emails you receive. These are separate from push notifications.
+          </p>
+          <div className="space-y-4">
+            {([
+              { key: 'emailVoting' as const, label: 'Voting alerts', desc: 'Your turn to vote, voting ending soon' },
+              { key: 'emailResults' as const, label: 'Results', desc: 'Priority declared, your idea advanced' },
+              { key: 'emailSocial' as const, label: 'Following', desc: 'People you follow create new talks' },
+              { key: 'emailCommunity' as const, label: 'Groups', desc: 'Invitations, new talks in your groups' },
+              { key: 'emailNews' as const, label: 'News & announcements', desc: 'Platform updates and news' },
+            ]).map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between">
+                <div>
+                  <div className="text-foreground font-medium text-sm">{label}</div>
+                  <div className="text-muted text-xs">{desc}</div>
+                </div>
+                <button
+                  onClick={() => handleEmailPrefToggle(key)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                    emailPrefs[key] ? 'bg-accent' : 'bg-border-strong'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                      emailPrefs[key] ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Data Export Section */}
         <section className="bg-background rounded-xl p-6 border border-border mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Your Data</h2>
@@ -375,6 +442,18 @@ export default function SettingsPage() {
             <p className="text-muted text-sm">
               Admin accounts cannot be self-deleted. Please contact another admin if you need to remove this account.
             </p>
+          ) : deleteError === 'ACTIVE_SUBSCRIPTION' ? (
+            <div className="space-y-4">
+              <p className="text-error font-medium text-sm">
+                You have an active subscription. Cancel it before deleting your account.
+              </p>
+              <Link
+                href="/billing"
+                className="inline-block px-4 py-2 bg-accent text-white rounded-xl hover:bg-accent-hover text-sm transition-colors"
+              >
+                Go to Billing
+              </Link>
+            </div>
           ) : !showDeleteConfirm ? (
             <>
               <p className="text-muted text-sm mb-4">

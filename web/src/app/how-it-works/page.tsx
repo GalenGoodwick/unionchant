@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'How It Works',
-  description: 'Learn how Union Chant\'s tiered tournament system enables genuine deliberation at any scale. 5-person cells, cross-cell tallying, and rolling mode explained.',
+  description: 'Learn how Union Chant works — submit ideas, discuss in small groups, vote with points, and surface the best answers together.',
 }
 
 export default function HowItWorksPage() {
@@ -12,426 +12,212 @@ export default function HowItWorksPage() {
     <div className="min-h-screen bg-surface">
       <Header />
 
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
           &larr; Back to Home
         </Link>
 
-        <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">How Union Chant Works</h1>
-        <p className="text-xl text-muted mb-12">
-          A technical deep-dive into the voting algorithm
+        <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-2">How Union Chant Works</h1>
+        <p className="text-lg text-muted mb-10">
+          A quick guide to participating in talks
         </p>
 
-        {/* Overview */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">The Core Algorithm</h2>
-          <div className="bg-background rounded-lg border border-border p-6">
-            <p className="text-subtle mb-4">
-              Union Chant uses a <strong className="text-foreground">tiered tournament system</strong> where ideas compete in small groups called <em>cells</em>.
-              Each cell contains 5 ideas and 5 participants. After deliberation, each cell votes and one idea advances.
-            </p>
-            <p className="text-subtle">
-              This process repeats across tiers until a single priority emerges. The key insight: by structuring
-              many parallel small-group discussions, we achieve genuine deliberation at any scale.
-            </p>
-          </div>
-        </section>
-
-        {/* The Numbers */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Scale Mathematics</h2>
-          <div className="bg-background rounded-lg border border-border overflow-x-auto">
-            <table className="w-full text-sm min-w-[400px]">
-              <thead className="bg-surface">
-                <tr>
-                  <th className="text-left p-4 text-muted font-medium">Participants</th>
-                  <th className="text-left p-4 text-muted font-medium">Ideas</th>
-                  <th className="text-left p-4 text-muted font-medium">Tiers Required</th>
-                  <th className="text-left p-4 text-muted font-medium">Total Cells</th>
-                </tr>
-              </thead>
-              <tbody className="font-mono">
-                <tr className="border-t border-border">
-                  <td className="p-4 text-foreground">25</td>
-                  <td className="p-4 text-muted">25</td>
-                  <td className="p-4 text-accent">2</td>
-                  <td className="p-4 text-muted">6</td>
-                </tr>
-                <tr className="border-t border-border">
-                  <td className="p-4 text-foreground">125</td>
-                  <td className="p-4 text-muted">125</td>
-                  <td className="p-4 text-accent">3</td>
-                  <td className="p-4 text-muted">31</td>
-                </tr>
-                <tr className="border-t border-border">
-                  <td className="p-4 text-foreground">625</td>
-                  <td className="p-4 text-muted">625</td>
-                  <td className="p-4 text-accent">4</td>
-                  <td className="p-4 text-muted">156</td>
-                </tr>
-                <tr className="border-t border-border">
-                  <td className="p-4 text-foreground">10,000</td>
-                  <td className="p-4 text-muted">10,000</td>
-                  <td className="p-4 text-accent">6</td>
-                  <td className="p-4 text-muted">~2,500</td>
-                </tr>
-                <tr className="border-t border-border bg-accent-light">
-                  <td className="p-4 text-foreground font-bold">1,000,000</td>
-                  <td className="p-4 text-muted">1,000,000</td>
-                  <td className="p-4 text-accent font-bold">9</td>
-                  <td className="p-4 text-muted">~250,000</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p className="text-muted text-sm mt-4">
-            Formula: Tiers ≈ log₅(ideas). Each tier reduces ideas by ~80% (5:1 ratio).
+        {/* What is a Talk */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">What is a Talk?</h2>
+          <p className="text-subtle text-sm leading-relaxed">
+            A Talk is a question posed to a group. Anyone can submit an idea, and together the group
+            narrows down to the strongest answer through small-group discussions and voting.
           </p>
         </section>
 
-        {/* Cell Structure */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Cell Structure</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-3">Why 5 People?</h3>
-              <ul className="text-subtle space-y-2 text-sm">
-                <li>• Small enough for everyone to participate meaningfully</li>
-                <li>• Large enough to represent diverse viewpoints</li>
-                <li>• Odd number prevents ties</li>
-                <li>• Research shows 5-7 is optimal for group deliberation</li>
-              </ul>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-3">Why 5 Ideas?</h3>
-              <ul className="text-subtle space-y-2 text-sm">
-                <li>• Manageable cognitive load for comparison</li>
-                <li>• Forces meaningful trade-off discussions</li>
-                <li>• Matches participant count for balanced voting power</li>
-                <li>• Creates consistent 5:1 reduction ratio</li>
-              </ul>
-            </div>
+        {/* Step by step */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-4">Your Journey</h2>
+          <div className="space-y-3">
+
+            <Step number={1} color="bg-accent" title="Join and Submit">
+              Find a Talk on your Feed or browse open talks. Submit your idea — one per person,
+              so make it count.
+            </Step>
+
+            <Step number={2} color="bg-blue" title="Discuss in Your Cell">
+              You&apos;re placed in a cell with 4 other people and 5 ideas. Read all the ideas,
+              then comment. Upvoted comments spread to other cells discussing the same idea.
+            </Step>
+
+            <Step number={3} color="bg-warning" title="Allocate 10 Vote Points">
+              You get 10 Vote Points. Drag the sliders to distribute them across the ideas you
+              support. You can put all 10 on one idea or spread them around — your call.
+            </Step>
+
+            <Step number={4} color="bg-success" title="Winners Advance">
+              The top idea in each cell moves to the next tier. New cells form with the surviving
+              ideas. This repeats until a priority emerges.
+            </Step>
+
           </div>
         </section>
 
-        {/* Phase Flow */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Phase Flow</h2>
-          <div className="space-y-4">
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-accent flex items-center justify-center text-white font-bold shrink-0 text-sm sm:text-base">1</div>
-              <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
-                <h3 className="font-semibold text-foreground">Submission Phase</h3>
-                <p className="text-subtle text-sm mt-1">
-                  Participants join and submit ideas. Anyone can propose solutions to the question.
-                  Optional deadline enforces timely submissions.
-                </p>
-              </div>
+        {/* Vote Points */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">Vote Points</h2>
+          <div className="bg-background rounded-lg border border-border p-4">
+            <p className="text-subtle text-sm leading-relaxed mb-3">
+              Every voter gets <strong className="text-foreground">10 Vote Points</strong> per cell.
+              This lets you express how strongly you feel, not just which idea you prefer.
+            </p>
+            <div className="bg-surface rounded p-3 text-sm space-y-1.5 font-mono">
+              <div className="flex justify-between"><span className="text-muted">All-in:</span> <span className="text-foreground">10-0-0-0-0</span></div>
+              <div className="flex justify-between"><span className="text-muted">Split favorite:</span> <span className="text-foreground">6-4-0-0-0</span></div>
+              <div className="flex justify-between"><span className="text-muted">Spread wide:</span> <span className="text-foreground">4-3-2-1-0</span></div>
             </div>
+            <p className="text-muted text-xs mt-3">
+              All 10 points must be allocated before you can submit.
+            </p>
+          </div>
+        </section>
 
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-warning flex items-center justify-center text-white font-bold shrink-0 text-sm sm:text-base">2</div>
-              <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
-                <h3 className="font-semibold text-foreground">Voting Phase (Tiered)</h3>
-                <p className="text-subtle text-sm mt-1">
-                  Ideas and participants are randomly assigned to cells. Each cell deliberates, then votes.
-                  Winners advance to the next tier. Process repeats until ≤5 ideas remain.
-                </p>
+        {/* Comments */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">Comments and Up-Pollination</h2>
+          <div className="bg-background rounded-lg border border-border p-4">
+            <p className="text-subtle text-sm leading-relaxed mb-3">
+              Tap the chat icon on any idea to comment on it. Your comment is visible to your cell.
+              If others upvote it, it starts spreading to other cells that share the same idea.
+            </p>
+            <div className="space-y-2 text-sm">
+              <div className="flex items-start gap-2">
+                <span className="text-purple shrink-0 mt-0.5">2 upvotes</span>
+                <span className="text-muted">&rarr; spreads to 1 additional cell</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-purple shrink-0 mt-0.5">4 upvotes</span>
+                <span className="text-muted">&rarr; spreads to 2 additional cells</span>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-purple shrink-0 mt-0.5">Keep going</span>
+                <span className="text-muted">&rarr; every 2 more upvotes reach 1 more cell, until all cells with that idea see it</span>
               </div>
             </div>
+            <p className="text-subtle text-xs mt-3">
+              When an idea advances to the next tier, the top comment follows it and starts fresh.
+            </p>
+          </div>
+        </section>
 
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-purple flex items-center justify-center text-white font-bold shrink-0 text-sm sm:text-base">3</div>
-              <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
-                <h3 className="font-semibold text-foreground">Final Round</h3>
-                <p className="text-subtle text-sm mt-1">
-                  When ≤5 ideas remain, ALL participants vote on ALL remaining ideas simultaneously.
-                  Votes are tallied across all cells. The idea with the most total votes wins.
-                </p>
-              </div>
-            </div>
+        {/* Feed */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">Your Feed</h2>
+          <div className="space-y-2">
+            <FeedTab color="text-foreground" label="Feed">
+              Actions you can take — vote, submit ideas, join new talks.
+            </FeedTab>
+            <FeedTab color="text-muted" label="Activity">
+              What&apos;s happening across the platform — new talks, tier completions, results.
+            </FeedTab>
+            <FeedTab color="text-muted" label="Results">
+              Completed talks with declared priorities.
+            </FeedTab>
+          </div>
+        </section>
 
-            <div className="flex items-start gap-3 sm:gap-4">
-              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-success flex items-center justify-center text-white font-bold shrink-0 text-sm sm:text-base">4</div>
-              <div className="bg-background rounded-lg border border-border p-3 sm:p-4 flex-1">
-                <h3 className="font-semibold text-foreground">Priority / Accepting New Ideas</h3>
-                <p className="text-subtle text-sm mt-1">
-                  A priority is declared. If rolling mode is enabled, the talk enters an accepting new ideas phase
-                  where new challenger ideas can be submitted. Periodically, challengers compete to replace the priority.
-                </p>
-              </div>
+        {/* Tiers */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">How Tiers Work</h2>
+          <div className="bg-background rounded-lg border border-border p-4">
+            <div className="flex items-center gap-3 text-sm mb-3">
+              <span className="bg-warning-bg text-warning px-2 py-0.5 rounded text-xs font-medium">Tier 1</span>
+              <span className="text-muted">&rarr;</span>
+              <span className="bg-warning-bg text-warning px-2 py-0.5 rounded text-xs font-medium">Tier 2</span>
+              <span className="text-muted">&rarr;</span>
+              <span className="bg-warning-bg text-warning px-2 py-0.5 rounded text-xs font-medium">...</span>
+              <span className="text-muted">&rarr;</span>
+              <span className="bg-success-bg text-success px-2 py-0.5 rounded text-xs font-medium">Priority</span>
             </div>
+            <p className="text-subtle text-sm leading-relaxed mb-3">
+              Each tier cuts ideas by ~80%. With 25 ideas, you need 2 tiers. With 125, you need 3.
+              Even with a million ideas, it only takes 9 tiers.
+            </p>
+            <p className="text-subtle text-sm leading-relaxed">
+              In the final tier, <strong className="text-foreground">everyone</strong> votes on the
+              remaining ideas — not just the 5 people in a cell. This ensures the winner has broad support.
+            </p>
           </div>
         </section>
 
         {/* Rolling Mode */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Rolling Mode (Accepting New Ideas)</h2>
-          <div className="bg-purple-bg border border-purple rounded-lg p-6">
-            <p className="text-subtle mb-4">
-              Rolling mode allows decisions to evolve over time. After a priority is declared, the talk
-              doesn&apos;t end—it enters an <strong className="text-foreground">accepting new ideas</strong> phase.
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">Rolling Mode</h2>
+          <div className="bg-purple-bg border border-purple rounded-lg p-4">
+            <p className="text-subtle text-sm leading-relaxed mb-3">
+              Some talks don&apos;t end after a priority is declared. In rolling mode, the talk enters
+              an <strong className="text-foreground">accepting new ideas</strong> phase. New challenger
+              ideas can be submitted, and periodically a new round begins to test whether the priority
+              still holds.
             </p>
-            <ul className="text-subtle space-y-2 text-sm">
-              <li>• New challenger ideas can be submitted at any time</li>
-              <li>• When enough challengers accumulate, Round 2 begins</li>
-              <li>• The defending priority enters at a later tier (advantage for having won before)</li>
-              <li>• If a challenger wins, it becomes the new priority</li>
-              <li>• Ideas that lose repeatedly at Tier 1 are &ldquo;retired&rdquo; from the pool</li>
-            </ul>
-            <p className="text-purple text-sm mt-4 font-medium">
-              Result: The collective position can update as circumstances change, but stability is maintained.
+            <p className="text-purple text-sm font-medium">
+              The group&apos;s answer can evolve as circumstances change.
             </p>
           </div>
         </section>
 
-        {/* Cross-Cell Tallying */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Cross-Cell Tallying</h2>
-          <div className="bg-background rounded-lg border border-border p-6">
-            <p className="text-subtle mb-4">
-              In the final round, votes are counted <em>across all cells</em>, not within individual cells.
-              This prevents small-group capture and ensures statistical robustness.
-            </p>
-            <div className="bg-surface rounded p-4 font-mono text-sm">
-              <div className="text-muted mb-2">Example with 100 participants, 4 final ideas:</div>
-              <div className="text-foreground">
-                • 20 cells × 5 participants = 100 total votes<br/>
-                • Idea A: 45 votes (across all cells)<br/>
-                • Idea B: 30 votes<br/>
-                • Idea C: 15 votes<br/>
-                • Idea D: 10 votes<br/>
-                • <span className="text-success">Winner: Idea A</span>
-              </div>
-            </div>
-          </div>
+        {/* Groups */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">Groups</h2>
+          <p className="text-subtle text-sm leading-relaxed">
+            Groups are communities that run talks together. Join a group to see their talks in your feed.
+            Groups can be public or private. Members have roles — owner, admin, or member.
+          </p>
         </section>
 
-        {/* Fairness Properties */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Fairness Properties</h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-3">Random Assignment</h3>
-              <p className="text-subtle text-sm">
-                Ideas and participants are randomly shuffled before cell assignment.
-                No gaming based on submission order or timing.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-3">Equal Voice</h3>
-              <p className="text-subtle text-sm">
-                In a cell of 5, each person's vote is 20% of the outcome.
-                No one can dominate the conversation.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-3">Survivorship Merit</h3>
-              <p className="text-subtle text-sm">
-                Winning ideas must survive scrutiny from multiple independent groups.
-                Popularity alone isn't enough—ideas must hold up to discussion.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-3">Tie Handling</h3>
-              <p className="text-subtle text-sm">
-                If ideas tie in a cell, all tied ideas advance.
-                The final round cross-cell tally resolves any remaining ties.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Participant Distribution */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Who Votes When?</h2>
-          <div className="bg-background rounded-lg border border-border p-6 mb-4">
-            <p className="text-subtle mb-4">
-              Not everyone votes in every tier. Each cell has <strong className="text-foreground">5 participants</strong>,
-              so in later tiers (with fewer cells), only a subset of participants vote.
-              <strong className="text-foreground"> But in the final round, everyone votes.</strong>
-            </p>
-            <div className="bg-surface rounded-lg p-4 font-mono text-sm">
-              <div className="text-muted mb-3">Example: 125 participants, 125 ideas</div>
-              <div className="space-y-2">
-                <div className="flex justify-between items-center py-1 border-b border-border">
-                  <span className="text-foreground">Tier 1:</span>
-                  <span className="text-muted">25 cells × 5 people = <span className="text-accent">125 voters</span> (everyone)</span>
-                </div>
-                <div className="flex justify-between items-center py-1 border-b border-border">
-                  <span className="text-foreground">Tier 2:</span>
-                  <span className="text-muted">5 cells × 5 people = <span className="text-warning">25 voters</span> (20%)</span>
-                </div>
-                <div className="flex justify-between items-center py-1">
-                  <span className="text-foreground">Final Round:</span>
-                  <span className="text-muted">All participants vote on all 5 remaining ideas = <span className="text-success">125 voters</span></span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="bg-accent-light border border-accent rounded-lg p-4">
-            <p className="text-subtle text-sm">
-              <strong className="text-accent">Why this matters:</strong> Early tiers are about filtering—random small groups
-              eliminate weaker ideas. The final round ensures the winner has broad support from the entire group,
-              not just 5 random people.
-            </p>
-          </div>
-        </section>
-
-        {/* Podiums */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">Podiums</h2>
-          <div className="bg-background rounded-lg border border-border p-6">
-            <p className="text-subtle mb-4">
-              <strong className="text-foreground">Podiums</strong> are long-form posts where users explain context,
-              make arguments, or share research related to a talk. Think of them as opinion pieces that drive participation.
-            </p>
-            <ul className="text-subtle space-y-2 text-sm">
-              <li>• <strong className="text-foreground">Link to a talk:</strong> When creating a talk, you can attach an existing podium post. The linked post appears on the talk detail page so participants have context before voting.</li>
-              <li>• <strong className="text-foreground">Write a podium post:</strong> Go to <Link href="/podium/new" className="text-accent hover:underline">Podium &rarr; Write New</Link> to publish a post. You can link it to an existing talk or create a new talk from it.</li>
-              <li>• <strong className="text-foreground">Cross-linking:</strong> Podium posts linked to a talk show up on the talk detail page. The talk also appears on the podium post page with a &ldquo;Join&rdquo; button.</li>
-              <li>• <strong className="text-foreground">Comments:</strong> Podium posts have their own comment threads, separate from cell discussions.</li>
-            </ul>
-          </div>
-        </section>
-
-        {/* FAQ */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">FAQ</h2>
-          <div className="space-y-4">
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-2">What if I miss a voting round?</h3>
-              <p className="text-subtle text-sm">
-                You may not be assigned to every tier. The system handles partial participation gracefully.
-                Your votes count in the rounds you participate in.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-2">Can someone submit multiple ideas?</h3>
-              <p className="text-subtle text-sm">
-                By default, each participant can submit one idea per talk. This ensures
-                a diversity of perspectives rather than volume from a few voices.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-2">How long does it take?</h3>
-              <p className="text-subtle text-sm">
-                With 40 participants, about 3 tiers and maybe 30 minutes if everyone votes promptly.
-                With 1,000 participants, about 5 tiers over a day or two.
-                Timeouts ensure progress even with partial participation.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-6">
-              <h3 className="font-semibold text-foreground mb-2">Is it really better than a simple poll?</h3>
-              <p className="text-subtle text-sm">
-                Yes, for decisions that benefit from deliberation. A poll measures existing preferences.
-                Union Chant allows preferences to evolve through discussion. The winner has survived
-                multiple rounds of scrutiny—that's a stronger mandate than 51% of first impressions.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* The Ultimate Vision */}
-        <section className="mb-12">
-          <h2 className="text-2xl font-semibold text-foreground mb-4">The Ultimate Vision</h2>
-          <div className="bg-purple-bg border border-purple rounded-lg p-6 mb-6">
-            <p className="text-foreground text-lg font-medium mb-4">
-              What if humanity could decide together?
-            </p>
-            <p className="text-subtle">
-              The same algorithm that handles 1,000 participants handles 8 billion. With just
-              <strong className="text-foreground"> 14 tiers</strong>, every human on Earth could participate
-              in selecting a single consensus answer—each person in a genuine 5-person deliberation.
-            </p>
-          </div>
-
-          {/* Global Scale Table */}
-          <div className="bg-background rounded-lg border border-border overflow-x-auto mb-6">
-            <table className="w-full text-sm min-w-[400px]">
+        {/* Scale */}
+        <section className="mb-10">
+          <h2 className="text-xl font-semibold text-foreground mb-3">Built to Scale</h2>
+          <div className="bg-background rounded-lg border border-border overflow-x-auto">
+            <table className="w-full text-sm">
               <thead className="bg-surface">
                 <tr>
-                  <th className="text-left p-4 text-muted font-medium">Scale</th>
-                  <th className="text-left p-4 text-muted font-medium">Participants</th>
-                  <th className="text-left p-4 text-muted font-medium">Tiers</th>
-                  <th className="text-left p-4 text-muted font-medium">Deliberations</th>
+                  <th className="text-left p-3 text-muted font-medium">Scale</th>
+                  <th className="text-left p-3 text-muted font-medium">People</th>
+                  <th className="text-left p-3 text-muted font-medium">Tiers</th>
                 </tr>
               </thead>
-              <tbody className="font-mono">
+              <tbody className="font-mono text-sm">
                 <tr className="border-t border-border">
-                  <td className="p-4 text-foreground">City</td>
-                  <td className="p-4 text-muted">100,000</td>
-                  <td className="p-4 text-accent">7</td>
-                  <td className="p-4 text-muted">25,000</td>
+                  <td className="p-3 text-foreground">Team</td>
+                  <td className="p-3 text-muted">25</td>
+                  <td className="p-3 text-accent">2</td>
                 </tr>
                 <tr className="border-t border-border">
-                  <td className="p-4 text-foreground">Nation</td>
-                  <td className="p-4 text-muted">50,000,000</td>
-                  <td className="p-4 text-accent">11</td>
-                  <td className="p-4 text-muted">12.5M</td>
+                  <td className="p-3 text-foreground">Organization</td>
+                  <td className="p-3 text-muted">625</td>
+                  <td className="p-3 text-accent">4</td>
+                </tr>
+                <tr className="border-t border-border">
+                  <td className="p-3 text-foreground">City</td>
+                  <td className="p-3 text-muted">100,000</td>
+                  <td className="p-3 text-accent">7</td>
                 </tr>
                 <tr className="border-t border-border bg-purple-bg">
-                  <td className="p-4 text-foreground font-bold">Humanity</td>
-                  <td className="p-4 text-foreground font-bold">8,000,000,000</td>
-                  <td className="p-4 text-purple font-bold">14</td>
-                  <td className="p-4 text-foreground font-bold">2 billion</td>
+                  <td className="p-3 text-foreground font-semibold">Everyone</td>
+                  <td className="p-3 text-foreground font-semibold">8 billion</td>
+                  <td className="p-3 text-purple font-semibold">14</td>
                 </tr>
               </tbody>
             </table>
-          </div>
-
-          {/* What This Enables */}
-          <div className="grid sm:grid-cols-2 gap-4 mb-6">
-            <div className="bg-background rounded-lg border border-border p-5">
-              <h3 className="font-semibold text-foreground mb-2">Legitimate Global Consensus</h3>
-              <p className="text-muted text-sm">
-                Not "67% clicked a button"—actual deliberated consensus from billions of real discussions.
-                A mandate that means something.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-5">
-              <h3 className="font-semibold text-foreground mb-2">Living Global Policy</h3>
-              <p className="text-muted text-sm">
-                Rolling mode means humanity's position on climate, AI, or inequality can evolve
-                as circumstances change—while maintaining democratic legitimacy.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-5">
-              <h3 className="font-semibold text-foreground mb-2">Collective Intelligence</h3>
-              <p className="text-muted text-sm">
-                The best ideas surface not through virality or wealth, but through genuine evaluation
-                at every tier. 2 billion deliberations distilling wisdom.
-              </p>
-            </div>
-            <div className="bg-background rounded-lg border border-border p-5">
-              <h3 className="font-semibold text-foreground mb-2">Democratic AI Alignment</h3>
-              <p className="text-muted text-sm">
-                What if AI systems were aligned not to one company's values, but to humanity's
-                deliberated consensus on what matters?
-              </p>
-            </div>
-          </div>
-
-          {/* The Point */}
-          <div className="bg-surface rounded-lg border border-border p-6 text-center">
-            <p className="text-foreground mb-2">
-              Every talk here is practice for the conversations that matter most.
-            </p>
-            <p className="text-muted text-sm italic">
-              "The measure of a democracy is not the loudness of its voices, but the quality of its listening."
-            </p>
           </div>
         </section>
 
         {/* CTA */}
         <div className="text-center pt-8 border-t border-border">
-          <h3 className="text-xl font-semibold text-foreground mb-4">Ready to see it in action?</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4">Ready?</h3>
           <div className="flex gap-4 justify-center">
             <Link
-              href="/demo"
+              href="/feed"
               className="bg-accent hover:bg-accent-hover text-white px-6 py-3 rounded-lg font-medium transition-colors"
             >
-              Watch Demo
+              Go to Feed
             </Link>
             <Link
               href="/talks/new"
@@ -442,6 +228,29 @@ export default function HowItWorksPage() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function Step({ number, color, title, children }: { number: number; color: string; title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className={`w-8 h-8 rounded-full ${color} flex items-center justify-center text-white text-sm font-bold shrink-0`}>
+        {number}
+      </div>
+      <div className="bg-background rounded-lg border border-border p-3 flex-1">
+        <h3 className="font-semibold text-foreground text-sm">{title}</h3>
+        <p className="text-subtle text-sm mt-1 leading-relaxed">{children}</p>
+      </div>
+    </div>
+  )
+}
+
+function FeedTab({ color, label, children }: { color: string; label: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-background rounded-lg border border-border p-3 flex items-start gap-3">
+      <span className={`text-sm font-semibold ${color} shrink-0 w-16`}>{label}</span>
+      <span className="text-subtle text-sm">{children}</span>
     </div>
   )
 }

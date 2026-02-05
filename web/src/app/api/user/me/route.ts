@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isAdmin } from '@/lib/admin'
 
 // GET /api/user/me - Get current user's profile
 export async function GET() {
@@ -34,10 +35,12 @@ export async function GET() {
       `,
     ])
     const totalXP = Number(xpResult[0]?.total || 0)
+    const adminFlag = await isAdmin(session.user.email)
 
     return NextResponse.json({
       user: {
         id: user.id,
+        isAdmin: adminFlag,
         name: user.name,
         email: user.email,
         image: user.image,
@@ -47,11 +50,18 @@ export async function GET() {
         onboardedAt: (user as any).onboardedAt || null,
         createdAt: user.createdAt,
         emailNotifications: user.emailNotifications,
+        emailVoting: user.emailVoting,
+        emailResults: user.emailResults,
+        emailSocial: user.emailSocial,
+        emailCommunity: user.emailCommunity,
+        emailNews: user.emailNews,
         totalPredictions: user.totalPredictions,
         correctPredictions: user.correctPredictions,
         championPicks: user.championPicks,
         currentStreak: user.currentStreak,
         bestStreak: user.bestStreak,
+        subscriptionTier: user.subscriptionTier || 'free',
+        stripeSubscriptionId: user.stripeSubscriptionId || null,
         totalXP,
         stats: {
           ideas: ideasCount,
@@ -77,9 +87,9 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name, bio, emailNotifications } = await request.json()
+    const { name, bio, emailNotifications, emailVoting, emailResults, emailSocial, emailCommunity, emailNews } = await request.json()
 
-    const updateData: { name?: string; bio?: string | null; emailNotifications?: boolean } = {}
+    const updateData: Record<string, string | boolean | null> = {}
 
     if (name !== undefined) {
       if (typeof name !== 'string' || name.trim().length < 1) {
@@ -105,6 +115,21 @@ export async function PATCH(request: Request) {
     if (emailNotifications !== undefined) {
       updateData.emailNotifications = Boolean(emailNotifications)
     }
+    if (emailVoting !== undefined) {
+      updateData.emailVoting = Boolean(emailVoting)
+    }
+    if (emailResults !== undefined) {
+      updateData.emailResults = Boolean(emailResults)
+    }
+    if (emailSocial !== undefined) {
+      updateData.emailSocial = Boolean(emailSocial)
+    }
+    if (emailCommunity !== undefined) {
+      updateData.emailCommunity = Boolean(emailCommunity)
+    }
+    if (emailNews !== undefined) {
+      updateData.emailNews = Boolean(emailNews)
+    }
 
     const user = await prisma.user.update({
       where: { email: session.user.email },
@@ -114,6 +139,11 @@ export async function PATCH(request: Request) {
         name: true,
         bio: true,
         emailNotifications: true,
+        emailVoting: true,
+        emailResults: true,
+        emailSocial: true,
+        emailCommunity: true,
+        emailNews: true,
       },
     })
 

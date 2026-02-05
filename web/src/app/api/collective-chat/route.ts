@@ -4,7 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callClaudeWithTools } from '@/lib/claude'
 import type { ToolDefinition } from '@/lib/claude'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimit, incrementChatStrike, resetChatStrike, resetRateWindow } from '@/lib/rate-limit'
+import { verifyCaptcha } from '@/lib/captcha'
 
 // GET /api/collective-chat - Returns per-user messages
 export async function GET(req: NextRequest) {
@@ -74,17 +75,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const limited = await checkRateLimit('collective_chat', session.user.email)
-    if (limited) {
-      return NextResponse.json(
-        { error: 'Too many messages. Please wait a moment.' },
-        { status: 429 }
-      )
-    }
-
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, name: true },
+      select: { id: true, name: true, subscriptionTier: true },
     })
 
     if (!user) {
@@ -92,7 +85,35 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { message } = body
+    const { message, captchaToken } = body
+
+    // If CAPTCHA token provided, verify it and reset limits
+    if (captchaToken) {
+      const captchaResult = await verifyCaptcha(captchaToken, user.id)
+      if (captchaResult.success) {
+        resetChatStrike(user.id)
+        resetRateWindow('collective_chat', user.id)
+      } else {
+        return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
+      }
+    }
+
+    const limited = await checkRateLimit('collective_chat', user.id)
+    if (limited) {
+      const { strike, mutedUntil } = incrementChatStrike(user.id)
+      if (mutedUntil) {
+        return NextResponse.json({
+          error: 'MUTED',
+          mutedUntil,
+          message: 'You have been temporarily muted.',
+        }, { status: 429 })
+      }
+      return NextResponse.json({
+        error: 'CAPTCHA_REQUIRED',
+        strike,
+        message: 'Please verify you are human.',
+      }, { status: 429 })
+    }
 
     if (!message || typeof message !== 'string' || message.trim().length === 0) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
@@ -100,6 +121,33 @@ export async function POST(req: NextRequest) {
 
     if (message.trim().length > 2000) {
       return NextResponse.json({ error: 'Message too long (max 2000 characters)' }, { status: 400 })
+    }
+
+    // Daily message cap: 5/day for free users, 50 welcome bonus, unlimited Pro+
+    const FREE_DAILY_LIMIT = 5
+    const WELCOME_BONUS = 50
+    if (user.subscriptionTier === 'free') {
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+
+      const [todayCount, totalCount] = await Promise.all([
+        prisma.collectiveMessage.count({
+          where: { userId: user.id, role: 'user', createdAt: { gte: todayStart } },
+        }),
+        prisma.collectiveMessage.count({
+          where: { userId: user.id, role: 'user' },
+        }),
+      ])
+
+      // Welcome bonus: first 50 lifetime messages are free regardless of daily cap
+      if (totalCount >= WELCOME_BONUS && todayCount >= FREE_DAILY_LIMIT) {
+        return NextResponse.json({
+          error: 'DAILY_LIMIT',
+          dailyLimit: FREE_DAILY_LIMIT,
+          used: todayCount,
+          message: `You've used all ${FREE_DAILY_LIMIT} messages for today. Upgrade to Pro for unlimited access.`,
+        }, { status: 429 })
+      }
     }
 
     // Save user message (always private)
@@ -304,6 +352,8 @@ PLATFORM PAGES:
 - /podiums — Long-form writing
 - /how-it-works — How Union Chant works
 - /whitepaper — Full whitepaper
+- /terms — Terms of Service
+- /privacy — Privacy Policy
 - /profile — Your profile
 - /pricing — Pro subscription info
 - /donate — Support the project

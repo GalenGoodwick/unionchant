@@ -10,12 +10,14 @@ export default function CellSlider({
   onVote,
   voting,
   onRefresh,
+  currentTier,
 }: {
   activeCells: Cell[]
   votedCells: Cell[]
   onVote: (cellId: string, allocations: { ideaId: string; points: number }[]) => void
   voting: string | null
   onRefresh: () => void
+  currentTier?: number
 }) {
   // Active cells first, then voted/completed — sorted by tier descending
   const allCells = [
@@ -100,6 +102,7 @@ export default function CellSlider({
           onVote={onVote}
           voting={voting}
           onRefresh={onRefresh}
+          currentTier={currentTier}
         />
       ) : (
         <div className="rounded-lg border border-border border-dashed p-6 text-center">

@@ -1,7 +1,7 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback, useEffect } from 'react'
-import { SessionProvider } from 'next-auth/react'
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
+import { SessionProvider, useSession } from 'next-auth/react'
 import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
@@ -161,9 +161,26 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Signup Stamp ─────────────────────────────────────────────
+// Fire-and-forget: stamps geo metadata on first login (once per user)
+function SignupStamp() {
+  const { data: session } = useSession()
+  const stamped = useRef(false)
+
+  useEffect(() => {
+    if (session?.user && !stamped.current) {
+      stamped.current = true
+      fetch('/api/user/stamp', { method: 'POST' }).catch(() => {})
+    }
+  }, [session])
+
+  return null
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
+      <SignupStamp />
       <ThemeGate>
         <ToastProvider>
           <GuideGate>

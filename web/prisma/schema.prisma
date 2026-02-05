@@ -37,8 +37,20 @@ model User {
   isAI          Boolean    @default(false)      // AI persona for cold-start engagement
   aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
   theme         String     @default("system")  // "light", "dark", "system"
-  emailNotifications Boolean @default(false)  // Must opt-in to use AI chat
-  subscriptionTier   String  @default("free") // "free" or "pro" ($3/month)
+  emailNotifications Boolean @default(true)
+  emailVoting        Boolean @default(true)   // Your turn to vote, voting ending soon
+  emailResults       Boolean @default(true)   // Priority declared, idea advanced, tier complete
+  emailSocial        Boolean @default(true)   // New followers, followed user creates talk
+  emailCommunity     Boolean @default(true)   // Group invites, new talks in your groups
+  emailNews          Boolean @default(true)   // Admin news/podium broadcasts
+  signupIp        String?
+  signupCountry   String?   // ISO 3166-1 (e.g. "US")
+  signupCity      String?
+  signupTimezone  String?   // IANA (e.g. "America/New_York")
+  signupUserAgent String?
+  subscriptionTier   String  @default("free") // "free", "pro", "business", "scale"
+  stripeCustomerId   String? @unique
+  stripeSubscriptionId String?
   lastCollectiveTalkChangeAt DateTime? // Rate limit: free = 1 Talk change/day
   deletedAt     DateTime?
   bannedAt      DateTime?
@@ -438,6 +450,7 @@ model Comment {
   reachTier       Int      @default(1)       // Current up-pollinate tier (1-9)
   upvoteCount     Int      @default(0)       // Denormalized for fast queries
   tierUpvotes     Int      @default(0)       // Upvotes in current reach tier (resets on tier change)
+  spreadCount     Int      @default(0)       // How many same-tier cells this has spread to (0 = origin cell only)
 
   // Moderation
   isRemoved       Boolean  @default(false)   // Soft-deleted by author or moderator
@@ -582,6 +595,7 @@ enum NotificationType {
   FOLLOWED_VOTED       // Someone you follow voted in a deliberation you're not in
   CONTENT_REMOVED      // Your content was removed by a moderator
   COMMUNITY_BAN        // You banned a user from a group
+  PODIUM_NEWS          // Admin news broadcast via podium
 }
 
 // ============ COMMUNITIES ============

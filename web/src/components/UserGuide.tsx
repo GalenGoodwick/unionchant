@@ -8,58 +8,34 @@ interface UserGuideProps {
 
 const steps = [
   {
-    title: 'Submit Your Ideas',
+    title: 'Join a Talk',
     icon: '💡',
-    description: 'When a talk is open for ideas, anyone can submit their answer. Share your best solution to the question being asked.',
-    tip: 'Be clear and concise. Your idea competes with others, so make it count!',
+    body: 'A Talk is a question posed to a group. Browse your Feed for open talks, or create your own. Submit your best idea — one per person.',
   },
   {
-    title: 'Spend Your 10 Vote Points',
-    icon: '🎯',
-    description: 'Each voter gets 10 Vote Points to distribute across ideas in their cell. Put all 10 on your favorite, or spread them to show nuanced support. Voting is always anonymous — no one can see how you allocated your Vote Points.',
-    tip: 'You must allocate all 10 Vote Points. The idea with the most total VP wins the cell. Only totals are shown, never individual votes.',
-  },
-  {
-    title: 'Discuss & Pollinate',
+    title: 'Discuss in Your Cell',
     icon: '💬',
-    description: 'Your cell discusses ideas together. Upvote the best comments — when a comment gets enough upvotes, it pollinates to higher-tier cells so the strongest arguments follow winning ideas.',
-    tip: 'The pollinate button is the up-arrow on each comment. A toast will confirm when your upvote carries a comment to the next tier.',
+    body: 'You\'re placed in a cell of 5 people with 5 ideas. Read them all, then tap the chat icon on any idea to comment. If your comment gets upvoted, it spreads to other cells — every 2 upvotes reach one more cell.',
+  },
+  {
+    title: 'Allocate 10 Vote Points',
+    icon: '🗳️',
+    body: 'Drag the sliders to distribute 10 Vote Points across the ideas you support. Go all-in on one, or spread them around. All 10 must be allocated to submit.',
   },
   {
     title: 'Winners Advance',
     icon: '🏆',
-    description: 'The idea with the most Vote Points in your cell advances to the next tier. This repeats: winners from Tier 1 compete in Tier 2, and so on.',
-    tip: 'This process ensures the best ideas rise through the ranks.',
+    body: 'The top idea in each cell advances to the next tier. New cells form, and it repeats. In the final round, everyone votes together. The winner becomes the priority.',
   },
   {
-    title: 'Final Round',
-    icon: '🎯',
-    description: 'When only a few ideas remain, ALL participants vote together. The idea with the most Vote Points becomes the top priority!',
-    tip: 'Even if your idea lost earlier, you can still allocate Vote Points to the winner.',
+    title: 'Your Feed',
+    icon: '📋',
+    body: 'Feed shows actions you can take — vote, submit, join. Activity shows what\'s happening across the platform. Results shows completed talks.',
   },
   {
-    title: 'Challenge the Priority',
-    icon: '👑',
-    description: 'In Rolling Mode, the current priority can be challenged! Submit new ideas while the talk is accepting new ideas. If a challenger wins, there\'s a new priority.',
-    tip: 'Great decisions aren\'t set in stone — they can evolve over time.',
-  },
-  {
-    title: 'Podium Posts',
-    icon: '📝',
-    description: 'Write long-form Podium posts to explain your thinking, make the case for an idea, or provide context. Podium posts can be linked to talks so readers can join the deliberation directly.',
-    tip: 'Link a Podium post to your talk to drive informed participation. Readers see a "Join" button right on the post.',
-  },
-  {
-    title: 'The Collective',
-    icon: '🌐',
-    description: 'The Collective is your personal AI guide. Ask about active talks, get reminders about pending votes, or have it create a talk for you.',
-    tip: 'Say "what should I do?" and the Collective will check your pending actions.',
-  },
-  {
-    title: 'Facilitator Controls',
-    icon: '🎛️',
-    description: 'If you created a talk, you\'re the facilitator. Use the Manage page to start voting, open challenge rounds, set timers, and control the flow. You can move between phases freely — reopen submissions, restart voting, or close the talk at any time.',
-    tip: 'Go to Manage and select your talk to access facilitator controls.',
+    title: 'Rolling Mode',
+    icon: '🔄',
+    body: 'Some talks keep going after a priority is declared. New challenger ideas can be submitted, and periodically a new round tests whether the priority still holds.',
   },
 ]
 
@@ -73,7 +49,7 @@ export default function UserGuide({ onClose }: UserGuideProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-background rounded-xl max-w-md w-full shadow-xl overflow-hidden">
+      <div className="bg-background rounded-xl max-w-sm w-full shadow-xl overflow-hidden">
         {/* Progress bar */}
         <div className="flex">
           {steps.map((_, i) => (
@@ -87,31 +63,24 @@ export default function UserGuide({ onClose }: UserGuideProps) {
         </div>
 
         {/* Content */}
-        <div className="p-6">
-          <div className="text-center mb-6">
-            <span className="text-5xl mb-4 block">{step.icon}</span>
-            <h2 className="text-xl font-bold text-foreground mb-2">
+        <div className="p-5">
+          <div className="text-center mb-5">
+            <span className="text-4xl mb-3 block">{step.icon}</span>
+            <h2 className="text-lg font-bold text-foreground mb-2">
               {step.title}
             </h2>
-            <p className="text-muted">
-              {step.description}
-            </p>
-          </div>
-
-          {/* Tip box */}
-          <div className="bg-accent-light border border-accent rounded-lg p-3 mb-6">
-            <p className="text-sm text-foreground">
-              <span className="font-medium">Tip:</span> {step.tip}
+            <p className="text-sm text-muted leading-relaxed">
+              {step.body}
             </p>
           </div>
 
           {/* Step indicator */}
-          <div className="text-center text-muted text-sm mb-4">
-            Step {currentStep + 1} of {steps.length}
+          <div className="text-center text-muted text-xs mb-4">
+            {currentStep + 1} / {steps.length}
           </div>
 
           {/* Don't show again */}
-          <label className="flex items-center gap-2 mb-4 cursor-pointer text-sm text-muted">
+          <label className="flex items-center gap-2 mb-4 cursor-pointer text-xs text-muted">
             <input
               type="checkbox"
               checked={dontShowAgain}
@@ -126,7 +95,7 @@ export default function UserGuide({ onClose }: UserGuideProps) {
             {!isFirst && (
               <button
                 onClick={() => setCurrentStep(currentStep - 1)}
-                className="flex-1 py-2 border border-border rounded-lg text-muted hover:text-foreground hover:border-border-strong transition-colors"
+                className="flex-1 py-2 border border-border rounded-lg text-sm text-muted hover:text-foreground hover:border-border-strong transition-colors"
               >
                 Back
               </button>
@@ -134,16 +103,16 @@ export default function UserGuide({ onClose }: UserGuideProps) {
             {isFirst && (
               <button
                 onClick={() => onClose(dontShowAgain)}
-                className="flex-1 py-2 border border-border rounded-lg text-muted hover:text-foreground hover:border-border-strong transition-colors"
+                className="flex-1 py-2 border border-border rounded-lg text-sm text-muted hover:text-foreground hover:border-border-strong transition-colors"
               >
                 Skip
               </button>
             )}
             <button
               onClick={() => isLast ? onClose(dontShowAgain) : setCurrentStep(currentStep + 1)}
-              className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors"
+              className="flex-1 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors"
             >
-              {isLast ? 'Get Started' : 'Next'}
+              {isLast ? 'Got it' : 'Next'}
             </button>
           </div>
         </div>

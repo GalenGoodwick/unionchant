@@ -184,12 +184,20 @@ export default function ProfilePage() {
             <div className="flex-1">
               <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold text-foreground">{profile.name}</h1>
-                <Link
-                  href="/settings"
-                  className="text-sm text-muted hover:text-foreground border border-border rounded-xl px-3 py-1.5 transition-colors"
-                >
-                  Settings
-                </Link>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/billing"
+                    className="text-sm text-muted hover:text-foreground border border-border rounded-xl px-3 py-1.5 transition-colors"
+                  >
+                    Billing
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="text-sm text-muted hover:text-foreground border border-border rounded-xl px-3 py-1.5 transition-colors"
+                  >
+                    Settings
+                  </Link>
+                </div>
               </div>
 
               {profile.bio && (

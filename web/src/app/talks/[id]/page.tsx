@@ -1,15 +1,11 @@
 import { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
+import { cache } from 'react'
 import DeliberationPageClient from './DeliberationPageClientNew'
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ id: string }>
-}): Promise<Metadata> {
-  const { id } = await params
-
-  const deliberation = await prisma.deliberation.findUnique({
+// Deduplicate the metadata query within a single request
+const getDeliberationMeta = cache(async (id: string) => {
+  return prisma.deliberation.findUnique({
     where: { id },
     select: {
       question: true,
@@ -20,12 +16,20 @@ export async function generateMetadata({
       _count: { select: { members: true, ideas: true } },
     },
   })
+})
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}): Promise<Metadata> {
+  const { id } = await params
+  const deliberation = await getDeliberationMeta(id)
 
   if (!deliberation) {
     return { title: 'Not Found' }
   }
 
-  // Private deliberations get generic metadata
   if (!deliberation.isPublic) {
     return {
       title: 'Private Deliberation',

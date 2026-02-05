@@ -4,6 +4,11 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 import { getCachedPodiums, setCachedPodiums } from '@/lib/podium-cache'
+import { processAllTimers } from '@/lib/timer-processor'
+
+// ── Timer fallback (catch overdue transitions between cron runs) ──
+let lastTimerCheck = 0
+const TIMER_CHECK_INTERVAL = 30_000 // 30s
 
 // ── Caches ─────────────────────────────────────────────────────
 let discoveryCache: { data: any[]; ts: number } | null = null
@@ -720,6 +725,13 @@ export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   const tab = (request.nextUrl.searchParams.get('tab') || 'your-turn') as TabParam
   const cacheKey = `${session?.user?.email || 'anon'}:${tab}`
+
+  // Fire-and-forget: catch overdue tier transitions between cron runs
+  const now = Date.now()
+  if (now - lastTimerCheck > TIMER_CHECK_INTERVAL) {
+    lastTimerCheck = now
+    processAllTimers('feed').catch(() => {})
+  }
 
   // Return cached response if fresh (TTL matched to tab's polling interval)
   const cached = getCachedResponse(cacheKey, tab)

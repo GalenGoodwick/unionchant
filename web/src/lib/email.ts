@@ -54,7 +54,7 @@ export async function sendEmailToDeliberation(
       question: true,
       members: {
         include: {
-          user: { select: { email: true } },
+          user: { select: { email: true, emailVoting: true, emailResults: true } },
         },
       },
     },
@@ -62,7 +62,11 @@ export async function sendEmailToDeliberation(
 
   if (!deliberation) return
 
-  const emails = deliberation.members.map(m => m.user.email)
+  // Filter by email preference
+  const prefKey = type === 'cell_ready' ? 'emailVoting' : 'emailResults'
+  const emails = deliberation.members
+    .filter(m => m.user[prefKey])
+    .map(m => m.user.email)
 
   let template: { subject: string; html: string }
 

@@ -30,7 +30,7 @@ function UserAvatar({ image, name }: { image: string | null; name: string | null
 }
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
-type AdminTab = 'deliberations' | 'users' | 'moderation' | 'podiums'
+type AdminTab = 'deliberations' | 'users' | 'moderation' | 'podiums' | 'groups'
 
 interface AdminReport {
   id: string
@@ -55,6 +55,10 @@ interface AdminUser {
   createdAt: string
   bannedAt: string | null
   banReason: string | null
+  signupIp: string | null
+  signupCountry: string | null
+  signupCity: string | null
+  signupTimezone: string | null
   _count: { ideas: number; votes: number; comments: number; deliberationsCreated: number }
 }
 
@@ -126,6 +130,22 @@ export default function AdminPage() {
   const [reportsPage, setReportsPage] = useState(1)
   const [reportActioning, setReportActioning] = useState<string | null>(null)
 
+  // Flagged users state
+  interface FlaggedUser {
+    id: string; name: string | null; email: string; image: string | null
+    status: UserStatus; bannedAt: string | null; banReason: string | null; createdAt: string
+    _count: { ideas: number; votes: number; comments: number }
+    reports: Array<{
+      id: string; reason: string; details: string | null; targetType: string
+      createdAt: string; reporter: { id: string; name: string | null; email: string }
+    }>
+    totalReports: number
+  }
+  const [flaggedUsers, setFlaggedUsers] = useState<FlaggedUser[]>([])
+  const [bannedUsers, setBannedUsers] = useState<FlaggedUser[]>([])
+  const [flaggedLoading, setFlaggedLoading] = useState(false)
+  const [flagActioning, setFlagActioning] = useState<string | null>(null)
+
   // Rate limit config
   const [rateLimits, setRateLimits] = useState<Array<{
     id?: string; endpoint: string; maxRequests: number; windowMs: number; keyType: string; enabled: boolean
@@ -143,6 +163,55 @@ export default function AdminPage() {
   const [podiumsCursor, setPodiumsCursor] = useState<string | null>(null)
   const [podiumsHasMore, setPodiumsHasMore] = useState(false)
   const [podiumActioning, setPodiumActioning] = useState<string | null>(null)
+
+  // Groups state
+  const [groups, setGroups] = useState<Array<{
+    id: string; name: string; slug: string; description: string | null; isPublic: boolean; createdAt: string
+    creator: { id: string; name: string | null; email: string; image: string | null }
+    _count: { members: number; deliberations: number; chatMessages: number; bans: number }
+  }>>([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
+  const [groupDeleting, setGroupDeleting] = useState<string | null>(null)
+  const [groupSearch, setGroupSearch] = useState('')
+
+  const fetchGroups = useCallback(async () => {
+    setGroupsLoading(true)
+    try {
+      const res = await fetch('/api/admin/communities')
+      if (res.ok) {
+        const data = await res.json()
+        setGroups(Array.isArray(data) ? data : [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch groups:', error)
+    } finally {
+      setGroupsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'groups' && groups.length === 0) {
+      fetchGroups()
+    }
+  }, [activeTab, fetchGroups, groups.length])
+
+  const handleGroupDelete = async (groupId: string, groupName: string) => {
+    if (!window.confirm(`Delete group "${groupName}" and all its data (members, bans, messages)? Deliberations will be unlinked but not deleted. This cannot be undone.`)) return
+    setGroupDeleting(groupId)
+    try {
+      const res = await fetch(`/api/admin/communities/${groupId}`, { method: 'DELETE' })
+      if (res.ok) {
+        setGroups(prev => prev.filter(g => g.id !== groupId))
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(`Delete failed: ${data.error || res.status}`)
+      }
+    } catch (err) {
+      alert(`Delete failed: ${err}`)
+    } finally {
+      setGroupDeleting(null)
+    }
+  }
 
   const fetchPodiums = useCallback(async (cursor?: string | null) => {
     setPodiumsLoading(true)
@@ -226,11 +295,55 @@ export default function AdminPage() {
     }
   }, [reportsFilter, reportsPage])
 
+  const fetchFlaggedUsers = useCallback(async () => {
+    setFlaggedLoading(true)
+    try {
+      const res = await fetch('/api/admin/flagged-users')
+      if (res.ok) {
+        const data = await res.json()
+        setFlaggedUsers(data.flagged || [])
+        setBannedUsers(data.banned || [])
+      }
+    } catch (error) {
+      console.error('Failed to fetch flagged users:', error)
+    } finally {
+      setFlaggedLoading(false)
+    }
+  }, [])
+
+  const handleFlagAction = async (userId: string, action: 'ban' | 'unban') => {
+    let reason = ''
+    if (action === 'ban') {
+      reason = window.prompt('Ban reason:') || ''
+      if (!reason) return
+    }
+    setFlagActioning(userId)
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason }),
+      })
+      if (res.ok) {
+        fetchFlaggedUsers()
+        fetchReports()
+      } else {
+        const err = await res.json()
+        alert(`Failed: ${err.error}`)
+      }
+    } catch {
+      alert('Failed to perform action')
+    } finally {
+      setFlagActioning(null)
+    }
+  }
+
   useEffect(() => {
     if (activeTab === 'moderation') {
       fetchReports(reportsFilter, reportsPage)
+      fetchFlaggedUsers()
     }
-  }, [activeTab, reportsFilter, reportsPage, fetchReports])
+  }, [activeTab, reportsFilter, reportsPage, fetchReports, fetchFlaggedUsers])
 
   const handleReportAction = async (reportId: string, status: 'RESOLVED' | 'DISMISSED', action?: string) => {
     setReportActioning(reportId)
@@ -433,7 +546,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-surface">
       <Header />
 
-      <div className="max-w-6xl mx-auto px-6 py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex justify-between items-center mb-6">
           <div>
             <Link href="/" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
@@ -451,10 +564,10 @@ export default function AdminPage() {
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex gap-1 mb-6 bg-background rounded-lg border border-border p-1 w-fit">
+        <div className="flex gap-1 mb-6 bg-background rounded-lg border border-border p-1 overflow-x-auto">
           <button
             onClick={() => setActiveTab('deliberations')}
-            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
               activeTab === 'deliberations' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
             }`}
           >
@@ -462,7 +575,7 @@ export default function AdminPage() {
           </button>
           <button
             onClick={() => setActiveTab('users')}
-            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
               activeTab === 'users' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
             }`}
           >
@@ -470,7 +583,7 @@ export default function AdminPage() {
           </button>
           <button
             onClick={() => setActiveTab('moderation')}
-            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
               activeTab === 'moderation' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
             }`}
           >
@@ -478,11 +591,19 @@ export default function AdminPage() {
           </button>
           <button
             onClick={() => setActiveTab('podiums')}
-            className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
               activeTab === 'podiums' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
             }`}
           >
             Podiums
+          </button>
+          <button
+            onClick={() => setActiveTab('groups')}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
+              activeTab === 'groups' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
+            }`}
+          >
+            Groups
           </button>
         </div>
 
@@ -512,7 +633,7 @@ export default function AdminPage() {
             </div>
 
             {/* Users Table */}
-            <div className="bg-background rounded-lg border border-border overflow-hidden mb-6">
+            <div className="bg-background rounded-lg border border-border overflow-x-auto mb-6">
               {usersLoading ? (
                 <div className="p-8 text-center text-muted">Loading...</div>
               ) : users.length === 0 ? (
@@ -524,6 +645,7 @@ export default function AdminPage() {
                       <th className="text-left p-4 text-muted font-medium text-sm">User</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Status</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Joined</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Location</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Ideas</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Votes</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Actions</th>
@@ -559,6 +681,16 @@ export default function AdminPage() {
                         </td>
                         <td className="p-4 text-muted text-sm font-mono">
                           {new Date(u.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="p-4 text-muted text-xs">
+                          {u.signupCity || u.signupCountry ? (
+                            <div title={[u.signupIp, u.signupTimezone].filter(Boolean).join(' / ')}>
+                              <div>{[u.signupCity, u.signupCountry].filter(Boolean).join(', ')}</div>
+                              {u.signupTimezone && <div className="text-subtle">{u.signupTimezone}</div>}
+                            </div>
+                          ) : (
+                            <span className="text-subtle">--</span>
+                          )}
                         </td>
                         <td className="p-4 text-muted font-mono text-sm">{u._count.ideas}</td>
                         <td className="p-4 text-muted font-mono text-sm">{u._count.votes}</td>
@@ -628,6 +760,100 @@ export default function AdminPage() {
         {/* Moderation Tab */}
         {activeTab === 'moderation' && (
           <div>
+            {/* Flagged Users Section */}
+            {(flaggedUsers.length > 0 || bannedUsers.length > 0) && (
+              <div className="mb-8">
+                <h3 className="text-sm font-semibold text-foreground mb-3">Flagged Users</h3>
+                {flaggedLoading ? (
+                  <div className="p-4 text-center text-muted text-sm">Loading...</div>
+                ) : (
+                  <div className="space-y-3">
+                    {flaggedUsers.map(u => (
+                      <div key={u.id} className="bg-background rounded-lg border border-warning/30 p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <UserAvatar image={u.image} name={u.name} />
+                            <div className="min-w-0">
+                              <Link href={`/user/${u.id}`} className="text-foreground hover:text-accent font-medium text-sm">
+                                {u.name || 'Anonymous'}
+                              </Link>
+                              <div className="text-muted text-xs">{u.email}</div>
+                              <div className="text-muted text-xs font-mono">
+                                {u._count.ideas} ideas &middot; {u._count.votes} votes &middot; {u._count.comments} comments
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs font-mono text-warning">{u.totalReports} report{u.totalReports !== 1 ? 's' : ''}</span>
+                            {u.status === 'ACTIVE' ? (
+                              <button
+                                onClick={() => handleFlagAction(u.id, 'ban')}
+                                disabled={flagActioning === u.id}
+                                className="text-xs px-3 py-1.5 rounded bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors disabled:opacity-50"
+                              >
+                                Ban
+                              </button>
+                            ) : u.status === 'BANNED' ? (
+                              <button
+                                onClick={() => handleFlagAction(u.id, 'unban')}
+                                disabled={flagActioning === u.id}
+                                className="text-xs px-3 py-1.5 rounded bg-success/10 text-success border border-success/30 hover:bg-success/20 transition-colors disabled:opacity-50"
+                              >
+                                Unban
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        {/* Report reasons */}
+                        <div className="mt-3 space-y-1.5">
+                          {u.reports.map(r => (
+                            <div key={r.id} className="flex items-start gap-2 text-xs">
+                              <span className={`shrink-0 px-1.5 py-0.5 rounded font-medium ${
+                                r.reason === 'SPAM' ? 'bg-warning/15 text-warning' :
+                                r.reason === 'HARASSMENT' || r.reason === 'HATE_SPEECH' ? 'bg-error/15 text-error' :
+                                'bg-surface text-muted'
+                              }`}>
+                                {r.reason.replace('_', ' ')}
+                              </span>
+                              <span className="text-muted">{r.targetType.toLowerCase()}</span>
+                              {r.details && <span className="text-foreground italic truncate">&quot;{r.details}&quot;</span>}
+                              <span className="text-muted shrink-0 ml-auto">{new Date(r.createdAt).toLocaleDateString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {bannedUsers.map(u => (
+                      <div key={u.id} className="bg-background rounded-lg border border-error/30 p-4 opacity-75">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <UserAvatar image={u.image} name={u.name} />
+                            <div className="min-w-0">
+                              <Link href={`/user/${u.id}`} className="text-foreground hover:text-accent font-medium text-sm">
+                                {u.name || 'Anonymous'}
+                              </Link>
+                              <div className="text-muted text-xs">{u.email}</div>
+                              {u.banReason && <div className="text-error text-xs mt-0.5">{u.banReason}</div>}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-xs px-2 py-0.5 rounded bg-error-bg text-error font-medium">BANNED</span>
+                            <button
+                              onClick={() => handleFlagAction(u.id, 'unban')}
+                              disabled={flagActioning === u.id}
+                              className="text-xs px-3 py-1.5 rounded bg-success/10 text-success border border-success/30 hover:bg-success/20 transition-colors disabled:opacity-50"
+                            >
+                              Unban
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Filter */}
             <div className="bg-background rounded-lg border border-border p-4 mb-6 flex gap-4 items-center flex-wrap">
               <span className="text-muted text-sm">Status:</span>
@@ -646,7 +872,7 @@ export default function AdminPage() {
             </div>
 
             {/* Reports List */}
-            <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <div className="bg-background rounded-lg border border-border overflow-x-auto">
               {reportsLoading ? (
                 <div className="p-8 text-center text-muted">Loading reports...</div>
               ) : reports.length === 0 ? (
@@ -773,7 +999,7 @@ export default function AdminPage() {
               </button>
             </div>
 
-            <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <div className="bg-background rounded-lg border border-border overflow-x-auto">
               {podiumsLoading && podiums.length === 0 ? (
                 <div className="p-8 text-center text-muted">Loading podiums...</div>
               ) : podiums.length === 0 ? (
@@ -859,6 +1085,100 @@ export default function AdminPage() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Groups Tab */}
+        {activeTab === 'groups' && (
+          <div>
+            <div className="bg-background rounded-lg border border-border p-4 mb-6 flex gap-4 items-center flex-wrap">
+              <input
+                type="text"
+                placeholder="Search by name or slug..."
+                value={groupSearch}
+                onChange={(e) => setGroupSearch(e.target.value)}
+                className="bg-surface border border-border text-foreground rounded-lg px-3 py-2 flex-1 min-w-[200px] focus:outline-none focus:border-accent"
+              />
+              <span className="text-muted text-sm">{groups.length} groups</span>
+              <button
+                onClick={() => fetchGroups()}
+                className="bg-surface hover:bg-surface-alt text-muted border border-border px-3 py-1.5 rounded transition-colors text-sm"
+              >
+                Refresh
+              </button>
+            </div>
+
+            <div className="bg-background rounded-lg border border-border overflow-x-auto">
+              {groupsLoading && groups.length === 0 ? (
+                <div className="p-8 text-center text-muted">Loading groups...</div>
+              ) : groups.length === 0 ? (
+                <div className="p-8 text-center text-muted">No groups yet</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="bg-surface border-b border-border">
+                    <tr>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Group</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Creator</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Members</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Talks</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Messages</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Access</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Created</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups
+                      .filter(g => {
+                        if (!groupSearch) return true
+                        const q = groupSearch.toLowerCase()
+                        return g.name.toLowerCase().includes(q) || g.slug.toLowerCase().includes(q)
+                      })
+                      .map(g => (
+                      <tr key={g.id} className="border-t border-border hover:bg-surface">
+                        <td className="p-4">
+                          <Link href={`/groups/${g.slug}`} className="text-foreground hover:text-accent font-medium text-sm">
+                            {g.name}
+                          </Link>
+                          <p className="text-xs text-muted mt-0.5">/{g.slug}</p>
+                        </td>
+                        <td className="p-4">
+                          <Link href={`/user/${g.creator.id}`} className="flex items-center gap-2 text-sm text-muted hover:text-accent">
+                            <UserAvatar image={g.creator.image} name={g.creator.name} />
+                            <span>{g.creator.name || g.creator.email}</span>
+                          </Link>
+                        </td>
+                        <td className="p-4 text-muted font-mono text-sm">{g._count.members}</td>
+                        <td className="p-4 text-muted font-mono text-sm">{g._count.deliberations}</td>
+                        <td className="p-4 text-muted font-mono text-sm">{g._count.chatMessages}</td>
+                        <td className="p-4">
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            g.isPublic ? 'bg-success-bg text-success' : 'bg-warning-bg text-warning'
+                          }`}>
+                            {g.isPublic ? 'Public' : 'Private'}
+                          </span>
+                          {g._count.bans > 0 && (
+                            <span className="text-xs text-error ml-2">{g._count.bans} banned</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-muted text-sm font-mono">
+                          {new Date(g.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="p-4">
+                          <button
+                            onClick={() => handleGroupDelete(g.id, g.name)}
+                            disabled={groupDeleting === g.id}
+                            className="text-error hover:text-error-hover text-sm disabled:opacity-50"
+                          >
+                            {groupDeleting === g.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         )}
 
@@ -1339,7 +1659,7 @@ export default function AdminPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-background rounded-lg border border-border p-4">
             <div className="text-3xl font-bold text-foreground font-mono">{deliberations.length}</div>
             <div className="text-muted text-sm">{isAdmin ? 'All Deliberations' : 'Your Deliberations'}</div>
@@ -1408,7 +1728,7 @@ export default function AdminPage() {
         </div>
 
         {/* Deliberations Table */}
-        <div className="bg-background rounded-lg border border-border overflow-hidden">
+        <div className="bg-background rounded-lg border border-border overflow-x-auto">
           {loading ? (
             <div className="p-8 text-center text-muted">Loading...</div>
           ) : filteredDeliberations.length === 0 ? (

@@ -3,7 +3,7 @@
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import Header from '@/components/Header'
 import Turnstile from '@/components/Turnstile'
 
@@ -28,6 +28,36 @@ export default function NewCommunityPage() {
     description: '',
     isPublic: true,
   })
+  const [userTier, setUserTier] = useState('free')
+  const [privateGroupCount, setPrivateGroupCount] = useState(0)
+  const [tierLoaded, setTierLoaded] = useState(false)
+  const [isUserAdmin, setIsUserAdmin] = useState(false)
+
+  const privateGroupLimits: Record<string, number> = { free: 0, pro: 1, business: 2 }
+  const memberCaps: Record<string, string> = { pro: '500', business: '5,000', scale: 'Unlimited' }
+  const maxPrivate = isUserAdmin ? Infinity : (userTier in privateGroupLimits ? privateGroupLimits[userTier] : Infinity)
+  const canCreatePrivate = privateGroupCount < maxPrivate
+  const tierLabel = userTier === 'business' ? 'Org' : userTier === 'pro' ? 'Pro' : userTier === 'scale' ? 'Scale' : 'Free'
+
+  useEffect(() => {
+    if (session?.user?.email) {
+      Promise.all([
+        fetch('/api/user/me').then(r => r.json()),
+        fetch('/api/communities/mine').then(r => r.json()),
+      ]).then(([userData, communities]) => {
+        const u = userData.user || userData
+        if (u.subscriptionTier) setUserTier(u.subscriptionTier)
+        if (u.isAdmin) setIsUserAdmin(true)
+        const privateCount = Array.isArray(communities)
+          ? communities.filter((c: { isPublic: boolean; role: string }) => !c.isPublic && c.role === 'OWNER').length
+          : 0
+        setPrivateGroupCount(privateCount)
+        setTierLoaded(true)
+      }).catch(() => setTierLoaded(true))
+    } else {
+      setTierLoaded(true)
+    }
+  }, [session])
 
   if (status === 'loading') {
     return (
@@ -187,19 +217,42 @@ export default function NewCommunityPage() {
                   </div>
                 </label>
 
-                <label className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${
-                  !formData.isPublic ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
+                <label className={`flex items-start gap-3 p-3 border rounded-xl transition-colors ${
+                  !canCreatePrivate
+                    ? 'border-border opacity-60 cursor-not-allowed'
+                    : !formData.isPublic ? 'border-accent bg-accent/5 cursor-pointer' : 'border-border hover:border-accent cursor-pointer'
                 }`}>
                   <input
                     type="radio"
                     name="visibility"
                     checked={!formData.isPublic}
+                    disabled={!canCreatePrivate}
                     onChange={() => setFormData({ ...formData, isPublic: false })}
                     className="mt-1 w-4 h-4 text-accent"
                   />
                   <div>
                     <div className="text-foreground font-medium">Private</div>
                     <div className="text-muted text-sm">Only people with an invite link can join</div>
+                    {tierLoaded && userTier === 'free' && !isUserAdmin && (
+                      <div className="mt-1 text-xs text-accent">
+                        <a href="/pricing" className="underline hover:no-underline">Upgrade to Pro</a> to create private groups
+                      </div>
+                    )}
+                    {tierLoaded && maxPrivate > 0 && maxPrivate !== Infinity && (
+                      <div className="mt-1 text-xs text-muted">
+                        {privateGroupCount} of {maxPrivate} private group{maxPrivate > 1 ? 's' : ''} used ({tierLabel})
+                        {!canCreatePrivate && (
+                          <span className="text-accent ml-1">
+                            &mdash; <a href="/pricing" className="underline hover:no-underline">Upgrade</a>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {tierLoaded && memberCaps[userTier] && !formData.isPublic && (
+                      <div className="mt-1 text-xs text-muted">
+                        Up to {memberCaps[userTier]} members per group
+                      </div>
+                    )}
                   </div>
                 </label>
               </div>

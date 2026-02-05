@@ -8,6 +8,7 @@ import Header from '@/components/Header'
 import ShareMenu from '@/components/ShareMenu'
 import { FullPageSpinner } from '@/components/Spinner'
 import { useToast } from '@/components/Toast'
+import CaptchaModal from '@/components/CaptchaModal'
 import { getDisplayName } from '@/lib/user'
 import { phaseLabel } from '@/lib/labels'
 
@@ -77,6 +78,10 @@ function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: M
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const isNearBottom = useRef(true)
+  const [captchaOpen, setCaptchaOpen] = useState(false)
+  const [captchaStrike, setCaptchaStrike] = useState(1)
+  const [pendingMessage, setPendingMessage] = useState('')
+  const [mutedUntil, setMutedUntil] = useState<number | null>(null)
 
   const memberRoles = useRef(new Map<string, string>())
   useEffect(() => {
@@ -133,6 +138,41 @@ function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: M
         const msg = await res.json()
         setMessages(prev => [...prev, msg])
         setNewMsg('')
+        isNearBottom.current = true
+      } else {
+        const data = await res.json()
+        if (data.error === 'CAPTCHA_REQUIRED') {
+          setCaptchaStrike(data.strike || 1)
+          setPendingMessage(newMsg)
+          setCaptchaOpen(true)
+        } else if (data.error === 'MUTED') {
+          setMutedUntil(data.mutedUntil)
+          setCaptchaOpen(true)
+        } else {
+          showToast(data.error || 'Failed to send', 'error')
+        }
+      }
+    } catch {
+      showToast('Failed to send message', 'error')
+    }
+    setSending(false)
+  }
+
+  const handleCaptchaVerify = async (token: string) => {
+    setCaptchaOpen(false)
+    if (!pendingMessage.trim()) return
+    setSending(true)
+    try {
+      const res = await fetch(`/api/communities/${slug}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pendingMessage, captchaToken: token }),
+      })
+      if (res.ok) {
+        const msg = await res.json()
+        setMessages(prev => [...prev, msg])
+        setNewMsg('')
+        setPendingMessage('')
         isNearBottom.current = true
       } else {
         const data = await res.json()
@@ -229,16 +269,18 @@ function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: M
                 const role = memberRoles.current.get(msg.user.id)
                 return (
                   <div key={msg.id} className="relative group flex gap-2">
-                    {msg.user.image ? (
-                      <img src={msg.user.image} alt="" className="w-6 h-6 rounded-full shrink-0 mt-0.5" />
-                    ) : (
-                      <span className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent shrink-0 mt-0.5">
-                        {(msg.user.name || '?').charAt(0).toUpperCase()}
-                      </span>
-                    )}
+                    <Link href={`/user/${msg.user.id}`} className="shrink-0 mt-0.5">
+                      {msg.user.image ? (
+                        <img src={msg.user.image} alt="" className="w-6 h-6 rounded-full" />
+                      ) : (
+                        <span className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent">
+                          {(msg.user.name || '?').charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </Link>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-1.5">
-                        <span className="text-xs font-medium text-foreground">{msg.user.name || 'Anonymous'}</span>
+                        <Link href={`/user/${msg.user.id}`} className="text-xs font-medium text-foreground hover:text-accent transition-colors">{msg.user.name || 'Anonymous'}</Link>
                         {(role === 'OWNER' || role === 'ADMIN') && (
                           <span className="text-[10px] px-1 py-0 rounded bg-accent/10 text-accent">
                             {role === 'OWNER' ? 'Owner' : 'Admin'}
@@ -292,6 +334,14 @@ function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: M
           </form>
         </div>
       )}
+
+      <CaptchaModal
+        open={captchaOpen}
+        strike={captchaStrike}
+        onVerify={handleCaptchaVerify}
+        onClose={() => { setCaptchaOpen(false); setMutedUntil(null) }}
+        mutedUntil={mutedUntil}
+      />
     </div>
   )
 }
@@ -421,6 +471,15 @@ export default function CommunityPageClient() {
           <Link href="/groups" className="text-muted hover:text-foreground text-sm">
             ← Back
           </Link>
+          <div className="flex items-center gap-2">
+            {isMember && (
+              <Link
+                href={`/groups/${slug}/feed`}
+                className="border border-accent text-accent hover:bg-accent hover:text-white px-3 py-1.5 rounded text-sm font-medium transition-colors"
+              >
+                Feed
+              </Link>
+            )}
           {isOwnerOrAdmin && (
             <Link
               href={`/groups/${slug}/settings`}
@@ -433,6 +492,7 @@ export default function CommunityPageClient() {
               Settings
             </Link>
           )}
+          </div>
         </div>
 
         {/* Banner */}
@@ -498,8 +558,8 @@ export default function CommunityPageClient() {
           )}
         </div>
 
-        {/* New Talk CTA */}
-        {isMember && (
+        {/* New Talk CTA — private groups: owner/admin only */}
+        {isMember && (community.isPublic || isOwnerOrAdmin) && (
           <Link
             href={`/talks/new?community=${slug}`}
             className="block text-center bg-surface border border-border hover:border-accent rounded-xl p-3 text-sm text-accent font-medium transition-colors mb-6"

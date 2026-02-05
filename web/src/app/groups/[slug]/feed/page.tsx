@@ -1,0 +1,206 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
+import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import Header from '@/components/Header'
+import { phaseLabel } from '@/lib/labels'
+
+type FeedItem = {
+  id: string
+  kind: 'vote_now' | 'deliberate' | 'submit' | 'champion' | 'completed' | 'waiting' | 'join'
+  question: string
+  phase: string
+  phaseLabel: string
+  tier: number
+  creatorName: string | null
+  memberCount: number
+  ideaCount: number
+  isPublic: boolean
+  isMember: boolean
+  hasVoted: boolean
+  cellId: string | null
+  cellStatus: string | null
+  champion: { text: string; authorName: string } | null
+  votingDeadline: string | null
+  submissionDeadline: string | null
+  completedAt: string | null
+  createdAt: string
+}
+
+const kindConfig: Record<string, { label: string; color: string; bgColor: string; action: string }> = {
+  vote_now: { label: 'Vote Now', color: 'text-warning', bgColor: 'bg-warning-bg border-warning', action: 'Cast your vote' },
+  deliberate: { label: 'Discuss', color: 'text-blue', bgColor: 'bg-blue/10 border-blue', action: 'Join the discussion' },
+  submit: { label: 'Submit Ideas', color: 'text-accent', bgColor: 'bg-accent-light border-accent', action: 'Submit your idea' },
+  champion: { label: 'Accepting Ideas', color: 'text-purple', bgColor: 'bg-purple-bg border-purple', action: 'Submit a challenger' },
+  join: { label: 'Open', color: 'text-accent', bgColor: 'bg-accent-light border-accent', action: 'Join this talk' },
+  waiting: { label: 'Waiting', color: 'text-muted', bgColor: 'bg-surface border-border', action: 'Waiting for results' },
+  completed: { label: 'Completed', color: 'text-success', bgColor: 'bg-success-bg border-success', action: 'View results' },
+}
+
+export default function CommunityFeedPage() {
+  const { slug } = useParams<{ slug: string }>()
+  const { data: session, status: authStatus } = useSession()
+  const router = useRouter()
+  const [items, setItems] = useState<FeedItem[]>([])
+  const [communityName, setCommunityName] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (authStatus === 'unauthenticated') {
+      router.push('/auth/signin')
+      return
+    }
+    if (authStatus === 'authenticated') {
+      fetch(`/api/communities/${slug}/feed`)
+        .then(r => {
+          if (!r.ok) throw new Error('Failed to load feed')
+          return r.json()
+        })
+        .then(data => {
+          setCommunityName(data.community?.name || slug)
+          setItems(data.items || [])
+        })
+        .catch(err => setError(err.message))
+        .finally(() => setLoading(false))
+    }
+  }, [authStatus, slug, router])
+
+  const actionable = items.filter(i => ['vote_now', 'deliberate', 'submit', 'champion', 'join'].includes(i.kind))
+  const waiting = items.filter(i => i.kind === 'waiting')
+  const completed = items.filter(i => i.kind === 'completed')
+
+  return (
+    <div className="min-h-screen bg-background">
+      <Header />
+
+      <div className="max-w-xl mx-auto px-4 py-6">
+        <div className="flex items-center gap-2 mb-6">
+          <Link href={`/groups/${slug}`} className="text-muted hover:text-foreground text-sm">
+            &larr; {communityName || 'Group'}
+          </Link>
+        </div>
+
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-foreground">{communityName} Feed</h1>
+            <p className="text-sm text-muted mt-0.5">{items.length} talk{items.length !== 1 ? 's' : ''}</p>
+          </div>
+          <Link
+            href={`/talks/new`}
+            className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+          >
+            + New Talk
+          </Link>
+        </div>
+
+        {loading && (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="animate-pulse bg-surface border border-border rounded-xl p-4">
+                <div className="h-4 bg-background rounded w-2/3 mb-2" />
+                <div className="h-3 bg-background rounded w-1/3" />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-error-bg text-error p-4 rounded-lg text-sm">{error}</div>
+        )}
+
+        {!loading && !error && items.length === 0 && (
+          <div className="text-center py-16 bg-surface border border-border rounded-xl">
+            <p className="text-muted mb-4">No talks in this group yet.</p>
+            <Link
+              href="/talks/new"
+              className="text-accent hover:text-accent-hover font-medium text-sm"
+            >
+              Create the first talk
+            </Link>
+          </div>
+        )}
+
+        {!loading && !error && (
+          <div className="space-y-6">
+            {/* Actionable */}
+            {actionable.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">Your Turn</h2>
+                <div className="space-y-2">
+                  {actionable.map(item => (
+                    <FeedCard key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Waiting */}
+            {waiting.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">In Progress</h2>
+                <div className="space-y-2">
+                  {waiting.map(item => (
+                    <FeedCard key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Completed */}
+            {completed.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">Results</h2>
+                <div className="space-y-2">
+                  {completed.map(item => (
+                    <FeedCard key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function FeedCard({ item }: { item: FeedItem }) {
+  const config = kindConfig[item.kind] || kindConfig.join
+
+  return (
+    <Link
+      href={`/talks/${item.id}`}
+      className={`block rounded-xl border p-4 transition-colors hover:border-accent ${config.bgColor}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`text-xs font-semibold ${config.color}`}>{config.label}</span>
+            {!item.isPublic && (
+              <span className="text-xs text-muted bg-surface px-1.5 py-0.5 rounded">Private</span>
+            )}
+          </div>
+          <h3 className="text-foreground font-medium text-sm leading-snug">{item.question}</h3>
+          {item.champion && item.kind === 'completed' && (
+            <p className="text-xs text-success mt-1 truncate">
+              Priority: {item.champion.text}
+            </p>
+          )}
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-xs text-muted">{item.memberCount} members</div>
+          <div className="text-xs text-muted">{item.ideaCount} ideas</div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-2">
+        <span className="text-xs text-muted">{config.action}</span>
+        {item.tier > 0 && item.kind !== 'completed' && (
+          <span className="text-xs text-muted">Tier {item.tier}</span>
+        )}
+      </div>
+    </Link>
+  )
+}

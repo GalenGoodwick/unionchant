@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 import { phaseLabel } from '@/lib/labels'
 
 interface DeliberationSummary {
@@ -26,6 +27,7 @@ interface CommunitySummary {
   name: string
   slug: string
   description: string | null
+  isPublic: boolean
   role: string
   _count: { members: number; deliberations: number }
 }
@@ -84,6 +86,9 @@ export default function DashboardPage() {
       <Header />
 
       <div className="max-w-xl mx-auto px-4 py-8">
+        <FirstVisitTooltip id="manage-page">
+          This is your facilitator dashboard. Select a talk to start voting, open challenge rounds, set timers, and control the flow.
+        </FirstVisitTooltip>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">My Talks</h1>
           <Link
@@ -121,40 +126,59 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {!loading && !error && deliberations.length > 0 && (
-          <div className="space-y-3">
-            {deliberations.map(d => (
-              <Link
-                key={d.id}
-                href={`/dashboard/${d.id}`}
-                className="block bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <h2 className="text-foreground font-medium truncate">{d.question}</h2>
-                    {d.organization && (
-                      <p className="text-sm text-muted mt-0.5">{d.organization}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`px-2 py-0.5 rounded text-white text-sm ${phaseColors[d.phase] || 'bg-muted'}`}>
-                      {phaseLabel(d.phase)}
-                    </span>
-                    <span className={`px-2 py-0.5 rounded text-sm ${d.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-surface-hover text-muted border border-border'}`}>
-                      {d.isPublic ? 'Public' : 'Private'}
-                    </span>
+        {!loading && !error && deliberations.length > 0 && (() => {
+          const privateTalks = deliberations.filter(d => !d.isPublic)
+          const publicTalks = deliberations.filter(d => d.isPublic)
+          const renderTalk = (d: DeliberationSummary) => (
+            <Link
+              key={d.id}
+              href={`/dashboard/${d.id}`}
+              className="block bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-foreground font-medium truncate">{d.question}</h2>
+                  {d.organization && (
+                    <p className="text-sm text-muted mt-0.5">{d.organization}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`px-2 py-0.5 rounded text-white text-sm ${phaseColors[d.phase] || 'bg-muted'}`}>
+                    {phaseLabel(d.phase)}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-4 mt-2 text-sm text-muted">
+                <span>{d._count.members} members</span>
+                <span>{d._count.ideas} ideas</span>
+                {d.phase === 'VOTING' && <span>Tier {d.currentTier}</span>}
+                <span>{new Date(d.createdAt).toLocaleDateString()}</span>
+              </div>
+            </Link>
+          )
+          return (
+            <div className="space-y-6">
+              {privateTalks.length > 0 && (
+                <div>
+                  <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Private Talks</h2>
+                  <div className="space-y-3">
+                    {privateTalks.map(renderTalk)}
                   </div>
                 </div>
-                <div className="flex items-center gap-4 mt-2 text-sm text-muted">
-                  <span>{d._count.members} members</span>
-                  <span>{d._count.ideas} ideas</span>
-                  {d.phase === 'VOTING' && <span>Tier {d.currentTier}</span>}
-                  <span>{new Date(d.createdAt).toLocaleDateString()}</span>
+              )}
+              {publicTalks.length > 0 && (
+                <div>
+                  {privateTalks.length > 0 && (
+                    <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Public Talks</h2>
+                  )}
+                  <div className="space-y-3">
+                    {publicTalks.map(renderTalk)}
+                  </div>
                 </div>
-              </Link>
-            ))}
-          </div>
-        )}
+              )}
+            </div>
+          )
+        })()}
 
         {/* My Communities */}
         {!loading && !error && (
@@ -181,7 +205,10 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {communities.map(c => (
+                {[...communities].sort((a, b) => {
+                  if (a.isPublic === b.isPublic) return 0
+                  return a.isPublic ? 1 : -1
+                }).map(c => (
                   <Link
                     key={c.id}
                     href={c.role === 'OWNER' || c.role === 'ADMIN' ? `/groups/${c.slug}/settings` : `/groups/${c.slug}`}
@@ -189,9 +216,16 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <h3 className="text-foreground font-medium truncate">{c.name}</h3>
-                      <span className="text-sm px-2 py-0.5 rounded bg-accent/10 text-accent shrink-0">
-                        {c.role}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {!c.isPublic && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-surface-hover text-muted border border-border">
+                            Private
+                          </span>
+                        )}
+                        <span className="text-sm px-2 py-0.5 rounded bg-accent/10 text-accent">
+                          {c.role}
+                        </span>
+                      </div>
                     </div>
                     {c.description && (
                       <p className="text-muted text-sm mt-1 line-clamp-2">{c.description}</p>

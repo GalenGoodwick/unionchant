@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
+import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 import type { FeedEntry, FeedResponse, PulseStats, ActivityItem } from '@/app/api/feed/route'
 
 type Tab = 'your-turn' | 'activity' | 'results'
@@ -76,7 +77,6 @@ export default function FeedPage() {
           <TabButton
             label="Feed"
             active={tab === 'your-turn'}
-            badge={yourTurnData.actionableCount || undefined}
             onClick={() => handleTabChange('your-turn')}
           />
           <TabButton
@@ -93,6 +93,9 @@ export default function FeedPage() {
       </div>
 
       <main className={`mx-auto px-4 py-4 ${tab === 'your-turn' ? 'max-w-5xl' : 'max-w-xl'}`}>
+        <FirstVisitTooltip id="feed-tabs">
+          Feed shows actions you can take. Activity shows what&apos;s happening. Results shows outcomes.
+        </FirstVisitTooltip>
         {error && (
           <div className="bg-error-bg border border-error/20 rounded-lg p-4 mb-4 text-center">
             <p className="text-sm text-error mb-2">Could not load feed</p>

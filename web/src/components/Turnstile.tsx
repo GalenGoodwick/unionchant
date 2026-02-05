@@ -20,6 +20,7 @@ type TurnstileOptions = {
   'error-callback'?: () => void
   theme?: 'light' | 'dark' | 'auto'
   size?: 'normal' | 'compact'
+  appearance?: 'always' | 'execute' | 'interaction-only'
 }
 
 type Props = {
@@ -27,51 +28,61 @@ type Props = {
   onExpire?: () => void
   onError?: () => void
   className?: string
+  appearance?: 'always' | 'execute' | 'interaction-only'
 }
 
-export default function Turnstile({ onVerify, onExpire, onError, className }: Props) {
+export default function Turnstile({ onVerify, onExpire, onError, className, appearance }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const widgetIdRef = useRef<string | null>(null)
+  const callbacksRef = useRef({ onVerify, onExpire, onError })
+  callbacksRef.current = { onVerify, onExpire, onError }
 
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
 
+  const cleanup = useCallback(() => {
+    if (widgetIdRef.current && window.turnstile) {
+      try {
+        window.turnstile.remove(widgetIdRef.current)
+      } catch {}
+      widgetIdRef.current = null
+    }
+  }, [])
+
   const renderWidget = useCallback(() => {
     if (!containerRef.current || !window.turnstile || !siteKey) return
-    if (widgetIdRef.current) return // Already rendered
+    // Clean up any existing widget first
+    cleanup()
 
     widgetIdRef.current = window.turnstile.render(containerRef.current, {
       sitekey: siteKey,
-      callback: onVerify,
-      'expired-callback': onExpire,
-      'error-callback': onError,
+      callback: (token: string) => callbacksRef.current.onVerify(token),
+      'expired-callback': () => callbacksRef.current.onExpire?.(),
+      'error-callback': () => callbacksRef.current.onError?.(),
       theme: 'auto',
       size: 'compact',
+      appearance: appearance || 'always',
     })
-  }, [siteKey, onVerify, onExpire, onError])
+  }, [siteKey, appearance, cleanup])
 
   useEffect(() => {
-    // Skip if no site key (development without config)
     if (!siteKey) {
       console.warn('Turnstile: No NEXT_PUBLIC_TURNSTILE_SITE_KEY configured')
-      // Auto-verify in development
       if (process.env.NODE_ENV === 'development') {
         onVerify('dev-bypass-token')
       }
       return
     }
 
-    // Check if script already loaded
     if (window.turnstile) {
       renderWidget()
-      return
+      return cleanup
     }
 
     // Load the Turnstile script
     const existingScript = document.querySelector('script[src*="turnstile"]')
     if (existingScript) {
-      // Script exists, wait for it to load
       window.onTurnstileLoad = renderWidget
-      return
+      return cleanup
     }
 
     const script = document.createElement('script')
@@ -81,15 +92,9 @@ export default function Turnstile({ onVerify, onExpire, onError, className }: Pr
     window.onTurnstileLoad = renderWidget
     document.head.appendChild(script)
 
-    return () => {
-      if (widgetIdRef.current && window.turnstile) {
-        window.turnstile.remove(widgetIdRef.current)
-        widgetIdRef.current = null
-      }
-    }
-  }, [siteKey, renderWidget, onVerify])
+    return cleanup
+  }, [siteKey, renderWidget, cleanup, onVerify])
 
-  // Don't render anything if no site key in development
   if (!siteKey && process.env.NODE_ENV === 'development') {
     return null
   }

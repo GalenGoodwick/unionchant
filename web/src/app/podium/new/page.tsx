@@ -38,6 +38,8 @@ function NewPodiumPageInner() {
   const [deliberations, setDeliberations] = useState<DelibOption[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isUserAdmin, setIsUserAdmin] = useState(false)
+  const [sendAsNews, setSendAsNews] = useState(false)
 
   // Redirect if not signed in
   useEffect(() => {
@@ -46,13 +48,16 @@ function NewPodiumPageInner() {
     }
   }, [status, router])
 
-  // Fetch user's deliberations for linking
+  // Fetch user's deliberations for linking + admin status
   useEffect(() => {
-    const fetchDelibs = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/deliberations?mine=true&limit=50')
-        if (res.ok) {
-          const data = await res.json()
+        const [delibRes, meRes] = await Promise.all([
+          fetch('/api/deliberations?mine=true&limit=50'),
+          fetch('/api/user/me'),
+        ])
+        if (delibRes.ok) {
+          const data = await delibRes.json()
           const items = (data.items || data).map((d: { id: string; question: string; phase: string }) => ({
             id: d.id,
             question: d.question,
@@ -60,12 +65,16 @@ function NewPodiumPageInner() {
           }))
           setDeliberations(items)
         }
+        if (meRes.ok) {
+          const meData = await meRes.json()
+          setIsUserAdmin(meData.user?.isAdmin === true)
+        }
       } catch {
-        // Non-critical, linking is optional
+        // Non-critical
       }
     }
 
-    if (session) fetchDelibs()
+    if (session) fetchData()
   }, [session])
 
   const handleSubmit = async () => {
@@ -91,6 +100,7 @@ function NewPodiumPageInner() {
           title: title.trim(),
           body: body.trim(),
           deliberationId,
+          ...(sendAsNews && { sendAsNews: true }),
         }),
       })
 
@@ -166,6 +176,26 @@ function NewPodiumPageInner() {
         <div className={`text-xs mt-1 ${body.length > BODY_MAX * 0.9 ? 'text-warning' : 'text-muted'}`}>
           {body.length.toLocaleString()}/{BODY_MAX.toLocaleString()}
         </div>
+
+        {/* Admin: Send as news */}
+        {isUserAdmin && (
+          <div className="border-t border-border pt-6 mt-6">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sendAsNews}
+                onChange={(e) => setSendAsNews(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded border-border accent-accent"
+              />
+              <div>
+                <div className="text-sm font-semibold text-foreground">Send as news email</div>
+                <div className="text-xs text-muted mt-0.5">
+                  This will email all users who have news notifications enabled.
+                </div>
+              </div>
+            </label>
+          </div>
+        )}
 
         {/* Link deliberation */}
         <div className="border-t border-border pt-6 mt-6">

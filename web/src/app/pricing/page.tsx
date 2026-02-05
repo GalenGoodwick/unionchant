@@ -1,11 +1,10 @@
-import Link from 'next/link'
-import { Metadata } from 'next'
-import Header from '@/components/Header'
+'use client'
 
-export const metadata: Metadata = {
-  title: 'Pricing - Union Chant',
-  description: 'Chat with the Collective AI. Haiku is free. Sonnet and Opus coming soon.',
-}
+import Link from 'next/link'
+import { useSession } from 'next-auth/react'
+import { useState, useEffect, Suspense } from 'react'
+import Header from '@/components/Header'
+import { useSearchParams } from 'next/navigation'
 
 function Check({ className = 'text-success' }: { className?: string }) {
   return (
@@ -15,220 +14,286 @@ function Check({ className = 'text-success' }: { className?: string }) {
   )
 }
 
+const tiers = [
+  {
+    name: 'Free',
+    price: 0,
+    description: 'For individuals and open groups',
+    color: 'border-border',
+    checkColor: 'text-success',
+    features: [
+      'Unlimited public talks',
+      'Join, vote, and discuss',
+      'Collective AI chat',
+      'Join any group',
+    ],
+    cta: 'Get started free',
+    href: '/auth/signup',
+    priceEnv: null,
+  },
+  {
+    name: 'Pro',
+    price: 12,
+    description: 'Support the mission + unlock private tools',
+    color: 'border-accent',
+    checkColor: 'text-accent',
+    badge: 'POPULAR',
+    badgeColor: 'bg-accent text-white',
+    features: [
+      'Everything in Free',
+      '1 private group (500 members)',
+      'Private talks',
+      'Group feed page',
+      'Talk analytics',
+    ],
+    priceEnv: 'pro',
+  },
+  {
+    name: 'Org',
+    price: 39,
+    description: 'For teams who want to give back more',
+    color: 'border-purple',
+    checkColor: 'text-purple',
+    features: [
+      'Everything in Pro',
+      '2 private groups (5,000 each)',
+      'Data export (CSV/PDF)',
+      'Priority support',
+    ],
+    priceEnv: 'business',
+  },
+  {
+    name: 'Scale',
+    price: null,
+    description: 'For movements building something big',
+    color: 'border-gold',
+    checkColor: 'text-gold',
+    badge: 'UNLIMITED',
+    badgeColor: 'bg-gold text-background',
+    features: [
+      'Everything in Org',
+      'Unlimited groups and members',
+      'API access',
+      'Dedicated support',
+    ],
+    priceEnv: 'scale',
+  },
+]
+
 export default function PricingPage() {
+  return (
+    <Suspense>
+      <PricingContent />
+    </Suspense>
+  )
+}
+
+function PricingContent() {
+  const { data: session } = useSession()
+  const searchParams = useSearchParams()
+  const [userTier, setUserTier] = useState('free')
+  const [loading, setLoading] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState('')
+
+  useEffect(() => {
+    if (searchParams.get('success') === 'true') {
+      setSuccessMsg('Subscription activated! Welcome to Pro.')
+      // Refresh tier
+      fetch('/api/user/me').then(r => r.json()).then(data => {
+        if (data.subscriptionTier) setUserTier(data.subscriptionTier)
+      }).catch(() => {})
+    }
+    if (session?.user?.email) {
+      fetch('/api/user/me').then(r => r.json()).then(data => {
+        if (data.subscriptionTier) setUserTier(data.subscriptionTier)
+      }).catch(() => {})
+    }
+  }, [session, searchParams])
+
+  const handleCheckout = async (_priceEnv: string) => {
+    setComingSoon(true)
+    setTimeout(() => setComingSoon(false), 3000)
+  }
+
+  const handlePortal = async () => {
+    setComingSoon(true)
+    setTimeout(() => setComingSoon(false), 3000)
+  }
+
+  const [comingSoon, setComingSoon] = useState(false)
+
+  const tierIndex = ['free', 'pro', 'business', 'scale'].indexOf(userTier)
+
   return (
     <div className="min-h-screen bg-surface">
       <Header />
 
-      <div className="max-w-5xl mx-auto px-6 py-12">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
           &larr; Back to home
         </Link>
 
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-foreground mb-4">Simple pricing</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">Support Union Chant</h1>
           <p className="text-lg text-muted max-w-xl mx-auto">
-            Creating deliberations is always free. Haiku chat is always free.
-            Upgrade for smarter AI models.
+            Union Chant is free for everyone. Supporters get extra tools while keeping the platform open for all.
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-          {/* Haiku — Free */}
-          <div className="bg-background rounded-xl border border-border p-8">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-foreground mb-1">Haiku</h2>
-              <p className="text-muted text-sm">Fast and free</p>
-            </div>
-            <div className="mb-8">
-              <span className="text-4xl font-bold text-foreground font-mono">$0</span>
-              <span className="text-muted ml-1">/month</span>
-            </div>
-            <ul className="space-y-3 mb-8 text-sm">
-              <li className="flex items-start gap-2">
-                <Check />
-                <span className="text-foreground">
-                  <strong>Unlimited AI chat</strong> with the Collective
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check />
-                <span className="text-foreground">
-                  <strong>Create unlimited Talks</strong>
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check />
-                <span className="text-foreground">
-                  Join, vote, and comment in all deliberations
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check />
-                <span className="text-foreground">
-                  1 collective Talk change per day
-                </span>
-              </li>
-            </ul>
-            <Link
-              href="/auth/signup"
-              className="block w-full text-center py-3 px-6 rounded-lg border border-border text-foreground hover:bg-surface-hover font-medium transition-colors"
-            >
-              Get started free
-            </Link>
+        {successMsg && (
+          <div className="max-w-md mx-auto mb-8 bg-success-bg border border-success text-success rounded-lg p-4 text-center text-sm font-medium">
+            {successMsg}
           </div>
+        )}
 
-          {/* Sonnet — $5/mo */}
-          <div className="bg-background rounded-xl border-2 border-accent p-8 relative">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <span className="text-xs px-3 py-1 rounded-full bg-accent text-white font-semibold">
-                SONNET
-              </span>
-            </div>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-foreground mb-1">Sonnet</h2>
-              <p className="text-muted text-sm">Deeper reasoning</p>
-            </div>
-            <div className="mb-8">
-              <span className="text-4xl font-bold text-accent font-mono">$5</span>
-              <span className="text-muted ml-1">/month</span>
-            </div>
-            <ul className="space-y-3 mb-8 text-sm">
-              <li className="flex items-start gap-2">
-                <Check className="text-accent" />
-                <span className="text-foreground">
-                  Everything in Haiku
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="text-accent" />
-                <span className="text-foreground">
-                  <strong>Claude Sonnet 4</strong> in Collective chat
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="text-accent" />
-                <span className="text-foreground">
-                  <strong>Unlimited collective Talk changes</strong>
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="text-accent" />
-                <span className="text-foreground">
-                  ~$0.013/message API cost covered
-                </span>
-              </li>
-            </ul>
-            <button
-              disabled
-              className="block w-full text-center py-3 px-6 rounded-lg bg-accent/20 text-accent font-medium cursor-not-allowed"
-            >
-              Coming soon
-            </button>
+        {comingSoon && (
+          <div className="max-w-md mx-auto mb-8 bg-gold-bg border border-gold-border text-gold rounded-lg p-4 text-center text-sm font-medium">
+            Paid plans are coming soon. Stay tuned!
           </div>
+        )}
 
-          {/* Opus — $10/mo */}
-          <div className="bg-background rounded-xl border-2 border-gold p-8 relative">
-            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <span className="text-xs px-3 py-1 rounded-full bg-gold text-background font-semibold">
-                OPUS
-              </span>
-            </div>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-foreground mb-1">Opus</h2>
-              <p className="text-muted text-sm">Maximum intelligence</p>
-            </div>
-            <div className="mb-8">
-              <span className="text-4xl font-bold text-gold font-mono">$10</span>
-              <span className="text-muted ml-1">/month</span>
-            </div>
-            <ul className="space-y-3 mb-8 text-sm">
-              <li className="flex items-start gap-2">
-                <Check className="text-gold" />
-                <span className="text-foreground">
-                  Everything in Sonnet
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="text-gold" />
-                <span className="text-foreground">
-                  <strong>Claude Opus 4</strong> in Collective chat
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="text-gold" />
-                <span className="text-foreground">
-                  Most nuanced, creative responses
-                </span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Check className="text-gold" />
-                <span className="text-foreground">
-                  ~$0.064/message API cost covered
-                </span>
-              </li>
-            </ul>
-            <button
-              disabled
-              className="block w-full text-center py-3 px-6 rounded-lg bg-gold/20 text-gold font-medium cursor-not-allowed"
-            >
-              Coming soon
-            </button>
-          </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+          {tiers.map((tier, i) => {
+            const isCurrent = tierIndex === i
+            const isDowngrade = tierIndex > i && i > 0
+            const isUpgrade = i > tierIndex
+
+            return (
+              <div
+                key={tier.name}
+                className={`bg-background rounded-xl border-2 ${tier.color} p-6 sm:p-8 relative flex flex-col`}
+              >
+                {tier.badge && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className={`text-xs px-3 py-1 rounded-full font-semibold ${tier.badgeColor}`}>
+                      {tier.badge}
+                    </span>
+                  </div>
+                )}
+
+                <div className="mb-4">
+                  <h2 className="text-xl font-bold text-foreground mb-1">{tier.name}</h2>
+                  <p className="text-muted text-xs">{tier.description}</p>
+                </div>
+
+                <div className="mb-6">
+                  {tier.price !== null ? (
+                    <>
+                      <span className="text-3xl sm:text-4xl font-bold text-foreground font-mono">
+                        ${tier.price}
+                      </span>
+                      <span className="text-muted ml-1 text-sm">/month</span>
+                    </>
+                  ) : (
+                    <span className="text-2xl sm:text-3xl font-bold text-foreground">
+                      Contact us
+                    </span>
+                  )}
+                </div>
+
+                <ul className="space-y-2.5 mb-8 text-sm flex-1">
+                  {tier.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2">
+                      <Check className={tier.checkColor} />
+                      <span className="text-foreground">{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {/* CTA Button */}
+                {i === 0 ? (
+                  isCurrent && session ? (
+                    <div className="text-center py-3 px-6 rounded-lg bg-surface text-muted text-sm font-medium">
+                      Current plan
+                    </div>
+                  ) : (
+                    <Link
+                      href={tier.href || '/auth/signup'}
+                      className="block text-center py-3 px-6 rounded-lg border border-border text-foreground hover:bg-surface-hover font-medium transition-colors text-sm"
+                    >
+                      {tier.cta}
+                    </Link>
+                  )
+                ) : isCurrent ? (
+                  <button
+                    onClick={handlePortal}
+                    disabled={loading === 'portal'}
+                    className="w-full py-3 px-6 rounded-lg border border-border text-foreground hover:bg-surface-hover font-medium transition-colors text-sm"
+                  >
+                    {loading === 'portal' ? 'Loading...' : 'Manage subscription'}
+                  </button>
+                ) : !session ? (
+                  <Link
+                    href="/auth/signup"
+                    className="block text-center py-3 px-6 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium transition-colors text-sm"
+                  >
+                    Sign up
+                  </Link>
+                ) : (
+                  <button
+                    onClick={() => handleCheckout(tier.priceEnv!)}
+                    disabled={loading === tier.priceEnv}
+                    className={`w-full py-3 px-6 rounded-lg font-medium transition-colors text-sm ${
+                      isDowngrade
+                        ? 'border border-border text-muted hover:bg-surface-hover'
+                        : 'bg-accent hover:bg-accent-hover text-white'
+                    }`}
+                  >
+                    {loading === tier.priceEnv
+                      ? 'Loading...'
+                      : tier.price === null
+                        ? 'Contact support'
+                        : isDowngrade
+                          ? 'Downgrade'
+                          : `Upgrade to ${tier.name}`}
+                  </button>
+                )}
+              </div>
+            )
+          })}
         </div>
 
-        {/* Donations */}
-        <div className="mt-16 max-w-2xl mx-auto text-center">
-          <div className="bg-background rounded-xl border border-gold-border p-8">
-            <h2 className="text-xl font-bold text-foreground mb-3">Running on donations</h2>
-            <p className="text-muted text-sm leading-relaxed mb-6">
-              Union Chant is open source and community-driven. AI costs are covered by
-              donations from people who believe in collective deliberation. If you find
-              value here, consider supporting the project.
+        {/* Members always free */}
+        <div className="mt-12 max-w-2xl mx-auto text-center">
+          <div className="bg-background rounded-xl border border-border p-6">
+            <h3 className="text-lg font-bold text-foreground mb-2">Members always join free</h3>
+            <p className="text-muted text-sm leading-relaxed">
+              Only the organizer who creates a group or talk pays.
+              Members can join, vote, discuss, and submit ideas at no cost on any plan.
             </p>
-            <Link
-              href="/donate"
-              className="inline-block py-3 px-8 rounded-lg bg-gold hover:bg-gold-hover text-background font-medium transition-colors"
-            >
-              Donate
-            </Link>
           </div>
         </div>
 
         {/* FAQ */}
-        <div className="mt-16 max-w-2xl mx-auto">
+        <div className="mt-12 max-w-2xl mx-auto">
           <h2 className="text-2xl font-bold text-foreground mb-8 text-center">Questions</h2>
           <div className="space-y-6">
             <div>
-              <h3 className="text-foreground font-semibold mb-1">What&apos;s the difference between models?</h3>
+              <h3 className="text-foreground font-semibold mb-1">What do I need Pro for?</h3>
               <p className="text-muted text-sm leading-relaxed">
-                Haiku is fast and concise. Sonnet provides deeper reasoning and more nuanced responses.
-                Opus is the most capable model — best for complex questions and creative thinking.
-                All models have full context of the live deliberation.
+                Pro unlocks private groups and talks. If you&apos;re running internal decisions,
+                private group votes, or any talk that shouldn&apos;t be public, you need Pro.
               </p>
             </div>
             <div>
-              <h3 className="text-foreground font-semibold mb-1">What&apos;s a collective Talk?</h3>
+              <h3 className="text-foreground font-semibold mb-1">What&apos;s the member limit?</h3>
               <p className="text-muted text-sm leading-relaxed">
-                When you chat with the Collective AI, you can &ldquo;set&rdquo; any of your messages as a Talk.
-                This creates a public deliberation that others can join, discuss, and vote on.
-                Each user gets one active collective Talk at a time.
+                The member limit applies to private groups you create. Pro supports up to 500 members,
+                Org up to 5,000, and Scale is unlimited. Public talks have no member limits on any plan.
               </p>
             </div>
             <div>
-              <h3 className="text-foreground font-semibold mb-1">Is manual creation affected?</h3>
+              <h3 className="text-foreground font-semibold mb-1">Can I cancel anytime?</h3>
               <p className="text-muted text-sm leading-relaxed">
-                No. Creating Talks manually at <Link href="/talks/new" className="text-accent hover:text-accent-hover">/talks/new</Link> is
-                always free and unlimited for everyone. The rate limit only applies to
-                changing your collective Talk via the AI chat.
+                Yes. Cancel from the billing portal at any time. Your subscription stays active until
+                the end of your billing period. Private groups remain accessible but you can&apos;t create new ones.
               </p>
             </div>
             <div>
-              <h3 className="text-foreground font-semibold mb-1">Why donations?</h3>
+              <h3 className="text-foreground font-semibold mb-1">Do members need to pay?</h3>
               <p className="text-muted text-sm leading-relaxed">
-                Union Chant aims to be accessible to everyone. AI API costs are real, but we&apos;d
-                rather fund them through community support than lock features behind paywalls.
-                Paid tiers exist to sustainably cover higher-cost models.
+                Never. Only the person creating private groups or talks needs a paid plan.
+                Everyone else joins, votes, and participates for free.
               </p>
             </div>
           </div>

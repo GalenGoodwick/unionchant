@@ -353,6 +353,39 @@ export default function AdminTestPage() {
             >
               Create Tier 3 Up-Pollination Test
             </button>
+
+            <button
+              onClick={async () => {
+                setIsRunning(true)
+                addLog('info', 'Creating viral spread demo...')
+                try {
+                  const res = await fetch('/api/admin/test/seed-viral-spread', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                  })
+                  const data = await res.json()
+                  if (res.ok) {
+                    addLog('success', data.message)
+                    addLog('info', `Your cell: ${data.yourCellId}`)
+                    for (const cell of data.cells) {
+                      addLog('info', `Cell ${cell.index}: ${cell.ideas.join(' | ')}`)
+                    }
+                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
+                  } else {
+                    addLog('error', data.error || 'Failed to create viral spread demo')
+                    if (data.details) addLog('error', data.details)
+                  }
+                } catch (err) {
+                  addLog('error', 'Failed to create viral spread demo')
+                } finally {
+                  setIsRunning(false)
+                }
+              }}
+              disabled={isRunning}
+              className="px-6 py-2 rounded-lg font-semibold bg-purple hover:bg-purple-hover text-white"
+            >
+              Viral Spread Demo
+            </button>
           </div>
         </div>
 

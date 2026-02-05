@@ -4,6 +4,9 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
 import { invalidatePodiumCache } from '@/lib/podium-cache'
+import { isAdmin } from '@/lib/admin'
+import { sendEmail } from '@/lib/email'
+import { podiumNewsEmail } from '@/lib/email-templates'
 
 // GET /api/podiums - List podium posts
 export async function GET(req: NextRequest) {
@@ -61,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, status: true },
+      select: { id: true, name: true, status: true },
     })
 
     if (!user || user.status !== 'ACTIVE') {
@@ -69,7 +72,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { title, body: bodyText, deliberationId } = body
+    const { title, body: bodyText, deliberationId, sendAsNews } = body
 
     if (!title?.trim()) {
       return NextResponse.json({ error: 'Title is required' }, { status: 400 })
@@ -119,6 +122,39 @@ export async function POST(req: NextRequest) {
     })
 
     invalidatePodiumCache()
+
+    // Admin news broadcast (fire-and-forget)
+    if (sendAsNews && session.user.email && await isAdmin(session.user.email)) {
+      const authorName = user.name || 'Union Chant'
+      prisma.user.findMany({
+        where: { emailNews: true, status: 'ACTIVE' },
+        select: { id: true, email: true },
+      }).then(async (recipients) => {
+        if (recipients.length === 0) return
+
+        // Send emails
+        const template = podiumNewsEmail({
+          title: title.trim(),
+          body: bodyText.trim(),
+          authorName,
+          podiumId: podium.id,
+        })
+        await Promise.allSettled(
+          recipients.map(r => sendEmail({ to: r.email, ...template }))
+        )
+
+        // Create in-app notifications
+        await prisma.notification.createMany({
+          data: recipients.map(r => ({
+            userId: r.id,
+            type: 'PODIUM_NEWS',
+            title: title.trim(),
+            body: bodyText.trim().substring(0, 200),
+          })),
+        })
+      }).catch((err) => console.error('News broadcast error:', err))
+    }
+
     return NextResponse.json(podium, { status: 201 })
   } catch (error) {
     console.error('Error creating podium:', error)

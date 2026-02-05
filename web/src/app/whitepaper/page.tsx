@@ -190,7 +190,7 @@ export default function WhitepaperPage() {
               href="/talks/new"
               className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
             >
-              Start a Deliberation
+              Start a Talk
             </Link>
           </div>
         </article>

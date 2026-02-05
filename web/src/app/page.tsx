@@ -107,14 +107,6 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="text-center mt-16">
-            <Link
-              href="/how-it-works"
-              className="text-accent hover:text-accent-hover font-medium transition-colors"
-            >
-              See the full process &rarr;
-            </Link>
-          </div>
         </div>
       </section>
 
@@ -131,46 +123,46 @@ export default function Home() {
 
           <div className="grid grid-cols-3 gap-6 md:gap-8 mb-16 max-w-lg mx-auto">
             <div>
-              <div className="text-4xl md:text-5xl font-bold font-mono text-accent-light mb-2">
+              <div className="text-4xl md:text-5xl font-bold font-mono text-white mb-2">
                 5
               </div>
-              <div className="text-white/50 text-sm">people per group</div>
+              <div className="text-white/70 text-sm">people per group</div>
             </div>
             <div>
-              <div className="text-4xl md:text-5xl font-bold font-mono text-accent-light mb-2">
+              <div className="text-4xl md:text-5xl font-bold font-mono text-white mb-2">
                 9
               </div>
-              <div className="text-white/50 text-sm">rounds for 1 million</div>
+              <div className="text-white/70 text-sm">rounds for 1 million</div>
             </div>
             <div>
-              <div className="text-4xl md:text-5xl font-bold font-mono text-accent-light mb-2">
+              <div className="text-4xl md:text-5xl font-bold font-mono text-white mb-2">
                 14
               </div>
-              <div className="text-white/50 text-sm">rounds for all of humanity</div>
+              <div className="text-white/70 text-sm">rounds for all of humanity</div>
             </div>
           </div>
 
-          <div className="inline-flex flex-col items-start bg-white/5 rounded-xl p-6 md:p-8 text-left max-w-lg w-full">
+          <div className="inline-flex flex-col items-start bg-white/10 rounded-xl p-6 md:p-8 text-left max-w-lg w-full border border-white/10">
             <div className="w-full space-y-4 font-mono text-sm">
               <div className="flex justify-between items-center">
-                <span className="text-white/60">25 people</span>
-                <span className="text-accent-light">2 rounds</span>
+                <span className="text-white/80">25 people</span>
+                <span className="text-white font-medium">2 rounds</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-white/60">625 people</span>
-                <span className="text-accent-light">4 rounds</span>
+                <span className="text-white/80">625 people</span>
+                <span className="text-white font-medium">4 rounds</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-white/60">10,000 people</span>
-                <span className="text-accent-light">6 rounds</span>
+                <span className="text-white/80">10,000 people</span>
+                <span className="text-white font-medium">6 rounds</span>
               </div>
-              <div className="flex justify-between items-center border-t border-white/10 pt-4">
+              <div className="flex justify-between items-center border-t border-white/20 pt-4">
                 <span className="text-white font-bold">1,000,000 people</span>
-                <span className="text-accent-light font-bold">9 rounds</span>
+                <span className="text-purple font-bold">9 rounds</span>
               </div>
-              <div className="flex justify-between items-center border-t border-white/10 pt-4">
-                <span className="text-white/80">8 billion (humanity)</span>
-                <span className="text-accent-light">14 rounds</span>
+              <div className="flex justify-between items-center border-t border-white/20 pt-4">
+                <span className="text-white font-bold">8 billion (humanity)</span>
+                <span className="text-gold font-bold">14 rounds</span>
               </div>
             </div>
           </div>
@@ -306,22 +298,19 @@ export default function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <LandingCTA variant="footer" />
+            <Link
+              href="/demo"
+              className="bg-white/10 hover:bg-white/20 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors border border-white/20"
+            >
+              Watch the Demo
+            </Link>
           </div>
-          <div className="mt-12 flex flex-wrap gap-8 justify-center text-sm text-white/40">
-            <Link href="/pitch" className="hover:text-white/70 transition-colors">
-              Full Pitch
-            </Link>
-            <Link href="/whitepaper" className="hover:text-white/70 transition-colors">
-              Whitepaper
-            </Link>
-            <Link href="/how-it-works" className="hover:text-white/70 transition-colors">
-              How It Works
-            </Link>
-            <Link href="/demo" className="hover:text-white/70 transition-colors">
-              Demo
-            </Link>
-            <Link href="/how-it-works" className="hover:text-white/70 transition-colors">
-              How It Works
+          <div className="mt-12 flex justify-center">
+            <Link
+              href="/whitepaper"
+              className="bg-white/10 hover:bg-white/20 text-white px-6 py-2.5 rounded-lg font-medium text-sm transition-colors border border-white/20"
+            >
+              Read the Whitepaper
             </Link>
           </div>
         </div>

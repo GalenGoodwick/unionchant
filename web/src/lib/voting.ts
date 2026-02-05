@@ -605,67 +605,36 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
 /**
  * Promote top comments when a tier completes and ideas advance.
- * - Idea-linked: top 1 comment per advancing idea (ties allowed), min 1 upvote
- * - Unlinked: top 1 comment per completed cell (ties allowed), min 1 upvote
+ * For each advancing idea, the comment with the highest cross-cell upvoteCount
+ * gets promoted to the next tier (ties: promote both). Starts fresh at new tier
+ * with spreadCount=0 and tierUpvotes=0.
+ * Only idea-linked comments are promoted (unlinked comments stay in their origin cell).
  */
 async function promoteTopComments(deliberationId: string, completedTier: number, advancingIdeaIds: string[]) {
   const nextTier = completedTier + 1
 
-  // Idea-linked comments: promote top 1 per idea (ties allowed)
-  // Query by reachTier (not origin cell tier) so previously-promoted comments can climb further
   for (const ideaId of advancingIdeaIds) {
-    const topComments = await prisma.comment.findMany({
+    // Find the single top comment by cross-cell upvoteCount for this idea at the completed tier
+    const topComment = await prisma.comment.findFirst({
       where: {
         ideaId,
         cell: { deliberationId },
         upvoteCount: { gte: 1 },
         reachTier: completedTier,
       },
-      orderBy: { upvoteCount: 'desc' },
-      take: 2,
+      orderBy: [{ upvoteCount: 'desc' }, { createdAt: 'asc' }],
     })
 
-    if (topComments.length === 0) continue
+    if (!topComment) continue
 
-    // Always promote the top comment; promote second only if tied
-    const toPromote = topComments.length === 2 && topComments[0].upvoteCount === topComments[1].upvoteCount
-      ? [topComments[0].id, topComments[1].id]
-      : [topComments[0].id]
-
-    await prisma.comment.updateMany({
-      where: { id: { in: toPromote } },
-      data: { reachTier: nextTier },
-    })
-  }
-
-  // Unlinked comments: top 1 per completed cell (ties allowed)
-  // Also query by reachTier so previously-promoted unlinked comments can climb
-  const completedCells = await prisma.cell.findMany({
-    where: { deliberationId, tier: completedTier, status: 'COMPLETED' },
-    select: { id: true },
-  })
-
-  for (const cell of completedCells) {
-    const topComments = await prisma.comment.findMany({
-      where: {
-        cellId: cell.id,
-        ideaId: null,
-        upvoteCount: { gte: 1 },
-        reachTier: completedTier,
+    // Promote: set reachTier to next tier, reset spread and tier upvotes for fresh start
+    await prisma.comment.update({
+      where: { id: topComment.id },
+      data: {
+        reachTier: nextTier,
+        spreadCount: 0,
+        tierUpvotes: 0,
       },
-      orderBy: { upvoteCount: 'desc' },
-      take: 2,
-    })
-
-    if (topComments.length === 0) continue
-
-    const toPromote = topComments.length === 2 && topComments[0].upvoteCount === topComments[1].upvoteCount
-      ? [topComments[0].id, topComments[1].id]
-      : [topComments[0].id]
-
-    await prisma.comment.updateMany({
-      where: { id: { in: toPromote } },
-      data: { reachTier: nextTier },
     })
   }
 

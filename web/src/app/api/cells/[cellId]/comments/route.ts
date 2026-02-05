@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimit, getChatStrike, incrementChatStrike, resetChatStrike, resetRateWindow } from '@/lib/rate-limit'
+import { verifyCaptcha } from '@/lib/captcha'
 
 // GET /api/cells/[cellId]/comments - Get all comments for a cell (local + up-pollinated)
 export async function GET(
@@ -40,21 +41,8 @@ export async function GET(
       return NextResponse.json({ error: 'Cell not found' }, { status: 404 })
     }
 
-    // Get this cell's idea IDs for batch filtering
+    // Get this cell's idea IDs for filtering
     const cellIdeaIds = cell.ideas.map(ci => ci.ideaId)
-
-    // Find all cells that share at least one idea with this cell (same batch)
-    const cellsWithSameIdeas = await prisma.cell.findMany({
-      where: {
-        deliberationId: cell.deliberationId,
-        id: { not: cellId },
-        ideas: {
-          some: { ideaId: { in: cellIdeaIds } },
-        },
-      },
-      select: { id: true },
-    })
-    const sameBatchCellIds = cellsWithSameIdeas.map(c => c.id)
 
     // 1. Get LOCAL comments (from this cell)
     const localComments = await prisma.comment.findMany({
@@ -77,87 +65,114 @@ export async function GET(
       },
     })
 
-    // 2. Get UP-POLLINATED comments
-    // Two sources:
-    // A) Comments linked to ideas in this cell (follow idea across tiers)
-    // B) Comments from same batch cells (original behavior)
+    // 2. Get UP-POLLINATED comments (idea-linked only)
+    // Two paths:
+    // A) Cross-tier: comments promoted via promoteTopComments (reachTier >= cell.tier)
+    // B) Same-tier: comments spreading virally via spreadCount
 
-    // A) Idea-linked comments: comments that are linked to ideas in this cell,
-    // from previous tiers, with sufficient reachTier
-    const ideaLinkedComments = cellIdeaIds.length > 0 ? await prisma.comment.findMany({
-      where: {
-        ideaId: { in: cellIdeaIds }, // Linked to ideas in this cell
-        cellId: { not: cellId }, // Not from this cell (those are local)
-        reachTier: { gte: cell.tier }, // Has reached this tier level
-      },
-      orderBy: [
-        { upvoteCount: 'desc' },
-        { createdAt: 'asc' },
-      ],
-      include: {
-        user: {
-          select: { id: true, name: true, image: true, status: true },
-        },
-        cell: {
-          select: { tier: true },
-        },
-        idea: {
-          select: { id: true, text: true },
-        },
-        upvotes: currentUserId ? {
-          where: { userId: currentUserId },
-          select: { id: true },
-        } : false,
-      },
-      take: 20,
-    }) : []
-
-    // B) Batch comments (same ideas, different cells in same tier)
-    // Deterministic check if this cell should see a comment
-    const shouldShowComment = (commentId: string, targetCellId: string, reachTier: number, cellTier: number) => {
-      if (reachTier >= cellTier) return true // Full reach = always show
-      // Probability = 5^(reachTier - cellTier)
-      const probability = Math.pow(5, reachTier - cellTier)
-      // Deterministic hash based on comment+cell IDs (same cell always sees same comments)
-      const hash = (commentId + targetCellId).split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0)
-      return (Math.abs(hash) % 1000) < (probability * 1000)
+    // Deterministic hash for spread visibility
+    const hashPair = (a: string, b: string): number => {
+      const str = a + b
+      let hash = 0
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0
+      }
+      return Math.abs(hash)
     }
 
-    // Fetch batch candidates (comments from same-tier cells with same ideas)
-    const batchCandidates = sameBatchCellIds.length > 0 ? await prisma.comment.findMany({
-      where: {
-        cellId: { in: sameBatchCellIds },
-        reachTier: { gte: 1 },
-        // Exclude idea-linked comments (already fetched above)
-        ideaId: null,
-      },
-      orderBy: [
-        { reachTier: 'desc' },
-        { upvoteCount: 'desc' },
-        { createdAt: 'asc' },
-      ],
-      include: {
-        user: {
-          select: { id: true, name: true, image: true, status: true },
-        },
-        cell: {
-          select: { tier: true },
-        },
-        upvotes: currentUserId ? {
-          where: { userId: currentUserId },
-          select: { id: true },
-        } : false,
-      },
-      take: 30,
-    }) : []
+    const shouldSeeComment = (commentId: string, targetCellId: string, spreadCount: number, totalCellsWithIdea: number): boolean => {
+      if (spreadCount === 0) return false // origin cell only
+      if (spreadCount >= totalCellsWithIdea) return true // reached all cells
+      // Each upvote opens one more cell — deterministic hash picks which ones
+      const hash = hashPair(commentId, targetCellId)
+      return hash % totalCellsWithIdea < spreadCount
+    }
 
-    // Filter batch comments based on probabilistic reach
-    const batchComments = batchCandidates.filter(comment =>
-      shouldShowComment(comment.id, cellId, comment.reachTier, cell.tier)
-    ).slice(0, 10)
+    let upPollinatedComments: typeof localComments = []
 
-    // Combine and dedupe
-    const upPollinatedComments = [...ideaLinkedComments, ...batchComments]
+    if (cellIdeaIds.length > 0) {
+      // A) Cross-tier promoted comments: reachTier >= this cell's tier, from a different cell
+      const crossTierComments = await prisma.comment.findMany({
+        where: {
+          ideaId: { in: cellIdeaIds },
+          cellId: { not: cellId },
+          reachTier: { gte: cell.tier },
+          cell: { tier: { lt: cell.tier } }, // originated from a lower tier
+        },
+        orderBy: [
+          { upvoteCount: 'desc' },
+          { createdAt: 'asc' },
+        ],
+        include: {
+          user: {
+            select: { id: true, name: true, image: true, status: true },
+          },
+          cell: {
+            select: { tier: true },
+          },
+          idea: {
+            select: { id: true, text: true },
+          },
+          upvotes: currentUserId ? {
+            where: { userId: currentUserId },
+            select: { id: true },
+          } : false,
+        },
+        take: 20,
+      })
+
+      // B) Same-tier viral spread: comments from other same-tier cells with shared ideas
+      // Count total same-tier cells per idea (for spread calculation)
+      const sameTierCellsWithIdeas = await prisma.cell.findMany({
+        where: {
+          deliberationId: cell.deliberationId,
+          tier: cell.tier,
+          id: { not: cellId },
+          ideas: { some: { ideaId: { in: cellIdeaIds } } },
+        },
+        select: { id: true },
+      })
+      const totalSameTierCells = sameTierCellsWithIdeas.length + 1 // +1 for this cell
+
+      // Fetch same-tier candidates: idea-linked, from other cells at same tier, with spreadCount > 0
+      const sameTierCandidates = sameTierCellsWithIdeas.length > 0 ? await prisma.comment.findMany({
+        where: {
+          ideaId: { in: cellIdeaIds },
+          cellId: { not: cellId },
+          cell: { tier: cell.tier },
+          spreadCount: { gte: 1 },
+        },
+        orderBy: [
+          { spreadCount: 'desc' },
+          { upvoteCount: 'desc' },
+          { createdAt: 'asc' },
+        ],
+        include: {
+          user: {
+            select: { id: true, name: true, image: true, status: true },
+          },
+          cell: {
+            select: { tier: true },
+          },
+          idea: {
+            select: { id: true, text: true },
+          },
+          upvotes: currentUserId ? {
+            where: { userId: currentUserId },
+            select: { id: true },
+          } : false,
+        },
+        take: 30,
+      }) : []
+
+      // Filter same-tier comments by spread radius
+      const sameTierComments = sameTierCandidates.filter(comment =>
+        shouldSeeComment(comment.id, cellId, comment.spreadCount, totalSameTierCells)
+      )
+
+      // Combine cross-tier and same-tier
+      upPollinatedComments = [...crossTierComments, ...sameTierComments]
+    }
 
     // Increment view count for local comments (fire and forget)
     prisma.comment.updateMany({
@@ -228,9 +243,35 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    const body = await req.json()
+    const { text, replyToId, ideaId, captchaToken } = body
+
+    // If CAPTCHA token provided, verify it and reset limits
+    if (captchaToken) {
+      const captchaResult = await verifyCaptcha(captchaToken, user.id)
+      if (captchaResult.success) {
+        resetChatStrike(user.id)
+        resetRateWindow('comment', user.id)
+      } else {
+        return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
+      }
+    }
+
     const limited = await checkRateLimit('comment', user.id)
     if (limited) {
-      return NextResponse.json({ error: 'Too many comments. Slow down.' }, { status: 429 })
+      const { strike, mutedUntil } = incrementChatStrike(user.id)
+      if (mutedUntil) {
+        return NextResponse.json({
+          error: 'MUTED',
+          mutedUntil,
+          message: 'You have been temporarily muted.',
+        }, { status: 429 })
+      }
+      return NextResponse.json({
+        error: 'CAPTCHA_REQUIRED',
+        strike,
+        message: 'Please verify you are human.',
+      }, { status: 429 })
     }
 
     const cell = await prisma.cell.findUnique({
@@ -247,9 +288,6 @@ export async function POST(
     if (!isParticipant) {
       return NextResponse.json({ error: 'Not a participant in this cell' }, { status: 403 })
     }
-
-    const body = await req.json()
-    const { text, replyToId, ideaId } = body
 
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Comment text is required' }, { status: 400 })

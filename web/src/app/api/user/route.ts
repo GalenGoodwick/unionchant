@@ -28,6 +28,14 @@ export async function DELETE() {
       )
     }
 
+    // Block deletion if user has an active subscription
+    if (user.stripeSubscriptionId) {
+      return NextResponse.json(
+        { error: 'ACTIVE_SUBSCRIPTION', message: 'Cancel your subscription before deleting your account.' },
+        { status: 400 }
+      )
+    }
+
     // Soft delete - mark as deleted but preserve data for integrity
     await prisma.user.update({
       where: { id: user.id },

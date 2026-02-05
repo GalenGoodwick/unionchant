@@ -23,7 +23,7 @@ export async function GET(
 
     const requestingUser = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true },
+      select: { id: true, subscriptionTier: true, role: true },
     })
 
     const deliberationCheck = await prisma.deliberation.findUnique({
@@ -33,6 +33,14 @@ export async function GET(
 
     if (!deliberationCheck || !requestingUser || deliberationCheck.creatorId !== requestingUser.id) {
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
+
+    // Data export requires Pro+ (admins bypass)
+    if (requestingUser.subscriptionTier === 'free' && requestingUser.role !== 'ADMIN') {
+      return NextResponse.json({
+        error: 'PRO_REQUIRED',
+        message: 'Data export requires a Pro subscription or higher.',
+      }, { status: 403 })
     }
 
     // Get deliberation with all related data

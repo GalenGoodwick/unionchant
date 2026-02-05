@@ -8,7 +8,7 @@ import Header from '@/components/Header'
 import { FullPageSpinner } from '@/components/Spinner'
 import Turnstile from '@/components/Turnstile'
 
-type CommunityOption = { id: string; name: string; slug: string }
+type CommunityOption = { id: string; name: string; slug: string; isPublic: boolean }
 
 export default function NewDeliberationPage() {
   return (
@@ -29,6 +29,7 @@ function NewDeliberationForm() {
   const [communities, setCommunities] = useState<CommunityOption[]>([])
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
   const [communityOnly, setCommunityOnly] = useState(false)
+  const [communityLocked, setCommunityLocked] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [podiums, setPodiums] = useState<{ id: string; title: string }[]>([])
   const [selectedPodiumId, setSelectedPodiumId] = useState<string | null>(null)
@@ -73,7 +74,13 @@ function NewDeliberationForm() {
             setCommunities(data)
             if (communitySlug) {
               const match = data.find((c: CommunityOption) => c.slug === communitySlug)
-              if (match) setSelectedCommunityId(match.id)
+              if (match) {
+                setSelectedCommunityId(match.id)
+                if (!match.isPublic) {
+                  setCommunityOnly(true)
+                  setCommunityLocked(true)
+                }
+              }
             }
           }
         })
@@ -161,6 +168,9 @@ function NewDeliberationForm() {
 
       if (!res.ok) {
         const data = await res.json()
+        if (data.error === 'PRO_REQUIRED') {
+          throw new Error('Private talks require a Pro subscription. Upgrade at /pricing')
+        }
         throw new Error(data.error || 'Failed to create deliberation')
       }
 
@@ -270,31 +280,57 @@ function NewDeliberationForm() {
             {/* Community Selector */}
             {communities.length > 0 && (
               <div>
-                <label className="block text-foreground font-medium mb-2">Group (optional)</label>
+                <label className="block text-foreground font-medium mb-2">
+                  Group {communityLocked ? '' : '(optional)'}
+                </label>
                 <select
                   value={selectedCommunityId || ''}
+                  disabled={communityLocked}
                   onChange={e => {
-                    setSelectedCommunityId(e.target.value || null)
-                    if (!e.target.value) setCommunityOnly(false)
+                    const id = e.target.value || null
+                    setSelectedCommunityId(id)
+                    if (!id) {
+                      setCommunityOnly(false)
+                    } else {
+                      const selected = communities.find(c => c.id === id)
+                      if (selected && !selected.isPublic) setCommunityOnly(true)
+                    }
                   }}
-                  className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:border-accent"
+                  className={`w-full bg-surface border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:border-accent ${communityLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <option value="">No community</option>
                   {communities.map(c => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
-                {selectedCommunityId && (
-                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={communityOnly}
-                      onChange={e => setCommunityOnly(e.target.checked)}
-                      className="w-4 h-4 text-accent"
-                    />
-                    <span className="text-foreground text-sm">Community only (not visible in public feed)</span>
-                  </label>
-                )}
+                {selectedCommunityId && (() => {
+                  const selectedComm = communities.find(c => c.id === selectedCommunityId)
+                  const isPrivateGroup = selectedComm && !selectedComm.isPublic
+                  return (
+                    <>
+                      <label className={`flex items-center gap-2 mt-3 ${isPrivateGroup ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}>
+                        <input
+                          type="checkbox"
+                          checked={communityOnly}
+                          disabled={!!isPrivateGroup}
+                          onChange={e => setCommunityOnly(e.target.checked)}
+                          className="w-4 h-4 text-accent"
+                        />
+                        <span className="text-foreground text-sm">Community only (not visible in public feed)</span>
+                      </label>
+                      {isPrivateGroup && (
+                        <p className="text-xs text-muted mt-1">
+                          Talks in private groups are always community only.
+                        </p>
+                      )}
+                      {communityOnly && !isPrivateGroup && (
+                        <p className="text-xs text-muted mt-1">
+                          Private talks require a <a href="/pricing" className="text-accent hover:text-accent-hover">paid plan</a>.
+                        </p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             )}
 

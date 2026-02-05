@@ -86,9 +86,10 @@ describe('up-pollination', () => {
       expect(c.upvoteCount).toBeGreaterThanOrEqual(1)
     }
 
-    // Promoted comments should keep their upvote counts (votes carry forward)
+    // Promoted comments should have spreadCount and tierUpvotes reset for fresh start at new tier
     for (const c of promotedComments) {
-      expect(c.upvoteCount).toBeGreaterThanOrEqual(1)
+      expect(c.spreadCount).toBe(0)
+      expect(c.tierUpvotes).toBe(0)
     }
 
     // Weak comments (0 upvotes) should NOT be promoted
@@ -160,7 +161,7 @@ describe('up-pollination', () => {
     expect(promoted.length).toBe(2)
   }, 30000)
 
-  it('unlinked comments (no ideaId) are promoted per cell', async () => {
+  it('unlinked comments (no ideaId) are NOT promoted', async () => {
     const users = await createTestUsers(10, 'up3')
     const { deliberation } = await createTestDeliberation({
       prefix: 'up3',
@@ -193,12 +194,12 @@ describe('up-pollination', () => {
       await processCellResults(c.id)
     }
 
-    // Unlinked comment should be promoted
-    const promoted = await prisma.comment.findUnique({
+    // Unlinked comment should NOT be promoted (only idea-linked comments spread now)
+    const result = await prisma.comment.findUnique({
       where: { id: unlinkedComment.id },
     })
 
-    expect(promoted?.reachTier).toBeGreaterThanOrEqual(2)
+    expect(result?.reachTier).toBe(1)
   }, 30000)
 
   it('comments with 0 upvotes are never promoted', async () => {

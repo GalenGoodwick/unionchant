@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isAdminEmail } from '@/lib/admin'
+import { getStripe } from '@/lib/stripe'
 
 // GET /api/admin/users/[id] - Get user details
 export async function GET(
@@ -108,6 +109,15 @@ export async function POST(
         break
 
       case 'delete':
+        // Cancel Stripe subscription if active
+        if (user.stripeSubscriptionId) {
+          try {
+            await getStripe().subscriptions.cancel(user.stripeSubscriptionId)
+          } catch (e) {
+            console.warn(`[Admin] Failed to cancel Stripe sub for user ${id}:`, e)
+          }
+        }
+
         // Soft-delete: wipe PII, keep content for integrity
         await prisma.user.update({
           where: { id },
@@ -118,6 +128,9 @@ export async function POST(
             image: null,
             bio: null,
             email: `deleted-${id}@deleted.local`, // Free up email for re-registration
+            stripeCustomerId: null,
+            stripeSubscriptionId: null,
+            subscriptionTier: 'free',
           },
         })
 

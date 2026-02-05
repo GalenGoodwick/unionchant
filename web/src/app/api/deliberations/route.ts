@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { verifyCaptcha } from '@/lib/captcha'
+import { isAdmin } from '@/lib/admin'
 import { sendEmail } from '@/lib/email'
 import { followedNewDelibEmail } from '@/lib/email-templates'
 
@@ -22,10 +23,25 @@ export async function GET(req: NextRequest) {
       userId = user?.id ?? null
     }
 
+    // Get community IDs user is a member of (for private talk access)
+    let memberCommunityIds: string[] = []
+    if (userId) {
+      const memberships = await prisma.communityMember.findMany({
+        where: { userId },
+        select: { communityId: true },
+      })
+      memberCommunityIds = memberships.map(m => m.communityId)
+    }
+
     const deliberations = await prisma.deliberation.findMany({
       where: {
-        isPublic: true,
         ...(tag ? { tags: { has: tag } } : {}),
+        OR: [
+          { isPublic: true },
+          ...(memberCommunityIds.length > 0
+            ? [{ isPublic: false, communityId: { in: memberCommunityIds } }]
+            : []),
+        ],
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -120,6 +136,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
     }
 
+    // Private talks require a paid subscription
+    const effectivelyPrivate = isPublic === false || (communityOnly && communityId)
+    if (effectivelyPrivate) {
+      const adminUser = await isAdmin(session.user.email)
+      if (!adminUser) {
+        const tier = user.subscriptionTier || 'free'
+        if (tier === 'free') {
+          return NextResponse.json({
+            error: 'PRO_REQUIRED',
+            message: 'Upgrade to Pro to create private talks',
+          }, { status: 403 })
+        }
+      }
+    }
+
     // Verify community membership and posting permission if communityId provided
     if (communityId) {
       const [membership, community] = await Promise.all([
@@ -185,7 +216,7 @@ export async function POST(req: NextRequest) {
     // Notify followers (fire-and-forget)
     prisma.follow.findMany({
       where: { followingId: user.id },
-      select: { followerId: true, follower: { select: { email: true } } },
+      select: { followerId: true, follower: { select: { email: true, emailSocial: true } } },
     }).then(async (followers) => {
       if (followers.length === 0) return
       const userName = user.name || 'Someone'
@@ -201,15 +232,18 @@ export async function POST(req: NextRequest) {
         })),
       })
 
-      // Send emails
-      const template = followedNewDelibEmail({
-        userName,
-        question: deliberation.question,
-        deliberationId: deliberation.id,
-      })
-      await Promise.allSettled(
-        followers.map(f => sendEmail({ to: f.follower.email, ...template }))
-      )
+      // Send emails (only to followers with emailSocial enabled)
+      const emailFollowers = followers.filter(f => f.follower.emailSocial)
+      if (emailFollowers.length > 0) {
+        const template = followedNewDelibEmail({
+          userName,
+          question: deliberation.question,
+          deliberationId: deliberation.id,
+        })
+        await Promise.allSettled(
+          emailFollowers.map(f => sendEmail({ to: f.follower.email, ...template }))
+        )
+      }
     }).catch(() => {})
 
     return NextResponse.json(deliberation, { status: 201 })

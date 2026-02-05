@@ -100,7 +100,7 @@ export default function SignUpPage() {
           Create an account
         </h1>
         <p className="text-muted text-center mb-8">
-          Vote on ideas with others. Teams talk, priorities are set.
+          Millions of people, one honest answer.
         </p>
 
         {error && (
@@ -148,6 +148,12 @@ export default function SignUpPage() {
             onExpire={handleCaptchaExpire}
             className="flex justify-center"
           />
+          <p className="text-xs text-muted text-center">
+            By signing up, you agree to our{' '}
+            <Link href="/terms" className="text-accent hover:text-accent-hover underline">Terms of Service</Link>
+            {' '}and{' '}
+            <Link href="/privacy" className="text-accent hover:text-accent-hover underline">Privacy Policy</Link>.
+          </p>
           <button
             type="submit"
             disabled={loading || !captchaToken}

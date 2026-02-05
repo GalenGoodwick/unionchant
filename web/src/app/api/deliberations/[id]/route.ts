@@ -12,42 +12,47 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const session = await getServerSession(authOptions)
 
-    // Privacy gate: check access before returning any data
-    const access = await checkDeliberationAccess(id, session?.user?.email)
-    if (!access.allowed) {
-      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
-    }
-
-    // Lazy evaluation: check for any pending timer transitions
-    await checkAndTransitionDeliberation(id)
-
-    const deliberation = await prisma.deliberation.findUnique({
-      where: { id },
-      include: {
-        creator: {
-          select: { id: true, name: true, status: true },
-        },
-        ideas: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            author: {
-              select: { id: true, name: true, status: true },
+    // Run auth + privacy check + timer transition + main query in parallel
+    const [session, deliberation] = await Promise.all([
+      getServerSession(authOptions),
+      prisma.deliberation.findUnique({
+        where: { id },
+        include: {
+          creator: {
+            select: { id: true, name: true, status: true },
+          },
+          ideas: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              author: {
+                select: { id: true, name: true, status: true },
+              },
             },
           },
+          _count: {
+            select: { members: true },
+          },
         },
-        _count: {
-          select: { members: true },
-        },
-      },
-    })
+      }),
+    ])
 
     if (!deliberation) {
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
-    // Increment view count (fire and forget)
+    // Privacy gate: private deliberations need member/admin check
+    if (!deliberation.isPublic) {
+      const access = await checkDeliberationAccess(id, session?.user?.email)
+      if (!access.allowed) {
+        return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+      }
+    }
+
+    // Lazy timer transitions + view increment (fire and forget, don't block response)
+    checkAndTransitionDeliberation(id).catch(err =>
+      console.error('Timer transition error:', err)
+    )
     prisma.deliberation.update({
       where: { id },
       data: { views: { increment: 1 } },
@@ -63,6 +68,7 @@ export async function GET(
     if (session?.user?.email) {
       const user = await prisma.user.findUnique({
         where: { email: session.user.email },
+        select: { id: true },
       })
       if (user) {
         isCreator = user.id === deliberation.creatorId

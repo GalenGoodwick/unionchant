@@ -17,6 +17,7 @@ import VotingCell from '@/components/deliberation/VotingCell'
 import HistoryPanel from '@/components/deliberation/HistoryPanel'
 import CommentsPanel from '@/components/deliberation/CommentsPanel'
 import Section from '@/components/deliberation/Section'
+import LazySection from '@/components/deliberation/LazySection'
 
 function timeAgo(dateStr: string): string {
   const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000)
@@ -204,7 +205,7 @@ export default function DetailsPageClient() {
           <Section title="Your Cells" defaultOpen={d.activeCells.length === 0}>
             <div className="space-y-3">
               {d.votedCells.map(cell => (
-                <VotingCell key={cell.id} cell={cell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} />
+                <VotingCell key={cell.id} cell={cell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} currentTier={delib.currentTier} />
               ))}
             </div>
           </Section>
@@ -314,7 +315,180 @@ export default function DetailsPageClient() {
             </div>
           )}
         </Section>
+
+        {/* Audit: Cell Details per Tier (lazy-loaded) */}
+        {delib.currentTier >= 1 && (delib.phase === 'VOTING' || delib.phase === 'COMPLETED' || delib.phase === 'ACCUMULATING') && (
+          <>
+            <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-2 mt-6">
+              Audit — Cell Details by Tier
+            </div>
+            {Array.from({ length: delib.currentTier }, (_, i) => i + 1).map(tier => (
+              <LazySection
+                key={`tier-${tier}`}
+                title={`Tier ${tier} Cells`}
+                badge={<span className="text-xs text-muted font-mono">Tier {tier}</span>}
+                fetchData={async () => {
+                  const res = await fetch(`/api/deliberations/${id}/tiers/${tier}`)
+                  if (!res.ok) throw new Error('Failed to load')
+                  return res.json()
+                }}
+                renderContent={(data) => <TierAuditContent data={data as TierData} />}
+              />
+            ))}
+          </>
+        )}
+
+        {/* Audit: Members (lazy-loaded) */}
+        <LazySection
+          title="Members"
+          badge={<span className="text-xs text-muted font-mono">{delib._count.members}</span>}
+          fetchData={async () => {
+            const res = await fetch(`/api/deliberations/${id}/members`)
+            if (!res.ok) throw new Error('Failed to load')
+            return res.json()
+          }}
+          renderContent={(data) => <MembersContent data={data as MemberData[]} />}
+        />
       </div>
+    </div>
+  )
+}
+
+// ── Tier Audit Content ──
+
+interface TierCellIdea {
+  id: string
+  text: string
+  status: string
+  author?: { name: string }
+  voteCount: number
+}
+
+interface TierCell {
+  id: string
+  status: string
+  participantCount: number
+  votedCount: number
+  ideas: TierCellIdea[]
+  winner?: { text: string; author: string }
+}
+
+interface TierData {
+  tier: number
+  isBatch: boolean
+  stats: {
+    totalCells: number
+    completedCells: number
+    totalParticipants: number
+    totalVotesCast: number
+    votingProgress: number
+  }
+  cells: TierCell[]
+  liveTally?: { ideaId: string; text: string; voteCount: number }[]
+}
+
+function TierAuditContent({ data }: { data: TierData }) {
+  return (
+    <div>
+      {/* Stats summary */}
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        <div className="text-center">
+          <div className="text-lg font-bold font-mono text-foreground">{data.stats.totalCells}</div>
+          <div className="text-[10px] text-muted">Cells</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold font-mono text-foreground">{data.stats.totalParticipants}</div>
+          <div className="text-[10px] text-muted">Voters</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold font-mono text-foreground">{data.stats.totalVotesCast}</div>
+          <div className="text-[10px] text-muted">Votes</div>
+        </div>
+        <div className="text-center">
+          <div className="text-lg font-bold font-mono text-accent">{data.stats.votingProgress}%</div>
+          <div className="text-[10px] text-muted">Complete</div>
+        </div>
+      </div>
+
+      {/* Cross-cell tally for batches */}
+      {data.liveTally && data.liveTally.length > 0 && (
+        <div className="bg-surface rounded-lg border border-border p-3 mb-3">
+          <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Cross-Cell Tally</div>
+          {data.liveTally.map((item, i) => (
+            <div key={item.ideaId} className="flex justify-between items-center text-sm py-0.5">
+              <span className={`truncate flex-1 ${i === 0 ? 'text-success font-medium' : 'text-foreground'}`}>
+                {item.text}
+              </span>
+              <span className="font-mono text-muted ml-2">{item.voteCount}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Individual cells */}
+      <div className="space-y-2">
+        {data.cells.map((cell, i) => (
+          <div key={cell.id} className="bg-surface rounded border border-border p-2.5">
+            <div className="flex justify-between items-center mb-1.5">
+              <span className="text-xs font-medium text-foreground">Cell {i + 1}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted font-mono">{cell.votedCount}/{cell.participantCount} voted</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                  cell.status === 'COMPLETED' ? 'bg-success-bg text-success' :
+                  cell.status === 'VOTING' ? 'bg-warning-bg text-warning' :
+                  'bg-surface text-muted'
+                }`}>
+                  {cell.status}
+                </span>
+              </div>
+            </div>
+            {cell.ideas.map(idea => (
+              <div key={idea.id} className={`flex justify-between text-xs py-0.5 ${
+                cell.winner && cell.winner.text === idea.text ? 'text-success font-medium' : 'text-muted'
+              }`}>
+                <span className="truncate flex-1">{idea.text}</span>
+                <span className="font-mono ml-2">{idea.voteCount} VP</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Members Content ──
+
+interface MemberData {
+  id: string
+  name: string | null
+  image: string | null
+  role: string
+  joinedAt: string
+}
+
+function MembersContent({ data }: { data: MemberData[] }) {
+  if (data.length === 0) {
+    return <p className="text-muted text-sm">No members yet</p>
+  }
+  return (
+    <div className="space-y-1">
+      {data.map(member => (
+        <div key={member.id} className="flex items-center gap-2 py-1">
+          {member.image ? (
+            <img src={member.image} alt="" className="w-6 h-6 rounded-full" />
+          ) : (
+            <span className="w-6 h-6 rounded-full bg-accent/20 text-accent text-xs font-medium flex items-center justify-center">
+              {(member.name || 'A')[0].toUpperCase()}
+            </span>
+          )}
+          <span className="text-sm text-foreground flex-1">{member.name || 'Anonymous'}</span>
+          {member.role !== 'MEMBER' && (
+            <span className="text-[10px] text-muted uppercase">{member.role}</span>
+          )}
+          <span className="text-xs text-muted">{timeAgo(member.joinedAt)}</span>
+        </div>
+      ))}
     </div>
   )
 }

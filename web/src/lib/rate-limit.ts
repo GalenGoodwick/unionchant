@@ -16,6 +16,7 @@ const DEFAULT_LIMITS: Record<string, { maxRequests: number; windowMs: number }> 
   comment: { maxRequests: 10, windowMs: 60_000 },
   upvote: { maxRequests: 30, windowMs: 60_000 },
   login: { maxRequests: 10, windowMs: 60_000 },
+  collective_chat: { maxRequests: 8, windowMs: 60_000 },
 }
 
 // Cache DB config to avoid querying on every request
@@ -105,4 +106,56 @@ if (typeof setInterval !== 'undefined') {
 export function invalidateRateLimitCache() {
   configCache = null
   configCacheTime = 0
+}
+
+// ── Chat CAPTCHA strike tracking ──
+// Tracks how many times a user has been rate-limited in chat.
+// Escalates CAPTCHA difficulty with each strike. Resets after 10 min idle.
+const STRIKE_RESET_MS = 10 * 60_000 // 10 minutes
+const MUTE_DURATION_MS = 5 * 60_000 // 5 minutes
+
+const chatStrikes = new Map<string, { count: number; lastStrike: number; mutedUntil: number }>()
+
+export function getChatStrike(userId: string): { strike: number; mutedUntil: number | null } {
+  const entry = chatStrikes.get(userId)
+  if (!entry) return { strike: 0, mutedUntil: null }
+
+  const now = Date.now()
+
+  // Check if muted
+  if (entry.mutedUntil > now) {
+    return { strike: entry.count, mutedUntil: entry.mutedUntil }
+  }
+
+  // Reset if idle long enough
+  if (now - entry.lastStrike > STRIKE_RESET_MS) {
+    chatStrikes.delete(userId)
+    return { strike: 0, mutedUntil: null }
+  }
+
+  return { strike: entry.count, mutedUntil: null }
+}
+
+export function incrementChatStrike(userId: string): { strike: number; mutedUntil: number | null } {
+  const now = Date.now()
+  const entry = chatStrikes.get(userId)
+
+  let count = 1
+  if (entry && now - entry.lastStrike < STRIKE_RESET_MS) {
+    count = entry.count + 1
+  }
+
+  const mutedUntil = count >= 4 ? now + MUTE_DURATION_MS : 0
+
+  chatStrikes.set(userId, { count, lastStrike: now, mutedUntil })
+
+  return { strike: count, mutedUntil: mutedUntil > 0 ? mutedUntil : null }
+}
+
+export function resetChatStrike(userId: string) {
+  chatStrikes.delete(userId)
+}
+
+export function resetRateWindow(endpoint: string, key: string) {
+  windows.delete(`${endpoint}:${key}`)
 }

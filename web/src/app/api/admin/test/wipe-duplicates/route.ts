@@ -2,19 +2,14 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { isAdmin } from '@/lib/admin'
 
 // POST /api/admin/test/wipe-duplicates - Delete duplicate deliberations (keep oldest)
 export async function POST() {
   try {
-    // Block test endpoints in production
-    if (process.env.NODE_ENV === 'production') {
-      return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
-    }
-
     const session = await getServerSession(authOptions)
 
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
+    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -34,7 +29,7 @@ export async function POST() {
 
     // Find duplicates (more than one with same question)
     const toDelete: string[] = []
-    for (const [question, delibs] of byQuestion) {
+    for (const [, delibs] of byQuestion) {
       if (delibs.length > 1) {
         // Keep the oldest (first), delete the rest
         for (let i = 1; i < delibs.length; i++) {
@@ -46,15 +41,34 @@ export async function POST() {
     let deleted = 0
     for (const id of toDelete) {
       // Delete in order due to foreign keys
+
+      // Idea revisions
+      const ideas = await prisma.idea.findMany({ where: { deliberationId: id }, select: { id: true } })
+      const ideaIds = ideas.map(i => i.id)
+      if (ideaIds.length > 0) {
+        await prisma.ideaRevisionVote.deleteMany({ where: { revision: { ideaId: { in: ideaIds } } } })
+        await prisma.ideaRevision.deleteMany({ where: { ideaId: { in: ideaIds } } })
+      }
+
+      // Votes, comments, upvotes on cells
       await prisma.vote.deleteMany({ where: { cell: { deliberationId: id } } })
       await prisma.commentUpvote.deleteMany({ where: { comment: { cell: { deliberationId: id } } } })
       await prisma.comment.deleteMany({ where: { cell: { deliberationId: id } } })
       await prisma.cellIdea.deleteMany({ where: { cell: { deliberationId: id } } })
       await prisma.cellParticipation.deleteMany({ where: { cell: { deliberationId: id } } })
       await prisma.cell.deleteMany({ where: { deliberationId: id } })
+
+      // Deliberation-level records
+      await prisma.deliberationUpvote.deleteMany({ where: { deliberationId: id } })
       await prisma.prediction.deleteMany({ where: { deliberationId: id } })
+      await prisma.notification.deleteMany({ where: { deliberationId: id } })
+      await prisma.watch.deleteMany({ where: { deliberationId: id } })
       await prisma.idea.deleteMany({ where: { deliberationId: id } })
       await prisma.deliberationMember.deleteMany({ where: { deliberationId: id } })
+
+      // Podium links
+      await prisma.podium.updateMany({ where: { deliberationId: id }, data: { deliberationId: null } })
+
       await prisma.deliberation.delete({ where: { id } })
       deleted++
     }

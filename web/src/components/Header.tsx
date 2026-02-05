@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react'
@@ -44,6 +45,8 @@ export default function Header() {
   const { needsOnboarding, openOnboarding } = useOnboardingContext()
   const { openGuide } = useGuideContext()
   const { chatOpen, toggleChat } = useCollectiveChat()
+  const pathname = usePathname()
+  const isTalkPage = pathname?.startsWith('/talks/')
   const [menuOpen, setMenuOpen] = useState(false)
   const [userXP, setUserXP] = useState<number | null>(null)
 
@@ -59,7 +62,7 @@ export default function Header() {
     { href: '/groups', label: 'Groups' },
     { href: '/talks', label: 'Talks' },
     { href: '/podiums', label: 'Podiums' },
-    { href: '/donate', label: 'Donate' },
+    { href: '/pricing', label: 'Support' },
   ]
 
   return (
@@ -294,8 +297,8 @@ export default function Header() {
           </nav>
         </div>
       )}
-      {/* Floating Collective button */}
-      {!chatOpen && (
+      {/* Floating Collective button — hidden on talk detail pages */}
+      {!chatOpen && !isTalkPage && (
         <button
           onClick={toggleChat}
           className="fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-gold text-header shadow-lg flex items-center justify-center"

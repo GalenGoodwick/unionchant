@@ -18,6 +18,7 @@ type Deliberation = {
   description: string | null
   organization: string | null
   phase: string
+  isPublic: boolean
   tags: string[]
   views: number
   upvoteCount: number
@@ -258,75 +259,95 @@ function DeliberationsList() {
         </div>
       )}
 
-      {/* Table - Desktop / Card list - Mobile */}
-      <div className="bg-background rounded-lg border border-border overflow-hidden">
-        {loading ? (
-          <div className="p-8 flex justify-center"><Spinner label="Loading talks" /></div>
-        ) : filteredDeliberations.length === 0 ? (
-          <div className="p-8 text-center text-muted">No talks found</div>
-        ) : (
-          <>
-            <div className="space-y-3 p-3">
-              {filteredDeliberations.map((d) => (
-                <div
-                  key={d.id}
-                  onClick={() => handleRowClick(d.id)}
-                  className="bg-surface border border-border rounded-lg p-4 hover:border-accent cursor-pointer transition-colors"
-                >
-                  <div className="flex justify-between items-start gap-2 mb-2">
-                    <Link href={`/talks/${d.id}`} className="text-foreground hover:text-accent font-medium text-sm flex-1">
-                      {d.question.length > 50 ? d.question.slice(0, 50) + '...' : d.question}
-                    </Link>
-                    <span className={`px-2 py-0.5 rounded text-sm font-medium shrink-0 ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
-                      {phaseLabel(d.phase)}
-                    </span>
-                  </div>
-                  {d.podiums?.[0] && (
-                    <div className="bg-accent/10 border border-accent/25 rounded-lg px-3 py-2 mb-2">
-                      <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-0.5">Linked Podium</div>
-                      <div className="text-sm text-foreground truncate">{d.podiums[0].title}</div>
-                    </div>
-                  )}
-                  {d.ideas[0] && (
-                    <p className="text-sm text-success mb-1 truncate">
-                      Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-3 text-sm text-muted flex-wrap">
-                    <button
-                      onClick={(e) => handleUpvote(e, d.id)}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md border transition-colors ${
-                        d.userHasUpvoted
-                          ? 'bg-accent/10 border-accent text-accent'
-                          : 'border-border hover:border-accent hover:text-accent'
-                      }`}
-                      title={d.userHasUpvoted ? 'Remove upvote' : 'Upvote this talk'}
-                    >
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={d.userHasUpvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                      </svg>
-                      <span className="font-mono text-xs">{d.upvoteCount || 0}</span>
-                    </button>
-                    <span>{getVotingTrigger(d)}</span>
-                    <span className="font-mono">{d._count.members} members</span>
-                    <span className="font-mono">{d._count.ideas} ideas</span>
-                    <span>{getDisplayName(d.creator)}</span>
-                  </div>
-                  {d.tags && d.tags.length > 0 && (
-                    <div className="flex gap-1 mt-2">
-                      {d.tags.slice(0, 3).map(tag => (
-                        <span key={tag} className="text-sm bg-background text-muted px-1.5 py-0.5 rounded border border-border">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+      {/* Talk list */}
+      {loading ? (
+        <div className="bg-background rounded-lg border border-border p-8 flex justify-center"><Spinner label="Loading talks" /></div>
+      ) : filteredDeliberations.length === 0 ? (
+        <div className="bg-background rounded-lg border border-border p-8 text-center text-muted">No talks found</div>
+      ) : (() => {
+        const privateTalks = filteredDeliberations.filter(d => !d.isPublic)
+        const publicTalks = filteredDeliberations.filter(d => d.isPublic)
+        const renderTalk = (d: Deliberation) => (
+          <div
+            key={d.id}
+            onClick={() => handleRowClick(d.id)}
+            className="bg-surface border border-border rounded-lg p-4 hover:border-accent cursor-pointer transition-colors"
+          >
+            <div className="flex justify-between items-start gap-2 mb-2">
+              <Link href={`/talks/${d.id}`} className="text-foreground hover:text-accent font-medium text-sm flex-1">
+                {d.question.length > 50 ? d.question.slice(0, 50) + '...' : d.question}
+              </Link>
+              <span className={`px-2 py-0.5 rounded text-sm font-medium shrink-0 ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
+                {phaseLabel(d.phase)}
+              </span>
             </div>
-          </>
-        )}
-      </div>
+            {d.podiums?.[0] && (
+              <div className="bg-accent/10 border border-accent/25 rounded-lg px-3 py-2 mb-2">
+                <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-0.5">Linked Podium</div>
+                <div className="text-sm text-foreground truncate">{d.podiums[0].title}</div>
+              </div>
+            )}
+            {d.ideas[0] && (
+              <p className="text-sm text-success mb-1 truncate">
+                Winner: {d.ideas[0].text.length > 50 ? d.ideas[0].text.slice(0, 50) + '...' : d.ideas[0].text}
+              </p>
+            )}
+            <div className="flex items-center gap-3 text-sm text-muted flex-wrap">
+              <button
+                onClick={(e) => handleUpvote(e, d.id)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-md border transition-colors ${
+                  d.userHasUpvoted
+                    ? 'bg-accent/10 border-accent text-accent'
+                    : 'border-border hover:border-accent hover:text-accent'
+                }`}
+                title={d.userHasUpvoted ? 'Remove upvote' : 'Upvote this talk'}
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={d.userHasUpvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+                <span className="font-mono text-xs">{d.upvoteCount || 0}</span>
+              </button>
+              <span>{getVotingTrigger(d)}</span>
+              <span className="font-mono">{d._count.members} members</span>
+              <span className="font-mono">{d._count.ideas} ideas</span>
+              <span>{getDisplayName(d.creator)}</span>
+            </div>
+            {d.tags && d.tags.length > 0 && (
+              <div className="flex gap-1 mt-2">
+                {d.tags.slice(0, 3).map(tag => (
+                  <span key={tag} className="text-sm bg-background text-muted px-1.5 py-0.5 rounded border border-border">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+        return (
+          <div className="space-y-6">
+            {privateTalks.length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Private Talks</h2>
+                <div className="bg-background rounded-lg border border-border overflow-hidden">
+                  <div className="space-y-3 p-3">
+                    {privateTalks.map(renderTalk)}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div>
+              {privateTalks.length > 0 && (
+                <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Public Talks</h2>
+              )}
+              <div className="bg-background rounded-lg border border-border overflow-hidden">
+                <div className="space-y-3 p-3">
+                  {publicTalks.map(renderTalk)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </>
   )
 }

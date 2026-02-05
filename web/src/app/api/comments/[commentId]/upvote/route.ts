@@ -32,16 +32,6 @@ export async function POST(
 
     const comment = await prisma.comment.findUnique({
       where: { id: commentId },
-      include: {
-        cell: {
-          include: {
-            participants: true,
-            deliberation: {
-              select: { currentTier: true },
-            },
-          },
-        },
-      },
     })
 
     if (!comment) {
@@ -60,20 +50,32 @@ export async function POST(
 
     if (existingUpvote) {
       // Remove upvote (toggle)
+      // Recalculate spreadCount: floor((upvoteCount - 1) / 2) for idea-linked comments
+      const newUpvotes = Math.max(0, comment.upvoteCount - 1)
+      const newSpread = comment.ideaId ? Math.floor(newUpvotes / 2) : 0
+
       await prisma.$transaction([
         prisma.commentUpvote.delete({
           where: { id: existingUpvote.id },
         }),
         prisma.comment.update({
           where: { id: commentId },
-          data: { upvoteCount: { decrement: 1 } },
+          data: {
+            upvoteCount: { decrement: 1 },
+            spreadCount: newSpread,
+          },
         }),
       ])
 
       return NextResponse.json({ upvoted: false })
     }
 
-    // Add upvote (increment both total and tier-specific counts)
+    // Add upvote — every 2 upvotes on an idea-linked comment spreads it to one more cell
+    const isIdeaLinked = !!comment.ideaId
+    const newUpvotes = comment.upvoteCount + 1
+    const newSpreadCount = isIdeaLinked ? Math.floor(newUpvotes / 2) : 0
+    const didSpread = isIdeaLinked && newSpreadCount > comment.spreadCount
+
     await prisma.$transaction([
       prisma.commentUpvote.create({
         data: {
@@ -85,53 +87,28 @@ export async function POST(
         where: { id: commentId },
         data: {
           upvoteCount: { increment: 1 },
-          tierUpvotes: { increment: 1 },
+          spreadCount: newSpreadCount,
         },
       }),
     ])
 
-    // Check if comment should up-pollinate (reach new tier)
-    // Uses tierUpvotes (fresh per-tier engagement) not lifetime upvoteCount
-    const currentTierUpvotes = comment.tierUpvotes + 1 // +1 for the new upvote
-    const currentTier = comment.reachTier
-
-    // Decreasing thresholds: comment already proved quality at lower tiers
-    const thresholds = [3, 2, 2, 1, 1, 1, 1, 1, 1]
-    const threshold = thresholds[currentTier - 1] || 1
-
-    // Allow comments to up-pollinate one tier beyond their cell's tier
-    // so they're ready when the next tier's cells load comments
-    const maxReachTier = comment.cell.deliberation.currentTier + 1
-
-    if (currentTierUpvotes >= threshold && currentTier < 9 && currentTier < maxReachTier) {
-      // Up-pollinate to next tier!
-      const newTier = Math.min(currentTier + 1, maxReachTier)
-      await prisma.comment.update({
-        where: { id: commentId },
+    // Notify comment author about spread (idea-linked only, on new spread)
+    if (didSpread && comment.userId !== user.id) {
+      await prisma.notification.create({
         data: {
-          reachTier: newTier,
-          tierUpvotes: 0, // Reset tier upvotes for the new level
+          userId: comment.userId,
+          type: 'COMMENT_UP_POLLINATE',
+          title: 'Your comment is spreading to another cell',
+          body: comment.text.substring(0, 100),
+          commentId,
+          cellId: comment.cellId,
         },
-      })
+      }).catch(err => console.error('Failed to create notification:', err))
 
-      // Create notification for comment author
-      if (comment.userId !== user.id) {
-        await prisma.notification.create({
-          data: {
-            userId: comment.userId,
-            type: 'COMMENT_UP_POLLINATE',
-            title: `Your comment reached Tier ${newTier}!`,
-            body: comment.text.substring(0, 100),
-            commentId,
-            cellId: comment.cellId,
-          },
-        }).catch(err => console.error('Failed to create notification:', err))
-      }
-
-      return NextResponse.json({ upvoted: true, upPollinated: true, newTier })
+      return NextResponse.json({ upvoted: true, upPollinated: true, spreadCount: newSpreadCount })
     }
 
-    // Create notification for comment author (if not self)
+    // Regular upvote notification
     if (comment.userId !== user.id) {
       await prisma.notification.create({
         data: {

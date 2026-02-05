@@ -73,41 +73,54 @@ export default function CommunitiesPage() {
         </div>
 
         {/* My Communities */}
-        {session && myCommunities.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-lg font-semibold text-foreground mb-3">My Groups</h2>
-            <div className="flex flex-col gap-3">
-              {myCommunities.map(c => (
-                <Link
-                  key={c.id}
-                  href={`/groups/${c.slug}`}
-                  className="bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-foreground font-medium truncate">{c.name}</h3>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {!c.isPublic && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-surface-hover text-muted border border-border">
-                          Private
-                        </span>
-                      )}
-                      <span className="text-xs px-2 py-0.5 rounded bg-accent/10 text-accent">
-                        {c.role}
-                      </span>
-                    </div>
+        {session && myCommunities.length > 0 && (() => {
+          const privateGroups = myCommunities.filter(c => !c.isPublic)
+          const publicGroups = myCommunities.filter(c => c.isPublic)
+          const renderGroup = (c: Community) => (
+            <Link
+              key={c.id}
+              href={`/groups/${c.slug}`}
+              className="bg-surface border border-border rounded-xl p-4 hover:border-accent transition-colors"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h3 className="text-foreground font-medium truncate">{c.name}</h3>
+                <span className="text-xs px-2 py-0.5 rounded bg-accent/10 text-accent shrink-0">
+                  {c.role}
+                </span>
+              </div>
+              {c.description && (
+                <p className="text-muted text-sm mt-1 line-clamp-2">{c.description}</p>
+              )}
+              <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+                <span>{c._count.members} members</span>
+                <span>{c._count.deliberations} talks</span>
+              </div>
+            </Link>
+          )
+          return (
+            <div className="mb-8 space-y-6">
+              <h2 className="text-lg font-semibold text-foreground">My Groups</h2>
+              {privateGroups.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Private Groups</h3>
+                  <div className="flex flex-col gap-3">
+                    {privateGroups.map(renderGroup)}
                   </div>
-                  {c.description && (
-                    <p className="text-muted text-sm mt-1 line-clamp-2">{c.description}</p>
+                </div>
+              )}
+              {publicGroups.length > 0 && (
+                <div>
+                  {privateGroups.length > 0 && (
+                    <h3 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Public Groups</h3>
                   )}
-                  <div className="flex items-center gap-3 mt-2 text-xs text-muted">
-                    <span>{c._count.members} members</span>
-                    <span>{c._count.deliberations} talks</span>
+                  <div className="flex flex-col gap-3">
+                    {publicGroups.map(renderGroup)}
                   </div>
-                </Link>
-              ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Search */}
         <div className="mb-6">

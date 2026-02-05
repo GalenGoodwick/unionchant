@@ -70,14 +70,37 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { name, slug, description, isPublic = true, captchaToken } = body
 
-    // Non-admins can only create 1 community
+    // Private group limits by subscription tier
     const admin = await isAdmin(session.user.email)
-    if (!admin) {
-      const existingCount = await prisma.community.count({
-        where: { creatorId: user.id },
-      })
-      if (existingCount >= 1) {
-        return NextResponse.json({ error: 'You can only create one community. Contact an admin for more.' }, { status: 400 })
+    if (!isPublic && !admin) {
+      const tier = user.subscriptionTier || 'free'
+      const privateGroupLimits: Record<string, number> = {
+        free: 0,
+        pro: 1,
+        business: 2,
+      }
+      // 'scale' and unknown tiers get unlimited (no entry = no limit)
+      if (tier in privateGroupLimits) {
+        const maxPrivate = privateGroupLimits[tier]
+        if (maxPrivate === 0) {
+          return NextResponse.json({
+            error: 'PRO_REQUIRED',
+            message: 'Upgrade to Pro to create private groups',
+          }, { status: 403 })
+        }
+        const existingPrivate = await prisma.community.count({
+          where: { creatorId: user.id, isPublic: false },
+        })
+        if (existingPrivate >= maxPrivate) {
+          const tierName = tier === 'pro' ? 'Pro' : 'Org'
+          const nextTier = tier === 'pro' ? 'Org' : 'Scale'
+          return NextResponse.json({
+            error: 'PRIVATE_GROUP_LIMIT',
+            message: `You\u2019ve reached your ${tierName} limit of ${maxPrivate} private group${maxPrivate > 1 ? 's' : ''}. Upgrade to ${nextTier} for more.`,
+            current: existingPrivate,
+            max: maxPrivate,
+          }, { status: 403 })
+        }
       }
     }
 
