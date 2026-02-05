@@ -110,11 +110,22 @@ function PricingContent() {
     }
   }, [session, searchParams])
 
+  const priceIds: Record<string, string | undefined> = {
+    pro: process.env.NEXT_PUBLIC_STRIPE_PRICE_PRO,
+    business: process.env.NEXT_PUBLIC_STRIPE_PRICE_BUSINESS,
+    scale: process.env.NEXT_PUBLIC_STRIPE_PRICE_SCALE,
+  }
+
   const handleCheckout = async (priceEnv: string) => {
     if (!session) return
     setLoading(priceEnv)
     try {
-      const priceId = process.env[`NEXT_PUBLIC_STRIPE_PRICE_${priceEnv.toUpperCase()}`]
+      const priceId = priceIds[priceEnv]
+      if (!priceId) {
+        alert('This plan is not available yet. Please contact support.')
+        setLoading(null)
+        return
+      }
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
