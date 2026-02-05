@@ -110,17 +110,43 @@ function PricingContent() {
     }
   }, [session, searchParams])
 
-  const handleCheckout = async (_priceEnv: string) => {
-    setComingSoon(true)
-    setTimeout(() => setComingSoon(false), 3000)
+  const handleCheckout = async (priceEnv: string) => {
+    if (!session) return
+    setLoading(priceEnv)
+    try {
+      const priceId = process.env[`NEXT_PUBLIC_STRIPE_PRICE_${priceEnv.toUpperCase()}`]
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ priceId }),
+      })
+      const data = await res.json()
+      if (data.error === 'ALREADY_SUBSCRIBED') {
+        alert('You already have a subscription. Use the billing portal to change plans.')
+        return
+      }
+      if (!res.ok) throw new Error(data.error || 'Checkout failed')
+      if (data.url) window.location.href = data.url
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(null)
+    }
   }
 
   const handlePortal = async () => {
-    setComingSoon(true)
-    setTimeout(() => setComingSoon(false), 3000)
+    setLoading('portal')
+    try {
+      const res = await fetch('/api/stripe/portal', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Portal failed')
+      if (data.url) window.location.href = data.url
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(null)
+    }
   }
-
-  const [comingSoon, setComingSoon] = useState(false)
 
   const tierIndex = ['free', 'pro', 'business', 'scale'].indexOf(userTier)
 
@@ -143,12 +169,6 @@ function PricingContent() {
         {successMsg && (
           <div className="max-w-md mx-auto mb-8 bg-success-bg border border-success text-success rounded-lg p-4 text-center text-sm font-medium">
             {successMsg}
-          </div>
-        )}
-
-        {comingSoon && (
-          <div className="max-w-md mx-auto mb-8 bg-gold-bg border border-gold-border text-gold rounded-lg p-4 text-center text-sm font-medium">
-            Paid plans are coming soon. Stay tuned!
           </div>
         )}
 
