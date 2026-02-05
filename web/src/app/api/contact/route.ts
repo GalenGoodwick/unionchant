@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
 
     const supportEmail = 'galen.goodwick@gmail.com'
 
-    await sendEmail({
+    const sent = await sendEmail({
       to: supportEmail,
       subject: `Contact Form: ${subject}`,
       html: `
@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
         </div>
       `,
     })
+
+    if (!sent) {
+      return NextResponse.json({ error: 'Failed to send email. Please try again or email us directly.' }, { status: 500 })
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {
