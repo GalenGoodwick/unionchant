@@ -38,7 +38,6 @@ export async function POST(req: NextRequest) {
           </p>
         </div>
       `,
-      replyTo: email,
     })
 
     return NextResponse.json({ success: true })

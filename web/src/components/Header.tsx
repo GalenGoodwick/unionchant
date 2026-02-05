@@ -63,7 +63,7 @@ export default function Header() {
     { href: '/talks', label: 'Talks' },
     { href: '/podiums', label: 'Podiums' },
     { href: '/contact', label: 'Contact' },
-    { href: '/pricing', label: 'Pricing' },
+    { href: '/pricing', label: 'Sustain Us' },
   ]
 
   return (
