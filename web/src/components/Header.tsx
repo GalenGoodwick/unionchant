@@ -62,7 +62,7 @@ export default function Header() {
     { href: '/groups', label: 'Groups' },
     { href: '/talks', label: 'Talks' },
     { href: '/podiums', label: 'Podiums' },
-    { href: '/pricing', label: 'Support' },
+    { href: '/pricing', label: 'Pricing' },
   ]
 
   return (
@@ -86,15 +86,17 @@ export default function Header() {
               + Create
             </Link>
           )}
-          {navLinks.map(link => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className="hover:text-accent transition-colors"
-            >
-              {link.label}
-            </Link>
-          ))}
+          {navLinks
+            .filter(link => link.href !== '/pricing' || session)
+            .map(link => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="hover:text-accent transition-colors"
+              >
+                {link.label}
+              </Link>
+            ))}
           {isAdmin && (
             <Link href="/admin" className="text-orange hover:text-orange-hover transition-colors">
               Admin
@@ -193,16 +195,18 @@ export default function Header() {
       {menuOpen && (
         <div className="md:hidden absolute top-full left-0 right-0 bg-header border-t border-header-hover z-50">
           <nav className="flex flex-col p-4 space-y-3 text-sm">
-            {navLinks.map(link => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
-              >
-                {link.label}
-              </Link>
-            ))}
+            {navLinks
+              .filter(link => link.href !== '/pricing' || session)
+              .map(link => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
+                >
+                  {link.label}
+                </Link>
+              ))}
             {session && (
               <Link
                 href="/talks/new"
