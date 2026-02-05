@@ -98,53 +98,33 @@ function generateHomepageOG(): string {
       <stop offset="0%" stop-color="#0f172a"/>
       <stop offset="100%" stop-color="#1e293b"/>
     </linearGradient>
-    <radialGradient id="goldGlow" cx="50%" cy="50%">
-      <stop offset="0%" stop-color="#e8b84b" stop-opacity="0.3"/>
-      <stop offset="100%" stop-color="#e8b84b" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 
   <!-- Dark background -->
   <rect width="1200" height="630" fill="url(#darkBg)"/>
 
-  <!-- Constellation pattern (left side) -->
-  <!-- Gold dot -->
-  <circle cx="180" cy="315" r="18" fill="#e8b84b" opacity="0.9"/>
-  <circle cx="180" cy="315" r="35" fill="url(#goldGlow)"/>
+  <!-- Centered content -->
+  <g>
+    <!-- Brand name - centered and properly spaced -->
+    <text x="600" y="250" text-anchor="middle" font-size="80" font-weight="700" font-family="Georgia, serif" letter-spacing="2">
+      <tspan fill="#e8b84b">Unity</tspan><tspan fill="#ffffff"> </tspan><tspan fill="#3b82f6">Chant</tspan>
+    </text>
 
-  <!-- Blue dots -->
-  <circle cx="320" cy="240" r="13" fill="#3b82f6" opacity="0.8"/>
-  <circle cx="340" cy="315" r="13" fill="#3b82f6" opacity="0.8"/>
-  <circle cx="320" cy="390" r="13" fill="#3b82f6" opacity="0.8"/>
+    <!-- Tagline -->
+    <text x="600" y="300" text-anchor="middle" font-size="24" fill="#94a3b8" font-family="Georgia, serif" font-style="italic" letter-spacing="2">Holding Quiet Hope</text>
 
-  <!-- Pink dots -->
-  <circle cx="440" cy="200" r="9" fill="#ec4899" opacity="0.7"/>
-  <circle cx="450" cy="240" r="9" fill="#ec4899" opacity="0.7"/>
-  <circle cx="460" cy="280" r="9" fill="#ec4899" opacity="0.7"/>
-  <circle cx="460" cy="350" r="9" fill="#ec4899" opacity="0.7"/>
-  <circle cx="450" cy="390" r="9" fill="#ec4899" opacity="0.7"/>
-  <circle cx="440" cy="430" r="9" fill="#ec4899" opacity="0.7"/>
+    <!-- Divider line -->
+    <line x1="350" y1="340" x2="850" y2="340" stroke="#e8b84b" stroke-width="2" opacity="0.3"/>
 
-  <!-- Connection lines -->
-  <line x1="180" y1="315" x2="320" y2="240" stroke="#e8b84b" stroke-width="2" opacity="0.3"/>
-  <line x1="180" y1="315" x2="340" y2="315" stroke="#e8b84b" stroke-width="2" opacity="0.3"/>
-  <line x1="180" y1="315" x2="320" y2="390" stroke="#e8b84b" stroke-width="2" opacity="0.3"/>
+    <!-- Hero message -->
+    <text x="600" y="405" text-anchor="middle" font-size="32" font-weight="600" fill="#ffffff" font-family="system-ui, sans-serif">Direct democracy through</text>
+    <text x="600" y="450" text-anchor="middle" font-size="32" font-weight="600" fill="#ffffff" font-family="system-ui, sans-serif">small-group deliberation</text>
 
-  <!-- Right side text -->
-  <!-- Brand name -->
-  <text x="650" y="260" font-size="64" font-weight="700" font-family="Georgia, serif">
-    <tspan fill="#e8b84b">Unity</tspan>
-    <tspan fill="#3b82f6" dx="20">Chant</tspan>
-  </text>
+    <!-- Subtext -->
+    <text x="600" y="520" text-anchor="middle" font-size="22" fill="#64748b" font-family="system-ui, sans-serif">Durable consensus at scale</text>
 
-  <!-- Tagline -->
-  <text x="650" y="305" font-size="20" fill="#94a3b8" font-family="Georgia, serif" font-style="italic" letter-spacing="1">Holding Quiet Hope</text>
-
-  <!-- Hero message -->
-  <text x="650" y="370" font-size="28" font-weight="600" fill="#ffffff" font-family="system-ui, sans-serif">Direct democracy through</text>
-  <text x="650" y="405" font-size="28" font-weight="600" fill="#ffffff" font-family="system-ui, sans-serif">small-group deliberation</text>
-
-  <!-- Bottom text -->
-  <text x="600" y="580" text-anchor="middle" font-size="16" fill="#64748b" font-family="system-ui, sans-serif">Durable consensus at scale · unitychant.com</text>
+    <!-- Bottom -->
+    <text x="600" y="580" text-anchor="middle" font-size="18" fill="#475569" font-family="system-ui, sans-serif">unitychant.com</text>
+  </g>
 </svg>`
 }
