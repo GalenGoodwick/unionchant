@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { sendEmail } from '@/lib/email'
+import { Resend } from 'resend'
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,9 +9,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'All fields required' }, { status: 400 })
     }
 
+    const apiKey = process.env.RESEND_API_KEY
+    if (!apiKey) {
+      console.error('[contact] RESEND_API_KEY not set')
+      return NextResponse.json({ error: 'Email service not configured' }, { status: 500 })
+    }
+
+    const resend = new Resend(apiKey)
+    const fromAddress = process.env.EMAIL_FROM || 'Unity Chant <noreply@unitychant.com>'
     const supportEmail = 'galen.goodwick@gmail.com'
 
-    const sent = await sendEmail({
+    const { data, error } = await resend.emails.send({
+      from: fromAddress,
       to: supportEmail,
       subject: `Contact Form: ${subject}`,
       html: `
@@ -38,11 +47,12 @@ export async function POST(req: NextRequest) {
       `,
     })
 
-    if (!sent) {
-      return NextResponse.json({ error: 'Failed to send email. Please try again or email us directly.' }, { status: 500 })
+    if (error) {
+      console.error('[contact] Resend error:', JSON.stringify(error))
+      return NextResponse.json({ error: `Email failed: ${error.message}` }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true })
+    return NextResponse.json({ success: true, emailId: data?.id })
   } catch (error) {
     console.error('Contact form error:', error)
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })

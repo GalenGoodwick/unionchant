@@ -26,15 +26,20 @@ export async function sendEmail(params: {
   }
 
   try {
-    await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
       to: params.to,
       subject: params.subject,
       html: params.html,
     })
+    if (error) {
+      console.error('[email] Resend error sending to', params.to, 'from:', EMAIL_FROM, 'error:', JSON.stringify(error))
+      return false
+    }
+    console.log('[email] Sent to', params.to, 'id:', data?.id)
     return true
-  } catch (error) {
-    console.error('[email] Failed to send to', params.to, error)
+  } catch (error: any) {
+    console.error('[email] Exception sending to', params.to, 'from:', EMAIL_FROM, 'error:', error?.message || error)
     return false
   }
 }
