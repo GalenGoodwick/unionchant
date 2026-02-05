@@ -43,11 +43,13 @@ export const metadata: Metadata = {
     siteName: 'Unity Chant',
     title: 'Unity Chant - Holding Quiet Hope',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
+    images: ['/api/og?title=Unity Chant'],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Unity Chant - Holding Quiet Hope',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
+    images: ['/api/og?title=Unity Chant'],
   },
   robots: {
     index: true,
