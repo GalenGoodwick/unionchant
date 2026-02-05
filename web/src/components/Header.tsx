@@ -58,7 +58,7 @@ export default function Header() {
   }, [session?.user?.email])
 
   const navLinks = [
-    { href: '/feed', label: 'Feed', authRequired: true },
+    { href: '/feed', label: 'Feed' },
     { href: '/groups', label: 'Groups' },
     { href: '/talks', label: 'Talks' },
     { href: '/podiums', label: 'Podiums' },
