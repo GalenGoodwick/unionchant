@@ -103,28 +103,47 @@ function generateHomepageOG(): string {
   <!-- Dark background -->
   <rect width="1200" height="630" fill="url(#darkBg)"/>
 
-  <!-- Centered content -->
+  <!-- Brand name -->
+  <text x="600" y="120" text-anchor="middle" font-size="56" font-weight="700" font-family="Georgia, serif" letter-spacing="2">
+    <tspan fill="#e8b84b">Unity</tspan><tspan fill="#ffffff"> </tspan><tspan fill="#3b82f6">Chant</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="600" y="155" text-anchor="middle" font-size="18" fill="#64748b" font-family="system-ui, sans-serif" letter-spacing="1">Scalable Direct Democracy</text>
+
+  <!-- Process flow cards -->
   <g>
-    <!-- Brand name - centered and properly spaced -->
-    <text x="600" y="250" text-anchor="middle" font-size="80" font-weight="700" font-family="Georgia, serif" letter-spacing="2">
-      <tspan fill="#e8b84b">Unity</tspan><tspan fill="#ffffff"> </tspan><tspan fill="#3b82f6">Chant</tspan>
-    </text>
+    <!-- Fracture card -->
+    <rect x="150" y="230" width="250" height="250" rx="12" fill="#1a1a1e" stroke="#e8b84b" stroke-width="2"/>
+    <text x="275" y="290" text-anchor="middle" font-size="32" font-weight="700" fill="#e8b84b" font-family="system-ui, sans-serif">Fracture</text>
+    <text x="275" y="340" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Division</text>
+    <text x="275" y="370" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Polarization</text>
+    <text x="275" y="400" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Stalemate</text>
 
-    <!-- Tagline -->
-    <text x="600" y="300" text-anchor="middle" font-size="24" fill="#94a3b8" font-family="Georgia, serif" font-style="italic" letter-spacing="2">Scalable Direct Democracy</text>
+    <!-- Arrow 1 -->
+    <path d="M 405 355 L 460 355" stroke="#0891b2" stroke-width="3" fill="none"/>
+    <path d="M 455 350 L 465 355 L 455 360" stroke="#0891b2" stroke-width="3" fill="none"/>
 
-    <!-- Divider line -->
-    <line x1="350" y1="340" x2="850" y2="340" stroke="#e8b84b" stroke-width="2" opacity="0.3"/>
+    <!-- Deliberation card -->
+    <rect x="475" y="230" width="250" height="250" rx="12" fill="#1a1a1e" stroke="#0891b2" stroke-width="2"/>
+    <text x="600" y="290" text-anchor="middle" font-size="32" font-weight="700" fill="#0891b2" font-family="system-ui, sans-serif">Deliberation</text>
+    <text x="600" y="340" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Small groups</text>
+    <text x="600" y="370" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Real conversation</text>
+    <text x="600" y="400" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Shared understanding</text>
 
-    <!-- Hero message -->
-    <text x="600" y="405" text-anchor="middle" font-size="32" font-weight="600" fill="#ffffff" font-family="system-ui, sans-serif">Direct democracy through</text>
-    <text x="600" y="450" text-anchor="middle" font-size="32" font-weight="600" fill="#ffffff" font-family="system-ui, sans-serif">small-group deliberation</text>
+    <!-- Arrow 2 -->
+    <path d="M 730 355 L 785 355" stroke="#3b82f6" stroke-width="3" fill="none"/>
+    <path d="M 780 350 L 790 355 L 780 360" stroke="#3b82f6" stroke-width="3" fill="none"/>
 
-    <!-- Subtext -->
-    <text x="600" y="520" text-anchor="middle" font-size="22" fill="#64748b" font-family="system-ui, sans-serif">Durable consensus at scale</text>
-
-    <!-- Bottom -->
-    <text x="600" y="580" text-anchor="middle" font-size="18" fill="#475569" font-family="system-ui, sans-serif">unitychant.com</text>
+    <!-- Convergence card -->
+    <rect x="800" y="230" width="250" height="250" rx="12" fill="#1a1a1e" stroke="#3b82f6" stroke-width="2"/>
+    <text x="925" y="290" text-anchor="middle" font-size="32" font-weight="700" fill="#3b82f6" font-family="system-ui, sans-serif">Convergence</text>
+    <text x="925" y="340" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Consensus</text>
+    <text x="925" y="370" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Legitimacy</text>
+    <text x="925" y="400" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Durable agreement</text>
   </g>
+
+  <!-- Bottom -->
+  <text x="600" y="575" text-anchor="middle" font-size="18" fill="#475569" font-family="system-ui, sans-serif">unitychant.com</text>
 </svg>`
 }
