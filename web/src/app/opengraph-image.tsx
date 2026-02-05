@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og'
 
 export const runtime = 'edge'
 
-export const alt = 'Unity Chant - Scalable Direct Democracy'
+export const alt = 'Unity Chant - Consensus at Scale'
 export const size = {
   width: 1200,
   height: 630,
@@ -223,7 +223,7 @@ export default async function Image() {
               letterSpacing: '0.04em',
             }}
           >
-            Scalable Direct Democracy
+            Consensus at Scale
           </div>
         </div>
       </div>

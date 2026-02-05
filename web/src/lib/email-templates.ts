@@ -24,7 +24,7 @@ const layout = (content: string) => `
     <!-- Footer -->
     <div style="text-align:center;padding:24px 0 8px;">
       <p style="color:#71717a;font-size:12px;margin:0 0 8px;">
-        Scalable Direct Democracy
+        Consensus at Scale
       </p>
       <a href="${baseUrl}/settings" style="color:#0891b2;font-size:12px;text-decoration:none;">
         Manage email preferences

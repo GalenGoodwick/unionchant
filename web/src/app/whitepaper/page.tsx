@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Whitepaper',
-  description: 'The Unity Chant whitepaper: A vision for scalable direct democracy through tiered small-group deliberation.',
+  description: 'The Unity Chant whitepaper: A vision for consensus at scale through tiered small-group deliberation.',
 }
 
 export default function WhitepaperPage() {

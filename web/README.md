@@ -4,7 +4,7 @@ Collective decision-making for the modern age. Small group deliberation at any s
 
 ## Overview
 
-Unity Chant is a scalable direct democracy platform that enables large groups to deliberate meaningfully through small group discussions. Instead of simple voting, participants engage in structured conversations where ideas compete through multiple rounds of evaluation.
+Unity Chant is a consensus at scale platform that enables large groups to deliberate meaningfully through small group discussions. Instead of simple voting, participants engage in structured conversations where ideas compete through multiple rounds of evaluation.
 
 ### How It Works
 

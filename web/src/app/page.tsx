@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 import LandingCTA from '@/components/LandingCTA'
 
 export const metadata: Metadata = {
-  title: 'Unity Chant - Scalable Direct Democracy',
+  title: 'Unity Chant - Consensus at Scale',
   description: 'One place where humanity decides together. Submit ideas, deliberate in small groups, reach consensus at any scale.',
 }
 

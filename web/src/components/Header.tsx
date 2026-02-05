@@ -72,7 +72,7 @@ export default function Header() {
           <Image src="/logo.svg" alt="" width={32} height={32} />
           <div className="flex flex-col leading-none">
             <span className="text-xl font-semibold font-serif">Unity Chant</span>
-            <span className="text-[10px] text-white/50 tracking-wider uppercase">scalable direct democracy</span>
+            <span className="text-[10px] text-white/50 tracking-wider uppercase">consensus at scale</span>
           </div>
         </Link>
 
@@ -87,15 +87,13 @@ export default function Header() {
             </Link>
           )}
           {navLinks.map(link => (
-            (!link.authRequired || session) && (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="hover:text-accent transition-colors"
-              >
-                {link.label}
-              </Link>
-            )
+            <Link
+              key={link.href}
+              href={link.href}
+              className="hover:text-accent transition-colors"
+            >
+              {link.label}
+            </Link>
           ))}
           {isAdmin && (
             <Link href="/admin" className="text-orange hover:text-orange-hover transition-colors">
@@ -196,16 +194,14 @@ export default function Header() {
         <div className="md:hidden absolute top-full left-0 right-0 bg-header border-t border-header-hover z-50">
           <nav className="flex flex-col p-4 space-y-3 text-sm">
             {navLinks.map(link => (
-              (!link.authRequired || session) && (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setMenuOpen(false)}
-                  className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
-                >
-                  {link.label}
-                </Link>
-              )
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={() => setMenuOpen(false)}
+                className="py-2 px-4 rounded-lg hover:bg-header-hover transition-colors"
+              >
+                {link.label}
+              </Link>
             ))}
             {session && (
               <Link

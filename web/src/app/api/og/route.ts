@@ -76,7 +76,7 @@ export async function GET(req: NextRequest) {
 
   <!-- Bottom bar -->
   <rect x="40" y="540" width="1120" height="50" rx="0" fill="#0891b2" opacity="0.1"/>
-  <text x="600" y="573" text-anchor="middle" font-size="16" fill="#0891b2" font-family="system-ui, sans-serif">Scalable Direct Democracy · unitychant.com</text>
+  <text x="600" y="573" text-anchor="middle" font-size="16" fill="#0891b2" font-family="system-ui, sans-serif">Consensus at Scale · unitychant.com</text>
 </svg>`
 
   return new NextResponse(svg, {
@@ -104,43 +104,34 @@ function generateHomepageOG(): string {
   <rect width="1200" height="630" fill="url(#darkBg)"/>
 
   <!-- Brand name -->
-  <text x="600" y="120" text-anchor="middle" font-size="56" font-weight="700" font-family="Georgia, serif" letter-spacing="2">
+  <text x="600" y="140" text-anchor="middle" font-size="64" font-weight="700" font-family="Georgia, serif" letter-spacing="2">
     <tspan fill="#e8b84b">Unity</tspan><tspan fill="#ffffff"> </tspan><tspan fill="#3b82f6">Chant</tspan>
   </text>
 
   <!-- Tagline -->
-  <text x="600" y="155" text-anchor="middle" font-size="18" fill="#64748b" font-family="system-ui, sans-serif" letter-spacing="1">Scalable Direct Democracy</text>
+  <text x="600" y="190" text-anchor="middle" font-size="22" fill="#94a3b8" font-family="system-ui, sans-serif" letter-spacing="1">Consensus at Scale</text>
 
   <!-- Process flow cards -->
   <g>
     <!-- Fracture card -->
-    <rect x="150" y="230" width="250" height="250" rx="12" fill="#1a1a1e" stroke="#e8b84b" stroke-width="2"/>
-    <text x="275" y="290" text-anchor="middle" font-size="32" font-weight="700" fill="#e8b84b" font-family="system-ui, sans-serif">Fracture</text>
-    <text x="275" y="340" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Division</text>
-    <text x="275" y="370" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Polarization</text>
-    <text x="275" y="400" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Stalemate</text>
+    <rect x="150" y="270" width="250" height="180" rx="12" fill="#1a1a1e" stroke="#e8b84b" stroke-width="2"/>
+    <text x="275" y="375" text-anchor="middle" font-size="42" font-weight="700" fill="#e8b84b" font-family="system-ui, sans-serif">Fracture</text>
 
     <!-- Arrow 1 -->
-    <path d="M 405 355 L 460 355" stroke="#0891b2" stroke-width="3" fill="none"/>
-    <path d="M 455 350 L 465 355 L 455 360" stroke="#0891b2" stroke-width="3" fill="none"/>
+    <path d="M 405 360 L 460 360" stroke="#0891b2" stroke-width="3" fill="none"/>
+    <path d="M 455 355 L 465 360 L 455 365" stroke="#0891b2" stroke-width="3" fill="none"/>
 
     <!-- Deliberation card -->
-    <rect x="475" y="230" width="250" height="250" rx="12" fill="#1a1a1e" stroke="#0891b2" stroke-width="2"/>
-    <text x="600" y="290" text-anchor="middle" font-size="32" font-weight="700" fill="#0891b2" font-family="system-ui, sans-serif">Deliberation</text>
-    <text x="600" y="340" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Small groups</text>
-    <text x="600" y="370" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Real conversation</text>
-    <text x="600" y="400" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Shared understanding</text>
+    <rect x="475" y="270" width="250" height="180" rx="12" fill="#1a1a1e" stroke="#0891b2" stroke-width="2"/>
+    <text x="600" y="375" text-anchor="middle" font-size="42" font-weight="700" fill="#0891b2" font-family="system-ui, sans-serif">Deliberation</text>
 
     <!-- Arrow 2 -->
-    <path d="M 730 355 L 785 355" stroke="#3b82f6" stroke-width="3" fill="none"/>
-    <path d="M 780 350 L 790 355 L 780 360" stroke="#3b82f6" stroke-width="3" fill="none"/>
+    <path d="M 730 360 L 785 360" stroke="#3b82f6" stroke-width="3" fill="none"/>
+    <path d="M 780 355 L 790 360 L 780 365" stroke="#3b82f6" stroke-width="3" fill="none"/>
 
     <!-- Convergence card -->
-    <rect x="800" y="230" width="250" height="250" rx="12" fill="#1a1a1e" stroke="#3b82f6" stroke-width="2"/>
-    <text x="925" y="290" text-anchor="middle" font-size="32" font-weight="700" fill="#3b82f6" font-family="system-ui, sans-serif">Convergence</text>
-    <text x="925" y="340" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Consensus</text>
-    <text x="925" y="370" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Legitimacy</text>
-    <text x="925" y="400" text-anchor="middle" font-size="16" fill="#94a3b8" font-family="system-ui, sans-serif">Durable agreement</text>
+    <rect x="800" y="270" width="250" height="180" rx="12" fill="#1a1a1e" stroke="#3b82f6" stroke-width="2"/>
+    <text x="925" y="375" text-anchor="middle" font-size="42" font-weight="700" fill="#3b82f6" font-family="system-ui, sans-serif">Convergence</text>
   </g>
 
   <!-- Bottom -->

@@ -27,7 +27,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Unity Chant - Scalable Direct Democracy',
+    default: 'Unity Chant - Consensus at Scale',
     template: '%s | Unity Chant',
   },
   description: 'Holding quiet hope. Small group deliberation at any scale.',
@@ -41,13 +41,13 @@ export const metadata: Metadata = {
     locale: 'en_US',
     url: '/',
     siteName: 'Unity Chant',
-    title: 'Unity Chant - Scalable Direct Democracy',
+    title: 'Unity Chant - Consensus at Scale',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
     images: ['/api/og?v=2'],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Unity Chant - Scalable Direct Democracy',
+    title: 'Unity Chant - Consensus at Scale',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
     images: ['/api/og?v=2'],
   },
