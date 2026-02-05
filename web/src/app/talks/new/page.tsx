@@ -376,17 +376,23 @@ function NewDeliberationForm() {
             {/* Advanced Settings (collapsible) */}
             {showAdvanced && (
               <div className="space-y-5 border border-border rounded-lg p-4 bg-surface">
+                <p className="text-sm text-muted mb-4">Most talks work great with the defaults. Only customize if you need specific timing or behavior.</p>
+
                 {/* When to Start Voting */}
                 <div>
-                  <label className="block text-foreground font-medium text-sm mb-2">When to start voting</label>
+                  <label className="block text-foreground font-medium text-sm mb-1">
+                    When to start voting
+                    <span className="ml-2 text-xs text-muted font-normal">(Recommended: When I trigger it)</span>
+                  </label>
+                  <p className="text-xs text-muted mb-2">Choose when the voting phase begins after idea submission</p>
                   <select
                     value={formData.startMode}
                     onChange={(e) => setFormData({ ...formData, startMode: e.target.value as 'timer' | 'ideas' | 'manual' })}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
                   >
-                    <option value="manual">When I trigger it</option>
+                    <option value="manual">When I trigger it (recommended)</option>
                     <option value="timer">After a set time</option>
-                    <option value="ideas">After enough ideas</option>
+                    <option value="ideas">After enough ideas submitted</option>
                   </select>
                   {formData.startMode === 'timer' && (
                     <div className="mt-2 flex items-center gap-2">
@@ -418,14 +424,18 @@ function NewDeliberationForm() {
 
                 {/* Discussion Mode */}
                 <div>
-                  <label className="block text-foreground font-medium text-sm mb-2">Discussion before voting</label>
+                  <label className="block text-foreground font-medium text-sm mb-1">
+                    Discussion before voting
+                    <span className="ml-2 text-xs text-muted font-normal">(Recommended: I open voting when ready)</span>
+                  </label>
+                  <p className="text-xs text-muted mb-2">Give participants time to read and discuss ideas before voting begins</p>
                   <select
                     value={formData.discussionMode}
                     onChange={(e) => setFormData({ ...formData, discussionMode: e.target.value as 'timer' | 'none' | 'manual' })}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
                   >
-                    <option value="manual">I open voting when ready</option>
-                    <option value="timer">Timed discussion</option>
+                    <option value="manual">I open voting when ready (recommended)</option>
+                    <option value="timer">Automatic after set time</option>
                     <option value="none">No discussion — vote immediately</option>
                   </select>
                   {formData.discussionMode === 'timer' && (
@@ -445,14 +455,18 @@ function NewDeliberationForm() {
 
                 {/* Tier Advancement */}
                 <div>
-                  <label className="block text-foreground font-medium text-sm mb-2">Vote timer per round</label>
+                  <label className="block text-foreground font-medium text-sm mb-1">
+                    Voting rounds
+                    <span className="ml-2 text-xs text-muted font-normal">(Recommended: No time limit)</span>
+                  </label>
+                  <p className="text-xs text-muted mb-2">Set a deadline for each round, or let people vote at their own pace</p>
                   <select
                     value={formData.tierAdvanceMode}
                     onChange={(e) => setFormData({ ...formData, tierAdvanceMode: e.target.value as 'timer' | 'natural' })}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
                   >
-                    <option value="natural">No timer — ends when all vote or I force it</option>
-                    <option value="timer">Time limit per round</option>
+                    <option value="natural">No time limit (recommended)</option>
+                    <option value="timer">Set a deadline per round</option>
                   </select>
                   {formData.tierAdvanceMode === 'timer' && (
                     <div className="mt-2 flex items-center gap-2">
@@ -471,14 +485,18 @@ function NewDeliberationForm() {
 
                 {/* Winner Mode */}
                 <div>
-                  <label className="block text-foreground font-medium text-sm mb-2">When a winner is chosen</label>
+                  <label className="block text-foreground font-medium text-sm mb-1">
+                    After consensus is reached
+                    <span className="ml-2 text-xs text-muted font-normal">(Recommended: Talk ends)</span>
+                  </label>
+                  <p className="text-xs text-muted mb-2">Decide what happens when a priority idea is chosen</p>
                   <select
                     value={formData.winnerMode}
                     onChange={(e) => setFormData({ ...formData, winnerMode: e.target.value as 'ends' | 'rolling' })}
                     className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground text-sm focus:outline-none focus:border-accent"
                   >
-                    <option value="ends">Talk ends</option>
-                    <option value="rolling">Rolling mode — challengers can compete against the winner</option>
+                    <option value="ends">Talk ends (recommended)</option>
+                    <option value="rolling">Keep open — allow new ideas to challenge the winner</option>
                   </select>
                   {formData.winnerMode === 'rolling' && (
                     <div className="mt-2">

@@ -267,7 +267,15 @@ function ActivityTab({ pulse, activity }: { pulse?: PulseStats; activity: Activi
           <ActivityTimelineItem key={item.id} item={item} />
         ))
       ) : (
-        <div className="text-center py-12 text-muted text-sm">No recent activity</div>
+        <div className="text-center py-12">
+          <div className="bg-surface border border-border rounded-xl p-8 max-w-md mx-auto">
+            <div className="text-4xl mb-4">📊</div>
+            <h3 className="text-lg font-semibold mb-2">No activity yet</h3>
+            <p className="text-muted text-sm">
+              Platform activity from talks you're participating in will appear here.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -314,7 +322,17 @@ function ActivityTimelineItem({ item }: { item: ActivityItem }) {
 
 function ResultsTab({ items }: { items: FeedEntry[] }) {
   if (items.length === 0) {
-    return <div className="text-center py-16 text-muted text-sm">No completed deliberations yet</div>
+    return (
+      <div className="text-center py-16 px-4">
+        <div className="max-w-md mx-auto bg-surface border border-border rounded-xl p-8">
+          <div className="text-4xl mb-4">🏁</div>
+          <h3 className="text-lg font-semibold mb-2">No results yet</h3>
+          <p className="text-muted text-sm">
+            Completed deliberations will appear here once consensus is reached.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -374,26 +392,30 @@ function ResultCard({ entry }: { entry: FeedEntry }) {
 function EmptyFeed({ authenticated }: { authenticated: boolean }) {
   return (
     <div className="text-center py-16 px-4">
-      <p className="text-muted mb-4">
-        {authenticated
-          ? 'No talks to vote on right now.'
-          : 'Sign in to see your personalized feed.'}
-      </p>
-      <div className="flex gap-3 justify-center">
-        {authenticated ? (
-          <>
-            <Link href="/talks/new" className="text-accent hover:text-accent-hover font-medium text-sm">
-              Create a Talk
+      <div className="max-w-md mx-auto bg-surface border border-border rounded-xl p-8">
+        <div className="text-4xl mb-4">💭</div>
+        <h3 className="text-lg font-semibold mb-2">Your feed is empty</h3>
+        <p className="text-muted text-sm mb-6">
+          {authenticated
+            ? 'Get started by creating a talk or joining a group to participate in deliberations.'
+            : 'Sign in to join deliberations, vote on ideas, and build consensus with others.'}
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          {authenticated ? (
+            <>
+              <Link href="/talks/new" className="bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors">
+                + Create a Talk
+              </Link>
+              <Link href="/groups" className="border border-border hover:border-accent hover:text-accent px-5 py-2.5 rounded-lg font-medium text-sm transition-colors">
+                Browse Groups
+              </Link>
+            </>
+          ) : (
+            <Link href="/auth/signin" className="bg-accent hover:bg-accent-hover text-white px-6 py-2.5 rounded-lg font-medium text-sm transition-colors">
+              Sign In
             </Link>
-            <Link href="/groups" className="text-accent hover:text-accent-hover font-medium text-sm">
-              Browse Groups
-            </Link>
-          </>
-        ) : (
-          <Link href="/auth/signin" className="bg-accent text-white px-4 py-2 rounded-lg font-medium text-sm">
-            Sign In
-          </Link>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )
