@@ -35,7 +35,7 @@ export const metadata: Metadata = {
   keywords: ['democracy', 'voting', 'deliberation', 'collective decision making', 'consensus', 'small groups'],
   authors: [{ name: 'Unity Chant' }],
   creator: 'Unity Chant',
-  metadataBase: new URL(process.env.NEXTAUTH_URL || 'https://unionchant.vercel.app'),
+  metadataBase: new URL(process.env.NEXTAUTH_URL || 'https://unitychant.com'),
   openGraph: {
     type: 'website',
     locale: 'en_US',
