@@ -24,8 +24,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
-  // If user already has an active subscription, send to portal to change plan
+  // If user already has an active subscription, sync tier from Stripe and send to portal
   if (user.stripeSubscriptionId) {
+    // Sync tier from Stripe in case webhook was missed
+    try {
+      const subscription = await getStripe().subscriptions.retrieve(user.stripeSubscriptionId)
+      if (subscription.status === 'active' || subscription.status === 'trialing') {
+        const priceId = subscription.items.data[0]?.price.id || ''
+        const { tierFromPriceId } = await import('@/lib/stripe')
+        const tier = tierFromPriceId(priceId)
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { subscriptionTier: tier },
+        })
+      }
+    } catch (e) {
+      console.error('[Stripe] Failed to sync subscription tier:', e)
+    }
+
     return NextResponse.json({
       error: 'ALREADY_SUBSCRIBED',
       message: 'Use the billing portal to change your plan',

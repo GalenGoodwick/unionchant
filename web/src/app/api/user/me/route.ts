@@ -22,6 +22,22 @@ export async function GET() {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // Auto-sync Stripe tier if subscription exists but tier is still "free"
+    if (user.stripeSubscriptionId && (!user.subscriptionTier || user.subscriptionTier === 'free')) {
+      try {
+        const { getStripe, tierFromPriceId } = await import('@/lib/stripe')
+        const subscription = await getStripe().subscriptions.retrieve(user.stripeSubscriptionId)
+        if (subscription.status === 'active' || subscription.status === 'trialing') {
+          const priceId = subscription.items.data[0]?.price.id || ''
+          const tier = tierFromPriceId(priceId)
+          await prisma.user.update({ where: { id: user.id }, data: { subscriptionTier: tier } })
+          ;(user as any).subscriptionTier = tier
+        }
+      } catch (e) {
+        console.error('[Stripe] Auto-sync tier failed:', e)
+      }
+    }
+
     // Get counts separately
     const [ideasCount, votesCount, commentsCount, deliberationsCreatedCount, membershipsCount, xpResult] = await Promise.all([
       prisma.idea.count({ where: { authorId: user.id } }),

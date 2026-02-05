@@ -133,7 +133,14 @@ function PricingContent() {
       })
       const data = await res.json()
       if (data.error === 'ALREADY_SUBSCRIBED') {
-        alert('You already have a subscription. Use the billing portal to change plans.')
+        // Redirect to billing portal instead of showing alert
+        const portalRes = await fetch('/api/stripe/portal', { method: 'POST' })
+        const portalData = await portalRes.json()
+        if (portalData.url) {
+          window.location.href = portalData.url
+          return
+        }
+        alert('Could not open billing portal. Please try again.')
         return
       }
       if (!res.ok) throw new Error(data.error || 'Checkout failed')
