@@ -23,11 +23,11 @@ export async function generateMetadata({
   }
 
   return {
-    title: `Join: ${community.name} | Union Chant`,
+    title: `Join: ${community.name} | Unity Chant`,
     description: community.description || `${community._count.members} members. Join the community!`,
     openGraph: {
       title: `Join ${community.name}`,
-      description: community.description || `${community._count.members} members on Union Chant`,
+      description: community.description || `${community._count.members} members on Unity Chant`,
     },
   }
 }

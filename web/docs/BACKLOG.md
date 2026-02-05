@@ -1,4 +1,4 @@
-# Union Chant - Backlog
+# Unity Chant - Backlog
 
 Captured from session Jan 29, 2026.
 
@@ -35,7 +35,7 @@ Captured from session Jan 29, 2026.
 - **Add results export for creators** - "Download Results" button on completed deliberations. Export as CSV with ideas, votes per tier, winner, participant count.
 
 ### UX Overhaul (from Jan 29 assessment)
-- **Build a landing page** - Currently `/` redirects to `/feed`. New visitors have no context. Need a landing page explaining what Union Chant is, how it works (3 steps), social proof, and clear CTA.
+- **Build a landing page** - Currently `/` redirects to `/feed`. New visitors have no context. Need a landing page explaining what Unity Chant is, how it works (3 steps), social proof, and clear CTA.
 - **Rename user-facing terminology** - "Cell", "Tier", and idea statuses like "BENCHED"/"RETIRED" are internal jargon. Replace with engaging, state-reflective language. Keep terms like "deliberation" but add friendlier alternatives in casual contexts.
 - **Add tooltips for idea status badges** - BENCHED, RETIRED, DEFENDING statuses have no inline explanation. Add help icons or tooltips.
 - **Improve retention loop** - Communities exist but aren't woven into the core experience. Feed needs better content for logged-out users. Notification reliability needs work.

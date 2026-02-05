@@ -1,10 +1,10 @@
-# Union Chant
+# Unity Chant
 
 Collective decision-making for the modern age. Small group deliberation at any scale.
 
 ## Overview
 
-Union Chant is a scalable direct democracy platform that enables large groups to deliberate meaningfully through small group discussions. Instead of simple voting, participants engage in structured conversations where ideas compete through multiple rounds of evaluation.
+Unity Chant is a scalable direct democracy platform that enables large groups to deliberate meaningfully through small group discussions. Instead of simple voting, participants engage in structured conversations where ideas compete through multiple rounds of evaluation.
 
 ### How It Works
 
@@ -46,7 +46,7 @@ GOOGLE_CLIENT_ID="your-google-client-id"
 GOOGLE_CLIENT_SECRET="your-google-client-secret"
 
 # Web Push (VAPID keys) - Generate with: npx web-push generate-vapid-keys
-VAPID_SUBJECT="mailto:hello@unionchant.com"
+VAPID_SUBJECT="mailto:hello@unitychant.com"
 VAPID_PUBLIC_KEY="your-vapid-public-key"
 VAPID_PRIVATE_KEY="your-vapid-private-key"
 ```

@@ -94,7 +94,7 @@ export default function FeedPage() {
 
       <main className={`mx-auto px-4 py-4 ${tab === 'your-turn' ? 'max-w-5xl' : 'max-w-xl'}`}>
         <FirstVisitTooltip id="feed-tabs">
-          Feed shows actions you can take. Activity shows what&apos;s happening. Results shows outcomes.
+          Unity Chant enables large-scale consensus through small-group deliberation. Feed shows what you can do, Activity shows what&apos;s happening, and Results shows what&apos;s been decided.
         </FirstVisitTooltip>
         {error && (
           <div className="bg-error-bg border border-error/20 rounded-lg p-4 mb-4 text-center">

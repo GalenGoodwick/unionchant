@@ -5,7 +5,7 @@ test.describe('Header Navigation', () => {
     await page.goto('/feed')
     // Use the header nav specifically
     const header = page.locator('header')
-    await expect(header.getByText('Union Chant')).toBeVisible()
+    await expect(header.getByText('Unity Chant')).toBeVisible()
     await expect(header.getByRole('link', { name: 'Feed' })).toBeVisible()
     await expect(header.getByRole('link', { name: 'Groups' })).toBeVisible()
     await expect(header.getByRole('link', { name: 'Talks' })).toBeVisible()

@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'How It Works',
-  description: 'Learn how Union Chant works — submit ideas, discuss in small groups, vote with points, and surface the best answers together.',
+  description: 'Learn how Unity Chant works — submit ideas, discuss in small groups, vote with points, and surface the best answers together.',
 }
 
 export default function HowItWorksPage() {
@@ -17,7 +17,7 @@ export default function HowItWorksPage() {
           &larr; Back to Home
         </Link>
 
-        <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-2">How Union Chant Works</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-2">How Unity Chant Works</h1>
         <p className="text-lg text-muted mb-10">
           A quick guide to participating in talks
         </p>

@@ -1,4 +1,4 @@
-# Union Chant v7-STABLE - Changelog
+# Unity Chant v7-STABLE - Changelog
 
 ## Path to Stability
 

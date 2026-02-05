@@ -22,12 +22,12 @@ export async function generateMetadata({
     return { title: 'Community Not Found' }
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unionchant.org'
-  const desc = community.description || `${community._count.members} members on Union Chant`
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unitychant.com'
+  const desc = community.description || `${community._count.members} members on Unity Chant`
   const ogImageUrl = `${baseUrl}/api/og?title=${encodeURIComponent(community.name)}&members=${community._count.members}&type=community`
 
   return {
-    title: `${community.name} | Union Chant`,
+    title: `${community.name} | Unity Chant`,
     description: desc,
     openGraph: {
       title: community.name,

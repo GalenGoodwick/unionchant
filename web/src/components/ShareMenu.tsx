@@ -45,7 +45,7 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
     }
   }, [open, updatePosition])
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unionchant.org'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unitychant.com'
   const fullUrl = url.startsWith('http') ? url : `${appUrl}${url}`
 
   const encodedUrl = encodeURIComponent(fullUrl)

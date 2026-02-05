@@ -404,4 +404,4 @@ Not just a vote. A genuine collective intelligence.
 
 ## Summary
 
-The up-pollination architecture extends Union Chant's democratic principle to discussion itself. Just as the best ideas rise through collective judgment, the best insights, criticisms, and improvements also rise. Comments can evolve into revisions, and the final output isn't just a winning idea—it's a winning idea refined by the collective wisdom of all participants, with full attribution and history preserved.
+The up-pollination architecture extends Unity Chant's democratic principle to discussion itself. Just as the best ideas rise through collective judgment, the best insights, criticisms, and improvements also rise. Comments can evolve into revisions, and the final output isn't just a winning idea—it's a winning idea refined by the collective wisdom of all participants, with full attribution and history preserved.

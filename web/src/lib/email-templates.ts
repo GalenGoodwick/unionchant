@@ -1,4 +1,4 @@
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unionchant.org'
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unitychant.com'
 const logoUrl = `${baseUrl}/logo.svg`
 
 const layout = (content: string) => `
@@ -13,8 +13,8 @@ const layout = (content: string) => `
     <!-- Header -->
     <div style="text-align:center;padding:24px 0 20px;">
       <a href="${baseUrl}" style="text-decoration:none;">
-        <img src="${logoUrl}" alt="Union Chant" width="48" height="48" style="display:inline-block;vertical-align:middle;" />
-        <span style="display:inline-block;vertical-align:middle;margin-left:12px;font-size:22px;font-weight:700;color:#e8b84b;letter-spacing:-0.5px;">Union Chant</span>
+        <img src="${logoUrl}" alt="Unity Chant" width="48" height="48" style="display:inline-block;vertical-align:middle;" />
+        <span style="display:inline-block;vertical-align:middle;margin-left:12px;font-size:22px;font-weight:700;color:#e8b84b;letter-spacing:-0.5px;">Unity Chant</span>
       </a>
     </div>
     <!-- Content -->
@@ -164,7 +164,7 @@ export function communityInviteEmail(params: {
     : ''
 
   return {
-    subject: `You're invited to join ${params.communityName} on Union Chant`,
+    subject: `You're invited to join ${params.communityName} on Unity Chant`,
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">You've been invited</h2>
       <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
@@ -191,7 +191,7 @@ export function verificationEmail(params: {
   const verifyUrl = `${baseUrl}/api/auth/verify-email?token=${params.token}`
 
   return {
-    subject: 'Verify your Union Chant email',
+    subject: 'Verify your Unity Chant email',
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">Verify your email</h2>
       <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
@@ -214,7 +214,7 @@ export function passwordResetEmail(params: {
   const resetUrl = `${baseUrl}/auth/reset-password?token=${params.token}`
 
   return {
-    subject: 'Reset your Union Chant password',
+    subject: 'Reset your Unity Chant password',
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">Reset your password</h2>
       <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
@@ -265,7 +265,7 @@ export function podiumNewsEmail(params: {
   const preview = params.body.length > 500 ? params.body.slice(0, 500) + '...' : params.body
 
   return {
-    subject: `${params.title} — Union Chant News`,
+    subject: `${params.title} — Unity Chant News`,
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">${params.title}</h2>
       <p style="color:#71717a;font-size:13px;margin:0 0 16px;">

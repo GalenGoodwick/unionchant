@@ -130,11 +130,11 @@ export async function seedShowcaseDeliberation(): Promise<{ deliberationId: stri
 
   // Create the system user who "owns" the showcase deliberation
   const systemUser = await prisma.user.upsert({
-    where: { email: 'system@unionchant.ai' },
+    where: { email: 'system@unitychant.ai' },
     update: {},
     create: {
-      email: 'system@unionchant.ai',
-      name: 'Union Chant',
+      email: 'system@unitychant.ai',
+      name: 'Unity Chant',
       isAI: true,
       status: 'ACTIVE',
     },
@@ -174,7 +174,7 @@ export async function seedShowcaseDeliberation(): Promise<{ deliberationId: stri
 
   for (let i = 0; i < AI_PERSONAS.length; i++) {
     const { persona, personalityDesc } = AI_PERSONAS[i]
-    const email = `ai-${persona}@unionchant.ai`
+    const email = `ai-${persona}@unitychant.ai`
 
     const user = await prisma.user.upsert({
       where: { email },

@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 import LandingCTA from '@/components/LandingCTA'
 
 export const metadata: Metadata = {
-  title: 'Union Chant - Holding Quiet Hope',
+  title: 'Unity Chant - Holding Quiet Hope',
   description: 'One place where humanity decides together. Submit ideas, deliberate in small groups, reach consensus at any scale.',
 }
 
@@ -16,18 +16,18 @@ export default function Home() {
       {/* ── Hero ── */}
       <section className="bg-header text-white">
         <div className="max-w-5xl mx-auto px-6 py-24 md:py-36 text-center">
-          <p className="text-accent-light text-sm font-medium tracking-widest uppercase mb-6">
-            Continuous Consensus
-          </p>
-          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-8 leading-[1.1] tracking-tight">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-6 leading-[1.1] tracking-tight">
             What if a million people{' '}
             <br className="hidden sm:block" />
             could actually agree?
           </h1>
-          <p className="text-lg md:text-xl text-white/70 max-w-2xl mx-auto mb-12 leading-relaxed font-sans">
+          <p className="text-xl md:text-2xl text-accent-light font-medium mb-4 max-w-3xl mx-auto">
+            Direct democracy through small-group deliberation.
+          </p>
+          <p className="text-lg md:text-xl text-white/70 max-w-2xl mx-auto mb-12 leading-relaxed font-serif">
             Not a slim majority outvoting a frustrated minority. Not a poll.
-            Not a petition. Real consensus&mdash;built through real conversation,
-            at any scale.
+            Not a petition. Real consensus&mdash;built through real conversation.
+            For organizations, communities, and anyone who needs durable consensus at scale.
           </p>
           <LandingCTA />
         </div>
@@ -46,7 +46,7 @@ export default function Home() {
               around a table, with a few people who had time to actually listen.
             </p>
             <p className="text-lg text-subtle leading-relaxed">
-              Union Chant provides this insight and scales it. Instead of putting
+              Unity Chant provides this insight and scales it. Instead of putting
               everyone in one noisy room, we create{' '}
               <em className="text-foreground">thousands</em> of small
               conversations happening in parallel&mdash;then connect them
@@ -176,7 +176,7 @@ export default function Home() {
             Not a poll. Not a vote. Deliberation.
           </h2>
           <p className="text-muted text-center mb-16 text-lg max-w-2xl mx-auto">
-            Traditional voting counts existing preferences. Union Chant lets
+            Traditional voting counts existing preferences. Unity Chant lets
             preferences evolve through discussion.
           </p>
 
@@ -319,7 +319,7 @@ export default function Home() {
       {/* ── Footer ── */}
       <footer className="bg-foreground text-white/40 py-6">
         <div className="max-w-5xl mx-auto px-6 text-center text-sm">
-          &copy; 2026 Union Chant. All rights reserved.
+          &copy; 2026 Unity Chant. All rights reserved.
         </div>
       </footer>
     </div>

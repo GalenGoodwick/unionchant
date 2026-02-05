@@ -134,9 +134,9 @@ function PricingContent() {
         </Link>
 
         <div className="text-center mb-12">
-          <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">Support Union Chant</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">Support Unity Chant</h1>
           <p className="text-lg text-muted max-w-xl mx-auto">
-            Union Chant is free for everyone. Supporters get extra tools while keeping the platform open for all.
+            Unity Chant is free for everyone. Supporters get extra tools while keeping the platform open for all.
           </p>
         </div>
 

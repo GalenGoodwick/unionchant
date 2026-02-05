@@ -14,7 +14,7 @@ export default function DonatePage() {
         </Link>
 
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-foreground mb-4">Support Union Chant</h1>
+          <h1 className="text-4xl font-bold text-foreground mb-4">Support Unity Chant</h1>
           <p className="text-xl text-muted mb-8">
             Help us build tools for collective decision-making
           </p>
@@ -24,7 +24,7 @@ export default function DonatePage() {
             <h2 className="text-2xl font-bold text-foreground mb-4">Coming Soon</h2>
             <p className="text-muted mb-6">
               We&apos;re setting up donation options. In the meantime, you can support us by spreading the word
-              and helping movements use Union Chant for their decisions.
+              and helping movements use Unity Chant for their decisions.
             </p>
             <a
               href="mailto:galen.goodwick@icloud.com?subject=Donation%20Inquiry"

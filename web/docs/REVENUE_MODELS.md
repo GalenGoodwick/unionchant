@@ -1,4 +1,4 @@
-# Union Chant Revenue Models
+# Unity Chant Revenue Models
 
 ## Guiding Principle
 
@@ -10,7 +10,7 @@ The platform's value comes from participation volume. Anything that gates partic
 
 ### The Movement Question
 
-Union Chant exists to give movements power. If a union organizer hits a paywall while trying to coordinate a strike vote, the platform has failed its purpose. The revenue model must pass this test:
+Unity Chant exists to give movements power. If a union organizer hits a paywall while trying to coordinate a strike vote, the platform has failed its purpose. The revenue model must pass this test:
 
 **Would a broke grassroots organizer with 500 members feel like this platform is on their side?**
 
@@ -43,7 +43,7 @@ For individuals, small groups, and anyone getting started.
 
 Full Pro-level access, free. Apply with proof of nonprofit status, union charter, or community org registration. Approval within 48 hours.
 
-This is not charity — movements ARE the product. A union running a strike vote on Union Chant is the best possible advertisement. Their success is our growth.
+This is not charity — movements ARE the product. A union running a strike vote on Unity Chant is the best possible advertisement. Their success is our growth.
 
 | Feature | Included |
 |---------|----------|
@@ -91,7 +91,7 @@ For organizations running governance at scale. Companies, school boards, HOAs, D
 |---------|-----|-----|
 | Everything in Pro | Yes | Yes |
 | Participant cap | 10,000 | Unlimited |
-| Custom branding / remove "Union Chant" | No | Yes |
+| Custom branding / remove "Unity Chant" | No | Yes |
 | SSO / custom auth (Okta, SAML) | No | Yes |
 | Multi-deliberation campaigns | No | Yes |
 | Cross-deliberation analytics | No | Yes |
@@ -224,8 +224,8 @@ planExpiresAt     DateTime?
 - `GET /api/billing/status` — Current plan + usage
 
 **Stripe products (create in Dashboard):**
-- `prod_pro` — Union Chant Pro ($15/mo)
-- `prod_org` — Union Chant Org ($50/mo)
+- `prod_pro` — Unity Chant Pro ($15/mo)
+- `prod_org` — Unity Chant Org ($50/mo)
 
 ### Phase 2: Feature Gates
 

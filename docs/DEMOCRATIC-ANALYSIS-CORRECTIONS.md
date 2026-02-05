@@ -14,11 +14,11 @@ Based on feedback, the democratic analysis has been substantially strengthened w
 - Compared unfavorably to single-round voting
 
 ### ✅ Corrected Framing
-**Union Chant does NOT sacrifice speed—it's actually the fastest way to get large populations to agree deeply.**
+**Unity Chant does NOT sacrifice speed—it's actually the fastest way to get large populations to agree deeply.**
 
 **Key insight:**
 Speed is not about fewer people. It's about fewer rounds.
-Union Chant reduces rounds (logarithmically) without reducing people.
+Unity Chant reduces rounds (logarithmically) without reducing people.
 
 **The numbers:**
 - 1,000,000 participants converge in ~9 tiers
@@ -34,7 +34,7 @@ This is the only known system that achieves all three:
 2. Meaningful deliberation (small group discussion)
 3. Fast convergence (logarithmic rounds)
 
-Traditional theory says you can only have 2 of 3. Union Chant proves otherwise.
+Traditional theory says you can only have 2 of 3. Unity Chant proves otherwise.
 
 ---
 
@@ -46,10 +46,10 @@ Traditional theory says you can only have 2 of 3. Union Chant proves otherwise.
 - Suggested external fixes (supermajorities, approval voting)
 
 ### ✅ Corrected Framing
-**Union Chant has built-in tyranny mitigation through continuous vetting across contexts.**
+**Unity Chant has built-in tyranny mitigation through continuous vetting across contexts.**
 
 **Key mechanism:**
-Unlike one-shot voting, Union Chant requires majority ideas to:
+Unlike one-shot voting, Unity Chant requires majority ideas to:
 - Win repeatedly (across multiple tiers)
 - Against new challengers (different ideas each tier)
 - Under different group compositions (randomly assigned cells)
@@ -65,10 +65,10 @@ They typically:
 - Collapse under sustained exposure
 - Cannot survive repeated scrutiny
 
-Union Chant is **explicitly hostile** to this pattern.
+Unity Chant is **explicitly hostile** to this pattern.
 
 **Accurate statement:**
-"Union Chant does not prevent majority dominance, but it replaces one-shot majority rule with continuous, multi-context vetting—making shallow or exclusionary dominance difficult to sustain."
+"Unity Chant does not prevent majority dominance, but it replaces one-shot majority rule with continuous, multi-context vetting—making shallow or exclusionary dominance difficult to sustain."
 
 **New grade:** Tyranny mitigation = B+ (structural mitigation, not elimination)
 
@@ -149,7 +149,7 @@ The analysis now accurately describes what the system does, not what democratic 
 - Platforms: "Scales to millions"
 
 ### 3. For Competitive Positioning
-Union Chant now clearly occupies unique design space:
+Unity Chant now clearly occupies unique design space:
 - Not "slow but legitimate" (traditional deliberation)
 - Not "fast but shallow" (referendums)
 - **"Fast AND legitimate"** (structural innovation)
@@ -190,7 +190,7 @@ The analysis is now:
 **Possible follow-ups:**
 1. White paper version (compressed to 10-15 pages)
 2. Presentation deck (10 slides for stakeholders)
-3. "When NOT to use Union Chant" guide (builds trust)
+3. "When NOT to use Unity Chant" guide (builds trust)
 4. Academic paper submission (political science or governance journals)
 
 ---

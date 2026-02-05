@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Whitepaper',
-  description: 'The Union Chant whitepaper: A vision for scalable direct democracy through tiered small-group deliberation.',
+  description: 'The Unity Chant whitepaper: A vision for scalable direct democracy through tiered small-group deliberation.',
 }
 
 export default function WhitepaperPage() {
@@ -18,7 +18,7 @@ export default function WhitepaperPage() {
         </Link>
 
         <article className="bg-background rounded-lg border border-border p-8">
-          <h1 className="text-4xl font-bold text-foreground mb-2">Union Chant</h1>
+          <h1 className="text-4xl font-bold text-foreground mb-2">Unity Chant</h1>
           <p className="text-xl text-muted mb-12">Collective Decision-Making for the Modern Age</p>
 
           <hr className="border-border my-8" />
@@ -55,10 +55,10 @@ export default function WhitepaperPage() {
               What if there was a way for thousands of people to genuinely deliberate together? Not just vote, but deliberate. To share ideas, discuss trade-offs, change minds, and arrive at decisions that reflect genuine collective wisdom rather than whoever showed up first or shouted loudest.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
-              Union Chant is built on a straightforward observation: meaningful discussion happens in small groups. Think about the best discussions you've ever had. They probably weren't in a stadium or a comment section. They were around a dinner table, in a small meeting, with a few people who had time to actually listen to each other.
+              Unity Chant is built on a straightforward observation: meaningful discussion happens in small groups. Think about the best discussions you've ever had. They probably weren't in a stadium or a comment section. They were around a dinner table, in a small meeting, with a few people who had time to actually listen to each other.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
-              Most people can recall productive conversations that took place in settings where participants had time to explain their reasoning, hear other perspectives, and revise their views. These conversations rarely happen in large, unstructured settings. Union Chant applies this small-group dynamic to large-scale decisions by structuring many such conversations in parallel and connecting them through a clear, repeatable process.
+              Most people can recall productive conversations that took place in settings where participants had time to explain their reasoning, hear other perspectives, and revise their views. These conversations rarely happen in large, unstructured settings. Unity Chant applies this small-group dynamic to large-scale decisions by structuring many such conversations in parallel and connecting them through a clear, repeatable process.
             </p>
             <p className="text-subtle leading-relaxed font-medium text-foreground">
               Scale, in this model, is not achieved by enlarging the conversation. It is achieved by multiplying conversations.
@@ -103,7 +103,7 @@ export default function WhitepaperPage() {
           <section className="mb-12">
             <h2 className="text-2xl font-semibold text-foreground mb-4">Decisions That Evolve</h2>
             <p className="text-subtle leading-relaxed mb-4">
-              Union Chant does not treat decisions as permanent endpoints. Once a winning idea emerges, it becomes the standing position—but it remains open to challenge.
+              Unity Chant does not treat decisions as permanent endpoints. Once a winning idea emerges, it becomes the standing position—but it remains open to challenge.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
               Over time, new participants can join and new ideas can be submitted. When enough new proposals accumulate, another round of deliberation is triggered. The previous winner must defend its position against fresh challengers. Because it has already survived scrutiny, it enters the new process at a later stage, preserving the advantage of having been vetted. But if a stronger idea emerges, the collective position updates.
@@ -114,34 +114,34 @@ export default function WhitepaperPage() {
           </section>
 
           <section className="mb-12">
-            <h2 className="text-2xl font-semibold text-foreground mb-4">What Union Chant Is Not</h2>
+            <h2 className="text-2xl font-semibold text-foreground mb-4">What Unity Chant Is Not</h2>
             <p className="text-subtle leading-relaxed mb-4">
-              Union Chant is not a command system. It does not issue directives, enforce outcomes, or replace leadership or expertise. It does not replace existing democratic structures.
+              Unity Chant is not a command system. It does not issue directives, enforce outcomes, or replace leadership or expertise. It does not replace existing democratic structures.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
               It is not designed to resolve emergencies or coordinate real-time action. It is meant for decisions where reflection, legitimacy, and broad input matter more than speed alone.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
-              Union Chant is not a popularity contest and does not optimize for engagement, persuasion, or visibility. It does not reward influence, repetition, or spectacle.
+              Unity Chant is not a popularity contest and does not optimize for engagement, persuasion, or visibility. It does not reward influence, repetition, or spectacle.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
               It is also not a replacement for representative democracy. Instead, it can complement existing institutions by providing a structured way to surface collective judgment on specific questions.
             </p>
             <p className="text-subtle leading-relaxed">
-              Union Chant does not guarantee unanimity or perfect outcomes. It provides a transparent process for reaching decisions that people can understand, evaluate, and revisit over time.
+              Unity Chant does not guarantee unanimity or perfect outcomes. It provides a transparent process for reaching decisions that people can understand, evaluate, and revisit over time.
             </p>
           </section>
 
           <section className="mb-12">
             <h2 className="text-2xl font-semibold text-foreground mb-4">Real-World Applications</h2>
             <p className="text-subtle leading-relaxed mb-4">
-              <strong className="text-foreground">In organizations,</strong> important decisions are often shaped by who is present or who speaks most confidently. Union Chant allows contributions from across roles and seniority levels. Small group deliberation means the mailroom clerk's brilliant insight gets the same fair hearing as the VP's pet project. Ideas are evaluated on merit rather than rank.
+              <strong className="text-foreground">In organizations,</strong> important decisions are often shaped by who is present or who speaks most confidently. Unity Chant allows contributions from across roles and seniority levels. Small group deliberation means the mailroom clerk's brilliant insight gets the same fair hearing as the VP's pet project. Ideas are evaluated on merit rather than rank.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
-              <strong className="text-foreground">In communities,</strong> participation in town halls and forums is often limited to a small, familiar group while most residents never participate. Union Chant lowers the barrier. People can join from their phones, contribute ideas on their own time, and participate in small group discussions at their convenience. More voices lead to better decisions.
+              <strong className="text-foreground">In communities,</strong> participation in town halls and forums is often limited to a small, familiar group while most residents never participate. Unity Chant lowers the barrier. People can join from their phones, contribute ideas on their own time, and participate in small group discussions at their convenience. More voices lead to better decisions.
             </p>
             <p className="text-subtle leading-relaxed">
-              <strong className="text-foreground">In governance,</strong> citizens often feel disconnected from policy decisions between elections. Voting every few years for representatives is not the same as having a voice. Union Chant can supplement representative systems by enabling large-scale public deliberation on specific issues—giving citizens a structured way to deliberate and surface genuine collective preferences without requiring continuous engagement.
+              <strong className="text-foreground">In governance,</strong> citizens often feel disconnected from policy decisions between elections. Voting every few years for representatives is not the same as having a voice. Unity Chant can supplement representative systems by enabling large-scale public deliberation on specific issues—giving citizens a structured way to deliberate and surface genuine collective preferences without requiring continuous engagement.
             </p>
           </section>
 
@@ -157,7 +157,7 @@ export default function WhitepaperPage() {
               <strong className="text-foreground">Some raise concerns about bad actors or trolls.</strong> Small groups reduce the effectiveness of disruption. It's hard to troll effectively when you're one of five people in a discussion, and others can see your contributions. Persistent bad-faith behavior is harder to sustain when participants are visible to one another and discussion is structured.
             </p>
             <p className="text-subtle leading-relaxed">
-              <strong className="text-foreground">A common question is whether this is just another voting system.</strong> It's fundamentally different. Traditional voting asks people to choose between fixed options in a single moment. Union Chant lets people generate the options, deliberate on them, and refine collective understanding across multiple rounds. It's not just counting preferences. It's building shared understanding.
+              <strong className="text-foreground">A common question is whether this is just another voting system.</strong> It's fundamentally different. Traditional voting asks people to choose between fixed options in a single moment. Unity Chant lets people generate the options, deliberate on them, and refine collective understanding across multiple rounds. It's not just counting preferences. It's building shared understanding.
             </p>
           </section>
 
@@ -167,10 +167,10 @@ export default function WhitepaperPage() {
               Many of today's challenges are not technical problems but collective ones. Organizations struggle to align around priorities. Communities fracture over shared resources. Institutions lose trust when decisions appear disconnected from lived experience. In these contexts, the question is rarely "Who is right?" It is "How do we decide in a way people recognize as fair, thoughtful, and legitimate?"
             </p>
             <p className="text-subtle leading-relaxed mb-4">
-              Union Chant is one attempt to improve how groups of any size make decisions together. It does not promise perfect answers or universal agreement. It offers a structure for listening, deliberating, and deciding that aligns more closely with how people reason in practice.
+              Unity Chant is one attempt to improve how groups of any size make decisions together. It does not promise perfect answers or universal agreement. It offers a structure for listening, deliberating, and deciding that aligns more closely with how people reason in practice.
             </p>
             <p className="text-subtle leading-relaxed mb-4">
-              If collective decisions are becoming harder to make, not because people care less, but because our tools are misaligned with how humans reason, then new structures are worth exploring. Union Chant exists to explore one such structure. Not to replace judgment, but to support it. Not to end disagreement, but to refine it. Not to centralize power, but to make shared understanding visible.
+              If collective decisions are becoming harder to make, not because people care less, but because our tools are misaligned with how humans reason, then new structures are worth exploring. Unity Chant exists to explore one such structure. Not to replace judgment, but to support it. Not to end disagreement, but to refine it. Not to centralize power, but to make shared understanding visible.
             </p>
             <p className="text-subtle leading-relaxed font-medium text-foreground text-xl">
               Good decisions do not emerge from silence or noise. They emerge from conversation—given the right form.

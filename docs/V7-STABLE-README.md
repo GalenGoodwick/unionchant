@@ -1,10 +1,10 @@
-# Union Chant v7 - STABLE
+# Unity Chant v7 - STABLE
 
 **Scalable Multi-Tier Democratic Voting System**
 
 ## Overview
 
-Union Chant v7-STABLE implements a scalable democratic voting system where:
+Unity Chant v7-STABLE implements a scalable democratic voting system where:
 - **Everyone votes in every tier** (Individual Sovereignty preserved)
 - **Ideas compress naturally** through cross-cell tallying
 - **Only top vote-getter(s) advance** to next tier

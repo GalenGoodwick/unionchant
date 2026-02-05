@@ -10,7 +10,7 @@ const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null
 
-const EMAIL_FROM = process.env.EMAIL_FROM || 'Union Chant <noreply@unionchant.org>'
+const EMAIL_FROM = process.env.EMAIL_FROM || 'Unity Chant <noreply@unitychant.com>'
 
 /**
  * Send a single email. Fails silently — logs error but never throws.

@@ -27,26 +27,26 @@ const ibmPlexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Union Chant - Holding Quiet Hope',
-    template: '%s | Union Chant',
+    default: 'Unity Chant - Holding Quiet Hope',
+    template: '%s | Unity Chant',
   },
   description: 'Holding quiet hope. Small group deliberation at any scale.',
   manifest: '/manifest.json',
   keywords: ['democracy', 'voting', 'deliberation', 'collective decision making', 'consensus', 'small groups'],
-  authors: [{ name: 'Union Chant' }],
-  creator: 'Union Chant',
+  authors: [{ name: 'Unity Chant' }],
+  creator: 'Unity Chant',
   metadataBase: new URL(process.env.NEXTAUTH_URL || 'https://unionchant.vercel.app'),
   openGraph: {
     type: 'website',
     locale: 'en_US',
     url: '/',
-    siteName: 'Union Chant',
-    title: 'Union Chant - Holding Quiet Hope',
+    siteName: 'Unity Chant',
+    title: 'Unity Chant - Holding Quiet Hope',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Union Chant - Holding Quiet Hope',
+    title: 'Unity Chant - Holding Quiet Hope',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
   },
   robots: {
@@ -63,7 +63,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Union Chant',
+    title: 'Unity Chant',
   },
 }
 

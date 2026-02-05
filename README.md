@@ -1,4 +1,4 @@
-# Union Chant - Scalable Direct Democracy System
+# Unity Chant - Scalable Direct Democracy System
 
 **Breakthrough democratic voting system:** Universal participation + meaningful deliberation + fast convergence (O(log n) tiers)
 
@@ -66,7 +66,7 @@ Pure JS implementation of the voting engine (500+ lines). Not imported by the we
 
 ## System Overview
 
-Union Chant enables scalable direct democracy through:
+Unity Chant enables scalable direct democracy through:
 - **Small group deliberation** (5 people per cell)
 - **Universal participation** (everyone votes at every tier)
 - **Logarithmic convergence** (O(log n) tiers to consensus)

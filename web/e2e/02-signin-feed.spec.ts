@@ -6,7 +6,7 @@ test.describe('Sign In and Feed', () => {
     // Use unauthenticated state for this test
     await page.context().clearCookies()
     await page.goto('/auth/signin')
-    await expect(page.getByText('Sign in to Union Chant')).toBeVisible()
+    await expect(page.getByText('Sign in to Unity Chant')).toBeVisible()
     await expect(page.getByText('Continue with Google')).toBeVisible()
     await expect(page.getByPlaceholder('Email')).toBeVisible()
     await expect(page.getByPlaceholder('Password')).toBeVisible()

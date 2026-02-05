@@ -2,7 +2,7 @@ import { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: 'Podiums',
-  description: 'Read long-form posts on Union Chant. Explore context and perspectives behind collective decisions.',
+  description: 'Read long-form posts on Unity Chant. Explore context and perspectives behind collective decisions.',
 }
 
 export default function PodiumsLayout({

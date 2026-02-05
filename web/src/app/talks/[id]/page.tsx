@@ -40,7 +40,7 @@ export async function generateMetadata({
   const description = deliberation.description
     || `${deliberation._count.members} participants, ${deliberation._count.ideas} ideas. Phase: ${deliberation.phase}.`
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unionchant.org'
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unitychant.com'
   const ogImageUrl = `${baseUrl}/api/og?title=${encodeURIComponent(deliberation.question)}&members=${deliberation._count.members}&ideas=${deliberation._count.ideas}&phase=${deliberation.phase}${deliberation.organization ? `&org=${encodeURIComponent(deliberation.organization)}` : ''}`
 
   return {

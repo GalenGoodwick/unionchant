@@ -19,13 +19,13 @@ export async function generateMetadata({
   })
 
   if (!podium) {
-    return { title: 'Not Found | Union Chant' }
+    return { title: 'Not Found | Unity Chant' }
   }
 
   const description = podium.body.slice(0, 160).replace(/\n/g, ' ')
 
   return {
-    title: `${podium.title} | Union Chant`,
+    title: `${podium.title} | Unity Chant`,
     description,
     openGraph: {
       title: podium.title,

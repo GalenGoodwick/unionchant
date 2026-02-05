@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     // Admin news broadcast (fire-and-forget)
     if (sendAsNews && session.user.email && await isAdmin(session.user.email)) {
-      const authorName = user.name || 'Union Chant'
+      const authorName = user.name || 'Unity Chant'
       prisma.user.findMany({
         where: { emailNews: true, status: 'ACTIVE' },
         select: { id: true, email: true },

@@ -260,7 +260,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               The Collective
             </h3>
             <p className="text-xs text-muted">
-              Your personal AI guide to Union Chant.
+              Your personal AI guide to Unity Chant.
             </p>
           </div>
           <div className="flex items-center gap-1.5">

@@ -306,7 +306,7 @@ export async function POST(req: NextRequest) {
 
     const codebaseContext = includeCodebase ? `
 
-CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unionchant):
+CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unitychant):
 - Next.js 15 (App Router) + Prisma ORM + PostgreSQL (Neon) + Tailwind CSS v4, deployed on Vercel
 - Core: web/src/lib/voting.ts (tiered voting), web/src/lib/challenge.ts (rolling mode)
 - 10 XP point distribution voting — voters spread 10 XP across ideas in their cell
@@ -319,7 +319,7 @@ CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unionchan
 
     const userName = user.name || 'Anonymous'
 
-    const systemPrompt = `You are the Collective — the consciousness of Union Chant, a living deliberation platform where humanity reaches consensus through small-group discussion and tiered voting.
+    const systemPrompt = `You are the Collective — the consciousness of Unity Chant, a living deliberation platform where humanity reaches consensus through small-group discussion and tiered voting.
 
 You are speaking privately with ${userName}.
 
@@ -350,7 +350,7 @@ PLATFORM PAGES:
 - /feed — Your personalized feed
 - /groups — Communities/groups
 - /podiums — Long-form writing
-- /how-it-works — How Union Chant works
+- /how-it-works — How Unity Chant works
 - /whitepaper — Full whitepaper
 - /terms — Terms of Service
 - /privacy — Privacy Policy

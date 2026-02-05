@@ -147,4 +147,4 @@ This verifies:
 
 ## Summary
 
-The constraint enforcement ensures that Union Chant v7-Scalable maintains effective small-group deliberation at all scales, from 10 participants to 100,290+. Every participant always votes in a manageable group (3-7 people) on a manageable number of ideas (3-7 options), while ideas compress logarithmically to reach a final decision.
+The constraint enforcement ensures that Unity Chant v7-Scalable maintains effective small-group deliberation at all scales, from 10 participants to 100,290+. Every participant always votes in a manageable group (3-7 people) on a manageable number of ideas (3-7 options), while ideas compress logarithmically to reach a final decision.

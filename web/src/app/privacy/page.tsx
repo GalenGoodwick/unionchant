@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'Privacy Policy for Union Chant. Learn how we collect, use, and protect your personal information.',
+  description: 'Privacy Policy for Unity Chant. Learn how we collect, use, and protect your personal information.',
 }
 
 export default function PrivacyPage() {
@@ -25,7 +25,7 @@ export default function PrivacyPage() {
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-3">Overview</h2>
               <p className="text-subtle mb-4">
-                Union Chant ("we", "our", "us") is committed to protecting your privacy. This policy explains
+                Unity Chant ("we", "our", "us") is committed to protecting your privacy. This policy explains
                 how we collect, use, and protect your personal information.
               </p>
             </section>

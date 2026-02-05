@@ -589,7 +589,7 @@ export default function DemoPage() {
           <Link href="/how-it-works" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
             &larr; How It Works
           </Link>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">See Union Chant in Action</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">See Unity Chant in Action</h1>
           <p className="text-muted mt-1 text-sm sm:text-base">Watch how {participantCount} people reach consensus through structured small-group deliberation</p>
         </div>
 
@@ -961,7 +961,7 @@ export default function DemoPage() {
                     <div>
                       <div className="text-purple font-medium text-sm">Why Small Groups Matter</div>
                       <div className="text-subtle text-sm mt-1">
-                        In a traditional poll, the loudest voices dominate. In Union Chant, every participant
+                        In a traditional poll, the loudest voices dominate. In Unity Chant, every participant
                         deliberates in a small group where their voice is heard. Ideas win by surviving
                         scrutiny across multiple independent groups—not by popularity or timing.
                       </div>

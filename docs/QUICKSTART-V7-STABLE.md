@@ -1,4 +1,4 @@
-# Quick Start - Union Chant v7-STABLE
+# Quick Start - Unity Chant v7-STABLE
 
 ## Installation
 

@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 // GET /api/og - Dynamic OG image generator (SVG-based, no Edge Runtime needed)
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const title = searchParams.get('title') || 'Union Chant'
+  const title = searchParams.get('title') || 'Unity Chant'
   const members = searchParams.get('members') || '0'
   const ideas = searchParams.get('ideas') || '0'
   const phase = searchParams.get('phase') || ''
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   <rect x="40" y="40" width="1120" height="550" rx="24" fill="white" stroke="#e4e4e7" stroke-width="2"/>
 
   <!-- Logo -->
-  <text x="600" y="140" text-anchor="middle" font-size="28" font-weight="600" fill="#0891b2" font-family="Georgia, serif" letter-spacing="1">UNION CHANT</text>
+  <text x="600" y="140" text-anchor="middle" font-size="28" font-weight="600" fill="#0891b2" font-family="Georgia, serif" letter-spacing="1">UNITY CHANT</text>
   <line x1="500" y1="160" x2="700" y2="160" stroke="#0891b2" stroke-width="2" opacity="0.3"/>
 
   <!-- Title -->
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
 
   <!-- Bottom bar -->
   <rect x="40" y="540" width="1120" height="50" rx="0" fill="#0891b2" opacity="0.1"/>
-  <text x="600" y="573" text-anchor="middle" font-size="16" fill="#0891b2" font-family="system-ui, sans-serif">Scalable Direct Democracy · unionchant.org</text>
+  <text x="600" y="573" text-anchor="middle" font-size="16" fill="#0891b2" font-family="system-ui, sans-serif">Scalable Direct Democracy · unitychant.com</text>
 </svg>`
 
   return new NextResponse(svg, {

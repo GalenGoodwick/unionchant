@@ -1,8 +1,8 @@
-# Union Chant Analytics Architecture
+# Unity Chant Analytics Architecture
 
 ## The Core Insight
 
-Traditional voting and surveys produce outcomes: "68% support X." Union Chant produces **narratives** — the complete story of how thousands of people arrived at consensus, what arguments shifted opinion, and where demographic groups converged or diverged.
+Traditional voting and surveys produce outcomes: "68% support X." Unity Chant produces **narratives** — the complete story of how thousands of people arrived at consensus, what arguments shifted opinion, and where demographic groups converged or diverged.
 
 This document outlines the analytics platform that transforms raw deliberation data into actionable intelligence for labor unions, municipalities, corporations, and political organizations.
 
@@ -109,7 +109,7 @@ All demographic analytics should be opt-in, anonymized at the cohort level (mini
 
 **What it answers:** Which arguments actually changed minds? What reasoning resonated across the organization?
 
-Up-pollination is Union Chant's unique competitive advantage for analytics. When a comment receives enough upvotes in its cell to propagate to higher-tier cells, we're witnessing **crowd-sourced argument quality ranking in real time.**
+Up-pollination is Unity Chant's unique competitive advantage for analytics. When a comment receives enough upvotes in its cell to propagate to higher-tier cells, we're witnessing **crowd-sourced argument quality ranking in real time.**
 
 #### Persuasion Score
 - **Metric:** Did an up-pollinated comment correlate with vote shifts in the cells it reached?
@@ -398,7 +398,7 @@ model CommentExposure {
 
 ## Competitive Positioning
 
-| Feature | Surveys (SurveyMonkey) | Polling (Qualtrics) | Town Halls | Union Chant Analytics |
+| Feature | Surveys (SurveyMonkey) | Polling (Qualtrics) | Town Halls | Unity Chant Analytics |
 |---|---|---|---|---|
 | Outcome (what won) | Yes | Yes | Yes | Yes |
 | Why it won | No | No | Anecdotal | **Traced to specific arguments** |

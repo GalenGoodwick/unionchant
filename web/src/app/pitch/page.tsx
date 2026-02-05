@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Pitch',
-  description: 'Union Chant: Mass Consensus as a Service. The first social media platform built for consensus, not conflict.',
+  description: 'Unity Chant: Mass Consensus as a Service. The first social media platform built for consensus, not conflict.',
 }
 
 export default function PitchPage() {
@@ -16,7 +16,7 @@ export default function PitchPage() {
       <section className="bg-header text-white py-24 md:py-36">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <h1 className="text-5xl md:text-7xl font-bold mb-6 tracking-tight">
-            Union Chant
+            Unity Chant
           </h1>
           <p className="text-2xl md:text-3xl text-accent-light font-serif mb-8">
             Mass Consensus as a Service
@@ -70,7 +70,7 @@ export default function PitchPage() {
           </h2>
           <div className="space-y-6 text-lg text-subtle leading-relaxed mb-12">
             <p>
-              Union Chant is a structured, time-bounded democratic event
+              Unity Chant is a structured, time-bounded democratic event
               designed to help large groups reach legitimate consensus quickly
               through parallel deliberation.
             </p>
@@ -242,13 +242,13 @@ export default function PitchPage() {
 
           <div className="grid md:grid-cols-2 gap-8 mb-12">
             <div className="bg-error-bg border border-error-border rounded-xl p-6">
-              <p className="text-sm text-error font-medium mb-2">Without Union Chant</p>
+              <p className="text-sm text-error font-medium mb-2">Without Unity Chant</p>
               <p className="text-foreground text-lg font-serif italic">
                 &ldquo;Our leadership decided.&rdquo;
               </p>
             </div>
             <div className="bg-success-bg border border-success-border rounded-xl p-6">
-              <p className="text-sm text-success font-medium mb-2">With Union Chant</p>
+              <p className="text-sm text-success font-medium mb-2">With Unity Chant</p>
               <p className="text-foreground text-lg font-serif italic">
                 &ldquo;47,000 members deliberated and chose this priority.&rdquo;
               </p>
@@ -293,7 +293,7 @@ export default function PitchPage() {
               <h3 className="text-xl font-semibold text-foreground mb-3">Movements</h3>
               <p className="text-muted leading-relaxed">
                 Movements that can articulate unified demands win. Those that
-                can&apos;t, fizzle. Union Chant is the mechanism to go from
+                can&apos;t, fizzle. Unity Chant is the mechanism to go from
                 shared anger to shared position. Climate, housing, labor,
                 justice&mdash;any movement that needs to decide, not just march.
               </p>

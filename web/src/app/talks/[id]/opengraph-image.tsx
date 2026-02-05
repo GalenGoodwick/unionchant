@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma'
 
 export const runtime = 'nodejs'
 
-export const alt = 'Union Chant Deliberation'
+export const alt = 'Unity Chant Deliberation'
 export const size = {
   width: 1200,
   height: 630,
@@ -41,7 +41,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
           }}
         >
           <div style={{ fontSize: 72, fontWeight: 700, color: '#ffffff' }}>
-            Union Chant
+            Unity Chant
           </div>
           <div style={{ fontSize: 28, color: '#94a3b8', marginTop: 16 }}>
             Private Deliberation
@@ -77,7 +77,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
         {/* Top: org + phase badge */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 24, color: '#94a3b8' }}>
-            {deliberation.organization || 'Union Chant'}
+            {deliberation.organization || 'Unity Chant'}
           </div>
           <div
             style={{
@@ -134,7 +134,7 @@ export default async function Image({ params }: { params: Promise<{ id: string }
             </div>
           </div>
           <div style={{ fontSize: 28, fontWeight: 600, color: '#475569' }}>
-            Union Chant
+            Unity Chant
           </div>
         </div>
       </div>

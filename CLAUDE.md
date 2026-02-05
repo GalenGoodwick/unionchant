@@ -1,4 +1,4 @@
-# Union Chant - Claude Session Context
+# Unity Chant - Claude Session Context
 
 **For Claude (or any AI) picking up this project in a new session**
 
@@ -137,7 +137,7 @@
 
 ## What Is This?
 
-**Union Chant** is a scalable direct democracy voting system. The core innovation:
+**Unity Chant** is a scalable direct democracy voting system. The core innovation:
 
 1. **Tiered voting** - Ideas compete in small cells (5 people, 5 ideas)
 2. **Deliberation first** - Each cell discusses ideas before voting opens
@@ -958,7 +958,7 @@ Three font families configured (via `next/font` in `layout.tsx`):
 | `font-sans` | Libre Franklin | Body text (default) |
 | `font-mono` | IBM Plex Mono | Numbers, code |
 
-**Note:** The "Union Chant" header logo uses `font-serif` class explicitly since it's a `<Link>`, not an `<h1>`.
+**Note:** The "Unity Chant" header logo uses `font-serif` class explicitly since it's a `<Link>`, not an `<h1>`.
 
 ### Modifying the Theme
 

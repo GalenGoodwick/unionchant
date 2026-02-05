@@ -4,7 +4,7 @@ import Header from '@/components/Header'
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
-  description: 'Terms of Service for Union Chant - the collective decision-making platform.',
+  description: 'Terms of Service for Unity Chant - the collective decision-making platform.',
 }
 
 export default function TermsPage() {
@@ -25,7 +25,7 @@ export default function TermsPage() {
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-3">1. Acceptance of Terms</h2>
               <p className="text-subtle mb-4">
-                By accessing or using Union Chant ("the Service"), you agree to be bound by these Terms of Service.
+                By accessing or using Unity Chant ("the Service"), you agree to be bound by these Terms of Service.
                 If you do not agree to these terms, please do not use the Service.
               </p>
             </section>
@@ -33,7 +33,7 @@ export default function TermsPage() {
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-3">2. Description of Service</h2>
               <p className="text-subtle mb-4">
-                Union Chant is a collective decision-making platform that enables groups to deliberate and reach
+                Unity Chant is a collective decision-making platform that enables groups to deliberate and reach
                 consensus through structured small-group discussions and tiered voting.
               </p>
             </section>
@@ -70,7 +70,7 @@ export default function TermsPage() {
               <h2 className="text-xl font-semibold text-foreground mb-3">5. Content Ownership</h2>
               <p className="text-subtle mb-4">
                 You retain ownership of content you submit to the Service. By submitting content, you grant
-                Union Chant a non-exclusive, worldwide license to use, display, and distribute your content
+                Unity Chant a non-exclusive, worldwide license to use, display, and distribute your content
                 as necessary to provide the Service.
               </p>
             </section>
@@ -102,7 +102,7 @@ export default function TermsPage() {
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-3">9. Limitation of Liability</h2>
               <p className="text-subtle mb-4">
-                Union Chant shall not be liable for any indirect, incidental, special, or consequential
+                Unity Chant shall not be liable for any indirect, incidental, special, or consequential
                 damages arising from your use of the Service.
               </p>
             </section>

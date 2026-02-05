@@ -1,11 +1,11 @@
-# Democratic Analysis: Union Chant v7-STABLE
+# Democratic Analysis: Unity Chant v7-STABLE
 ## Community Consensus Building & Democratic Application
 
 ---
 
 ## Executive Summary
 
-Union Chant v7-STABLE represents a **hybrid democratic model** combining:
+Unity Chant v7-STABLE represents a **hybrid democratic model** combining:
 - **Direct democracy** (everyone votes on everything)
 - **Deliberative democracy** (small group discussion)
 - **Iterative consensus** (multi-round refinement)
@@ -35,7 +35,7 @@ Union Chant v7-STABLE represents a **hybrid democratic model** combining:
 - Representative democracy: Only representatives vote in later stages
 - Liquid democracy: Delegates can vote on behalf of others
 - Sortition: Random sample decides
-- **Union Chant:** Everyone votes, always
+- **Unity Chant:** Everyone votes, always
 
 ### 2. Small Group Deliberation
 **Principle:** Meaningful discussion happens in groups of 3-7 people.
@@ -96,7 +96,7 @@ This addresses a core weakness of mass democracy: **informed deliberation is imp
 **Why this breaks the usual trade-off:**
 Traditional democratic theory assumes: **"Deliberation trades speed for legitimacy."**
 
-Union Chant breaks this structurally, not rhetorically.
+Unity Chant breaks this structurally, not rhetorically.
 
 **The key insight:**
 - A million people do **not** deliberate together
@@ -109,7 +109,7 @@ For 1,000,000 participants:
 - **Referendum:** 1 round, fast but shallow
 - **Social media debate:** ∞ rounds, never converges
 - **Representative process:** Unknown rounds, months/years
-- **Union Chant:** ~7-10 tiers, days/weeks with deep deliberation
+- **Unity Chant:** ~7-10 tiers, days/weeks with deep deliberation
 
 **Democratic value:**
 - **Speed WITHOUT sacrificing participation:** Everyone votes, yet decisions are fast
@@ -120,7 +120,7 @@ For 1,000,000 participants:
 **The breakthrough:**
 Speed is not about fewer people. It's about fewer rounds.
 
-Union Chant reduces rounds without reducing people.
+Unity Chant reduces rounds without reducing people.
 
 **Comparison:**
 | System | People | Rounds | Maintains Deliberation? | Maintains Universal Participation? |
@@ -128,7 +128,7 @@ Union Chant reduces rounds without reducing people.
 | Referendum | 1M | 1 | ❌ No | ✅ Yes |
 | Town Hall | 1M | ∞ | ✅ Yes | ❌ No (impossible at scale) |
 | Representative | 1M | Variable | ⚠️ Limited | ❌ No (only reps vote) |
-| **Union Chant** | **1M** | **~9** | **✅ Yes** | **✅ Yes** |
+| **Unity Chant** | **1M** | **~9** | **✅ Yes** | **✅ Yes** |
 
 ---
 
@@ -202,11 +202,11 @@ Tournament brackets in sports - the "best" team doesn't always win, but champion
 
 ### 3. Majority Tyranny: Structural Mitigation Through Continuous Vetting
 
-**What Union Chant does NOT do:**
+**What Unity Chant does NOT do:**
 It does not eliminate majority dominance in the abstract. No democratic system does.
 
 **What it DOES do:**
-Union Chant prevents **unchecked, unexamined, and instantaneous** majority dominance through continuous vetting across time and context.
+Unity Chant prevents **unchecked, unexamined, and instantaneous** majority dominance through continuous vetting across time and context.
 
 **Key mechanism:**
 In most democratic systems:
@@ -214,7 +214,7 @@ In most democratic systems:
 - It becomes final immediately
 - Minorities are silenced structurally
 
-In Union Chant:
+In Unity Chant:
 - **Majority ideas must win repeatedly** (across multiple tiers)
 - **Against new challengers** (ideas that won other cells)
 - **Under different group compositions** (randomly assigned cells)
@@ -230,7 +230,7 @@ A tyrannical idea typically:
 - Collapses under sustained exposure
 - Cannot survive repeated scrutiny
 
-Union Chant is **explicitly hostile to this pattern** because:
+Unity Chant is **explicitly hostile to this pattern** because:
 - Ideas face **continuous challenge** from competing ideas
 - Majority must **reaffirm support** across tiers
 - Weak or exclusionary ideas tend to lose support when repeatedly evaluated
@@ -239,7 +239,7 @@ Union Chant is **explicitly hostile to this pattern** because:
 **Severity:** LOW TO MODERATE (structural mitigation, not elimination)
 
 **Accurate statement:**
-Union Chant does not prevent majority dominance, but it **replaces one-shot majority rule with continuous, multi-context vetting**—making shallow or exclusionary dominance difficult to sustain.
+Unity Chant does not prevent majority dominance, but it **replaces one-shot majority rule with continuous, multi-context vetting**—making shallow or exclusionary dominance difficult to sustain.
 
 **Additional safeguards (if desired):**
 - Require supermajority in final tier (e.g., 2/3)
@@ -263,7 +263,7 @@ System cannot distinguish between:
 - Passionate minority opposition
 
 **Severity:** MODERATE
-**Standard in most voting systems:** This is a feature of plurality voting generally, not unique to Union Chant.
+**Standard in most voting systems:** This is a feature of plurality voting generally, not unique to Unity Chant.
 
 **Alternatives:**
 - Quadratic voting (spend points)
@@ -341,12 +341,12 @@ For routine decisions, use simpler mechanisms.
 ### vs. Representative Democracy
 **Traditional:** Elect representatives who vote on your behalf
 
-**Union Chant advantages:**
+**Unity Chant advantages:**
 - No delegation = no principal-agent problem
 - Can't be "sold out" by representatives
 - Direct expression of preferences
 
-**Union Chant disadvantages:**
+**Unity Chant disadvantages:**
 - Higher time burden on participants
 - No specialization or expertise development
 - Harder to coordinate at massive scale (though still scales well)
@@ -354,12 +354,12 @@ For routine decisions, use simpler mechanisms.
 ### vs. Liquid Democracy
 **Liquid:** Delegate your vote to someone you trust, reclaim it anytime
 
-**Union Chant advantages:**
+**Unity Chant advantages:**
 - No power concentration in "super delegates"
 - Everyone participates equally
 - No complex delegation chains
 
-**Union Chant disadvantages:**
+**Unity Chant disadvantages:**
 - Can't leverage expertise of trusted delegates
 - Every voter must be informed on every issue
 - Less flexible
@@ -367,12 +367,12 @@ For routine decisions, use simpler mechanisms.
 ### vs. Consensus Decision-Making
 **Consensus:** Everyone must agree (or at least not object)
 
-**Union Chant advantages:**
+**Unity Chant advantages:**
 - Actually scales beyond ~30 people
 - Makes decisions in reasonable time
 - Doesn't give veto power to individuals
 
-**Union Chant disadvantages:**
+**Unity Chant disadvantages:**
 - Doesn't guarantee minority concerns addressed
 - Can have winner despite significant opposition
 - Not true "consensus" - just majority across iterations
@@ -380,12 +380,12 @@ For routine decisions, use simpler mechanisms.
 ### vs. Ranked Choice Voting (RCV)
 **RCV:** Rank candidates, eliminate lowest, redistribute votes
 
-**Union Chant advantages:**
+**Unity Chant advantages:**
 - Deliberation component (discuss in cells)
 - Multiple rounds allow preference evolution
 - Transparent reduction logic
 
-**Union Chant disadvantages:**
+**Unity Chant disadvantages:**
 - More time consuming (multiple rounds vs. one vote)
 - Path dependency issues
 - Information asymmetry in Tier 1
@@ -393,12 +393,12 @@ For routine decisions, use simpler mechanisms.
 ### vs. Quadratic Voting
 **Quadratic:** Buy votes using points (1 vote = 1 point, 2 votes = 4 points, etc.)
 
-**Union Chant advantages:**
+**Unity Chant advantages:**
 - Simpler (no point budgets or strategy)
 - More egalitarian (can't "buy" influence)
 - Easier to understand
 
-**Union Chant disadvantages:**
+**Unity Chant disadvantages:**
 - Can't express intensity of preference
 - All votes weighted equally
 - No mechanism for passionate minorities to influence outcomes
@@ -448,7 +448,7 @@ For routine decisions, use simpler mechanisms.
 - All members affected equally
 - Needs legitimacy for enforcement
 - Deliberation helps members understand trade-offs
-- Name "Union Chant" particularly apt!
+- Name "Unity Chant" particularly apt!
 
 **Example:** 50,000 union members voting on proposed contract
 
@@ -507,7 +507,7 @@ For routine decisions, use simpler mechanisms.
 **Traditional view:**
 Direct democracy doesn't scale. Beyond a few hundred people, you need representatives.
 
-**Union Chant challenges this:**
+**Unity Chant challenges this:**
 - 100,290 people can all vote directly
 - Small group deliberation maintained through cell structure
 - Technology enables multi-tier coordination
@@ -524,7 +524,7 @@ We can have **direct participation at large scale** through structural innovatio
 **Deliberative democracy:** Emphasizes discussion, reasoning, persuasion
 **Aggregative democracy:** Emphasizes counting preferences, majority rule
 
-**Union Chant combines both:**
+**Unity Chant combines both:**
 - Deliberative: Small cell discussions
 - Aggregative: Cross-cell vote tallying
 
@@ -535,7 +535,7 @@ Shows how to get benefits of both without sacrificing either. Previous models of
 
 **Traditional consensus:** Facilitator guides group to agreement
 
-**Union Chant:**
+**Unity Chant:**
 - No central facilitator
 - Consensus emerges from structure
 - Multiple rounds allow natural convergence
@@ -550,7 +550,7 @@ Suggests consensus can be a **process outcome** rather than a **process requirem
 - Maximize individual voice → slow, complex, unwieldy
 - Maximize efficiency → reduce individual input, delegate
 
-**Union Chant's approach:**
+**Unity Chant's approach:**
 - Maintains individual sovereignty (everyone votes)
 - Achieves efficiency through structure (cells, tiers)
 - Logarithmic scaling means process length grows slowly
@@ -633,7 +633,7 @@ The trade-off between sovereignty and efficiency may be less stark than assumed.
 - Stuffs cells with allies
 
 **Mitigation:**
-- Outside Union Chant's scope (need participant authentication)
+- Outside Unity Chant's scope (need participant authentication)
 - Sybil resistance required at system level
 - Could integrate with identity verification
 
@@ -737,7 +737,7 @@ The trade-off between sovereignty and efficiency may be less stark than assumed.
 
 ### When It Excels
 
-Union Chant v7-STABLE is **exceptionally democratic** for:
+Unity Chant v7-STABLE is **exceptionally democratic** for:
 - Communities needing **both speed and legitimacy** (breaks traditional trade-off)
 - Decisions requiring broad buy-in (mission, vision, constitution, governance)
 - Contexts where deliberation adds value (complex trade-offs, diverse perspectives)
@@ -757,11 +757,11 @@ Consider other systems when:
 
 ## Final Thought
 
-Union Chant v7-STABLE represents a **structural breakthrough in democratic design**: it achieves **legitimacy by parallelizing deliberation and compressing decisions logarithmically**, not by trading speed for participation.
+Unity Chant v7-STABLE represents a **structural breakthrough in democratic design**: it achieves **legitimacy by parallelizing deliberation and compressing decisions logarithmically**, not by trading speed for participation.
 
 **The key insight:**
 Speed is not about fewer people. It's about fewer rounds.
-Union Chant reduces rounds without reducing people.
+Unity Chant reduces rounds without reducing people.
 
 **What this enables:**
 For the first time, a community of 100,000+ people can:
@@ -776,7 +776,7 @@ For the first time, a community of 100,000+ people can:
 - Making every decision delightful (it's designed for important choices)
 
 **The honest answer:**
-Union Chant v7-STABLE offers a compelling, defensible answer to:
+Unity Chant v7-STABLE offers a compelling, defensible answer to:
 
 **"How can thousands—or millions—of people make collective decisions where everyone's voice matters, everyone can deliberate meaningfully, and agreement emerges quickly?"**
 
@@ -786,4 +786,4 @@ For communities seeking to embody democratic values of **participation, equality
 
 **Document Version:** 2.0 (Corrected for speed and tyranny mitigation)
 **Date:** 2026-01-24
-**Author:** Democratic analysis of Union Chant v7-STABLE
+**Author:** Democratic analysis of Unity Chant v7-STABLE

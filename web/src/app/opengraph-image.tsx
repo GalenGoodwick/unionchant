@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og'
 
 export const runtime = 'edge'
 
-export const alt = 'Union Chant - Holding Quiet Hope'
+export const alt = 'Unity Chant - Holding Quiet Hope'
 export const size = {
   width: 1200,
   height: 630,
@@ -210,7 +210,7 @@ export default async function Image() {
               marginBottom: 16,
             }}
           >
-            <span style={{ color: '#e8b84b' }}>Union</span>
+            <span style={{ color: '#e8b84b' }}>Unity</span>
             <span style={{ color: '#ffffff', marginLeft: 18 }}> </span>
             <span style={{ color: '#3b82f6' }}>Chant</span>
           </div>

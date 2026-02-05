@@ -82,7 +82,7 @@ function SignInForm() {
   return (
     <>
       <h1 className="text-2xl font-bold text-foreground text-center mb-2">
-        Sign in to Union Chant
+        Sign in to Unity Chant
       </h1>
       <p className="text-muted text-center mb-8">
         Join the conversation
