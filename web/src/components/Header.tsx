@@ -72,7 +72,7 @@ export default function Header() {
           <Image src="/logo.svg" alt="" width={32} height={32} />
           <div className="flex flex-col leading-none">
             <span className="text-xl font-semibold font-serif">Unity Chant</span>
-            <span className="text-[10px] text-white/50 tracking-wider uppercase">holding quiet hope</span>
+            <span className="text-[10px] text-white/50 tracking-wider uppercase">scalable direct democracy</span>
           </div>
         </Link>
 

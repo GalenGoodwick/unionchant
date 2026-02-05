@@ -111,7 +111,7 @@ function generateHomepageOG(): string {
     </text>
 
     <!-- Tagline -->
-    <text x="600" y="300" text-anchor="middle" font-size="24" fill="#94a3b8" font-family="Georgia, serif" font-style="italic" letter-spacing="2">Holding Quiet Hope</text>
+    <text x="600" y="300" text-anchor="middle" font-size="24" fill="#94a3b8" font-family="Georgia, serif" font-style="italic" letter-spacing="2">Scalable Direct Democracy</text>
 
     <!-- Divider line -->
     <line x1="350" y1="340" x2="850" y2="340" stroke="#e8b84b" stroke-width="2" opacity="0.3"/>
