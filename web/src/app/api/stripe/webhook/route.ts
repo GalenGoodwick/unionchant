@@ -20,7 +20,8 @@ export async function POST(req: NextRequest) {
   }
 
   switch (event.type) {
-    case 'checkout.session.completed': {
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session
       if (session.mode !== 'subscription' || !session.subscription || !session.customer) break
 
@@ -44,7 +45,14 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      console.log(`[Stripe] Checkout complete: customer=${customerId} tier=${tier}`)
+      console.log(`[Stripe] ${event.type}: customer=${customerId} tier=${tier}`)
+      break
+    }
+
+    case 'checkout.session.async_payment_failed': {
+      const session = event.data.object as Stripe.Checkout.Session
+      console.log(`[Stripe] Async payment failed: session=${session.id}`)
+      // TODO: Optionally notify user or log for support
       break
     }
 
