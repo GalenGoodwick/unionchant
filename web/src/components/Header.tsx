@@ -60,7 +60,7 @@ export default function Header() {
   return (
     <header className="bg-header text-white relative">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
-        <Link href="/" className="flex items-center gap-2.5 hover:text-accent transition-colors">
+        <Link href="/?home" className="flex items-center gap-2.5 hover:text-accent transition-colors">
           <Image src="/logo.svg" alt="" width={32} height={32} />
           <div className="flex flex-col leading-none">
             <span className="text-xl font-semibold font-serif">Unity Chant</span>

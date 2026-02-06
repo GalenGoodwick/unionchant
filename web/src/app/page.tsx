@@ -236,12 +236,20 @@ export default function Home() {
             a decision they collectively shaped. That is not just a vote count.
             That is a mandate. That is collective will made tangible.&rdquo;
           </p>
-          <Link
-            href="/whitepaper"
-            className="text-accent hover:text-accent-hover font-medium transition-colors"
-          >
-            Read the full whitepaper &rarr;
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link
+              href="/whitepaper"
+              className="text-accent hover:text-accent-hover font-medium transition-colors"
+            >
+              Read the Whitepaper &rarr;
+            </Link>
+            <Link
+              href="/technical"
+              className="text-muted hover:text-foreground font-medium transition-colors"
+            >
+              Technical Whitepaper &rarr;
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -305,12 +313,18 @@ export default function Home() {
               Watch the Demo
             </Link>
           </div>
-          <div className="mt-12 flex justify-center">
+          <div className="mt-12 flex flex-wrap gap-4 justify-center">
             <Link
               href="/whitepaper"
               className="bg-white/10 hover:bg-white/20 text-white px-6 py-2.5 rounded-lg font-medium text-sm transition-colors border border-white/20"
             >
               Read the Whitepaper
+            </Link>
+            <Link
+              href="/technical"
+              className="bg-white/10 hover:bg-white/20 text-white px-6 py-2.5 rounded-lg font-medium text-sm transition-colors border border-white/20"
+            >
+              Technical Whitepaper
             </Link>
           </div>
         </div>

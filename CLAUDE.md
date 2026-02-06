@@ -10,7 +10,14 @@
 **Deployed:** https://unionchant.vercel.app
 **Status:** Full voting + accumulation (rolling mode) working
 
-**Latest Session (Feb 2026 — Participation Safeguards, Security, Privacy):**
+**Latest Session (Feb 2026 — Documentation, Technical Whitepaper, Bug Fixes):**
+- **Technical whitepaper page**: New `/technical` page with full decision process explanation (phases, cell formation, XP voting, tier advancement, final showdown, rolling mode, continuous flow, up-pollination). Linked from landing page in Vision and Final CTA sections.
+- **Decision process doc**: `web/docs/DECISION_PROCESS.md` — comprehensive technical reference for the voting algorithm with all rules, parameters, and edge cases.
+- **Header logo fix**: Logo/name link changed from `href="/"` to `href="/?home"` to bypass middleware feed redirect for returning users.
+- **License update**: Changed from AGPL v3 to custom Union Chant License v1.0.
+- **Landing page**: Added "Technical Whitepaper" links alongside existing whitepaper links in two sections.
+
+**Previous Session (Feb 2026 — Participation Safeguards, Security, Privacy):**
 - **Cell hard cap at 7**: `addLateJoinerToCell()` returns `ROUND_FULL` instead of overflowing. WaitingCard shows lock icon + "Round Full" badge.
 - **Auto-complete on voting timeout**: Zero-vote cells get one deadline extension (tracked via `completedByTimeout`), then force-complete with all ideas advancing.
 - **Supermajority auto-advance**: 80%+ cells done + 10min grace → auto-complete stragglers. Only applies to no-timer mode. New `supermajorityEnabled` Boolean on Deliberation (default true), toggle on create form.
@@ -972,7 +979,7 @@ To change colors app-wide:
 - **Private gate**: `POST /api/communities` and `POST /api/deliberations` return `PRO_REQUIRED` for free users creating private content
 - **Account deletion**: Blocked if active subscription; admin delete auto-cancels via Stripe API
 - **⚠ Stripe checkout flow not yet tested end-to-end** — test with card `4242 4242 4242 4242`
-- **⚠ No link to pricing page yet** — need to add navigation link (header, settings, or upgrade prompts)
+- **⚠ Pricing link exists in header** (for authenticated users) + pricing page at `/pricing`
 - **⚠ Private group infrastructure incomplete** — backend gates exist but UI for creating/managing private groups needs work (invite-only access, member management for private groups, visibility controls)
 - **Stripe CLI**: Installed at `~/stripe-cli`. To test webhooks locally: `~/stripe-cli listen --forward-to localhost:3000/api/stripe/webhook`
 
