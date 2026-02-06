@@ -5,11 +5,13 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import Header from '@/components/Header'
 import FirstVisitTooltip from '@/components/FirstVisitTooltip'
+import { phaseLabel } from '@/lib/labels'
+import { getDisplayName } from '@/lib/user'
 import type { FeedEntry, FeedResponse, PulseStats, ActivityItem } from '@/app/api/feed/route'
 
-type Tab = 'your-turn' | 'activity' | 'results'
+type Tab = 'your-turn' | 'activity' | 'results' | 'all-chants'
 
-const POLL_INTERVALS: Record<Tab, number> = {
+const POLL_INTERVALS: Record<string, number> = {
   'your-turn': 5_000,
   activity: 30_000,
   results: 60_000,
@@ -51,8 +53,13 @@ export default function FeedPage() {
     }
   }, [])
 
-  // Initial fetch + polling
+  // Initial fetch + polling (skip for all-chants tab which manages its own data)
   useEffect(() => {
+    if (tab === 'all-chants') {
+      setLoading(false)
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      return
+    }
     setLoading(true)
     fetchFeed(tab)
 
@@ -89,6 +96,11 @@ export default function FeedPage() {
             active={tab === 'results'}
             onClick={() => handleTabChange('results')}
           />
+          <TabButton
+            label="All Chants"
+            active={tab === 'all-chants'}
+            onClick={() => handleTabChange('all-chants')}
+          />
         </div>
       </div>
 
@@ -107,16 +119,287 @@ export default function FeedPage() {
             </button>
           </div>
         )}
-        {loading && (tab === 'your-turn' ? yourTurnData.items.length === 0 : tab === 'activity' ? !activityData.pulse : resultsData.items.length === 0) ? (
+        {tab === 'all-chants' ? (
+          <AllChantsTab />
+        ) : loading && (tab === 'your-turn' ? yourTurnData.items.length === 0 : tab === 'activity' ? !activityData.pulse : resultsData.items.length === 0) ? (
           <div className="text-center py-20 text-muted">Loading...</div>
         ) : tab === 'your-turn' ? (
           <YourTurnTab items={yourTurnData.items} actionableCount={yourTurnData.actionableCount} authenticated={!!session} />
         ) : tab === 'activity' ? (
           <ActivityTab pulse={activityData.pulse} activity={activityData.activity} />
-        ) : (
+        ) : tab === 'results' ? (
           <ResultsTab items={resultsData.items} />
-        )}
+        ) : null}
       </main>
+    </div>
+  )
+}
+
+// ── All Chants Tab ───────────────────────────────────────────
+
+type ChantItem = {
+  id: string
+  question: string
+  description: string | null
+  organization: string | null
+  phase: string
+  isPublic: boolean
+  tags: string[]
+  views: number
+  upvoteCount: number
+  userHasUpvoted: boolean
+  createdAt: string
+  submissionEndsAt: string | null
+  ideaGoal: number | null
+  creator: { name: string | null; status?: 'ACTIVE' | 'BANNED' | 'DELETED' | null }
+  ideas: { text: string }[]
+  podiums: { id: string; title: string }[]
+  _count: { members: number; ideas: number }
+}
+
+const PAGE_SIZE = 20
+
+function AllChantsTab() {
+  const [allItems, setAllItems] = useState<ChantItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [phaseFilter, setPhaseFilter] = useState('all')
+  const [sortBy, setSortBy] = useState<'hot' | 'new' | 'active'>('hot')
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  // Fetch all chants once
+  useEffect(() => {
+    fetch('/api/deliberations')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        setAllItems(Array.isArray(data) ? data : [])
+        setLoading(false)
+      })
+      .catch(() => { setLoading(false) })
+  }, [])
+
+  // Debounce search
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    searchTimeoutRef.current = setTimeout(() => {
+      setDebouncedSearch(value)
+      setVisibleCount(PAGE_SIZE)
+    }, 300)
+  }
+
+  // Reset visible count on filter/sort change
+  const handlePhaseChange = (phase: string) => {
+    setPhaseFilter(phase)
+    setVisibleCount(PAGE_SIZE)
+  }
+  const handleSortChange = (sort: 'hot' | 'new' | 'active') => {
+    setSortBy(sort)
+    setVisibleCount(PAGE_SIZE)
+  }
+
+  const getHotScore = (d: ChantItem): number => {
+    const views = d.views || 0
+    const members = d._count.members || 0
+    const ideas = d._count.ideas || 0
+    const upvotes = d.upvoteCount || 0
+    const ageHours = (Date.now() - new Date(d.createdAt).getTime()) / (1000 * 60 * 60)
+    const ageFactor = Math.max(1, Math.sqrt(ageHours))
+    return (views + members * 2 + ideas * 3 + upvotes * 5) / ageFactor
+  }
+
+  const filtered = allItems
+    .filter(d => {
+      if (phaseFilter !== 'all' && d.phase !== phaseFilter) return false
+      if (debouncedSearch && !d.question.toLowerCase().includes(debouncedSearch.toLowerCase())) return false
+      return true
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'hot':
+          return getHotScore(b) - getHotScore(a)
+        case 'new':
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        case 'active': {
+          const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, ACCUMULATING: 1, COMPLETED: 0 }
+          const ap = phasePriority[a.phase] ?? 0
+          const bp = phasePriority[b.phase] ?? 0
+          if (bp !== ap) return bp - ap
+          return (b._count.members + b._count.ideas) - (a._count.members + a._count.ideas)
+        }
+        default:
+          return 0
+      }
+    })
+
+  const visible = filtered.slice(0, visibleCount)
+  const hasMore = visibleCount < filtered.length
+
+  const handleUpvote = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(`/api/deliberations/${id}/upvote`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setAllItems(prev => prev.map(d =>
+          d.id === id ? { ...d, userHasUpvoted: data.upvoted, upvoteCount: d.upvoteCount + (data.upvoted ? 1 : -1) } : d
+        ))
+      }
+    } catch { /* ignore */ }
+  }
+
+  const phaseStyles: Record<string, string> = {
+    SUBMISSION: 'bg-accent text-white',
+    VOTING: 'bg-warning text-white',
+    COMPLETED: 'bg-success text-white',
+    ACCUMULATING: 'bg-purple text-white',
+  }
+
+  // Stats
+  const stats = {
+    total: allItems.length,
+    submission: allItems.filter(d => d.phase === 'SUBMISSION').length,
+    voting: allItems.filter(d => d.phase === 'VOTING').length,
+    completed: allItems.filter(d => d.phase === 'COMPLETED').length,
+  }
+
+  if (loading) return <div className="text-center py-20 text-muted">Loading...</div>
+
+  return (
+    <div>
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        <div className="bg-surface rounded-lg border border-border p-2.5 text-center">
+          <div className="text-lg font-bold text-foreground font-mono">{stats.total}</div>
+          <div className="text-muted text-xs">Total</div>
+        </div>
+        <div className="bg-surface rounded-lg border border-border p-2.5 text-center">
+          <div className="text-lg font-bold text-accent font-mono">{stats.submission}</div>
+          <div className="text-muted text-xs">Submission</div>
+        </div>
+        <div className="bg-surface rounded-lg border border-border p-2.5 text-center">
+          <div className="text-lg font-bold text-warning font-mono">{stats.voting}</div>
+          <div className="text-muted text-xs">Voting</div>
+        </div>
+        <div className="bg-surface rounded-lg border border-border p-2.5 text-center">
+          <div className="text-lg font-bold text-success font-mono">{stats.completed}</div>
+          <div className="text-muted text-xs">Completed</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-surface rounded-lg border border-border p-3 mb-4 space-y-2.5">
+        <input
+          type="text"
+          placeholder="Search chants..."
+          value={search}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="w-full bg-background border border-border text-foreground rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+        />
+        <div className="flex gap-1.5 flex-wrap">
+          {['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'].map(phase => (
+            <button
+              key={phase}
+              onClick={() => handlePhaseChange(phase)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs transition-colors ${
+                phaseFilter === phase
+                  ? 'bg-header text-white'
+                  : 'bg-background text-muted border border-border hover:border-border-strong'
+              }`}
+            >
+              {phase === 'all' ? 'All' : phaseLabel(phase)}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted text-xs">Sort:</span>
+          {(['hot', 'new', 'active'] as const).map(sort => (
+            <button
+              key={sort}
+              onClick={() => handleSortChange(sort)}
+              className={`px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                sortBy === sort
+                  ? 'bg-accent text-white'
+                  : 'bg-background text-muted border border-border hover:border-accent'
+              }`}
+            >
+              {sort === 'hot' ? 'Hot' : sort === 'new' ? 'New' : 'Active'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Results count */}
+      <div className="text-xs text-muted mb-3">
+        {filtered.length} chant{filtered.length !== 1 ? 's' : ''}
+        {phaseFilter !== 'all' || debouncedSearch ? ' matching filters' : ''}
+      </div>
+
+      {/* Chant list */}
+      {filtered.length === 0 ? (
+        <div className="bg-surface rounded-lg border border-border p-8 text-center text-muted text-sm">No chants found</div>
+      ) : (
+        <div className="space-y-2.5">
+          {visible.map(d => (
+            <Link key={d.id} href={`/chants/${d.id}`} className="block">
+              <div className="bg-surface border border-border rounded-lg p-3.5 hover:border-accent cursor-pointer transition-colors">
+                <div className="flex justify-between items-start gap-2 mb-1.5">
+                  <span className="text-foreground font-medium text-sm flex-1 leading-snug">
+                    {d.question.length > 80 ? d.question.slice(0, 80) + '...' : d.question}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium shrink-0 ${phaseStyles[d.phase] || 'bg-surface text-muted'}`}>
+                    {phaseLabel(d.phase)}
+                  </span>
+                </div>
+                {d.ideas[0] && (
+                  <p className="text-xs text-success mb-1 truncate">
+                    Priority: {d.ideas[0].text.length > 60 ? d.ideas[0].text.slice(0, 60) + '...' : d.ideas[0].text}
+                  </p>
+                )}
+                <div className="flex items-center gap-2.5 text-xs text-muted flex-wrap">
+                  <button
+                    onClick={(e) => handleUpvote(e, d.id)}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md border transition-colors ${
+                      d.userHasUpvoted
+                        ? 'bg-accent/10 border-accent text-accent'
+                        : 'border-border hover:border-accent hover:text-accent'
+                    }`}
+                  >
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill={d.userHasUpvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                    </svg>
+                    <span className="font-mono">{d.upvoteCount || 0}</span>
+                  </button>
+                  <span className="font-mono">{d._count.members} members</span>
+                  <span className="font-mono">{d._count.ideas} ideas</span>
+                  <span>{getDisplayName(d.creator)}</span>
+                </div>
+                {d.tags && d.tags.length > 0 && (
+                  <div className="flex gap-1 mt-1.5">
+                    {d.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="text-xs bg-background text-muted px-1.5 py-0.5 rounded border border-border">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Link>
+          ))}
+
+          {/* Load More */}
+          {hasMore && (
+            <button
+              onClick={() => setVisibleCount(prev => prev + PAGE_SIZE)}
+              className="w-full py-3 text-sm font-medium text-accent hover:text-accent-hover bg-surface border border-border rounded-lg hover:border-accent transition-colors"
+            >
+              Load More ({filtered.length - visibleCount} remaining)
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -169,7 +452,7 @@ function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEnt
         ))
       ) : (
         <div className="text-center py-8 text-muted text-sm bg-surface border border-border rounded-xl">
-          No upvoted talks yet
+          No upvoted chants yet
         </div>
       )}
     </div>
@@ -183,7 +466,7 @@ function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEnt
     </div>
   ) : (
     <div className="text-center py-8 text-muted text-sm bg-surface border border-border rounded-xl">
-      No new talks
+      No new chants
     </div>
   )
 
@@ -272,7 +555,7 @@ function ActivityTab({ pulse, activity }: { pulse?: PulseStats; activity: Activi
             <div className="text-4xl mb-4">📊</div>
             <h3 className="text-lg font-semibold mb-2">No activity yet</h3>
             <p className="text-muted text-sm">
-              Platform activity from talks you're participating in will appear here.
+              Platform activity from chants you're participating in will appear here.
             </p>
           </div>
         </div>
@@ -312,7 +595,7 @@ function ActivityTimelineItem({ item }: { item: ActivityItem }) {
     </div>
   )
   return item.deliberationId ? (
-    <Link href={`/talks/${item.deliberationId}`} className="block">{inner}</Link>
+    <Link href={`/chants/${item.deliberationId}`} className="block">{inner}</Link>
   ) : (
     inner
   )
@@ -347,7 +630,7 @@ function ResultsTab({ items }: { items: FeedEntry[] }) {
 function ResultCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-success)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-success)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-success)" bg="var(--color-success-bg)">{'\u{1F451}'} Priority Declared</Badge>
         <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
@@ -397,14 +680,14 @@ function EmptyFeed({ authenticated }: { authenticated: boolean }) {
         <h3 className="text-lg font-semibold mb-2">Your feed is empty</h3>
         <p className="text-muted text-sm mb-6">
           {authenticated
-            ? 'Get started by creating a talk or joining a group to participate in deliberations.'
+            ? 'Get started by creating a chant or joining a group to participate in deliberations.'
             : 'Sign in to join deliberations, vote on ideas, and build consensus with others.'}
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           {authenticated ? (
             <>
-              <Link href="/talks/new" className="bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors">
-                + Create a Talk
+              <Link href="/chants/new" className="bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg font-medium text-sm transition-colors">
+                + Create a Chant
               </Link>
               <Link href="/groups" className="border border-border hover:border-accent hover:text-accent px-5 py-2.5 rounded-lg font-medium text-sm transition-colors">
                 Browse Groups
@@ -527,7 +810,7 @@ function UpvoteButton({ deliberationId, count, userUpvoted }: { deliberationId: 
           ? 'text-accent bg-accent/15 font-medium'
           : 'text-muted hover:text-accent hover:bg-accent/10'
       }`}
-      title={upvoted ? 'Remove upvote' : 'Upvote this talk'}
+      title={upvoted ? 'Remove upvote' : 'Upvote this chant'}
     >
       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill={upvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
@@ -566,11 +849,11 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
               </Link>
               {p.deliberationId && (
                 <Link
-                  href={`/talks/${p.deliberationId}`}
+                  href={`/chants/${p.deliberationId}`}
                   className="text-xs bg-accent/15 text-accent px-2 py-1 rounded font-medium shrink-0 hover:bg-accent/25 transition-colors"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  Join Talk &rarr;
+                  Join Chant &rarr;
                 </Link>
               )}
             </div>
@@ -588,7 +871,7 @@ function WaitingCard({ entry }: { entry: FeedEntry }) {
   const isRoundFull = (entry as any).roundFull === true
   return (
     <div className="opacity-70">
-      <Card accentColor="var(--color-border)" href={`/talks/${d.id}`}>
+      <Card accentColor="var(--color-border)" href={`/chants/${d.id}`}>
         <div className="flex justify-between items-center">
           <Badge color="var(--color-muted)" bg="rgba(113,113,122,0.1)">
             {isRoundFull ? '\u{1F512}' : '\u23F3'} {isRoundFull ? 'Round Full' : 'Waiting'} &middot; Tier {d.tier}
@@ -646,7 +929,7 @@ function AdvancedCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const myIdea = entry.myIdea
   return (
-    <Card accentColor="var(--color-success)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-success)" href={`/chants/${d.id}`}>
       <Badge color="var(--color-success)" bg="var(--color-success-bg)">{'\u{1F389}'} Your Pick Advanced</Badge>
       <Question text={d.question} />
       {myIdea && (
@@ -690,12 +973,12 @@ function PodiumCard({ entry }: { entry: FeedEntry }) {
       <div className="text-sm text-muted mt-1 line-clamp-2">{p.preview}</div>
       {p.deliberationId && p.deliberationQuestion && (
         <Link
-          href={`/talks/${p.deliberationId}`}
+          href={`/chants/${p.deliberationId}`}
           onClick={(e) => e.stopPropagation()}
           className="mt-3 flex items-center justify-between bg-accent/10 border border-accent/25 rounded-lg p-2.5 hover:bg-accent/15 transition-colors"
         >
           <div className="min-w-0 flex-1">
-            <div className="text-xs uppercase tracking-wider text-accent font-semibold">Linked Talk</div>
+            <div className="text-xs uppercase tracking-wider text-accent font-semibold">Linked Chant</div>
             <div className="text-sm text-foreground truncate">&ldquo;{p.deliberationQuestion}&rdquo;</div>
           </div>
           <span className="text-xs bg-accent text-white px-2.5 py-1 rounded font-medium shrink-0 ml-2">
@@ -713,7 +996,7 @@ function VoteNowCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const cell = entry.cell
   return (
-    <Card accentColor="var(--color-warning)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-warning)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-warning)" bg="var(--color-warning-bg)">Vote Now &middot; Tier {d.tier}</Badge>
         <div className="flex items-center gap-2">
@@ -750,7 +1033,7 @@ function DeliberateCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const cell = entry.cell
   return (
-    <Card accentColor="var(--color-blue)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-blue)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-blue)" bg="var(--color-blue-bg)">{'\u{1F4AC}'} Deliberate &middot; Tier {d.tier}</Badge>
         <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
@@ -787,7 +1070,7 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const isVotingLive = d.phase === 'VOTING'
   return (
-    <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">{'\u{1F4A1}'} Submit Ideas</Badge>
         <div className="flex items-center gap-2">
@@ -817,7 +1100,7 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
 function JoinCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">
           Join &middot; {d.phase === 'SUBMISSION' ? 'Accepting Ideas' : `Tier ${d.tier}`}
@@ -837,7 +1120,7 @@ function JoinCard({ entry }: { entry: FeedEntry }) {
       {/* Full-width join button */}
       <div className="mt-3">
         <div className="w-full bg-accent text-white text-center py-2 rounded-lg text-sm font-semibold">
-          Join This Talk
+          Join This Chant
         </div>
       </div>
     </Card>
@@ -849,7 +1132,7 @@ function JoinCard({ entry }: { entry: FeedEntry }) {
 function ChampionCardInline({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-purple)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-purple)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-purple)" bg="var(--color-purple-bg)">{'\u2605'} Accepting New Ideas</Badge>
         <div className="flex items-center gap-2">
@@ -877,7 +1160,7 @@ function ChampionCardInline({ entry }: { entry: FeedEntry }) {
 function ChallengeCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-orange)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-orange)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-orange)" bg="var(--color-orange-bg)">Challenge Vote &middot; Round {d.challengeRound + 1} &middot; Tier {d.tier}</Badge>
         <div className="flex items-center gap-2">
@@ -905,7 +1188,7 @@ function ChallengeCard({ entry }: { entry: FeedEntry }) {
 function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
+    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">Extra Vote &middot; Tier {d.tier}</Badge>
         <div className="flex items-center gap-2">
@@ -929,7 +1212,7 @@ function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
 function CompletedCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card href={`/talks/${d.id}`}>
+    <Card href={`/chants/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-success)" bg="var(--color-success-bg)">Priority Declared</Badge>
         <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
