@@ -118,14 +118,44 @@ export async function processExpiredTiers(): Promise<string[]> {
     },
     include: {
       cells: {
-        where: { status: 'VOTING' },
+        where: { tier: { not: undefined } },
+        select: { id: true, status: true, completedAt: true, tier: true },
       },
     },
   })
 
   for (const deliberation of expiredDeliberations) {
-    // Skip no-timer deliberations (advance only when all vote or facilitator forces)
-    if (deliberation.votingTimeoutMs === 0) continue
+    const currentTierCells = deliberation.cells.filter(c => c.tier === deliberation.currentTier)
+    const votingCells = currentTierCells.filter(c => c.status === 'VOTING')
+    const completedCells = currentTierCells.filter(c => c.status === 'COMPLETED')
+
+    // No-timer deliberations: supermajority auto-advance if enabled
+    if (deliberation.votingTimeoutMs === 0) {
+      if (!deliberation.supermajorityEnabled) continue
+      // Supermajority: 80%+ cells done + 10min grace → auto-complete stragglers
+      if (currentTierCells.length >= 3 && votingCells.length > 0) {
+        const completionRate = completedCells.length / currentTierCells.length
+        if (completionRate >= 0.8) {
+          // Check if the last cell completed at least 5 minutes ago
+          const lastCompleted = completedCells
+            .map(c => c.completedAt?.getTime() ?? 0)
+            .reduce((max, t) => Math.max(max, t), 0)
+          const GRACE_MS = 10 * 60 * 1000 // 5 minutes
+          if (lastCompleted > 0 && now.getTime() - lastCompleted >= GRACE_MS) {
+            console.log(`Supermajority auto-advance: ${completedCells.length}/${currentTierCells.length} cells done for deliberation ${deliberation.id}`)
+            for (const cell of votingCells) {
+              try {
+                await processCellResults(cell.id, true)
+                processed.push(cell.id)
+              } catch (err) {
+                console.error(`Failed to auto-advance straggler cell ${cell.id}:`, err)
+              }
+            }
+          }
+        }
+      }
+      continue
+    }
 
     // Calculate if tier has expired: startedAt + timeoutMs < now
     const tierStarted = deliberation.currentTierStartedAt!
@@ -133,7 +163,7 @@ export async function processExpiredTiers(): Promise<string[]> {
 
     if (tierDeadline <= now) {
       // Process all voting cells in this tier
-      for (const cell of deliberation.cells) {
+      for (const cell of votingCells) {
         // Re-check cell status to reduce contention with vote endpoint
         const currentCell = await prisma.cell.findUnique({
           where: { id: cell.id },
@@ -149,6 +179,7 @@ export async function processExpiredTiers(): Promise<string[]> {
         }
       }
     }
+    // Timed mode: no supermajority — let the timer run its course
   }
 
   return processed
@@ -194,14 +225,15 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     select: {
       id: true,
       phase: true,
+      currentTier: true,
       submissionEndsAt: true,
       accumulationEndsAt: true,
       currentTierStartedAt: true,
       votingTimeoutMs: true,
+      supermajorityEnabled: true,
       _count: { select: { ideas: true } },
       cells: {
-        where: { status: { in: ['VOTING', 'DELIBERATING'] } },
-        select: { id: true, status: true, discussionEndsAt: true }
+        select: { id: true, status: true, tier: true, discussionEndsAt: true, completedAt: true }
       }
     }
   })
@@ -270,30 +302,56 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     }
   }
 
-  // Check tier deadline (skip no-timer deliberations)
-  if (
-    deliberation.phase === 'VOTING' &&
-    deliberation.currentTierStartedAt &&
-    deliberation.votingTimeoutMs > 0
-  ) {
-    const tierDeadline = new Date(
-      deliberation.currentTierStartedAt.getTime() + deliberation.votingTimeoutMs
-    )
-    if (tierDeadline <= now) {
-      // Process all voting cells in this tier
-      for (const cell of deliberation.cells) {
-        // Re-check cell status to reduce contention
-        const currentCell = await prisma.cell.findUnique({
-          where: { id: cell.id },
-          select: { status: true },
-        })
-        if (currentCell?.status === 'COMPLETED') continue
+  // Check tier deadline and supermajority auto-advance
+  if (deliberation.phase === 'VOTING') {
+    const currentTierCells = deliberation.cells.filter(c => c.tier === deliberation.currentTier)
+    const votingCells = currentTierCells.filter(c => c.status === 'VOTING')
+    const completedCells = currentTierCells.filter(c => c.status === 'COMPLETED')
 
-        try {
-          await processCellResults(cell.id, true)
-          transitioned = true
-        } catch (err) {
-          console.error(`Lazy tier deadline transition failed for ${cell.id}:`, err)
+    // Tier deadline expired — force complete all voting cells
+    if (
+      deliberation.currentTierStartedAt &&
+      deliberation.votingTimeoutMs > 0
+    ) {
+      const tierDeadline = new Date(
+        deliberation.currentTierStartedAt.getTime() + deliberation.votingTimeoutMs
+      )
+      if (tierDeadline <= now) {
+        for (const cell of votingCells) {
+          const currentCell = await prisma.cell.findUnique({
+            where: { id: cell.id },
+            select: { status: true },
+          })
+          if (currentCell?.status === 'COMPLETED') continue
+
+          try {
+            await processCellResults(cell.id, true)
+            transitioned = true
+          } catch (err) {
+            console.error(`Lazy tier deadline transition failed for ${cell.id}:`, err)
+          }
+        }
+      }
+    }
+
+    // Supermajority auto-advance (no-timer mode only, if enabled): 80%+ cells done, 10min grace
+    if (deliberation.votingTimeoutMs === 0 && deliberation.supermajorityEnabled && currentTierCells.length >= 3 && votingCells.length > 0 && !transitioned) {
+      const completionRate = completedCells.length / currentTierCells.length
+      if (completionRate >= 0.8) {
+        const lastCompleted = completedCells
+          .map(c => c.completedAt?.getTime() ?? 0)
+          .reduce((max, t) => Math.max(max, t), 0)
+        const GRACE_MS = 10 * 60 * 1000
+        if (lastCompleted > 0 && now.getTime() - lastCompleted >= GRACE_MS) {
+          console.log(`Lazy supermajority auto-advance: ${completedCells.length}/${currentTierCells.length} cells done for ${deliberationId}`)
+          for (const cell of votingCells) {
+            try {
+              await processCellResults(cell.id, true)
+              transitioned = true
+            } catch (err) {
+              console.error(`Lazy supermajority auto-advance failed for ${cell.id}:`, err)
+            }
+          }
         }
       }
     }

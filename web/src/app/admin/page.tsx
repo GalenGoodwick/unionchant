@@ -55,10 +55,7 @@ interface AdminUser {
   createdAt: string
   bannedAt: string | null
   banReason: string | null
-  signupIp: string | null
-  signupCountry: string | null
-  signupCity: string | null
-  signupTimezone: string | null
+  zipCode: string | null
   _count: { ideas: number; votes: number; comments: number; deliberationsCreated: number }
 }
 
@@ -645,7 +642,7 @@ export default function AdminPage() {
                       <th className="text-left p-4 text-muted font-medium text-sm">User</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Status</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Joined</th>
-                      <th className="text-left p-4 text-muted font-medium text-sm">Location</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Zip</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Ideas</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Votes</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Actions</th>
@@ -683,14 +680,7 @@ export default function AdminPage() {
                           {new Date(u.createdAt).toLocaleDateString()}
                         </td>
                         <td className="p-4 text-muted text-xs">
-                          {u.signupCity || u.signupCountry ? (
-                            <div title={[u.signupIp, u.signupTimezone].filter(Boolean).join(' / ')}>
-                              <div>{[u.signupCity, u.signupCountry].filter(Boolean).join(', ')}</div>
-                              {u.signupTimezone && <div className="text-subtle">{u.signupTimezone}</div>}
-                            </div>
-                          ) : (
-                            <span className="text-subtle">--</span>
-                          )}
+                          {u.zipCode || <span className="text-subtle">--</span>}
                         </td>
                         <td className="p-4 text-muted font-mono text-sm">{u._count.ideas}</td>
                         <td className="p-4 text-muted font-mono text-sm">{u._count.votes}</td>

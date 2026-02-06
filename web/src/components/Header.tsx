@@ -48,15 +48,6 @@ export default function Header() {
   const pathname = usePathname()
   const isTalkPage = pathname?.startsWith('/talks/')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [userXP, setUserXP] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (!session?.user?.email) return
-    fetch('/api/user/me').then(r => r.json()).then(d => {
-      if (d.user?.totalXP != null) setUserXP(d.user.totalXP)
-    }).catch(() => {})
-  }, [session?.user?.email])
-
   const navLinks = [
     { href: '/feed', label: 'Feed' },
     { href: '/groups', label: 'Groups' },
@@ -69,7 +60,7 @@ export default function Header() {
   return (
     <header className="bg-header text-white relative">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex justify-between items-center">
-        <Link href="/?home" className="flex items-center gap-2.5 hover:text-accent transition-colors">
+        <Link href="/" className="flex items-center gap-2.5 hover:text-accent transition-colors">
           <Image src="/logo.svg" alt="" width={32} height={32} />
           <div className="flex flex-col leading-none">
             <span className="text-xl font-semibold font-serif">Unity Chant</span>
@@ -78,7 +69,7 @@ export default function Header() {
         </Link>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-2 text-sm">
+        <nav className="hidden lg:flex items-center gap-3 text-sm">
           {session && (
             <Link
               href="/talks/new"
@@ -158,9 +149,6 @@ export default function Header() {
                   textClass="text-xs"
                 />
                 <span className="hidden sm:inline">{session.user.name || 'Profile'}</span>
-                {userXP != null && userXP > 0 && (
-                  <span className="text-xs font-mono text-warning bg-warning/10 px-1.5 py-0.5 rounded">{userXP} XP</span>
-                )}
               </Link>
             )
           ) : (
@@ -171,7 +159,7 @@ export default function Header() {
         </nav>
 
         {/* Mobile: notification + burger */}
-        <div className="flex items-center gap-3 md:hidden">
+        <div className="flex items-center gap-3 lg:hidden">
           {session && <NotificationBell onOpen={() => setMenuOpen(false)} />}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
@@ -194,7 +182,7 @@ export default function Header() {
 
       {/* Mobile menu dropdown */}
       {menuOpen && (
-        <div className="md:hidden absolute top-full left-0 right-0 bg-header border-t border-header-hover z-50">
+        <div className="lg:hidden absolute top-full left-0 right-0 bg-header border-t border-header-hover z-50">
           <nav className="flex flex-col p-4 space-y-3 text-sm">
             {navLinks
               .filter(link => link.href !== '/pricing' || session)
@@ -280,9 +268,6 @@ export default function Header() {
                       textClass="text-sm"
                     />
                     <span>{session.user.name || 'Profile'}</span>
-                    {userXP != null && userXP > 0 && (
-                      <span className="text-xs font-mono text-warning bg-warning/10 px-1.5 py-0.5 rounded ml-auto">{userXP} XP</span>
-                    )}
                   </Link>
                 )
               ) : (

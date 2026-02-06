@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This slug is already taken' }, { status: 400 })
     }
 
-    const inviteCode = Math.random().toString(36).substring(2, 10)
+    const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
     const community = await prisma.$transaction(async (tx) => {
       const created = await tx.community.create({

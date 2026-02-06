@@ -17,7 +17,7 @@ const DISCOVERY_TTL = 30_000
 // Per-user+tab response cache (TTL matched to client polling intervals)
 const responseCache = new Map<string, { data: FeedResponse; ts: number }>()
 const RESPONSE_TTL: Record<TabParam, number> = {
-  'your-turn': 15_000,  // polls every 15s
+  'your-turn': 5_000,   // polls every 5s
   'activity':  30_000,  // polls every 30s
   'results':   60_000,  // polls every 60s
 }
@@ -109,6 +109,8 @@ export type FeedEntry = {
     deliberationId?: string | null
     deliberationQuestion?: string | null
   }[]
+  // For round-full waiting cards
+  roundFull?: boolean
   // For extra vote cards
   secondVoteDeadline?: string
   // For completed/results cards
@@ -396,14 +398,10 @@ async function buildYourTurnFeed(
       myIdea,
     }
 
-    // Idea submission open: show submit card alongside vote cards
-    // Must come BEFORE continue statements so it's not skipped
-    if (d.continuousFlow && d.phase === 'VOTING') {
-      if (d.currentTier === 1 && !myIdea) {
-        entries.push({ kind: 'submit', id: `submit-cf-${d.id}`, priority: 60, ...base })
-      } else if (d.currentTier > 1) {
-        entries.push({ kind: 'champion', id: `champ-cf-${d.id}`, priority: 40, ...base })
-      }
+    // Continuous flow (Tier 1 only): submit first, then vote
+    if (d.continuousFlow && d.phase === 'VOTING' && d.currentTier === 1 && !myIdea) {
+      entries.push({ kind: 'submit', id: `submit-cf-${d.id}`, priority: 60, ...base })
+      continue
     }
 
     // Waiting card: user has cell, already voted, cell still voting
@@ -442,7 +440,11 @@ async function buildYourTurnFeed(
         entries.push({ kind: 'vote_now', id: `vote-${d.id}`, priority: 100, ...base })
       }
     }
-    // Voting phase, no cell yet — show the real state, user joins on click-through
+    // Voting phase, member but no cell — round is full, they'll participate next tier
+    else if (d.phase === 'VOTING' && isMember && !cell) {
+      entries.push({ kind: 'waiting', id: `waiting-full-${d.id}`, priority: 5, roundFull: true, ...base })
+    }
+    // Voting phase, not a member yet — show join/vote card
     else if (d.phase === 'VOTING' && !cell) {
       if (d.challengeRound > 0) {
         entries.push({ kind: 'challenge', id: `challenge-${d.id}`, priority: 50, ...base })

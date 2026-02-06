@@ -96,18 +96,16 @@ function PricingContent() {
   const [successMsg, setSuccessMsg] = useState('')
 
   useEffect(() => {
-    if (searchParams.get('success') === 'true') {
-      setSuccessMsg('Subscription activated! Welcome to Pro.')
-      // Refresh tier
-      fetch('/api/user/me').then(r => r.json()).then(data => {
-        if (data.subscriptionTier) setUserTier(data.subscriptionTier)
-      }).catch(() => {})
-    }
-    if (session?.user?.email) {
-      fetch('/api/user/me').then(r => r.json()).then(data => {
-        if (data.subscriptionTier) setUserTier(data.subscriptionTier)
-      }).catch(() => {})
-    }
+    if (!session?.user?.email) return
+    fetch('/api/user/me').then(r => {
+      if (!r.ok) return null
+      return r.json()
+    }).then(data => {
+      if (data?.user?.subscriptionTier) setUserTier(data.user.subscriptionTier)
+      if (searchParams.get('success') === 'true') {
+        setSuccessMsg('Subscription activated! Welcome to Pro.')
+      }
+    }).catch(() => {})
   }, [session, searchParams])
 
   const priceIds: Record<string, string | undefined> = {
@@ -116,40 +114,8 @@ function PricingContent() {
     scale: process.env.NEXT_PUBLIC_STRIPE_PRICE_SCALE,
   }
 
-  const handleCheckout = async (priceEnv: string) => {
-    if (!session) return
-    setLoading(priceEnv)
-    try {
-      const priceId = priceIds[priceEnv]
-      if (!priceId) {
-        alert('This plan is not available yet. Please contact support.')
-        setLoading(null)
-        return
-      }
-      const res = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priceId }),
-      })
-      const data = await res.json()
-      if (data.error === 'ALREADY_SUBSCRIBED') {
-        // Redirect to billing portal instead of showing alert
-        const portalRes = await fetch('/api/stripe/portal', { method: 'POST' })
-        const portalData = await portalRes.json()
-        if (portalData.url) {
-          window.location.href = portalData.url
-          return
-        }
-        alert('Could not open billing portal. Please try again.')
-        return
-      }
-      if (!res.ok) throw new Error(data.error || 'Checkout failed')
-      if (data.url) window.location.href = data.url
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Something went wrong')
-    } finally {
-      setLoading(null)
-    }
+  const handleCheckout = async (_priceEnv: string) => {
+    alert('Paid plans coming soon! Stay tuned.')
   }
 
   const handlePortal = async () => {

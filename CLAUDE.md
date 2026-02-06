@@ -10,39 +10,23 @@
 **Deployed:** https://unionchant.vercel.app
 **Status:** Full voting + accumulation (rolling mode) working
 
-**Latest Session (Feb 2026 — Email System Overhaul, User Stamping, Admin Enhancements):**
-- **Granular email notification preferences**: Replaced single `emailNotifications` toggle with 5 category-specific preferences
-  - `emailVoting` (vote alerts), `emailResults` (champion/priority results), `emailSocial` (follows), `emailCommunity` (group invites), `emailNews` (podium news broadcasts)
-  - All default to `true` (opt-out model). Existing active non-bot users bulk-updated to enabled via SQL.
-  - Settings page has 5 toggle switches with immediate save (optimistic update)
-  - All email-sending code checks relevant preference before sending
-  - Files: `prisma/schema.prisma`, `src/app/api/user/me/route.ts`, `src/app/settings/page.tsx`, `src/lib/email.ts`, `src/app/api/deliberations/route.ts`
-- **User signup stamping**: Captures IP, geolocation, timezone, and user agent at signup
-  - Schema fields: `signupIp`, `signupCountry` (ISO 3166-1), `signupCity`, `signupTimezone` (IANA), `signupUserAgent`
-  - Email/password signup: captured directly in `POST /api/auth/signup` via Vercel geo headers (`x-vercel-ip-country`, `x-vercel-ip-city`, `x-vercel-ip-timezone`)
-  - OAuth users: `POST /api/user/stamp` endpoint called once after login (stamps if `signupIp` is null)
-  - `SignupStamp` component in `providers.tsx` fires on session load (fire-and-forget, `useRef` prevents double-fire)
-  - VPN detection not currently possible — would require third-party IP intelligence service
-  - Files: `prisma/schema.prisma`, `src/app/api/auth/signup/route.ts`, `src/app/api/user/stamp/route.ts` (NEW), `src/app/providers.tsx`
-- **Email template redesign**: Dark theme with logo and gold branding across all 8 templates
-  - Layout: `#111113` body, `#1a1a1e` card, `#2a2a2e` border, logo header with gold `#e8b84b` brand text
-  - Footer: "Scalable Direct Democracy" tagline + "Manage email preferences" link to `/settings`
-  - All templates updated: invite, vote needed, priority declared, group invite, verify email, password reset, following new talk, new tier
-  - Preview file: `/tmp/email-preview.html` (8 templates in 2-column grid)
-  - File: `src/lib/email-templates.ts`
-- **Admin podium news broadcast**: Admin-only "Send as news email" option when creating podium posts
-  - Checkbox on `/podium/new` (visible only to admins)
-  - When checked, POST broadcasts email to all users with `emailNews: true` and creates in-app `PODIUM_NEWS` notifications
-  - `PODIUM_NEWS` added to `NotificationType` enum
-  - New `podiumNewsEmail()` template with title, author, body preview (500 chars), "Read More" CTA
-  - Files: `src/app/api/podiums/route.ts`, `src/app/podium/new/page.tsx`, `src/lib/email-templates.ts`, `prisma/schema.prisma`
-- **Admin user list location column**: Shows city/country with timezone in tooltip, IP on hover, `--` for no data
-  - Files: `src/app/api/admin/users/route.ts`, `src/app/admin/page.tsx`
-- **Wipe-bots fixes**: Fixed `reporterId` field (was `userId`), added `podiums: { none: {} }` to protect podium-writing bots from deletion
-  - File: `src/app/api/admin/test/wipe-bots/route.ts`
-- **Daily digest architecture**: Designed but NOT built. Vercel Cron at `0 8 * * *`, `emailDigest` preference, batch processing. Ready to implement when needed.
-- **Files created**: `src/app/api/user/stamp/route.ts`, `/tmp/email-preview.html`
-- **Files modified**: `prisma/schema.prisma`, `src/app/api/auth/signup/route.ts`, `src/app/providers.tsx`, `src/lib/email-templates.ts`, `src/app/api/podiums/route.ts`, `src/app/podium/new/page.tsx`, `src/lib/email.ts`, `src/app/api/deliberations/route.ts`, `src/app/api/user/me/route.ts`, `src/app/settings/page.tsx`, `src/app/api/admin/users/route.ts`, `src/app/admin/page.tsx`, `src/app/api/admin/test/wipe-bots/route.ts`, `src/components/ShareMenu.tsx`
+**Latest Session (Feb 2026 — Participation Safeguards, Security, Privacy):**
+- **Cell hard cap at 7**: `addLateJoinerToCell()` returns `ROUND_FULL` instead of overflowing. WaitingCard shows lock icon + "Round Full" badge.
+- **Auto-complete on voting timeout**: Zero-vote cells get one deadline extension (tracked via `completedByTimeout`), then force-complete with all ideas advancing.
+- **Supermajority auto-advance**: 80%+ cells done + 10min grace → auto-complete stragglers. Only applies to no-timer mode. New `supermajorityEnabled` Boolean on Deliberation (default true), toggle on create form.
+- **Feed reactivity**: "your-turn" polling reduced from 15s to 5s on both client and server cache.
+- **Manage page metrics**: Per-tier headers show completion stats (cells done, votes cast, active cells). Up-pollinated comments show "Re: {idea text}".
+- **Crypto invite codes**: All 5 invite code generators swapped from `Math.random()` (8 chars) to `crypto.randomUUID()` (16 hex chars, 128-bit).
+- **Email logo fix**: SVG logo replaced with PNG (`logo-email.png`) for email client compatibility.
+- **Removed auto location tracking**: Deleted `signupIp`, `signupCountry`, `signupCity`, `signupTimezone`, `signupUserAgent` fields from User model. Removed `SignupStamp` component and `/api/user/stamp` endpoint.
+- **Optional zip code**: Added `zipCode String?` to User model. Settings page has zip code input. Admin page shows "Zip" column. `/api/user/me` GET/PATCH supports `zipCode`.
+
+**Previous Session (Feb 2026 — Email System Overhaul, Admin Enhancements):**
+- **Granular email notification preferences**: 5 category-specific toggles (`emailVoting`, `emailResults`, `emailSocial`, `emailCommunity`, `emailNews`)
+- **Email template redesign**: Dark theme with PNG logo and gold branding across all templates
+- **Admin podium news broadcast**: Admin-only "Send as news email" with `PODIUM_NEWS` notification type
+- **Admin user list**: Shows zip code column
+- **Daily digest architecture**: Designed but NOT built
 
 **Previous Session (Feb 2026 — Stripe Subscriptions, Private Groups, Community Feed):**
 - **Stripe integration**: Full subscription billing with checkout, webhooks, and billing portal
@@ -173,8 +157,7 @@ Union-Rolling/
 │   │   │   │   └── new/page.tsx   # Create deliberation form
 │   │   │   └── admin/test/page.tsx # Admin test page
 │   │   │   │   ├── user/
-│   │   │   │   │   ├── me/route.ts        # GET/PATCH current user profile + email prefs
-│   │   │   │   │   ├── stamp/route.ts     # POST signup geo stamp (OAuth users)
+│   │   │   │   │   ├── me/route.ts        # GET/PATCH current user profile + email prefs + zipCode
 │   │   │   │   │   └── [id]/route.ts      # GET public user profile
 │   │   │   │   ├── podiums/route.ts       # GET/POST podiums (admin news broadcast)
 │   │   │   ├── lib/
@@ -239,7 +222,7 @@ Key models:
 - `Vote` - Individual votes
 - `CellIdea` - Junction table for ideas in cells
 - `CellParticipant` - Junction table for participants in cells
-- `User` - Includes signup stamping (`signupIp`, `signupCountry`, `signupCity`, `signupTimezone`, `signupUserAgent`), email preferences (`emailVoting`, `emailResults`, `emailSocial`, `emailCommunity`, `emailNews`), Stripe fields (`stripeCustomerId`, `stripeSubscriptionId`, `subscriptionTier`)
+- `User` - Includes optional `zipCode`, email preferences (`emailVoting`, `emailResults`, `emailSocial`, `emailCommunity`, `emailNews`), Stripe fields (`stripeCustomerId`, `stripeSubscriptionId`, `subscriptionTier`)
 - `Podium` - Long-form writing posts, admin news broadcast via `podiumNewsEmail`
 
 ### 4. Email System: `web/src/lib/email-templates.ts` + `web/src/lib/email.ts`
@@ -260,13 +243,13 @@ Key models:
 | `emailCommunity` | Community/group invites | `true` |
 | `emailNews` | Admin podium news broadcasts | `true` |
 
-### 5. User Signup Stamping
+### 5. User Location (Zip Code)
 
-Captures geolocation at signup via Vercel headers:
-- **Email/password**: Captured directly in `POST /api/auth/signup`
-- **OAuth**: `POST /api/user/stamp` called once after login from `SignupStamp` component in `providers.tsx`
-- **Fields**: `signupIp`, `signupCountry`, `signupCity`, `signupTimezone`, `signupUserAgent`
-- **Admin visibility**: Location column on `/admin` user list (city/country, timezone tooltip)
+- **Optional zip code**: Users can set their zip code in Settings → Profile
+- **Schema**: `zipCode String?` on User model
+- **API**: `GET/PATCH /api/user/me` includes `zipCode`
+- **Admin visibility**: "Zip" column on `/admin` user list
+- **No auto-tracking**: Previously had IP/geo stamping — removed in favor of user-provided zip code
 
 ### 6. Main UI: `web/src/app/deliberations/[id]/page.tsx`
 

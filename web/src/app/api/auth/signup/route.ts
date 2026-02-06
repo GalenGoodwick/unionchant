@@ -44,23 +44,12 @@ export async function POST(req: NextRequest) {
     const token = crypto.randomBytes(32).toString('hex')
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24h
 
-    // Capture signup metadata
-    const country = req.headers.get('x-vercel-ip-country') || null
-    const city = req.headers.get('x-vercel-ip-city') || null
-    const timezone = req.headers.get('x-vercel-ip-timezone') || null
-    const userAgent = req.headers.get('user-agent') || null
-
     // Create user and verification token
     const user = await prisma.user.create({
       data: {
         email,
         name: name || null,
         passwordHash,
-        signupIp: ip === 'unknown' ? null : ip,
-        signupCountry: country,
-        signupCity: city,
-        signupTimezone: timezone,
-        signupUserAgent: userAgent,
       },
     })
 

@@ -10,7 +10,7 @@ import type { FeedEntry, FeedResponse, PulseStats, ActivityItem } from '@/app/ap
 type Tab = 'your-turn' | 'activity' | 'results'
 
 const POLL_INTERVALS: Record<Tab, number> = {
-  'your-turn': 15_000,
+  'your-turn': 5_000,
   activity: 30_000,
   results: 60_000,
 }
@@ -585,11 +585,14 @@ function PodiumsSummaryCard({ entry }: { entry: FeedEntry }) {
 function WaitingCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const cell = entry.cell
+  const isRoundFull = (entry as any).roundFull === true
   return (
     <div className="opacity-70">
       <Card accentColor="var(--color-border)" href={`/talks/${d.id}`}>
         <div className="flex justify-between items-center">
-          <Badge color="var(--color-muted)" bg="rgba(113,113,122,0.1)">{'\u23F3'} Waiting &middot; Tier {d.tier}</Badge>
+          <Badge color="var(--color-muted)" bg="rgba(113,113,122,0.1)">
+            {isRoundFull ? '\u{1F512}' : '\u23F3'} {isRoundFull ? 'Round Full' : 'Waiting'} &middot; Tier {d.tier}
+          </Badge>
           <div className="flex items-center gap-2">
             {d.votingDeadline && <span className="text-xs font-mono text-muted-light">{timeLeft(d.votingDeadline)}</span>}
             <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
@@ -597,18 +600,24 @@ function WaitingCard({ entry }: { entry: FeedEntry }) {
         </div>
         <Question text={d.question} />
         <Meta>
-          <span>You voted {'\u2713'}</span>
-          <span>&middot;</span>
-          <span>{cell?.votedCount}/{cell?.memberCount} voted</span>
-          {cell && cell.memberCount - cell.votedCount > 0 && (
+          {isRoundFull ? (
+            <span>You&apos;ll vote in the next round</span>
+          ) : (
             <>
+              <span>You voted {'\u2713'}</span>
               <span>&middot;</span>
-              <span>Waiting for {cell.memberCount - cell.votedCount} more</span>
+              <span>{cell?.votedCount}/{cell?.memberCount} voted</span>
+              {cell && cell.memberCount - cell.votedCount > 0 && (
+                <>
+                  <span>&middot;</span>
+                  <span>Waiting for {cell.memberCount - cell.votedCount} more</span>
+                </>
+              )}
             </>
           )}
         </Meta>
-        {/* Member avatars */}
-        {cell?.members && (
+        {/* Member avatars (not shown for round-full) */}
+        {!isRoundFull && cell?.members && (
           <div className="flex gap-1 mt-2">
             {cell.members.map((m, i) => (
               <div
@@ -776,11 +785,18 @@ function DeliberateCard({ entry }: { entry: FeedEntry }) {
 
 function SubmitCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
+  const isVotingLive = d.phase === 'VOTING'
   return (
     <Card accentColor="var(--color-accent)" href={`/talks/${d.id}`}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">{'\u{1F4A1}'} Submit Ideas</Badge>
         <div className="flex items-center gap-2">
+          {isVotingLive && (
+            <span className="flex items-center gap-1 text-xs font-medium" style={{ color: 'var(--color-warning)' }}>
+              <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--color-warning)' }} />
+              Voting live
+            </span>
+          )}
           <span className="text-xs text-muted-light">{d.submissionDeadline ? `${timeLeft(d.submissionDeadline)} left` : 'Facilitated'}</span>
           <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
         </div>

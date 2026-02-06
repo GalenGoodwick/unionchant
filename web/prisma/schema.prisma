@@ -43,11 +43,7 @@ model User {
   emailSocial        Boolean @default(true)   // New followers, followed user creates talk
   emailCommunity     Boolean @default(true)   // Group invites, new talks in your groups
   emailNews          Boolean @default(true)   // Admin news/podium broadcasts
-  signupIp        String?
-  signupCountry   String?   // ISO 3166-1 (e.g. "US")
-  signupCity      String?
-  signupTimezone  String?   // IANA (e.g. "America/New_York")
-  signupUserAgent String?
+  zipCode         String?   // Optional, user-provided
   subscriptionTier   String  @default("free") // "free", "pro", "business", "scale"
   stripeCustomerId   String? @unique
   stripeSubscriptionId String?
@@ -183,6 +179,7 @@ model Deliberation {
   accumulationEnabled   Boolean  @default(true)
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
   continuousFlow        Boolean  @default(false)     // Tier 1: submit + vote in parallel; tier 2+: new ideas pool for next round
+  supermajorityEnabled  Boolean  @default(true)      // No-timer mode: auto-advance tier when 80%+ cells done (10min grace)
   isPublic              Boolean  @default(true)
 
   // Goal-based auto-start (null = unlimited/manual start)

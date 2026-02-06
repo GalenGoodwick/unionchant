@@ -27,6 +27,7 @@ export default function SettingsPage() {
   const [profileError, setProfileError] = useState<string | null>(null)
   const [profileSuccess, setProfileSuccess] = useState(false)
   const [currentBio, setCurrentBio] = useState<string | null>(null)
+  const [profileZip, setProfileZip] = useState('')
 
   // Email preferences
   const [emailPrefs, setEmailPrefs] = useState({
@@ -62,6 +63,7 @@ export default function SettingsPage() {
           setCurrentBio(data.user.bio)
           setProfileBio(data.user.bio || '')
           setProfileName(data.user.name || '')
+          setProfileZip(data.user.zipCode || '')
           setEmailPrefs({
             emailVoting: data.user.emailVoting ?? true,
             emailResults: data.user.emailResults ?? true,
@@ -88,7 +90,7 @@ export default function SettingsPage() {
       const res = await fetch('/api/user/me', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: profileName, bio: profileBio || null }),
+        body: JSON.stringify({ name: profileName, bio: profileBio || null, zipCode: profileZip || null }),
       })
 
       if (!res.ok) {
@@ -265,6 +267,19 @@ export default function SettingsPage() {
                     />
                     <p className="text-xs text-muted mt-1">{profileBio.length}/200</p>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-foreground mb-1">
+                      Zip Code <span className="text-muted font-normal">(optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={profileZip}
+                      onChange={(e) => setProfileZip(e.target.value.replace(/[^0-9-]/g, '').slice(0, 10))}
+                      maxLength={10}
+                      placeholder="e.g. 90210"
+                      className="w-32 px-3 py-2 border border-border rounded-xl bg-surface text-foreground focus:outline-none focus:ring-2 focus:ring-accent"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -285,6 +300,7 @@ export default function SettingsPage() {
                     setIsEditingProfile(false)
                     setProfileName(session.user?.name || '')
                     setProfileBio(currentBio || '')
+                    setProfileZip(profileZip)
                     setProfileError(null)
                   }}
                   disabled={profileSaving}

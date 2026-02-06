@@ -119,6 +119,7 @@ export async function POST(req: NextRequest) {
       accumulationEnabled,
       accumulationTimeoutMs,
       continuousFlow,
+      supermajorityEnabled,
       ideaGoal,
       captchaToken,
       // Community integration
@@ -176,7 +177,7 @@ export async function POST(req: NextRequest) {
       : []
 
     // Generate a short, readable invite code
-    const inviteCode = Math.random().toString(36).substring(2, 10)
+    const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
     // Calculate submission end time if duration provided
     const submissionEndsAt = submissionDurationMs
@@ -199,6 +200,7 @@ export async function POST(req: NextRequest) {
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         ...(continuousFlow !== undefined && { continuousFlow }),
+        ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
         // Community integration

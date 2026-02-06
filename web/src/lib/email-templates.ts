@@ -1,5 +1,5 @@
 const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.unitychant.com'
-const logoUrl = `${baseUrl}/logo.svg`
+const logoUrl = `${baseUrl}/logo-email.png`
 
 const layout = (content: string) => `
 <!DOCTYPE html>

@@ -457,7 +457,7 @@ export default function DashboardDetailPage() {
                       <span>{deliberation.cells.filter(c => c.status === 'COMPLETED').length} done</span>
                     </div>
                     {/* Idea Submission: Open / Close */}
-                    {deliberation.continuousFlow ? (
+                    {deliberation.continuousFlow && deliberation.currentTier <= 1 ? (
                       <>
                         <button
                           onClick={async () => { await patchSettings({ continuousFlow: false }) }}
@@ -466,40 +466,42 @@ export default function DashboardDetailPage() {
                         >
                           {saving ? 'Saving...' : 'Close Idea Submission'}
                         </button>
-                        <p className="text-xs text-muted mt-1">
-                          {deliberation.currentTier <= 1
-                            ? 'New ideas join Tier 1 voting directly.'
-                            : 'New ideas pool for the next round (accumulation).'}
-                        </p>
+                        <p className="text-xs text-muted mt-1">New ideas join Tier 1 voting directly.</p>
                       </>
                     ) : (
                       <>
                         <button
-                          onClick={async () => { await patchSettings({ continuousFlow: true }) }}
-                          disabled={saving}
+                          onClick={async () => { if (deliberation.currentTier <= 1) await patchSettings({ continuousFlow: true }) }}
+                          disabled={saving || deliberation.currentTier > 1}
                           className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                          title={deliberation.currentTier > 1 ? 'Idea submission is only available during Tier 1. New ideas enter through the Accepting New Ideas phase after a priority is chosen.' : ''}
                         >
                           {saving ? 'Saving...' : 'Open Idea Submission'}
                         </button>
                         <p className="text-xs text-muted mt-1">
-                          {deliberation.currentTier <= 1
-                            ? 'Opens idea submission alongside Tier 1 voting.'
-                            : 'Opens idea submission — new ideas will pool for the next round.'}
+                          {deliberation.currentTier > 1
+                            ? 'Not available past Tier 1. New ideas enter after a priority is chosen.'
+                            : 'Opens idea submission alongside Tier 1 voting.'}
                         </p>
                       </>
                     )}
 
                     {/* Open Voting — only if cells are in discussion */}
                     {deliberation.cells.some(c => c.status === 'DELIBERATING') && (
-                      <button
-                        onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
-                        disabled={actionLoading === 'advance-discussion'}
-                        className="w-full bg-blue hover:bg-blue-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
-                      >
-                        {actionLoading === 'advance-discussion'
-                          ? 'Opening...'
-                          : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleAction('advance-discussion', `/api/deliberations/${deliberationId}/advance-discussion`)}
+                          disabled={actionLoading === 'advance-discussion'}
+                          className="w-full bg-blue hover:bg-blue-hover disabled:opacity-40 text-white font-medium px-4 py-2.5 rounded-lg transition-colors"
+                        >
+                          {actionLoading === 'advance-discussion'
+                            ? 'Opening...'
+                            : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
+                        </button>
+                        {deliberation.currentTier > 1 && deliberation.accumulationEnabled && (
+                          <p className="text-xs text-muted mt-1">After a priority is chosen, the talk will accept new challenger ideas for Round 2.</p>
+                        )}
+                      </>
                     )}
 
                     {/* Force Complete */}
@@ -915,6 +917,9 @@ export default function DashboardDetailPage() {
                         <span>-</span>
                         <span>{comment.upvoteCount} upvotes</span>
                       </div>
+                      {comment.idea && (
+                        <p className="text-xs text-accent mb-1 truncate">Re: {comment.idea.text}</p>
+                      )}
                       <p className="text-sm text-foreground">{comment.text}</p>
                       <p className="text-xs text-muted mt-1">-- {comment.user.name || 'Anonymous'}</p>
                     </div>
@@ -1086,9 +1091,53 @@ export default function DashboardDetailPage() {
           <div className="space-y-4">
             {/* Active Cells */}
             <div className="bg-surface border border-border rounded-xl p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">
-                Active Cells ({deliberation.cells.filter(c => c.status === 'VOTING').length})
+              <h2 className="text-lg font-semibold text-foreground mb-3">
+                Cells
               </h2>
+
+              {/* Tier Progress Summary */}
+              {deliberation.phase === 'VOTING' && (() => {
+                const currentTierCells = deliberation.cells.filter(c => c.tier === deliberation.currentTier)
+                const completedCells = currentTierCells.filter(c => c.status === 'COMPLETED')
+                const votingCells = currentTierCells.filter(c => c.status === 'VOTING')
+                const totalVotes = currentTierCells.reduce((sum, c) => sum + c._count.votes, 0)
+                const totalParticipants = currentTierCells.reduce((sum, c) => sum + c.participants.length, 0)
+                const completionPct = currentTierCells.length > 0 ? Math.round((completedCells.length / currentTierCells.length) * 100) : 0
+                const votePct = totalParticipants > 0 ? Math.round((totalVotes / totalParticipants) * 100) : 0
+
+                return (
+                  <div className="mb-4 p-3 rounded-lg bg-background border border-border">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-warning">Tier {deliberation.currentTier} Progress</span>
+                      <span className="text-xs text-muted">{completionPct}% complete</span>
+                    </div>
+                    {/* Progress bar */}
+                    <div className="w-full h-1.5 bg-border rounded-full mb-2">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${completionPct}%`,
+                          background: completionPct === 100 ? 'var(--color-success)' : 'var(--color-warning)',
+                        }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <div className="text-lg font-mono font-bold text-foreground">{completedCells.length}/{currentTierCells.length}</div>
+                        <div className="text-[10px] text-muted uppercase">Cells Done</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-mono font-bold text-foreground">{totalVotes}/{totalParticipants}</div>
+                        <div className="text-[10px] text-muted uppercase">Voted ({votePct}%)</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-mono font-bold text-foreground">{votingCells.length}</div>
+                        <div className="text-[10px] text-muted uppercase">Still Voting</div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
 
               <div className="space-y-4 max-h-96 overflow-y-auto">
                 {Array.from(new Set(deliberation.cells.map(c => c.tier)))
@@ -1099,20 +1148,28 @@ export default function DashboardDetailPage() {
                     const hasMultipleBatches = tier > 1 && batches.length > 1
                     const isCurrentTier = tier === deliberation.currentTier
 
+                    const tierCompletedCells = tierCells.filter(c => c.status === 'COMPLETED')
+                    const tierVotingCells = tierCells.filter(c => c.status === 'VOTING')
+                    const tierTotalVotes = tierCells.reduce((sum, c) => sum + c._count.votes, 0)
+                    const tierTotalParticipants = tierCells.reduce((sum, c) => sum + c.participants.length, 0)
+                    const tierVotePct = tierTotalParticipants > 0 ? Math.round((tierTotalVotes / tierTotalParticipants) * 100) : 0
+                    const tierDone = tierCompletedCells.length === tierCells.length
+
                     return (
                       <div key={tier} className={isCurrentTier ? '' : 'opacity-60'}>
-                        <div className="text-xs text-muted mb-2 flex items-center gap-2">
-                          <span className={`font-medium ${isCurrentTier ? 'text-warning' : 'text-success'}`}>
-                            Tier {tier}
-                          </span>
-                          <span>
-                            {(() => {
-                              const totalParticipants = tierCells.reduce((sum, c) => sum + c.participants.length, 0)
-                              return hasMultipleBatches
-                                ? `(${batches.length} batches, ${tierCells.length} cells, ${totalParticipants} people)`
-                                : `(${tierCells.length} cells, ${totalParticipants} people)`
-                            })()}
-                          </span>
+                        <div className="text-xs text-muted mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`font-medium ${isCurrentTier ? 'text-warning' : tierDone ? 'text-success' : 'text-muted'}`}>
+                              Tier {tier}
+                            </span>
+                            <span>
+                              {tierCompletedCells.length}/{tierCells.length} cells
+                              {' \u00b7 '}
+                              {tierTotalVotes}/{tierTotalParticipants} voted ({tierVotePct}%)
+                              {tierVotingCells.length > 0 && ` \u00b7 ${tierVotingCells.length} active`}
+                              {tierDone && ' \u2713'}
+                            </span>
+                          </div>
                         </div>
 
                         {tier > 1 && hasMultipleBatches ? (

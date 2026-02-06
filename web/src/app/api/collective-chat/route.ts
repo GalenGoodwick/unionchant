@@ -434,7 +434,7 @@ BEHAVIOR:
         const question = result.toolUse.toolInput.question as string
         if (question && question.trim().length > 0 && question.trim().length <= 2000) {
           try {
-            const inviteCode = Math.random().toString(36).substring(2, 10)
+            const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
             const submissionDurationMs = 86400000
             const newTalk = await prisma.deliberation.create({
               data: {

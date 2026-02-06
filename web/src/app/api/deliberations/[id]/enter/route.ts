@@ -182,7 +182,11 @@ export async function POST(
           error: 'No cells with different ideas available. All remaining cells have the same ideas you already voted on.'
         }, { status: 400 })
       }
-      return NextResponse.json({ error: 'No voting cells available' }, { status: 400 })
+      // All cells at capacity or none available
+      return NextResponse.json({
+        error: 'This round is full. You\'ll be included in the next round.',
+        roundFull: true,
+      }, { status: 400 })
     }
 
     // Ensure user is a member of the deliberation

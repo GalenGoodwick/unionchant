@@ -47,10 +47,7 @@ export async function GET(req: NextRequest) {
           createdAt: true,
           bannedAt: true,
           banReason: true,
-          signupIp: true,
-          signupCountry: true,
-          signupCity: true,
-          signupTimezone: true,
+          zipCode: true,
           _count: {
             select: {
               ideas: true,

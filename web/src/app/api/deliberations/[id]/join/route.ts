@@ -95,12 +95,16 @@ export async function POST(
     }
 
     // Handle based on deliberation phase
+    let roundFull = false
     if (deliberation.phase === 'VOTING') {
       // Late joiner - add them to an existing cell so they can participate
       try {
         const result = await addLateJoinerToCell(id, user.id)
         if (result.success) {
           console.log(`[JOIN] Late joiner ${user.id} added to cell ${result.cellId}`)
+        } else if (result.reason === 'ROUND_FULL') {
+          console.log(`[JOIN] Round full for late joiner ${user.id} — will participate next tier`)
+          roundFull = true
         }
       } catch (err) {
         console.error('Failed to add late joiner to cell:', err)
@@ -108,7 +112,7 @@ export async function POST(
       }
     }
 
-    return NextResponse.json(membership, { status: 201 })
+    return NextResponse.json({ ...membership, roundFull }, { status: 201 })
   } catch (error) {
     console.error('Error joining deliberation:', error)
     return NextResponse.json({ error: 'Failed to join deliberation' }, { status: 500 })

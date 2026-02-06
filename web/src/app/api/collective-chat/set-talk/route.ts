@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create a new Talk with default facilitation settings
-    const inviteCode = Math.random().toString(36).substring(2, 10)
+    const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
     const submissionDurationMs = 86400000 // 24 hours
     const newTalk = await prisma.deliberation.create({
       data: {

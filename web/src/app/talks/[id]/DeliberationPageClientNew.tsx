@@ -265,6 +265,36 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const votedCurrentTierCell = d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
   const displayCell = activeCell || votedCurrentTierCell
 
+  // Continuous flow (Tier 1 only): show submission form if user hasn't submitted yet
+  if (delib.continuousFlow && delib.currentTier === 1 && delib.isMember && !delib.userSubmittedIdea) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-warning-bg border border-warning rounded-[10px] px-4 py-2.5 flex items-center gap-2">
+          <span className="text-warning text-sm">&#9679;</span>
+          <span className="text-warning text-sm font-medium">Voting is live</span>
+          <span className="text-muted text-xs ml-1">— submit your idea to join</span>
+        </div>
+        <form onSubmit={d.handleSubmitIdea} className="bg-surface border border-border rounded-[10px] p-4">
+          <label className="text-sm font-medium text-foreground mb-2 block">Submit your idea</label>
+          <textarea
+            placeholder="What's your answer to this question?"
+            value={d.newIdea}
+            onChange={(e) => d.setNewIdea(e.target.value)}
+            rows={3}
+            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent resize-none"
+          />
+          <button
+            type="submit"
+            disabled={d.submitting || !d.newIdea.trim()}
+            className="mt-2 w-full bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+          >
+            {d.submitting ? 'Submitting...' : 'Submit Idea'}
+          </button>
+        </form>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       {/* Cell members bar */}

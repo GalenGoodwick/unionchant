@@ -63,6 +63,8 @@ function NewDeliberationForm() {
     discussionMinutes: 120,
     // Continuous flow
     continuousFlow: false,
+    // Supermajority auto-advance (no-timer mode)
+    supermajorityEnabled: true,
   })
 
   useEffect(() => {
@@ -160,6 +162,7 @@ function NewDeliberationForm() {
             : null,
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
           continuousFlow: formData.continuousFlow,
+          supermajorityEnabled: formData.tierAdvanceMode === 'natural' ? formData.supermajorityEnabled : false,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
           captchaToken,
@@ -212,6 +215,7 @@ function NewDeliberationForm() {
   else settingsSummary.push('Ends when winner chosen')
 
   if (formData.continuousFlow) settingsSummary.push('Continuous flow')
+  if (formData.tierAdvanceMode === 'natural' && formData.supermajorityEnabled) settingsSummary.push('Supermajority auto-advance')
 
   return (
     <div className="min-h-screen bg-surface">
@@ -482,6 +486,25 @@ function NewDeliberationForm() {
                     </div>
                   )}
                 </div>
+
+                {/* Supermajority Auto-Advance (no-timer mode only) */}
+                {formData.tierAdvanceMode === 'natural' && (
+                  <div className="flex items-start gap-3 p-3 rounded-lg bg-background border border-border">
+                    <input
+                      type="checkbox"
+                      id="supermajority"
+                      checked={formData.supermajorityEnabled}
+                      onChange={(e) => setFormData({ ...formData, supermajorityEnabled: e.target.checked })}
+                      className="mt-0.5 accent-accent"
+                    />
+                    <label htmlFor="supermajority" className="text-sm cursor-pointer">
+                      <span className="text-foreground font-medium">Supermajority auto-advance</span>
+                      <p className="text-xs text-muted mt-0.5">
+                        When 80%+ of cells finish voting, the remaining cells are auto-completed after a 10-minute grace period. Prevents one stalled cell from blocking the entire round.
+                      </p>
+                    </label>
+                  </div>
+                )}
 
                 {/* Winner Mode */}
                 <div>

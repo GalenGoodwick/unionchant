@@ -458,22 +458,31 @@ export async function startVotingPhase(deliberationId: string) {
  * Process cell results and handle tier completion
  */
 export async function processCellResults(cellId: string, isTimeout = false) {
-  // If timeout with zero votes, reset the cell — wait for facilitator or all votes in
+  // If timeout with zero votes, extend once then force-complete
   if (isTimeout) {
     const voteCount = await prisma.vote.count({ where: { cellId } })
     if (voteCount === 0) {
       const cell = await prisma.cell.findUnique({
         where: { id: cellId },
-        select: { deliberation: { select: { votingTimeoutMs: true } } },
+        select: {
+          completedByTimeout: true,
+          deliberation: { select: { votingTimeoutMs: true } },
+        },
       })
-      const timeoutMs = cell?.deliberation?.votingTimeoutMs
-      const newDeadline = timeoutMs ? new Date(Date.now() + timeoutMs) : null
-      await prisma.cell.update({
-        where: { id: cellId },
-        data: { votingDeadline: newDeadline },
-      })
-      console.log(`Cell ${cellId}: zero votes on timeout, ${newDeadline ? `resetting deadline to ${newDeadline.toISOString()}` : 'clearing deadline — waiting for facilitator or all votes'}`)
-      return null
+      // If cell hasn't been extended yet, give it one more timeout period
+      // completedByTimeout is repurposed here as "already extended once" flag
+      if (!cell?.completedByTimeout) {
+        const timeoutMs = cell?.deliberation?.votingTimeoutMs
+        const newDeadline = timeoutMs ? new Date(Date.now() + timeoutMs) : null
+        await prisma.cell.update({
+          where: { id: cellId },
+          data: { votingDeadline: newDeadline, completedByTimeout: true },
+        })
+        console.log(`Cell ${cellId}: zero votes on timeout, extending deadline once to ${newDeadline?.toISOString() ?? 'null'}`)
+        return null
+      }
+      // Already extended once — force complete (all ideas advance as tie)
+      console.log(`Cell ${cellId}: zero votes after extension, force-completing — all ideas advance`)
     }
   }
 
@@ -940,6 +949,51 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     console.log(`checkTierCompletion: claimed tier advancement ${tier}→${nextTier} for ${deliberationId}`)
 
+    // Backfill to 5 ideas for final showdown if we have 2-4 advancing
+    if (advancingIdeas.length >= 2 && advancingIdeas.length < 5) {
+      const needed = 5 - advancingIdeas.length
+      // Pull runners-up by totalXP from ideas eliminated this tier
+      const allRunnersUp = await prisma.idea.findMany({
+        where: {
+          deliberationId,
+          status: 'ELIMINATED',
+          tier: tier,
+        },
+        orderBy: { totalXP: 'desc' },
+      })
+
+      if (allRunnersUp.length > 0) {
+        let toRevive = allRunnersUp.slice(0, needed)
+
+        // Check for ties at the cutoff — if the last included idea ties with excluded ones, include them (max 7 total)
+        if (toRevive.length === needed && allRunnersUp.length > needed) {
+          const cutoffXP = toRevive[toRevive.length - 1].totalXP
+          const tiedExtras = allRunnersUp.slice(needed).filter(i => i.totalXP === cutoffXP)
+          if (tiedExtras.length > 0 && advancingIdeas.length + needed + tiedExtras.length <= 7) {
+            // Include all tied ideas (allows 6-7 in final showdown)
+            toRevive = [...toRevive, ...tiedExtras]
+            console.log(`checkTierCompletion: including ${tiedExtras.length} tied ideas at ${cutoffXP} VP`)
+          } else if (tiedExtras.length > 0) {
+            // Too many ties to include all — randomly pick from the tied group to fill to 5
+            const tiedPool = [...toRevive.filter(i => i.totalXP === cutoffXP), ...tiedExtras]
+            const nonTied = toRevive.filter(i => i.totalXP !== cutoffXP)
+            const slotsForTied = needed - nonTied.length
+            const shuffledTied = tiedPool.sort(() => Math.random() - 0.5).slice(0, slotsForTied)
+            toRevive = [...nonTied, ...shuffledTied]
+            console.log(`checkTierCompletion: randomly picked ${slotsForTied} from ${tiedPool.length} tied ideas at ${cutoffXP} VP`)
+          }
+        }
+
+        // Revive runners-up back to ADVANCING
+        await prisma.idea.updateMany({
+          where: { id: { in: toRevive.map(i => i.id) } },
+          data: { status: 'ADVANCING' },
+        })
+        advancingIdeas.push(...toRevive)
+        console.log(`checkTierCompletion: backfilled ${toRevive.length} runners-up by VP to reach ${advancingIdeas.length} ideas for final showdown`)
+      }
+    }
+
     const shuffledIdeas = [...advancingIdeas].sort(() => Math.random() - 0.5)
     const shuffledMembers = [...deliberation.members].sort(() => Math.random() - 0.5)
 
@@ -1135,19 +1189,8 @@ export async function addLateJoinerToCell(deliberationId: string, userId: string
   }
 
   if (!targetCell) {
-    // All cells at max size — pick the globally smallest cell
-    cells.sort((a, b) => a._count.participants - b._count.participants)
-    targetCell = cells[0]
-
-    await prisma.cellParticipation.create({
-      data: { cellId: targetCell.id, userId },
-    })
-
-    return {
-      success: true,
-      cellId: targetCell.id,
-      note: 'Added to full cell (overflow)'
-    }
+    // All cells at max capacity (7) — round is full
+    return { success: false, reason: 'ROUND_FULL' }
   }
 
   await prisma.cellParticipation.create({

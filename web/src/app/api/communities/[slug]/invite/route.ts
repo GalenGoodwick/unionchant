@@ -53,7 +53,7 @@ export async function POST(
     // Generate invite code if missing
     let inviteCode = community.inviteCode
     if (!inviteCode) {
-      inviteCode = Math.random().toString(36).substring(2, 10)
+      inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
       await prisma.community.update({
         where: { id: community.id },
         data: { inviteCode },

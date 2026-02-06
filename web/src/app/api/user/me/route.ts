@@ -61,6 +61,7 @@ export async function GET() {
         email: user.email,
         image: user.image,
         bio: (user as any).bio || null,
+        zipCode: (user as any).zipCode || null,
         role: user.role,
         status: user.status,
         onboardedAt: (user as any).onboardedAt || null,
@@ -103,7 +104,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { name, bio, emailNotifications, emailVoting, emailResults, emailSocial, emailCommunity, emailNews } = await request.json()
+    const { name, bio, zipCode, emailNotifications, emailVoting, emailResults, emailSocial, emailCommunity, emailNews } = await request.json()
 
     const updateData: Record<string, string | boolean | null> = {}
 
@@ -125,6 +126,17 @@ export async function PATCH(request: Request) {
           return NextResponse.json({ error: 'Bio must be 200 characters or less' }, { status: 400 })
         }
         updateData.bio = bio.trim()
+      }
+    }
+
+    if (zipCode !== undefined) {
+      if (zipCode === null || zipCode === '') {
+        updateData.zipCode = null
+      } else if (typeof zipCode === 'string') {
+        if (zipCode.length > 10) {
+          return NextResponse.json({ error: 'Zip code must be 10 characters or less' }, { status: 400 })
+        }
+        updateData.zipCode = zipCode.trim()
       }
     }
 
