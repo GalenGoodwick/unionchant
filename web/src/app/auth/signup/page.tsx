@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import ReCaptcha from '@/components/ReCaptcha'
+
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -13,8 +13,6 @@ export default function SignUpPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
-  const handleCaptchaExpire = useCallback(() => setCaptchaToken(null), [])
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
 
@@ -27,7 +25,7 @@ export default function SignUpPage() {
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, captchaToken }),
+        body: JSON.stringify({ name, email, password }),
       })
 
       const data = await res.json()
@@ -159,11 +157,6 @@ export default function SignUpPage() {
               placeholder="At least 8 characters"
             />
           </div>
-          <ReCaptcha
-            onVerify={setCaptchaToken}
-            onExpire={handleCaptchaExpire}
-            className="flex justify-center"
-          />
           <p className="text-xs text-muted text-center">
             By signing up, you agree to our{' '}
             <Link href="/terms" className="text-accent hover:text-accent-hover underline">Terms of Service</Link>
@@ -172,7 +165,7 @@ export default function SignUpPage() {
           </p>
           <button
             type="submit"
-            disabled={loading || !captchaToken}
+            disabled={loading}
             className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
           >
             {loading ? 'Creating account...' : 'Sign Up'}

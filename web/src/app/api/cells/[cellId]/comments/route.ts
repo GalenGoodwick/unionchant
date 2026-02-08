@@ -3,8 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
-import { checkRateLimit, getChatStrike, incrementChatStrike, resetChatStrike, resetRateWindow } from '@/lib/rate-limit'
-import { verifyCaptcha } from '@/lib/captcha'
+import { checkRateLimit, incrementChatStrike } from '@/lib/rate-limit'
+
 
 // GET /api/cells/[cellId]/comments - Get all comments for a cell (local + up-pollinated)
 export async function GET(
@@ -244,18 +244,7 @@ export async function POST(
     }
 
     const body = await req.json()
-    const { text, replyToId, ideaId, captchaToken } = body
-
-    // If CAPTCHA token provided, verify it and reset limits
-    if (captchaToken) {
-      const captchaResult = await verifyCaptcha(captchaToken, user.id)
-      if (captchaResult.success) {
-        resetChatStrike(user.id)
-        resetRateWindow('comment', user.id)
-      } else {
-        return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
-      }
-    }
+    const { text, replyToId, ideaId } = body
 
     const limited = await checkRateLimit('comment', user.id)
     if (limited) {
@@ -268,9 +257,9 @@ export async function POST(
         }, { status: 429 })
       }
       return NextResponse.json({
-        error: 'CAPTCHA_REQUIRED',
+        error: 'RATE_LIMITED',
         strike,
-        message: 'Please verify you are human.',
+        message: 'Too many comments. Please slow down.',
       }, { status: 429 })
     }
 

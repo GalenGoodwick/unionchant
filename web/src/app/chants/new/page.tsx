@@ -3,10 +3,10 @@
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useCallback, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Header from '@/components/Header'
 import { FullPageSpinner } from '@/components/Spinner'
-import ReCaptcha from '@/components/ReCaptcha'
+
 
 type CommunityOption = { id: string; name: string; slug: string; isPublic: boolean }
 
@@ -25,7 +25,6 @@ function NewDeliberationForm() {
   const communitySlug = searchParams.get('community')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [communities, setCommunities] = useState<CommunityOption[]>([])
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
   const [communityOnly, setCommunityOnly] = useState(false)
@@ -33,14 +32,6 @@ function NewDeliberationForm() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [podiums, setPodiums] = useState<{ id: string; title: string }[]>([])
   const [selectedPodiumId, setSelectedPodiumId] = useState<string | null>(null)
-
-  const handleCaptchaVerify = useCallback((token: string) => {
-    setCaptchaToken(token)
-  }, [])
-
-  const handleCaptchaExpire = useCallback(() => {
-    setCaptchaToken(null)
-  }, [])
 
   const [formData, setFormData] = useState({
     question: '',
@@ -165,7 +156,6 @@ function NewDeliberationForm() {
           supermajorityEnabled: formData.tierAdvanceMode === 'natural' ? formData.supermajorityEnabled : false,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
-          captchaToken,
         }),
       })
 
@@ -571,17 +561,9 @@ function NewDeliberationForm() {
               </div>
             )}
 
-            {!captchaToken && (
-              <ReCaptcha
-                onVerify={handleCaptchaVerify}
-                onExpire={handleCaptchaExpire}
-                className="flex justify-center"
-              />
-            )}
-
             <button
               type="submit"
-              disabled={loading || !captchaToken}
+              disabled={loading}
               className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-lg transition-colors"
             >
               {loading ? 'Creating...' : 'Create Chant'}

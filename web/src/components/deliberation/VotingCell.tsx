@@ -5,7 +5,6 @@ import Link from 'next/link'
 import CountdownTimer from '@/components/CountdownTimer'
 import { getDisplayName } from '@/lib/user'
 import { useToast } from '@/components/Toast'
-import CaptchaModal from '@/components/CaptchaModal'
 import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 import type { Cell, CommentWithUpvote } from './types'
 
@@ -85,10 +84,6 @@ export default function VotingCell({
   const [openIdeaId, setOpenIdeaId] = useState<string | null>(null)
   const [showMobilePopup, setShowMobilePopup] = useState(false)
   const [commentsLoaded, setCommentsLoaded] = useState(false)
-  const [captchaOpen, setCaptchaOpen] = useState(false)
-  const [captchaStrike, setCaptchaStrike] = useState(1)
-  const [pendingComment, setPendingComment] = useState('')
-  const [pendingIdeaId, setPendingIdeaId] = useState<string | null>(null)
   const [mutedUntil, setMutedUntil] = useState<number | null>(null)
 
   // Comments are read-only once the tier has moved on
@@ -146,46 +141,10 @@ export default function VotingCell({
         fetchComments()
       } else {
         const data = await res.json()
-        if (data.error === 'CAPTCHA_REQUIRED') {
-          setCaptchaStrike(data.strike || 1)
-          setPendingComment(newComment)
-          setPendingIdeaId(openIdeaId)
-          setCaptchaOpen(true)
-        } else if (data.error === 'MUTED') {
-          setMutedUntil(data.mutedUntil)
-          setCaptchaOpen(true)
-        } else {
-          showToast(data.error || 'Failed to post comment', 'error')
-        }
+        showToast(data.error || 'Failed to post comment', 'error')
       }
     } catch (err) {
       console.error('Comment error:', err)
-      showToast('Failed to post comment', 'error')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleCaptchaVerify = async (token: string) => {
-    setCaptchaOpen(false)
-    if (!pendingComment.trim() || !pendingIdeaId) return
-    setSubmitting(true)
-    try {
-      const res = await fetch(`/api/cells/${cell.id}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pendingComment, ideaId: pendingIdeaId, captchaToken: token }),
-      })
-      if (res.ok) {
-        setNewComment('')
-        setPendingComment('')
-        setPendingIdeaId(null)
-        fetchComments()
-      } else {
-        const data = await res.json()
-        showToast(data.error || 'Failed to post comment', 'error')
-      }
-    } catch {
       showToast('Failed to post comment', 'error')
     } finally {
       setSubmitting(false)
@@ -506,13 +465,6 @@ export default function VotingCell({
         </div>
       )}
 
-      <CaptchaModal
-        open={captchaOpen}
-        strike={captchaStrike}
-        onVerify={handleCaptchaVerify}
-        onClose={() => { setCaptchaOpen(false); setMutedUntil(null) }}
-        mutedUntil={mutedUntil}
-      />
     </>
   )
 }

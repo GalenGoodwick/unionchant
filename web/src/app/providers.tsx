@@ -7,6 +7,7 @@ import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
 import CollectiveChat from '@/components/CollectiveChat'
+import ChallengeProvider from '@/components/ChallengeProvider'
 import { useOnboarding } from '@/hooks/useOnboarding'
 
 type OnboardingContextType = {
@@ -174,7 +175,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <GuideGate>
             <OnboardingGate>
               <CollectiveChatGate>
-                {children}
+                <ChallengeProvider>
+                  {children}
+                </ChallengeProvider>
               </CollectiveChatGate>
             </OnboardingGate>
           </GuideGate>

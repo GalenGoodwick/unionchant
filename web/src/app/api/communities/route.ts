@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { verifyCaptcha } from '@/lib/captcha'
+
 import { isAdmin } from '@/lib/admin'
 
 // GET /api/communities - Browse public communities
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { name, slug, description, isPublic = true, captchaToken } = body
+    const { name, slug, description, isPublic = true } = body
 
     // Private group limits by subscription tier
     const admin = await isAdmin(session.user.email)
@@ -102,11 +102,6 @@ export async function POST(req: NextRequest) {
           }, { status: 403 })
         }
       }
-    }
-
-    const captchaResult = await verifyCaptcha(captchaToken, user.id)
-    if (!captchaResult.success) {
-      return NextResponse.json({ error: captchaResult.error || 'CAPTCHA verification failed' }, { status: 400 })
     }
 
     if (!name?.trim()) {

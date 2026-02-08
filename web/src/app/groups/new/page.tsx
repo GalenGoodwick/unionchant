@@ -3,25 +3,15 @@
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import Header from '@/components/Header'
-import ReCaptcha from '@/components/ReCaptcha'
+
 
 export default function NewCommunityPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
-
-  const handleCaptchaVerify = useCallback((token: string) => {
-    setCaptchaToken(token)
-  }, [])
-
-  const handleCaptchaExpire = useCallback(() => {
-    setCaptchaToken(null)
-  }, [])
-
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
@@ -114,10 +104,7 @@ export default function NewCommunityPage() {
       const res = await fetch('/api/communities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          captchaToken,
-        }),
+        body: JSON.stringify(formData),
       })
 
       if (!res.ok) {
@@ -264,17 +251,9 @@ export default function NewCommunityPage() {
               </div>
             )}
 
-            {!captchaToken && (
-              <ReCaptcha
-                onVerify={handleCaptchaVerify}
-                onExpire={handleCaptchaExpire}
-                className="flex justify-center"
-              />
-            )}
-
             <button
               type="submit"
-              disabled={loading || !captchaToken}
+              disabled={loading}
               className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition-colors"
             >
               {loading ? 'Creating...' : 'Create Group'}

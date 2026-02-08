@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
-import { verifyCaptcha } from '@/lib/captcha'
+
 import { sendEmail } from '@/lib/email'
 import { passwordResetEmail } from '@/lib/email-templates'
 
@@ -15,15 +15,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
     }
 
-    const { email, captchaToken } = await req.json()
+    const { email } = await req.json()
     if (!email) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 })
-    }
-
-    // Verify CAPTCHA
-    const captchaResult = await verifyCaptcha(captchaToken)
-    if (!captchaResult.success) {
-      return NextResponse.json({ error: captchaResult.error || 'CAPTCHA verification required' }, { status: 400 })
     }
 
     // Always return success to prevent email enumeration

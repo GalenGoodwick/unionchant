@@ -378,11 +378,18 @@ export default function LandingParallax() {
           </div>
 
           {/* Anonymous Limitations Notice */}
-          <div className="bg-warning-bg border border-warning/30 text-warning text-sm p-4 rounded-lg max-w-[600px] mx-auto mb-8">
+          <div className="bg-warning-bg border border-warning/30 text-warning text-sm p-4 rounded-lg max-w-[600px] mx-auto mb-4">
             <p className="font-semibold mb-2">⚠️ Anonymous Mode Limitations</p>
             <p className="text-xs text-left">
               <strong>Anonymous users cannot access the AI Collective Chat.</strong> The collective chat uses Claude AI (Haiku) which costs money per message. To preserve this free resource for dedicated community members and prevent abuse, anonymous sessions are restricted to voting and idea submission only.
             </p>
+          </div>
+
+          {/* Human Verification Note */}
+          <div className="bg-surface border border-border text-muted text-xs p-3 rounded-lg max-w-[600px] mx-auto mb-8 text-left">
+            <p className="font-semibold mb-1 text-foreground">🎯 No CAPTCHAs — we use a Runaway Button</p>
+            <p>Instead of solving puzzles, you chase a button that runs away from your cursor or finger. Chase it for 3 seconds and you pass automatically — or catch it when it stops. This challenge appears periodically to verify you&apos;re still human.</p>
+            <p className="mt-1 text-subtle">Accessibility: blind and screen reader users can drag their finger across the challenge area on mobile — the timer counts all touch movement. The button sometimes stops and can be tapped.</p>
           </div>
 
           {/* Open Source Notice */}

@@ -51,6 +51,7 @@ model User {
   stripeSubscriptionId String?
   lastCollectiveTalkChangeAt DateTime? // Rate limit: free = 1 Talk change/day
   deletedAt     DateTime?
+  botFlaggedAt  DateTime?  // Set when user fails runaway button challenge (insta-click)
   bannedAt      DateTime?
   banReason     String?
   createdAt     DateTime   @default(now())

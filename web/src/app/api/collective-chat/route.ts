@@ -4,8 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { callClaudeWithTools } from '@/lib/claude'
 import type { ToolDefinition } from '@/lib/claude'
-import { checkRateLimit, incrementChatStrike, resetChatStrike, resetRateWindow } from '@/lib/rate-limit'
-import { verifyCaptcha } from '@/lib/captcha'
+import { checkRateLimit, incrementChatStrike } from '@/lib/rate-limit'
+
 
 // GET /api/collective-chat - Returns per-user messages
 export async function GET(req: NextRequest) {
@@ -85,18 +85,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { message, captchaToken } = body
-
-    // If CAPTCHA token provided, verify it and reset limits
-    if (captchaToken) {
-      const captchaResult = await verifyCaptcha(captchaToken, user.id)
-      if (captchaResult.success) {
-        resetChatStrike(user.id)
-        resetRateWindow('collective_chat', user.id)
-      } else {
-        return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
-      }
-    }
+    const { message } = body
 
     const limited = await checkRateLimit('collective_chat', user.id)
     if (limited) {
@@ -109,9 +98,9 @@ export async function POST(req: NextRequest) {
         }, { status: 429 })
       }
       return NextResponse.json({
-        error: 'CAPTCHA_REQUIRED',
+        error: 'RATE_LIMITED',
         strike,
-        message: 'Please verify you are human.',
+        message: 'Too many messages. Please slow down.',
       }, { status: 429 })
     }
 

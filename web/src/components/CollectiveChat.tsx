@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import CaptchaModal from '@/components/CaptchaModal'
 
 interface Message {
   id: string
@@ -73,9 +72,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [error, setError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [captchaOpen, setCaptchaOpen] = useState(false)
-  const [captchaStrike, setCaptchaStrike] = useState(1)
-  const [pendingMessage, setPendingMessage] = useState('')
   const [mutedUntil, setMutedUntil] = useState<number | null>(null)
   const [dailyLimitHit, setDailyLimitHit] = useState(false)
 
@@ -157,15 +153,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const data = await res.json()
 
       if (!res.ok) {
-        if (data.error === 'CAPTCHA_REQUIRED') {
-          setCaptchaStrike(data.strike || 1)
-          setPendingMessage(messageText)
-          setCaptchaOpen(true)
-          return
-        }
         if (data.error === 'MUTED') {
           setMutedUntil(data.mutedUntil)
-          setCaptchaOpen(true)
           return
         }
         if (data.error === 'DAILY_LIMIT') {
@@ -209,37 +198,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       // Silently fail
     } finally {
       setLoadingMore(false)
-    }
-  }
-
-  const handleCaptchaVerify = async (token: string) => {
-    setCaptchaOpen(false)
-    if (!pendingMessage.trim()) return
-    setSending(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/collective-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: pendingMessage, captchaToken: token }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error || 'Failed to send message')
-        setInput(pendingMessage)
-      } else {
-        setPendingMessage('')
-        const messagesRes = await fetch('/api/collective-chat')
-        if (messagesRes.ok) {
-          const messagesData = await messagesRes.json()
-          setMessages(messagesData.messages)
-        }
-      }
-    } catch {
-      setError('Failed to send message. Please try again.')
-      setInput(pendingMessage)
-    } finally {
-      setSending(false)
     }
   }
 
@@ -423,13 +381,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         )}
       </div>
 
-      <CaptchaModal
-        open={captchaOpen}
-        strike={captchaStrike}
-        onVerify={handleCaptchaVerify}
-        onClose={() => { setCaptchaOpen(false); setMutedUntil(null) }}
-        mutedUntil={mutedUntil}
-      />
     </div>
   )
 }

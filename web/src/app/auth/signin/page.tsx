@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useCallback, Suspense } from 'react'
+import { useState, Suspense } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import ReCaptcha from '@/components/ReCaptcha'
+
 
 function SignInForm() {
   const router = useRouter()
@@ -19,9 +19,6 @@ function SignInForm() {
   const [loading, setLoading] = useState(false)
   const [forgotMode, setForgotMode] = useState(false)
   const [forgotSent, setForgotSent] = useState(false)
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
-  const handleCaptchaExpire = useCallback(() => setCaptchaToken(null), [])
-
   const handleCredentialsLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -65,7 +62,7 @@ function SignInForm() {
       const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, captchaToken }),
+        body: JSON.stringify({ email }),
       })
       if (res.ok) {
         setForgotSent(true)
@@ -145,14 +142,9 @@ function SignInForm() {
               placeholder="you@example.com"
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:border-accent"
             />
-            <ReCaptcha
-              onVerify={setCaptchaToken}
-              onExpire={handleCaptchaExpire}
-              className="flex justify-center"
-            />
             <button
               type="submit"
-              disabled={loading || !captchaToken}
+              disabled={loading}
               className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
             >
               {loading ? 'Sending...' : 'Send Reset Link'}
