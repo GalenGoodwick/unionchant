@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Turnstile from '@/components/Turnstile'
+import ReCaptcha from '@/components/ReCaptcha'
 
 export default function AnonymousSignIn() {
   const router = useRouter()
@@ -146,7 +146,7 @@ export default function AnonymousSignIn() {
                 {captchaTokens.length >= 1 ? 'Step 1 complete ✓' : 'Step 1 of 3'}
               </p>
               {currentStep === 1 && (
-                <Turnstile
+                <ReCaptcha
                   onVerify={handleCaptchaVerify}
                   onExpire={handleCaptchaExpire}
                   className="flex justify-center"
@@ -162,7 +162,7 @@ export default function AnonymousSignIn() {
                 {captchaTokens.length >= 2 ? 'Step 2 complete ✓' : 'Step 2 of 3'}
               </p>
               {currentStep === 2 && (
-                <Turnstile
+                <ReCaptcha
                   onVerify={handleCaptchaVerify}
                   onExpire={handleCaptchaExpire}
                   className="flex justify-center"
@@ -178,7 +178,7 @@ export default function AnonymousSignIn() {
                 {captchaTokens.length >= 3 ? 'Step 3 complete ✓' : 'Step 3 of 3'}
               </p>
               {currentStep === 3 && captchaTokens.length < 3 && (
-                <Turnstile
+                <ReCaptcha
                   onVerify={handleCaptchaVerify}
                   onExpire={handleCaptchaExpire}
                   className="flex justify-center"
