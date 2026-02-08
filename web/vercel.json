@@ -14,14 +14,14 @@
     }
   ],
   "functions": {
-    "api/auth/anonymous.ts": {
+    "api/anonymous/route.ts": {
       "memory": 1024,
       "maxDuration": 10
     }
   },
   "headers": [
     {
-      "source": "/api/auth/anonymous",
+      "source": "/api/anonymous",
       "headers": [
         {
           "key": "X-Robots-Tag",
