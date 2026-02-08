@@ -32,6 +32,13 @@ function UserAvatar({ image, name }: { image: string | null; name: string | null
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 type AdminTab = 'deliberations' | 'users' | 'moderation' | 'podiums' | 'groups'
 
+interface ChallengeStats {
+  totalLogs: number
+  resultCounts: { result: string; count: number }[]
+  recentFails: { id: string; result: string; pointerEvents: number; chaseDurationMs: number; evadeCount: number; createdAt: string; user: { id: string; name: string | null; email: string; challengeFailCount: number; botFlaggedAt: string | null } }[]
+  flaggedUsers: { id: string; name: string | null; email: string; botFlaggedAt: string | null; challengeFailCount: number; createdAt: string }[]
+}
+
 interface AdminReport {
   id: string
   targetType: string
@@ -142,6 +149,12 @@ export default function AdminPage() {
   const [bannedUsers, setBannedUsers] = useState<FlaggedUser[]>([])
   const [flaggedLoading, setFlaggedLoading] = useState(false)
   const [flagActioning, setFlagActioning] = useState<string | null>(null)
+
+  // Challenge state
+  const [challengeTriggering, setChallengeTriggering] = useState(false)
+  const [challengeStats, setChallengeStats] = useState<ChallengeStats | null>(null)
+  const [challengeStatsLoading, setChallengeStatsLoading] = useState(false)
+  const [challengeResult, setChallengeResult] = useState<string | null>(null)
 
   // Rate limit config
   const [rateLimits, setRateLimits] = useState<Array<{
@@ -420,6 +433,34 @@ export default function AdminPage() {
     }
   }, [usersPage, activeTab, fetchUsers, usersSearch, usersStatus])
 
+  // Challenge functions
+  const fetchChallengeStats = useCallback(async () => {
+    setChallengeStatsLoading(true)
+    try {
+      const res = await fetch('/api/admin/trigger-challenge')
+      if (res.ok) setChallengeStats(await res.json())
+    } catch { /* silent */ }
+    setChallengeStatsLoading(false)
+  }, [])
+
+  const triggerChallenge = async () => {
+    if (!window.confirm('Force ALL users to re-verify now?')) return
+    setChallengeTriggering(true)
+    setChallengeResult(null)
+    try {
+      const res = await fetch('/api/admin/trigger-challenge', { method: 'POST' })
+      const data = await res.json()
+      setChallengeResult(`Triggered for ${data.affected} users`)
+      fetchChallengeStats()
+    } catch {
+      setChallengeResult('Failed to trigger')
+    }
+    setChallengeTriggering(false)
+  }
+
+  // Load challenge stats on mount
+  useEffect(() => { fetchChallengeStats() }, [fetchChallengeStats])
+
   const handleUserAction = async (userId: string, action: 'ban' | 'unban' | 'delete') => {
     let reason = ''
     if (action === 'ban') {
@@ -542,6 +583,58 @@ export default function AdminPage() {
   return (
     <div className="min-h-screen bg-surface">
       <Header />
+
+      {/* ── CHALLENGE CONTROL — big red button ── */}
+      <div className="bg-error/10 border-b-2 border-error">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <button
+              onClick={triggerChallenge}
+              disabled={challengeTriggering}
+              className="bg-error hover:bg-error-hover text-white font-bold text-lg px-8 py-4 rounded-lg transition-colors disabled:opacity-50 shadow-lg shrink-0"
+            >
+              {challengeTriggering ? 'Triggering...' : 'TRIGGER CHALLENGE — ALL USERS'}
+            </button>
+            <div className="flex-1 min-w-0">
+              {challengeResult && (
+                <p className="text-success font-semibold text-sm mb-1">{challengeResult}</p>
+              )}
+              {challengeStatsLoading ? (
+                <p className="text-muted text-sm">Loading stats...</p>
+              ) : challengeStats && (
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="text-muted">Total challenges: <span className="text-foreground font-mono">{challengeStats.totalLogs}</span></span>
+                  {challengeStats.resultCounts.map(r => (
+                    <span key={r.result} className={r.result === 'passed' ? 'text-success' : 'text-error'}>
+                      {r.result}: <span className="font-mono">{r.count}</span>
+                    </span>
+                  ))}
+                  {challengeStats.flaggedUsers.length > 0 && (
+                    <span className="text-warning">Flagged users: <span className="font-mono">{challengeStats.flaggedUsers.length}</span></span>
+                  )}
+                </div>
+              )}
+              {challengeStats && challengeStats.recentFails.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-xs text-muted cursor-pointer hover:text-foreground">
+                    Recent failures ({challengeStats.recentFails.length})
+                  </summary>
+                  <div className="mt-1 max-h-40 overflow-y-auto space-y-1">
+                    {challengeStats.recentFails.slice(0, 10).map(f => (
+                      <div key={f.id} className="text-xs text-muted bg-background rounded px-2 py-1 flex gap-3">
+                        <span className="text-error font-mono">{f.result}</span>
+                        <span>{f.user.email}</span>
+                        <span>ptr:{f.pointerEvents} dur:{f.chaseDurationMs}ms evd:{f.evadeCount}</span>
+                        <span className="text-subtle">{new Date(f.createdAt).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="flex justify-between items-center mb-6">
