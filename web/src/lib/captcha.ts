@@ -1,15 +1,15 @@
 /**
- * Cloudflare Turnstile CAPTCHA verification
+ * Google reCAPTCHA v2 verification
  *
  * Setup:
- * 1. Create a Turnstile widget at https://dash.cloudflare.com/turnstile
- * 2. Add TURNSTILE_SECRET_KEY to .env.local
- * 3. Add NEXT_PUBLIC_TURNSTILE_SITE_KEY to .env.local
+ * 1. Create a reCAPTCHA site at https://www.google.com/recaptcha/admin
+ * 2. Add RECAPTCHA_SECRET_KEY to .env.local
+ * 3. Add NEXT_PUBLIC_RECAPTCHA_SITE_KEY to .env.local
  */
 
 import { prisma } from '@/lib/prisma'
 
-const TURNSTILE_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify'
+const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify'
 const CAPTCHA_VALID_HOURS = Infinity
 
 export type CaptchaResult = {
@@ -57,7 +57,7 @@ async function isUserAdmin(userId: string): Promise<boolean> {
 }
 
 /**
- * Verify a Turnstile token server-side
+ * Verify a reCAPTCHA token server-side
  * If userId provided, checks session validity first and updates on success
  * Admins are automatically bypassed
  */
@@ -65,12 +65,12 @@ export async function verifyCaptcha(
   token: string | null | undefined,
   userId?: string
 ): Promise<CaptchaResult> {
-  const secretKey = process.env.TURNSTILE_SECRET_KEY
+  const secretKey = process.env.RECAPTCHA_SECRET_KEY
 
   // Skip verification in development if no key configured
   if (!secretKey) {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('CAPTCHA: Skipping verification (no TURNSTILE_SECRET_KEY)')
+      console.warn('CAPTCHA: Skipping verification (no RECAPTCHA_SECRET_KEY)')
       return { success: true }
     }
     return { success: false, error: 'CAPTCHA not configured' }
@@ -97,7 +97,7 @@ export async function verifyCaptcha(
   }
 
   try {
-    const response = await fetch(TURNSTILE_VERIFY_URL, {
+    const response = await fetch(RECAPTCHA_VERIFY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -115,11 +115,11 @@ export async function verifyCaptcha(
       }
       return { success: true }
     } else {
-      console.warn('CAPTCHA verification failed:', data['error-codes'])
+      console.warn('reCAPTCHA verification failed:', data['error-codes'])
       return { success: false, error: 'CAPTCHA verification failed' }
     }
   } catch (error) {
-    console.error('CAPTCHA verification error:', error)
+    console.error('reCAPTCHA verification error:', error)
     return { success: false, error: 'CAPTCHA verification error' }
   }
 }

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { useState, useCallback, useEffect, Suspense } from 'react'
 import Header from '@/components/Header'
 import { FullPageSpinner } from '@/components/Spinner'
-import Turnstile from '@/components/Turnstile'
+import ReCaptcha from '@/components/ReCaptcha'
 
 type CommunityOption = { id: string; name: string; slug: string; isPublic: boolean }
 
@@ -572,7 +572,7 @@ function NewDeliberationForm() {
             )}
 
             {!captchaToken && (
-              <Turnstile
+              <ReCaptcha
                 onVerify={handleCaptchaVerify}
                 onExpire={handleCaptchaExpire}
                 className="flex justify-center"

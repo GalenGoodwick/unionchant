@@ -148,7 +148,7 @@ export default function CaptchaModal({ open, strike, onVerify, onClose, mutedUnt
             )}
 
             <div className="flex justify-center mb-4">
-              <Turnstile
+              <ReCaptcha
                 onVerify={setToken}
                 onExpire={() => setToken(null)}
                 appearance="always"

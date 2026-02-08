@@ -4,7 +4,7 @@ import { useState, useCallback, Suspense } from 'react'
 import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import Turnstile from '@/components/Turnstile'
+import ReCaptcha from '@/components/ReCaptcha'
 
 function SignInForm() {
   const router = useRouter()
@@ -145,7 +145,7 @@ function SignInForm() {
               placeholder="you@example.com"
               className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:border-accent"
             />
-            <Turnstile
+            <ReCaptcha
               onVerify={setCaptchaToken}
               onExpire={handleCaptchaExpire}
               className="flex justify-center"

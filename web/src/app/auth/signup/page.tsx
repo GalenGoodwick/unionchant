@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Turnstile from '@/components/Turnstile'
+import ReCaptcha from '@/components/ReCaptcha'
 
 export default function SignUpPage() {
   const router = useRouter()
@@ -159,7 +159,7 @@ export default function SignUpPage() {
               placeholder="At least 8 characters"
             />
           </div>
-          <Turnstile
+          <ReCaptcha
             onVerify={setCaptchaToken}
             onExpire={handleCaptchaExpire}
             className="flex justify-center"

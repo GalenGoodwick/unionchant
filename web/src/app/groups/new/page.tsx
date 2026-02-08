@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useState, useCallback, useEffect } from 'react'
 import Header from '@/components/Header'
-import Turnstile from '@/components/Turnstile'
+import ReCaptcha from '@/components/ReCaptcha'
 
 export default function NewCommunityPage() {
   const { data: session, status } = useSession()
@@ -265,7 +265,7 @@ export default function NewCommunityPage() {
             )}
 
             {!captchaToken && (
-              <Turnstile
+              <ReCaptcha
                 onVerify={handleCaptchaVerify}
                 onExpire={handleCaptchaExpire}
                 className="flex justify-center"
