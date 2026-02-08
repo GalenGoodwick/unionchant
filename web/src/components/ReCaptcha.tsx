@@ -24,8 +24,8 @@ export default function ReCaptcha({ onVerify, onExpire, className = '' }: ReCapt
   onExpireRef.current = onExpire
 
   const renderWidget = useCallback(() => {
-    if (window.grecaptcha?.render && containerRef.current && widgetIdRef.current === null) {
-      widgetIdRef.current = window.grecaptcha.render(containerRef.current, {
+    if (window.grecaptcha?.enterprise?.render && containerRef.current && widgetIdRef.current === null) {
+      widgetIdRef.current = window.grecaptcha.enterprise.render(containerRef.current, {
         sitekey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!,
         callback: (token: string) => onVerifyRef.current(token),
         'expired-callback': () => onExpireRef.current?.(),
@@ -34,24 +34,21 @@ export default function ReCaptcha({ onVerify, onExpire, className = '' }: ReCapt
   }, [])
 
   useEffect(() => {
-    // If grecaptcha is already loaded, render immediately
-    if (window.grecaptcha?.render) {
+    if (window.grecaptcha?.enterprise?.render) {
       renderWidget()
       return
     }
 
-    // Load script if not already loading
-    if (!document.querySelector('script[src*="recaptcha/api.js"]')) {
+    if (!document.querySelector('script[src*="recaptcha/enterprise.js"]')) {
       window.onRecaptchaLoad = renderWidget
       const script = document.createElement('script')
-      script.src = 'https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit'
+      script.src = 'https://www.google.com/recaptcha/enterprise.js?onload=onRecaptchaLoad&render=explicit'
       script.async = true
       script.defer = true
       document.head.appendChild(script)
     } else {
-      // Script is loading but not ready yet — poll for it
       const interval = setInterval(() => {
-        if (window.grecaptcha?.render) {
+        if (window.grecaptcha?.enterprise?.render) {
           clearInterval(interval)
           renderWidget()
         }

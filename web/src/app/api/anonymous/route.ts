@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
 
-const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify'
-
-// POST /api/anonymous — Create temporary anonymous account after reCAPTCHA verification
+// POST /api/anonymous — Create temporary anonymous account after reCAPTCHA Enterprise verification
 // Creates real account for participation numbers, auto-deleted after 24h
 export async function POST(req: NextRequest) {
   // CRITICAL: Actively reject and delete IP data before processing
@@ -18,9 +16,6 @@ export async function POST(req: NextRequest) {
   headers.delete('true-client-ip')   // Cloudflare Enterprise
   headers.delete('x-client-ip')
 
-  // Override req.ip if it exists (though Next.js doesn't expose this directly)
-  // The main point: we never READ these values, so they can't enter our logs
-
   try {
     const { captchaToken } = await req.json()
 
@@ -28,37 +23,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid CAPTCHA token' }, { status: 400 })
     }
 
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY
+    const projectId = process.env.RECAPTCHA_PROJECT_ID
+    const apiKey = process.env.RECAPTCHA_API_KEY
+    const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
 
-    // Skip verification in development if no key configured
-    if (!secretKey) {
+    // Skip verification in development if not configured
+    if (!projectId || !apiKey) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('CAPTCHA: Skipping verification (no RECAPTCHA_SECRET_KEY)')
+        console.warn('CAPTCHA: Skipping verification (no RECAPTCHA_PROJECT_ID or RECAPTCHA_API_KEY)')
       } else {
         return NextResponse.json({ error: 'CAPTCHA not configured' }, { status: 500 })
       }
     }
 
-    // Verify reCAPTCHA token
-    if (secretKey) {
+    // Verify reCAPTCHA Enterprise token
+    if (projectId && apiKey) {
       try {
-        const response = await fetch(RECAPTCHA_VERIFY_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            secret: secretKey,
-            response: captchaToken,
-          }),
-        })
+        const response = await fetch(
+          `https://recaptchaenterprise.googleapis.com/v1/projects/${projectId}/assessments?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              event: {
+                token: captchaToken,
+                siteKey,
+              },
+            }),
+          }
+        )
 
         const data = await response.json()
 
-        if (!data.success) {
-          console.warn('reCAPTCHA verification failed:', data['error-codes'])
+        if (!data.tokenProperties?.valid) {
+          console.warn('reCAPTCHA Enterprise verification failed:', data.tokenProperties?.invalidReason)
           return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
         }
       } catch (error) {
-        console.error('reCAPTCHA verification error:', error)
+        console.error('reCAPTCHA Enterprise verification error:', error)
         return NextResponse.json({ error: 'CAPTCHA verification error' }, { status: 500 })
       }
     }
