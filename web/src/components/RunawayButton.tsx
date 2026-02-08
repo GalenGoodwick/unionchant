@@ -193,7 +193,8 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         {!started && isMobile && (
           <button
             onClick={handleStart}
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 rounded-full border-4 border-dashed border-accent/60 bg-accent/10 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform"
+            onTouchEnd={(e) => { e.preventDefault(); handleStart() }}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 rounded-full border-4 border-dashed border-accent/60 bg-accent/10 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform touch-auto"
           >
             <span className="text-accent text-2xl">👆</span>
             <span className="text-accent text-xs font-semibold">Tap to start</span>
