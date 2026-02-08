@@ -52,6 +52,8 @@ model User {
   lastCollectiveTalkChangeAt DateTime? // Rate limit: free = 1 Talk change/day
   deletedAt     DateTime?
   botFlaggedAt  DateTime?  // Set when user fails runaway button challenge (insta-click)
+  lastChallengePassedAt DateTime?  // Last time user passed a challenge
+  challengeFailCount    Int        @default(0)  // Cumulative challenge failures
   bannedAt      DateTime?
   banReason     String?
   createdAt     DateTime   @default(now())
@@ -125,6 +127,9 @@ model User {
   // Community bans
   communityBans         CommunityBan[]      @relation("CommunityBans")
   communityBansMade     CommunityBan[]      @relation("CommunityBansMade")
+
+  // Challenge logs
+  challengeLogs         ChallengeLog[]
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -935,4 +940,19 @@ model GroupMessage {
   createdAt   DateTime  @default(now())
 
   @@index([communityId, createdAt])
+}
+
+// ============ CHALLENGE LOG ============
+
+model ChallengeLog {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  result          String   // "passed", "failed_insta_click", "failed_no_chase", "expired"
+  pointerEvents   Int      @default(0)
+  chaseDurationMs Int      @default(0)
+  evadeCount      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

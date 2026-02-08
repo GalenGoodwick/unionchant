@@ -1,66 +1,113 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
-import RunawayButton from './RunawayButton'
+import { usePathname } from 'next/navigation'
+import RunawayButton, { type ChallengeData } from './RunawayButton'
 
-const CHALLENGE_KEY = 'uc_last_challenge'
-const MIN_INTERVAL_MS = 2.5 * 60 * 60 * 1000 // 2.5 hours
-const MAX_INTERVAL_MS = 3 * 60 * 60 * 1000   // 3 hours
-
-function getNextChallengeTime(): number {
-  const interval = MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS)
-  return Date.now() + interval
-}
-
+/**
+ * Server-authoritative challenge system.
+ *
+ * - Polls /api/challenge/status on mount + navigation to check if challenge is needed
+ * - Server is the only authority — client can't bypass by navigating away
+ * - On pass, sends behavioral data to /api/challenge/complete for server validation
+ * - Server validates pointer events, chase duration, evasion count before marking as passed
+ * - No secret key ever reaches the client
+ */
 export default function ChallengeProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession()
+  const pathname = usePathname()
   const [showChallenge, setShowChallenge] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastCheckRef = useRef<number>(0)
 
-  useEffect(() => {
-    if (!session?.user) return
+  const checkStatus = useCallback(async () => {
+    if (!session?.user || checking) return
+    // Don't spam — at most once per 10 seconds
+    if (Date.now() - lastCheckRef.current < 10_000) return
+    lastCheckRef.current = Date.now()
 
-    const stored = localStorage.getItem(CHALLENGE_KEY)
-    let nextChallenge: number
+    setChecking(true)
+    try {
+      const res = await fetch('/api/challenge/status')
+      const data = await res.json()
 
-    if (stored) {
-      nextChallenge = parseInt(stored, 10)
-      if (isNaN(nextChallenge)) {
-        nextChallenge = getNextChallengeTime()
-        localStorage.setItem(CHALLENGE_KEY, String(nextChallenge))
+      if (data.needsChallenge) {
+        setShowChallenge(true)
+      } else if (data.msUntilNext > 0) {
+        // Schedule next check
+        if (timeoutRef.current) clearTimeout(timeoutRef.current)
+        timeoutRef.current = setTimeout(() => {
+          lastCheckRef.current = 0 // allow immediate check
+          checkStatus()
+        }, data.msUntilNext)
       }
-    } else {
-      // First visit — schedule first challenge
-      nextChallenge = getNextChallengeTime()
-      localStorage.setItem(CHALLENGE_KEY, String(nextChallenge))
+    } catch { /* silent */ }
+    setChecking(false)
+  }, [session, checking])
+
+  // Check on mount
+  useEffect(() => {
+    if (session?.user) {
+      // Small delay on first load so the page renders first
+      const id = setTimeout(() => checkStatus(), 3000)
+      return () => clearTimeout(id)
     }
+  }, [session?.user?.email]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const msUntil = Math.max(0, nextChallenge - Date.now())
+  // Re-check on navigation — prevents bypass by navigating away
+  useEffect(() => {
+    if (session?.user && !showChallenge) {
+      checkStatus()
+    }
+  }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    const timeout = setTimeout(() => {
-      setShowChallenge(true)
-    }, msUntil)
-
-    return () => clearTimeout(timeout)
-  }, [session])
-
-  const handleCaught = useCallback(() => {
-    setShowChallenge(false)
-    // Schedule next challenge
-    const next = getNextChallengeTime()
-    localStorage.setItem(CHALLENGE_KEY, String(next))
+  // Cleanup timeout
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
   }, [])
 
-  const handleBotDetected = useCallback(async () => {
-    // Flag this session — insta-click = bot behavior
+  const handleCaught = useCallback(async (data: ChallengeData) => {
     try {
-      await fetch('/api/bot-flag', {
+      const res = await fetch('/api/challenge/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: 'runaway_insta_click' }),
+        body: JSON.stringify({
+          result: 'passed',
+          pointerEvents: data.pointerEvents,
+          chaseDurationMs: data.chaseDurationMs,
+          evadeCount: data.evadeCount,
+        }),
+      })
+      const json = await res.json()
+      if (json.verified) {
+        setShowChallenge(false)
+        // Schedule next check
+        lastCheckRef.current = 0
+        if (timeoutRef.current) clearTimeout(timeoutRef.current)
+        timeoutRef.current = setTimeout(() => checkStatus(), 2.5 * 60 * 60 * 1000)
+      }
+      // If server rejects, challenge stays up — can't fake it
+    } catch { /* silent — challenge stays up */ }
+  }, [checkStatus])
+
+  const handleBotDetected = useCallback(async (data: ChallengeData) => {
+    try {
+      await fetch('/api/challenge/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          result: 'failed_insta_click',
+          pointerEvents: data.pointerEvents,
+          chaseDurationMs: data.chaseDurationMs,
+          evadeCount: data.evadeCount,
+        }),
       })
     } catch { /* silent */ }
-    // Still show the challenge — don't reveal detection
+    // Challenge stays up — don't reveal detection
   }, [])
 
   return (

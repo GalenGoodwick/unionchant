@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import RunawayButton from '@/components/RunawayButton'
+import RunawayButton, { type ChallengeData } from '@/components/RunawayButton'
 
 export default function AnonymousSignIn() {
   const router = useRouter()
@@ -79,7 +79,7 @@ export default function AnonymousSignIn() {
         {!verified ? (
           <div className="space-y-3">
             <p className="text-muted text-sm text-center">Prove you&apos;re human — catch the button:</p>
-            <RunawayButton onCaught={() => setVerified(true)} />
+            <RunawayButton onCaught={(_data: ChallengeData) => setVerified(true)} />
           </div>
         ) : (
           <button

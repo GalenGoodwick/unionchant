@@ -2,9 +2,16 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 
+export interface ChallengeData {
+  pointerEvents: number
+  chaseDurationMs: number
+  evadeCount: number
+  surrendered: boolean
+}
+
 interface RunawayButtonProps {
-  onCaught: () => void
-  onBotDetected?: () => void
+  onCaught: (data: ChallengeData) => void
+  onBotDetected?: (data: ChallengeData) => void
 }
 
 /**
@@ -16,17 +23,30 @@ interface RunawayButtonProps {
  * - Sometimes it gets tired and lets you catch it early — click it then!
  * - If something clicks it instantly with no chasing = bot = flagged
  *
+ * Collects behavioral data (pointer events, evasion count, chase duration)
+ * for server-side validation. The server is the authority — client can't
+ * fake a pass without realistic behavioral data.
+ *
  * Works on desktop (mouse) and mobile (touch).
  */
 export default function RunawayButton({ onCaught, onBotDetected }: RunawayButtonProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
   const chaseStartRef = useRef<number>(0)
+  const pointerCountRef = useRef<number>(0)
+  const evadeCountRef = useRef<number>(0)
   const [pos, setPos] = useState({ x: 50, y: 50 })
   const [surrendered, setSurrendered] = useState(false)
   const [chasing, setChasing] = useState(false)
   const [chaseTime, setChaseTime] = useState(0)
   const [passed, setPassed] = useState(false)
+
+  const getBehavioralData = useCallback((): ChallengeData => ({
+    pointerEvents: pointerCountRef.current,
+    chaseDurationMs: chaseStartRef.current ? Date.now() - chaseStartRef.current : 0,
+    evadeCount: evadeCountRef.current,
+    surrendered,
+  }), [surrendered])
 
   // Timer tick — auto-pass at 3s
   useEffect(() => {
@@ -38,17 +58,19 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         setPassed(true)
         clearInterval(id)
         // Auto-pass after 3s of chasing
-        setTimeout(() => onCaught(), 400)
+        setTimeout(() => onCaught(getBehavioralData()), 400)
       }
     }, 50)
     return () => clearInterval(id)
-  }, [chasing, passed, onCaught])
+  }, [chasing, passed, onCaught, getBehavioralData])
 
   const processPointer = useCallback((clientX: number, clientY: number) => {
     if (surrendered || passed) return
     const container = containerRef.current
     const btn = btnRef.current
     if (!container || !btn) return
+
+    pointerCountRef.current++
 
     const rect = container.getBoundingClientRect()
     const btnRect = btn.getBoundingClientRect()
@@ -72,6 +94,8 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         setSurrendered(true)
         return
       }
+
+      evadeCountRef.current++
 
       const angle = Math.atan2(by - py, bx - px)
       const jump = 15 + Math.random() * 20
@@ -104,13 +128,13 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   const handleClick = () => {
     // Insta-click with no chase = bot
     if (!chasing || (chaseStartRef.current && (Date.now() - chaseStartRef.current) < 300)) {
-      onBotDetected?.()
+      onBotDetected?.(getBehavioralData())
       return
     }
     // Only clickable when surrendered
     if (surrendered) {
       setPassed(true)
-      setTimeout(() => onCaught(), 200)
+      setTimeout(() => onCaught(getBehavioralData()), 200)
     }
   }
 
