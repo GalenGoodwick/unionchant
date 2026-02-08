@@ -10,12 +10,13 @@ function RunawayButton({ onCaught }: { onCaught: () => void }) {
   const chaseStartRef = useRef<number | null>(null)
   const [pos, setPos] = useState({ x: 50, y: 50 }) // percentage-based
   const [surrendered, setSurrendered] = useState(false)
+  const [chasing, setChasing] = useState(false)
   const [chaseTime, setChaseTime] = useState(0)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Update chase timer display
   useEffect(() => {
-    if (chaseStartRef.current && !surrendered) {
+    if (chasing && !surrendered) {
       timerRef.current = setInterval(() => {
         if (chaseStartRef.current) {
           const elapsed = (Date.now() - chaseStartRef.current) / 1000
@@ -28,7 +29,7 @@ function RunawayButton({ onCaught }: { onCaught: () => void }) {
       }, 50)
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
-  }, [surrendered])
+  }, [chasing, surrendered])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (surrendered) return
@@ -48,6 +49,7 @@ function RunawayButton({ onCaught }: { onCaught: () => void }) {
     // Start chase timer on first approach
     if (dist < 150 && !chaseStartRef.current) {
       chaseStartRef.current = Date.now()
+      setChasing(true)
     }
 
     // Evade when mouse gets close
@@ -85,7 +87,7 @@ function RunawayButton({ onCaught }: { onCaught: () => void }) {
       onMouseMove={handleMouseMove}
       className="relative w-full h-48 bg-surface border border-border rounded-lg overflow-hidden select-none"
     >
-      {chaseStartRef.current && !surrendered && (
+      {chasing && !surrendered && (
         <div className="absolute top-2 left-2 text-xs text-muted">
           Chasing: {chaseTime.toFixed(1)}s / 3.0s
         </div>
@@ -110,7 +112,7 @@ function RunawayButton({ onCaught }: { onCaught: () => void }) {
       >
         {surrendered ? 'OK fine, click me!' : 'Catch me!'}
       </button>
-      {!chaseStartRef.current && (
+      {!chasing && (
         <p className="absolute bottom-3 w-full text-center text-xs text-muted">
           Move your mouse toward the button
         </p>
