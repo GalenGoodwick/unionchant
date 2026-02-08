@@ -12,50 +12,57 @@ declare global {
 interface ReCaptchaProps {
   onVerify: (token: string) => void
   onExpire?: () => void
+  action?: string
   className?: string
 }
 
-export default function ReCaptcha({ onVerify, onExpire, className = '' }: ReCaptchaProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const widgetIdRef = useRef<number | null>(null)
+/**
+ * reCAPTCHA v3 — invisible, score-based.
+ * Automatically executes on mount and calls onVerify with a token.
+ * No visible widget — Google scores the user silently.
+ */
+export default function ReCaptcha({ onVerify, action = 'submit', className = '' }: ReCaptchaProps) {
+  const executedRef = useRef(false)
   const onVerifyRef = useRef(onVerify)
-  const onExpireRef = useRef(onExpire)
   onVerifyRef.current = onVerify
-  onExpireRef.current = onExpire
 
-  const renderWidget = useCallback(() => {
-    if (window.grecaptcha?.render && containerRef.current && widgetIdRef.current === null) {
-      widgetIdRef.current = window.grecaptcha.render(containerRef.current, {
-        sitekey: process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!,
-        callback: (token: string) => onVerifyRef.current(token),
-        'expired-callback': () => onExpireRef.current?.(),
-      })
-    }
-  }, [])
+  const executeRecaptcha = useCallback(() => {
+    if (executedRef.current) return
+    if (!window.grecaptcha?.execute) return
+
+    executedRef.current = true
+    window.grecaptcha.execute(
+      process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!,
+      { action }
+    ).then((token: string) => {
+      onVerifyRef.current(token)
+    })
+  }, [action])
 
   useEffect(() => {
-    if (window.grecaptcha?.render) {
-      renderWidget()
+    if (window.grecaptcha?.execute) {
+      executeRecaptcha()
       return
     }
 
     if (!document.querySelector('script[src*="recaptcha/api.js"]')) {
-      window.onRecaptchaLoad = renderWidget
+      window.onRecaptchaLoad = executeRecaptcha
       const script = document.createElement('script')
-      script.src = 'https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoad&render=explicit'
+      script.src = `https://www.google.com/recaptcha/api.js?render=${process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY!}`
       script.async = true
       script.defer = true
       document.head.appendChild(script)
     } else {
       const interval = setInterval(() => {
-        if (window.grecaptcha?.render) {
+        if (window.grecaptcha?.execute) {
           clearInterval(interval)
-          renderWidget()
+          executeRecaptcha()
         }
       }, 100)
       return () => clearInterval(interval)
     }
-  }, [renderWidget])
+  }, [executeRecaptcha])
 
-  return <div ref={containerRef} className={className} />
+  // v3 is invisible — render nothing (or a hidden container)
+  return <div className={className} />
 }

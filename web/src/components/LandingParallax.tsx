@@ -373,7 +373,7 @@ export default function LandingParallax() {
               Sign Up (Full Access)
             </Link>
             <Link href="/auth/anonymous" className="bg-surface hover:bg-surface/80 text-foreground px-8 py-3 rounded-lg font-semibold transition-colors border border-border">
-              Anonymous Entry (1 CAPTCHA)
+              Anonymous Entry
             </Link>
           </div>
 

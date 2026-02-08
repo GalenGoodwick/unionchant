@@ -16,45 +16,7 @@ export async function POST(req: NextRequest) {
   headers.delete('x-client-ip')
 
   try {
-    const { captchaToken } = await req.json()
-
-    if (!captchaToken || typeof captchaToken !== 'string') {
-      return NextResponse.json({ error: 'Invalid CAPTCHA token' }, { status: 400 })
-    }
-
-    const secretKey = process.env.RECAPTCHA_SECRET_KEY
-
-    if (!secretKey) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('CAPTCHA: Skipping verification (no RECAPTCHA_SECRET_KEY)')
-      } else {
-        return NextResponse.json({ error: 'CAPTCHA not configured' }, { status: 500 })
-      }
-    }
-
-    // Verify reCAPTCHA token
-    if (secretKey) {
-      try {
-        const response = await fetch(RECAPTCHA_VERIFY_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            secret: secretKey,
-            response: captchaToken,
-          }),
-        })
-
-        const data = await response.json()
-
-        if (!data.success) {
-          console.warn('reCAPTCHA verification failed:', data['error-codes'])
-          return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
-        }
-      } catch (error) {
-        console.error('reCAPTCHA verification error:', error)
-        return NextResponse.json({ error: 'CAPTCHA verification error' }, { status: 500 })
-      }
-    }
+    // No CAPTCHA required for anonymous entry — accounts auto-expire in 24h
 
     // Generate temporary anonymous account
     const anonId = crypto.randomUUID().replace(/-/g, '').slice(0, 12)

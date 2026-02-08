@@ -70,7 +70,7 @@ export default function LandingCTA({ variant = 'hero' }: { variant?: 'hero' | 'f
           href="/auth/anonymous"
           className="text-white/70 hover:text-white text-sm transition-colors"
         >
-          or enter anonymously (1 CAPTCHA) →
+          or enter anonymously →
         </Link>
       )}
     </div>
