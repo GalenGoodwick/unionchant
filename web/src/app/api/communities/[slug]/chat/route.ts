@@ -88,6 +88,8 @@ export async function POST(
     // Rate limit: reuse 'comment' config (10/min)
     if (await checkRateLimit('comment', user.id)) {
       const { strike, mutedUntil } = incrementChatStrike(user.id)
+      // Trigger challenge on spam
+      prisma.user.update({ where: { id: user.id }, data: { lastChallengePassedAt: null } }).catch(() => {})
       if (mutedUntil) {
         return NextResponse.json({
           error: 'MUTED',

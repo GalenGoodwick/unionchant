@@ -90,6 +90,8 @@ export async function POST(req: NextRequest) {
     const limited = await checkRateLimit('collective_chat', user.id)
     if (limited) {
       const { strike, mutedUntil } = incrementChatStrike(user.id)
+      // Trigger challenge on spam — nulls lastChallengePassedAt so next poll pops it
+      prisma.user.update({ where: { id: user.id }, data: { lastChallengePassedAt: null } }).catch(() => {})
       if (mutedUntil) {
         return NextResponse.json({
           error: 'MUTED',

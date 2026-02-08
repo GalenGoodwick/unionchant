@@ -1,54 +1,64 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSession } from 'next-auth/react'
+import { usePathname } from 'next/navigation'
 import RunawayButton, { type ChallengeData } from './RunawayButton'
-
-const POLL_INTERVAL = 30_000 // 30s — picks up admin triggers fast
 
 /**
  * Server-authoritative challenge system.
  *
- * - Polls /api/challenge/status every 30s so admin triggers reach ALL users
- * - Covers every page — wraps the entire app in providers.tsx
- * - Server validates behavioral data before marking as passed
- * - No secret key ever reaches the client
+ * Checks /api/challenge/status:
+ * - On mount (2s delay)
+ * - On every page navigation
+ * - Every 30s via interval
+ *
+ * When server says needsChallenge, modal pops over everything.
+ * Can't be bypassed by navigating — re-checks on every route.
  */
 export default function ChallengeProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession()
+  const pathname = usePathname()
   const [showChallenge, setShowChallenge] = useState(false)
+  const showRef = useRef(false)
   const checkingRef = useRef(false)
 
-  const checkStatus = useCallback(async () => {
-    if (!session?.user || checkingRef.current || showChallenge) return
-    checkingRef.current = true
-    try {
-      const res = await fetch('/api/challenge/status')
-      const data = await res.json()
-      if (data.needsChallenge) {
-        setShowChallenge(true)
-      }
-    } catch { /* silent */ }
-    checkingRef.current = false
-  }, [session, showChallenge])
+  // Keep ref in sync so interval closure reads fresh value
+  useEffect(() => { showRef.current = showChallenge }, [showChallenge])
 
-  // Poll every 30s — catches admin triggers, timer expiry, everything
   useEffect(() => {
     if (!session?.user) return
 
-    // Check immediately on mount (small delay for page render)
-    const initialId = setTimeout(() => checkStatus(), 2000)
+    let mounted = true
 
-    // Then poll every 30s
-    const intervalId = setInterval(() => checkStatus(), POLL_INTERVAL)
+    const check = async () => {
+      if (checkingRef.current || showRef.current) return
+      checkingRef.current = true
+      try {
+        const res = await fetch('/api/challenge/status')
+        const data = await res.json()
+        if (mounted && data.needsChallenge) {
+          setShowChallenge(true)
+          showRef.current = true
+        }
+      } catch { /* silent */ }
+      checkingRef.current = false
+    }
+
+    // Check after short delay on mount / navigation
+    const timeoutId = setTimeout(check, 1500)
+
+    // Also poll every 30s for admin triggers while user sits on one page
+    const intervalId = setInterval(check, 30_000)
 
     return () => {
-      clearTimeout(initialId)
+      mounted = false
+      clearTimeout(timeoutId)
       clearInterval(intervalId)
     }
-  }, [session?.user?.email, checkStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session?.user?.email, pathname]) // re-runs on every navigation
 
-  const handleCaught = useCallback(async (data: ChallengeData) => {
+  const handleCaught = async (data: ChallengeData) => {
     try {
       const res = await fetch('/api/challenge/complete', {
         method: 'POST',
@@ -63,12 +73,12 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
       const json = await res.json()
       if (json.verified) {
         setShowChallenge(false)
+        showRef.current = false
       }
-      // If server rejects, challenge stays up
-    } catch { /* silent — challenge stays up */ }
-  }, [])
+    } catch { /* challenge stays up */ }
+  }
 
-  const handleBotDetected = useCallback(async (data: ChallengeData) => {
+  const handleBotDetected = async (data: ChallengeData) => {
     try {
       await fetch('/api/challenge/complete', {
         method: 'POST',
@@ -81,7 +91,7 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
         }),
       })
     } catch { /* silent */ }
-  }, [])
+  }
 
   return (
     <>
