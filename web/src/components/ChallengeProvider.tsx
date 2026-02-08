@@ -35,7 +35,7 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
       if (checkingRef.current || showRef.current) return
       checkingRef.current = true
       try {
-        const res = await fetch('/api/challenge/status')
+        const res = await fetch(`/api/challenge/status?t=${Date.now()}`, { cache: 'no-store' })
         const data = await res.json()
         if (mounted && data.needsChallenge) {
           setShowChallenge(true)

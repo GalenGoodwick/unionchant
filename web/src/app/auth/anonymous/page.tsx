@@ -56,17 +56,17 @@ export default function AnonymousSignIn() {
           Anonymous Entry
         </h1>
         <p className="text-muted text-center mb-6">
-          One-time session, zero data collection
+          Non-linked account — no email, no password, no identity
         </p>
 
         <div className="bg-success-bg border border-success/30 text-success text-sm p-4 rounded-lg mb-6 space-y-2">
-          <p className="font-semibold">🔒 Complete Privacy Guarantee</p>
+          <p className="font-semibold">🔒 How It Works</p>
           <ul className="list-disc list-inside space-y-1 text-xs">
-            <li><strong>No account created</strong> — Your session exists only in your browser</li>
-            <li><strong>No email, name, or password required</strong></li>
-            <li><strong>No IP address stored in our database</strong></li>
-            <li><strong>No tracking cookies</strong> — Session expires after 24 hours</li>
-            <li><strong>No vote history saved</strong> — Your participation is anonymous, even to us</li>
+            <li><strong>No email or password required</strong> — We generate a random account for you</li>
+            <li><strong>No IP address stored</strong> — We actively strip it before processing</li>
+            <li><strong>Your entries are preserved</strong> — Ideas and votes stay in the system permanently</li>
+            <li><strong>Not linked to your identity</strong> — There is no way to trace this account back to you</li>
+            <li><strong>One catch</strong> — If you lose your session (clear cookies, switch device), there is no way to recover it</li>
           </ul>
         </div>
 
