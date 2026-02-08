@@ -1,15 +1,15 @@
 /**
- * Google reCAPTCHA Enterprise verification
+ * Google reCAPTCHA v2 verification
  *
  * Setup:
- * 1. Create a key in Google Cloud Console > reCAPTCHA Enterprise
- * 2. Add NEXT_PUBLIC_RECAPTCHA_SITE_KEY to .env.local (the Enterprise site key)
- * 3. Add RECAPTCHA_PROJECT_ID to .env.local (Google Cloud project ID)
- * 4. Add RECAPTCHA_API_KEY to .env.local (Google Cloud API key)
+ * 1. Create a reCAPTCHA site at https://www.google.com/recaptcha/admin
+ * 2. Add RECAPTCHA_SECRET_KEY to .env.local
+ * 3. Add NEXT_PUBLIC_RECAPTCHA_SITE_KEY to .env.local
  */
 
 import { prisma } from '@/lib/prisma'
 
+const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify'
 const CAPTCHA_VALID_HOURS = Infinity
 
 export type CaptchaResult = {
@@ -57,7 +57,7 @@ async function isUserAdmin(userId: string): Promise<boolean> {
 }
 
 /**
- * Verify a reCAPTCHA Enterprise token server-side
+ * Verify a reCAPTCHA token server-side
  * If userId provided, checks session validity first and updates on success
  * Admins are automatically bypassed
  */
@@ -65,14 +65,12 @@ export async function verifyCaptcha(
   token: string | null | undefined,
   userId?: string
 ): Promise<CaptchaResult> {
-  const projectId = process.env.RECAPTCHA_PROJECT_ID
-  const apiKey = process.env.RECAPTCHA_API_KEY
-  const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+  const secretKey = process.env.RECAPTCHA_SECRET_KEY
 
-  // Skip verification in development if not configured
-  if (!projectId || !apiKey) {
+  // Skip verification in development if no key configured
+  if (!secretKey) {
     if (process.env.NODE_ENV === 'development') {
-      console.warn('CAPTCHA: Skipping verification (no RECAPTCHA_PROJECT_ID or RECAPTCHA_API_KEY)')
+      console.warn('CAPTCHA: Skipping verification (no RECAPTCHA_SECRET_KEY)')
       return { success: true }
     }
     return { success: false, error: 'CAPTCHA not configured' }
@@ -99,33 +97,29 @@ export async function verifyCaptcha(
   }
 
   try {
-    const response = await fetch(
-      `https://recaptchaenterprise.googleapis.com/v1/projects/${projectId}/assessments?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          event: {
-            token,
-            siteKey,
-          },
-        }),
-      }
-    )
+    const response = await fetch(RECAPTCHA_VERIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        secret: secretKey,
+        response: token,
+      }),
+    })
 
     const data = await response.json()
 
-    if (data.tokenProperties?.valid) {
+    if (data.success) {
+      // Mark user as verified
       if (userId) {
         await markUserCaptchaVerified(userId)
       }
       return { success: true }
     } else {
-      console.warn('reCAPTCHA Enterprise verification failed:', data.tokenProperties?.invalidReason)
+      console.warn('reCAPTCHA verification failed:', data['error-codes'])
       return { success: false, error: 'CAPTCHA verification failed' }
     }
   } catch (error) {
-    console.error('reCAPTCHA Enterprise verification error:', error)
+    console.error('reCAPTCHA verification error:', error)
     return { success: false, error: 'CAPTCHA verification error' }
   }
 }
