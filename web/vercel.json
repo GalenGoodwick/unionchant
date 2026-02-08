@@ -13,12 +13,6 @@
       "schedule": "0 3 * * *"
     }
   ],
-  "functions": {
-    "api/anonymous/route.ts": {
-      "memory": 1024,
-      "maxDuration": 10
-    }
-  },
   "headers": [
     {
       "source": "/api/anonymous",
