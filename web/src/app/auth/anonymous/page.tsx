@@ -7,28 +7,22 @@ import ReCaptcha from '@/components/ReCaptcha'
 
 export default function AnonymousSignIn() {
   const router = useRouter()
-  const [captchaTokens, setCaptchaTokens] = useState<string[]>([])
-  const [currentStep, setCurrentStep] = useState(1)
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleCaptchaVerify = useCallback((token: string) => {
-    setCaptchaTokens(prev => [...prev, token])
-    if (currentStep < 3) {
-      setCurrentStep(prev => prev + 1)
-    }
-  }, [currentStep])
+    setCaptchaToken(token)
+  }, [])
 
   const handleCaptchaExpire = useCallback(() => {
-    // Reset to step 1 if any captcha expires
-    setCaptchaTokens([])
-    setCurrentStep(1)
-    setError('CAPTCHA expired. Please start over.')
+    setCaptchaToken(null)
+    setError('CAPTCHA expired. Please verify again.')
   }, [])
 
   const handleSubmit = async () => {
-    if (captchaTokens.length < 3) {
-      setError('Please complete all 3 CAPTCHAs')
+    if (!captchaToken) {
+      setError('Please complete the CAPTCHA verification')
       return
     }
 
@@ -39,7 +33,7 @@ export default function AnonymousSignIn() {
       const res = await fetch('/api/anonymous', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ captchaTokens }),
+        body: JSON.stringify({ captchaToken }),
       })
 
       const data = await res.json()
@@ -107,9 +101,9 @@ export default function AnonymousSignIn() {
           </div>
         </div>
 
-        {/* Why 3 CAPTCHAs */}
+        {/* Why CAPTCHA */}
         <div className="bg-warning-bg border border-warning/30 text-warning text-sm p-3 rounded-lg mb-6">
-          <strong>Why 3 CAPTCHAs?</strong> This prevents bot spam while preserving your anonymity. No other verification required.
+          <strong>CAPTCHA Required.</strong> This prevents bot spam while preserving your anonymity. No other verification required.
         </div>
 
         {error && (
@@ -119,76 +113,17 @@ export default function AnonymousSignIn() {
         )}
 
         <div className="space-y-6">
-          {/* Step indicators */}
-          <div className="flex items-center justify-center gap-4 mb-6">
-            {[1, 2, 3].map(step => (
-              <div
-                key={step}
-                className={`
-                  w-12 h-12 rounded-full flex items-center justify-center font-bold
-                  ${captchaTokens.length >= step
-                    ? 'bg-success text-white'
-                    : currentStep === step
-                      ? 'bg-accent text-white'
-                      : 'bg-surface text-muted border border-border'
-                  }
-                `}
-              >
-                {captchaTokens.length >= step ? '✓' : step}
-              </div>
-            ))}
+          {/* Single CAPTCHA */}
+          <div className="flex justify-center">
+            <ReCaptcha
+              onVerify={handleCaptchaVerify}
+              onExpire={handleCaptchaExpire}
+              className="flex justify-center"
+            />
           </div>
 
-          {/* CAPTCHA 1 */}
-          {currentStep >= 1 && (
-            <div className={currentStep === 1 ? '' : 'opacity-50'}>
-              <p className="text-sm text-muted mb-2 text-center">
-                {captchaTokens.length >= 1 ? 'Step 1 complete ✓' : 'Step 1 of 3'}
-              </p>
-              {currentStep === 1 && (
-                <ReCaptcha
-                  onVerify={handleCaptchaVerify}
-                  onExpire={handleCaptchaExpire}
-                  className="flex justify-center"
-                />
-              )}
-            </div>
-          )}
-
-          {/* CAPTCHA 2 */}
-          {currentStep >= 2 && (
-            <div className={currentStep === 2 ? '' : 'opacity-50'}>
-              <p className="text-sm text-muted mb-2 text-center">
-                {captchaTokens.length >= 2 ? 'Step 2 complete ✓' : 'Step 2 of 3'}
-              </p>
-              {currentStep === 2 && (
-                <ReCaptcha
-                  onVerify={handleCaptchaVerify}
-                  onExpire={handleCaptchaExpire}
-                  className="flex justify-center"
-                />
-              )}
-            </div>
-          )}
-
-          {/* CAPTCHA 3 */}
-          {currentStep >= 3 && (
-            <div>
-              <p className="text-sm text-muted mb-2 text-center">
-                {captchaTokens.length >= 3 ? 'Step 3 complete ✓' : 'Step 3 of 3'}
-              </p>
-              {currentStep === 3 && captchaTokens.length < 3 && (
-                <ReCaptcha
-                  onVerify={handleCaptchaVerify}
-                  onExpire={handleCaptchaExpire}
-                  className="flex justify-center"
-                />
-              )}
-            </div>
-          )}
-
           {/* Submit button */}
-          {captchaTokens.length === 3 && (
+          {captchaToken && (
             <button
               onClick={handleSubmit}
               disabled={loading}

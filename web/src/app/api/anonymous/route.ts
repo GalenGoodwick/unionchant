@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs'
 
 const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify'
 
-// POST /api/anonymous — Create temporary anonymous account after 3 reCAPTCHAs
+// POST /api/anonymous — Create temporary anonymous account after reCAPTCHA verification
 // Creates real account for participation numbers, auto-deleted after 24h
 export async function POST(req: NextRequest) {
   // CRITICAL: Actively reject and delete IP data before processing
@@ -22,10 +22,10 @@ export async function POST(req: NextRequest) {
   // The main point: we never READ these values, so they can't enter our logs
 
   try {
-    const { captchaTokens } = await req.json()
+    const { captchaToken } = await req.json()
 
-    if (!Array.isArray(captchaTokens) || captchaTokens.length !== 3) {
-      return NextResponse.json({ error: 'Invalid CAPTCHA tokens' }, { status: 400 })
+    if (!captchaToken || typeof captchaToken !== 'string') {
+      return NextResponse.json({ error: 'Invalid CAPTCHA token' }, { status: 400 })
     }
 
     const secretKey = process.env.RECAPTCHA_SECRET_KEY
@@ -39,29 +39,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Verify all 3 reCAPTCHA tokens
+    // Verify reCAPTCHA token
     if (secretKey) {
-      for (const token of captchaTokens) {
-        try {
-          const response = await fetch(RECAPTCHA_VERIFY_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-              secret: secretKey,
-              response: token,
-            }),
-          })
+      try {
+        const response = await fetch(RECAPTCHA_VERIFY_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            secret: secretKey,
+            response: captchaToken,
+          }),
+        })
 
-          const data = await response.json()
+        const data = await response.json()
 
-          if (!data.success) {
-            console.warn('reCAPTCHA verification failed:', data['error-codes'])
-            return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
-          }
-        } catch (error) {
-          console.error('reCAPTCHA verification error:', error)
-          return NextResponse.json({ error: 'CAPTCHA verification error' }, { status: 500 })
+        if (!data.success) {
+          console.warn('reCAPTCHA verification failed:', data['error-codes'])
+          return NextResponse.json({ error: 'CAPTCHA verification failed' }, { status: 400 })
         }
+      } catch (error) {
+        console.error('reCAPTCHA verification error:', error)
+        return NextResponse.json({ error: 'CAPTCHA verification error' }, { status: 500 })
       }
     }
 
