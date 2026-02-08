@@ -36,7 +36,7 @@ export default function AnonymousSignIn() {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/auth/anonymous', {
+      const res = await fetch('/api/anonymous', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ captchaTokens }),

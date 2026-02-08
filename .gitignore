@@ -13,3 +13,5 @@ planning/
 node_modules/
 package.json
 package-lock.json
+.env.check
+.env.verify
