@@ -151,7 +151,6 @@ export default function CaptchaModal({ open, strike, onVerify, onClose, mutedUnt
               <ReCaptcha
                 onVerify={setToken}
                 onExpire={() => setToken(null)}
-                appearance="always"
               />
             </div>
 
