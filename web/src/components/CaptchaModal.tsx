@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import Turnstile from './Turnstile'
+import ReCaptcha from './ReCaptcha'
 
 type Props = {
   open: boolean
