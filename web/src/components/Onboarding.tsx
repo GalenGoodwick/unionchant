@@ -75,7 +75,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-background rounded-xl max-w-md w-full p-6 shadow-xl">
         <h2 className="text-2xl font-bold text-foreground mb-2">Welcome to Unity Chant</h2>
-        <p className="text-muted mb-1">Teams talk, priorities are set.</p>
+        <p className="text-muted mb-1">Teams chant, priorities are set.</p>
         <p className="text-muted text-sm mb-6">Join questions to vote on — or create your own.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">

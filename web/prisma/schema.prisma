@@ -34,6 +34,8 @@ model User {
   role          UserRole   @default(USER)
   onboardedAt   DateTime?  // Set when user completes onboarding
   captchaVerifiedAt DateTime?  // Last CAPTCHA verification (valid for 24h)
+  isAnonymous   Boolean    @default(false)      // Temporary anonymous account (auto-deleted after 24h)
+  anonymousExpiresAt DateTime?                  // When to auto-delete this anonymous account
   isAI          Boolean    @default(false)      // AI persona for cold-start engagement
   aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
   theme         String     @default("system")  // "light", "dark", "system"
@@ -85,6 +87,12 @@ model User {
 
   // Auth
   passwordHash  String?
+
+  // Discord integration
+  discordId     String?  @unique
+
+  // Common Ground integration
+  cgId          String?  @unique
 
   // Prediction stats (denormalized for fast leaderboard queries)
   totalPredictions     Int @default(0)
@@ -176,10 +184,11 @@ model Deliberation {
   votingTimeoutMs       Int      @default(3600000)   // 1 hour
   secondVoteTimeoutMs   Int      @default(900000)    // 15 minutes
   discussionDurationMs  Int?     // null = no discussion (skip to voting). e.g. 7200000 = 2h. -1 = manual advance only
-  accumulationEnabled   Boolean  @default(true)
+  accumulationEnabled   Boolean  @default(false)
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
   continuousFlow        Boolean  @default(false)     // Tier 1: submit + vote in parallel; tier 2+: new ideas pool for next round
   supermajorityEnabled  Boolean  @default(true)      // No-timer mode: auto-advance tier when 80%+ cells done (10min grace)
+  allocationMode        String   @default("balanced") // "balanced" = random shuffle + conflict avoidance; "fcfs" = first-come-first-serve, no pre-assigned participants
   isPublic              Boolean  @default(true)
 
   // Goal-based auto-start (null = unlimited/manual start)
@@ -223,6 +232,9 @@ model Deliberation {
   aiAgents      AIAgent[]
   upvotes       DeliberationUpvote[]
 
+  // Servers that have loaded this chant (many-to-many with Community)
+  servers       DeliberationServer[]
+
   @@index([creatorId])
   @@index([isPublic, phase])
   @@index([organization])
@@ -230,6 +242,22 @@ model Deliberation {
   @@index([submissionEndsAt])
   @@index([currentTierStartedAt])
   @@index([phase, createdAt])
+}
+
+// Tracks which Discord servers have loaded a chant (cross-server deliberation)
+model DeliberationServer {
+  id              String       @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  communityId     String
+  community       Community    @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  isOrigin        Boolean      @default(false)  // True for the server that created the chant
+  startVoteApproved Boolean   @default(false)   // Has this server's facilitator approved starting voting?
+  loadedAt        DateTime     @default(now())
+
+  @@unique([deliberationId, communityId])
+  @@index([deliberationId])
+  @@index([communityId])
 }
 
 enum Phase {
@@ -612,11 +640,21 @@ model Community {
   isPublic    Boolean  @default(true)
   inviteCode  String?  @unique
 
-  // Who can create deliberations: "anyone" (any member) or "admins" (owner+admin only)
+  // Who can create deliberations: "anyone", "admins", or "role"
   postingPermission String @default("anyone")
+  chantRoleId       String?  // Discord role ID when postingPermission == "role"
+  defaultChantId    String?  // Currently active default chant for this server
 
   creatorId   String
   creator     User     @relation("CommunityCreator", fields: [creatorId], references: [id])
+
+  // Discord integration
+  discordGuildId    String? @unique
+  discordInviteUrl  String?
+  discordChannelId  String?  // Announcement channel for bot auto-posts
+
+  // Common Ground integration
+  cgCommunityId     String? @unique
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -625,6 +663,7 @@ model Community {
   deliberations Deliberation[]
   chatMessages  GroupMessage[]
   bans          CommunityBan[]
+  loadedChants  DeliberationServer[]
 
   @@index([creatorId])
   @@index([isPublic])

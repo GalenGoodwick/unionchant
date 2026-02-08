@@ -60,7 +60,7 @@ export function inviteEmail(params: {
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">You've been invited</h2>
       <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
-        ${params.inviterName || 'Someone'} invited you to join a deliberation.
+        ${params.inviterName || 'Someone'} invited you to join a chant.
       </p>
       ${orgLine}
       <div style="background:#252529;border-radius:8px;padding:16px;margin:16px 0;">
@@ -82,7 +82,7 @@ export function cellReadyEmail(params: {
   deliberationId: string
   tier: number
 }) {
-  const voteUrl = `${baseUrl}/talks/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/chants/${params.deliberationId}`
 
   return {
     subject: `Time to vote: ${params.question}`,
@@ -105,7 +105,7 @@ export function votingEndingSoonEmail(params: {
   question: string
   deliberationId: string
 }) {
-  const voteUrl = `${baseUrl}/talks/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/chants/${params.deliberationId}`
 
   return {
     subject: `Voting ending soon: ${params.question}`,
@@ -129,14 +129,14 @@ export function championDeclaredEmail(params: {
   championText: string
   deliberationId: string
 }) {
-  const resultsUrl = `${baseUrl}/talks/${params.deliberationId}`
+  const resultsUrl = `${baseUrl}/chants/${params.deliberationId}`
 
   return {
     subject: `Champion declared: ${params.question}`,
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">A champion has been declared!</h2>
       <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
-        The deliberation has reached a decision:
+        The chant has reached a decision:
       </p>
       <div style="background:#052e16;border:1px solid #166534;border-radius:8px;padding:16px;margin:16px 0;">
         <p style="margin:0 0 4px;color:#4ade80;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Priority</p>
@@ -235,7 +235,7 @@ export function followedNewDelibEmail(params: {
   question: string
   deliberationId: string
 }) {
-  const delibUrl = `${baseUrl}/talks/${params.deliberationId}`
+  const delibUrl = `${baseUrl}/chants/${params.deliberationId}`
 
   return {
     subject: `"${params.userName}" started a new deliberation`,
@@ -288,7 +288,7 @@ export function newTierEmail(params: {
   deliberationId: string
   tier: number
 }) {
-  const voteUrl = `${baseUrl}/talks/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/chants/${params.deliberationId}`
 
   return {
     subject: `New voting tier: ${params.question}`,

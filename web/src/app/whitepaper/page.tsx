@@ -187,10 +187,10 @@ export default function WhitepaperPage() {
               Watch Demo
             </Link>
             <Link
-              href="/talks/new"
+              href="/chants/new"
               className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
             >
-              Start a Talk
+              Start a Chant
             </Link>
           </div>
         </article>

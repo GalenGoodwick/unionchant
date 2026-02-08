@@ -52,7 +52,7 @@ export async function POST(
     }
     if (result.completed) {
       return NextResponse.json(
-        { error: `No challenger ideas available. ${result.reason || 'Talk has been completed.'}` },
+        { error: `No challenger ideas available. ${result.reason || 'Chant has been completed.'}` },
         { status: 400 }
       )
     }

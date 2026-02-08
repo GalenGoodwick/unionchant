@@ -93,7 +93,7 @@ export default function CommunitiesPage() {
               )}
               <div className="flex items-center gap-3 mt-2 text-xs text-muted">
                 <span>{c._count.members} members</span>
-                <span>{c._count.deliberations} talks</span>
+                <span>{c._count.deliberations} chants</span>
               </div>
             </Link>
           )
@@ -187,7 +187,7 @@ export default function CommunitiesPage() {
                 </div>
                 <div className="flex items-center gap-4 mt-2 text-sm text-muted">
                   <span>{c._count.members} members</span>
-                  <span>{c._count.deliberations} talks</span>
+                  <span>{c._count.deliberations} chants</span>
                   <span>by {c.creator.name || 'Anonymous'}</span>
                 </div>
               </Link>

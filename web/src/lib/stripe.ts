@@ -63,7 +63,7 @@ export async function getOrCreateStripeCustomer(
 }
 
 /**
- * Check if a tier allows private groups/talks.
+ * Check if a tier allows private groups/chants.
  */
 export function canCreatePrivate(tier: string): boolean {
   return tier === 'pro' || tier === 'business' || tier === 'scale'

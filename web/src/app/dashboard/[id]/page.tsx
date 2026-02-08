@@ -309,13 +309,13 @@ export default function DashboardDetailPage() {
           </div>
           <div className="flex flex-col gap-1 shrink-0 text-right">
             <Link
-              href={`/talks/${deliberation.id}`}
+              href={`/chants/${deliberation.id}`}
               className="text-accent hover:underline text-sm"
             >
               View Public Page &rarr;
             </Link>
             <Link
-              href={`/talks/${deliberation.id}/details`}
+              href={`/chants/${deliberation.id}/details`}
               className="text-accent hover:underline text-sm"
             >
               View Details &rarr;
@@ -499,7 +499,7 @@ export default function DashboardDetailPage() {
                             : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
                         </button>
                         {deliberation.currentTier > 1 && deliberation.accumulationEnabled && (
-                          <p className="text-xs text-muted mt-1">After a priority is chosen, the talk will accept new challenger ideas for Round 2.</p>
+                          <p className="text-xs text-muted mt-1">After a priority is chosen, the chant will accept new challenger ideas for Round 2.</p>
                         )}
                       </>
                     )}
@@ -599,17 +599,17 @@ export default function DashboardDetailPage() {
                       </div>
                     )}
 
-                    {/* Close Talk */}
+                    {/* Close Chant */}
                     <button
                       onClick={async () => {
-                        if (confirm('Declare the current priority as final and close this talk?')) {
+                        if (confirm('Declare the current priority as final and close this chant?')) {
                           await patchSettings({ phase: 'COMPLETED' })
                         }
                       }}
                       disabled={saving}
                       className="w-full border border-success text-success hover:bg-success-bg font-medium px-4 py-2 rounded-lg transition-colors text-sm"
                     >
-                      Close Talk
+                      Close Chant
                     </button>
                   </>
                 )}
@@ -618,14 +618,14 @@ export default function DashboardDetailPage() {
                 {deliberation.phase === 'COMPLETED' && (
                   <>
                     <div className="bg-success-bg border border-success rounded-lg p-3">
-                      <p className="text-sm text-success font-medium">Talk Complete</p>
+                      <p className="text-sm text-success font-medium">Chant Complete</p>
                       <p className="text-xs text-foreground mt-1">The priority has been declared.</p>
                     </div>
 
                     {deliberation.accumulationEnabled && (
                       <button
                         onClick={async () => {
-                          if (confirm('Reopen this talk to accept new challenger ideas?')) {
+                          if (confirm('Reopen this chant to accept new challenger ideas?')) {
                             await patchSettings({ phase: 'ACCUMULATING' })
                           }
                         }}
@@ -1010,7 +1010,7 @@ export default function DashboardDetailPage() {
             {/* Export */}
             <div className="bg-surface border border-border rounded-xl p-4">
               <h2 className="text-lg font-semibold text-foreground mb-2">Export Data</h2>
-              <p className="text-sm text-muted mb-3">Download talk data as JSON, CSV, or PDF.</p>
+              <p className="text-sm text-muted mb-3">Download chant data as JSON, CSV, or PDF.</p>
               <div className="flex gap-2 flex-wrap">
                 <a
                   href={`/api/deliberations/${deliberationId}/export?format=json`}
@@ -1054,7 +1054,7 @@ export default function DashboardDetailPage() {
                 <p className="text-muted text-sm">Loading...</p>
               ) : linkedPodiums.length === 0 ? (
                 <p className="text-muted text-sm">
-                  No podium posts linked to this talk yet. Write a post to explain context or make the case for this deliberation. Readers can join the talk directly from your post.
+                  No podium posts linked to this chant yet. Write a post to explain context or make the case for this chant. Readers can join the chant directly from your post.
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1357,12 +1357,12 @@ export default function DashboardDetailPage() {
               onClick={() => setConfirmDelete(true)}
               className="w-full border border-error text-error hover:bg-error hover:text-white font-medium px-4 py-2 rounded transition-colors"
             >
-              Delete Talk
+              Delete Chant
             </button>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-foreground">
-                This will permanently delete this talk and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
+                This will permanently delete this chant and all its data (ideas, votes, cells, comments, notifications). This cannot be undone.
               </p>
               <div className="flex gap-2">
                 <button

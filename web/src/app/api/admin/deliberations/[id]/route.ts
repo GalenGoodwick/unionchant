@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isAdminEmail } from '@/lib/admin'
 
-// DELETE /api/admin/talks/[id] - Delete a deliberation
+// DELETE /api/admin/chants/[id] - Delete a deliberation
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

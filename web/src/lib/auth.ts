@@ -2,6 +2,7 @@ import { NextAuthOptions } from 'next-auth'
 import { PrismaAdapter } from '@auth/prisma-adapter'
 import GoogleProvider from 'next-auth/providers/google'
 import GitHubProvider from 'next-auth/providers/github'
+import DiscordProvider from 'next-auth/providers/discord'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import prisma from './prisma'
@@ -10,6 +11,17 @@ import { checkRateLimit } from './rate-limit'
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(prisma) as any,
   providers: [
+    // Discord OAuth
+    ...(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET
+      ? [
+          DiscordProvider({
+            clientId: process.env.DISCORD_CLIENT_ID,
+            clientSecret: process.env.DISCORD_CLIENT_SECRET,
+            authorization: { params: { scope: 'identify email' } },
+          }),
+        ]
+      : []),
+
     // Google OAuth
     ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
       ? [
@@ -71,9 +83,78 @@ export const authOptions: NextAuthOptions = {
     strategy: 'jwt',
   },
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile }) {
       // Skip status check for credentials (already handled in authorize)
       if (account?.provider === 'credentials') return true
+
+      // Discord account merging: bot-created users have synthetic emails.
+      // We need to find them by discordId and merge before PrismaAdapter creates a duplicate.
+      const discordProfile = profile as { id?: string; username?: string; avatar?: string; email?: string } | undefined
+      if (account?.provider === 'discord' && discordProfile?.id) {
+        try {
+          const discordId = String(discordProfile.id)
+          const existingUser = await prisma.user.findUnique({
+            where: { discordId },
+          })
+
+          if (existingUser) {
+            // Bot-created user exists — merge: update their profile and link the OAuth account
+            const realEmail = discordProfile.email || user.email
+            const avatarUrl = user.image || (discordProfile.avatar
+              ? `https://cdn.discordapp.com/avatars/${discordId}/${discordProfile.avatar}.png`
+              : null)
+
+            await prisma.user.update({
+              where: { id: existingUser.id },
+              data: {
+                ...(realEmail && !realEmail.endsWith('@bot.unitychant.com') ? { email: realEmail } : {}),
+                ...(user.name ? { name: user.name } : {}),
+                ...(avatarUrl ? { image: avatarUrl } : {}),
+                emailVerified: new Date(),
+              },
+            })
+
+            // Upsert the OAuth Account record so NextAuth recognizes this link
+            await prisma.account.upsert({
+              where: {
+                provider_providerAccountId: {
+                  provider: 'discord',
+                  providerAccountId: discordId,
+                },
+              },
+              update: {
+                access_token: account.access_token,
+                refresh_token: account.refresh_token,
+                expires_at: account.expires_at,
+                token_type: account.token_type,
+                scope: account.scope,
+                id_token: account.id_token,
+              },
+              create: {
+                userId: existingUser.id,
+                type: account.type,
+                provider: 'discord',
+                providerAccountId: discordId,
+                access_token: account.access_token,
+                refresh_token: account.refresh_token,
+                expires_at: account.expires_at,
+                token_type: account.token_type,
+                scope: account.scope,
+                id_token: account.id_token,
+              },
+            })
+
+            // Override the user object so JWT callback gets the right ID
+            user.id = existingUser.id
+            return true
+          }
+
+          // No existing bot user — let PrismaAdapter create normally, then set discordId
+          // We do this in a post-create step via the jwt callback
+        } catch (error) {
+          console.error('Error merging Discord account:', error)
+        }
+      }
 
       // Check if user is banned (deleted users can reactivate by logging in)
       try {
@@ -104,11 +185,31 @@ export const authOptions: NextAuthOptions = {
       }
       return session
     },
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user, account, profile, trigger, session }) {
       if (user) {
         token.id = user.id
         token.sub = user.id
       }
+
+      // For new Discord signups (not bot-merged), set discordId on the user
+      const jwtDiscordProfile = profile as { id?: string } | undefined
+      if (account?.provider === 'discord' && jwtDiscordProfile?.id && user?.id) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: { discordId: true },
+          })
+          if (!dbUser?.discordId) {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { discordId: String(jwtDiscordProfile.id) },
+            })
+          }
+        } catch (error) {
+          console.error('Error setting discordId:', error)
+        }
+      }
+
       // When session is updated (e.g. onboarding name change), persist to token
       if (trigger === 'update' && session) {
         if (session.name) token.name = session.name

@@ -105,7 +105,7 @@ export default function CommunityInviteClient() {
 
           <div className="flex justify-center gap-4 text-sm text-muted mb-6">
             <span className="font-mono">{community._count.members} members</span>
-            <span className="font-mono">{community._count.deliberations} talks</span>
+            <span className="font-mono">{community._count.deliberations} chants</span>
           </div>
 
           <div className="text-muted-light text-sm mb-6">
@@ -125,7 +125,7 @@ export default function CommunityInviteClient() {
           )}
 
           <p className="text-muted-light text-xs mt-4">
-            By joining, you&apos;ll be part of this group and its talks
+            By joining, you&apos;ll be part of this group and its chants
           </p>
         </div>
       </div>

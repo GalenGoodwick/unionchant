@@ -19,14 +19,14 @@ export default function HowItWorksPage() {
 
         <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-2">How Unity Chant Works</h1>
         <p className="text-lg text-muted mb-10">
-          A quick guide to participating in talks
+          A quick guide to participating in chants
         </p>
 
-        {/* What is a Talk */}
+        {/* What is a Chant */}
         <section className="mb-10">
-          <h2 className="text-xl font-semibold text-foreground mb-3">What is a Talk?</h2>
+          <h2 className="text-xl font-semibold text-foreground mb-3">What is a Chant?</h2>
           <p className="text-subtle text-sm leading-relaxed">
-            A Talk is a question posed to a group. Anyone can submit an idea, and together the group
+            A Chant is a question posed to a group. Anyone can submit an idea, and together the group
             narrows down to the strongest answer through small-group discussions and voting.
           </p>
         </section>
@@ -37,7 +37,7 @@ export default function HowItWorksPage() {
           <div className="space-y-3">
 
             <Step number={1} color="bg-accent" title="Join and Submit">
-              Find a Talk on your Feed or browse open talks. Submit your idea — one per person,
+              Find a Chant on your Feed or browse open chants. Submit your idea — one per person,
               so make it count.
             </Step>
 
@@ -111,13 +111,13 @@ export default function HowItWorksPage() {
           <h2 className="text-xl font-semibold text-foreground mb-3">Your Feed</h2>
           <div className="space-y-2">
             <FeedTab color="text-foreground" label="Feed">
-              Actions you can take — vote, submit ideas, join new talks.
+              Actions you can take — vote, submit ideas, join new chants.
             </FeedTab>
             <FeedTab color="text-muted" label="Activity">
-              What&apos;s happening across the platform — new talks, tier completions, results.
+              What&apos;s happening across the platform — new chants, tier completions, results.
             </FeedTab>
             <FeedTab color="text-muted" label="Results">
-              Completed talks with declared priorities.
+              Completed chants with declared priorities.
             </FeedTab>
           </div>
         </section>
@@ -151,7 +151,7 @@ export default function HowItWorksPage() {
           <h2 className="text-xl font-semibold text-foreground mb-3">Rolling Mode</h2>
           <div className="bg-purple-bg border border-purple rounded-lg p-4">
             <p className="text-subtle text-sm leading-relaxed mb-3">
-              Some talks don&apos;t end after a priority is declared. In rolling mode, the talk enters
+              Some chants don&apos;t end after a priority is declared. In rolling mode, the chant enters
               an <strong className="text-foreground">accepting new ideas</strong> phase. New challenger
               ideas can be submitted, and periodically a new round begins to test whether the priority
               still holds.
@@ -166,7 +166,7 @@ export default function HowItWorksPage() {
         <section className="mb-10">
           <h2 className="text-xl font-semibold text-foreground mb-3">Groups</h2>
           <p className="text-subtle text-sm leading-relaxed">
-            Groups are communities that run talks together. Join a group to see their talks in your feed.
+            Groups are communities that run chants together. Join a group to see their chants in your feed.
             Groups can be public or private. Members have roles — owner, admin, or member.
           </p>
         </section>
@@ -214,16 +214,16 @@ export default function HowItWorksPage() {
           <h3 className="text-lg font-semibold text-foreground mb-4">Ready?</h3>
           <div className="flex gap-4 justify-center">
             <Link
-              href="/feed"
+              href="/chants"
               className="bg-accent hover:bg-accent-hover text-white px-6 py-3 rounded-lg font-medium transition-colors"
             >
               Go to Feed
             </Link>
             <Link
-              href="/talks/new"
+              href="/chants/new"
               className="bg-background border border-border-strong hover:border-muted text-foreground px-6 py-3 rounded-lg font-medium transition-colors"
             >
-              Start a Talk
+              Start a Chant
             </Link>
           </div>
         </div>

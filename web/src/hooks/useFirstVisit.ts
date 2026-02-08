@@ -8,27 +8,26 @@ import { useState, useCallback, useEffect } from 'react'
  */
 export function useFirstVisit(key: string): [boolean, () => void] {
   const [visible, setVisible] = useState(false)
-  const [checked, setChecked] = useState(false)
 
   useEffect(() => {
     try {
-      const tooltipSeen = localStorage.getItem(`tooltip-${key}`) === 'true'
-      setVisible(!tooltipSeen)
+      const seen = localStorage.getItem(`tooltip-${key}`)
+      if (!seen) {
+        setVisible(true)
+      }
     } catch {
-      // localStorage unavailable (e.g. private browsing)
-      setVisible(false)
+      // localStorage unavailable
     }
   }, [key])
 
   const markSeen = useCallback(() => {
+    setVisible(false)
     try {
-      localStorage.setItem(`tooltip-${key}`, 'true')
+      localStorage.setItem(`tooltip-${key}`, '1')
     } catch {
       // ignore
     }
-    setChecked(true)
-    setVisible(false)
   }, [key])
 
-  return [visible && !checked, markSeen]
+  return [visible, markSeen]
 }

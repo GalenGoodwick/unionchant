@@ -58,7 +58,7 @@ export default function PodiumsPage() {
       <Header />
       <main className="max-w-xl mx-auto px-4 py-6">
         <FirstVisitTooltip id="podiums-page">
-          Podiums are long-form posts where you can explain your thinking, make an argument, or provide context for a talk. Link a podium to a talk to drive informed participation.
+          Podiums are long-form posts where you can explain your thinking, make an argument, or provide context for a chant. Link a podium to a chant to drive informed participation.
         </FirstVisitTooltip>
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-foreground">Podiums</h1>
@@ -137,10 +137,10 @@ export default function PodiumsPage() {
                       {post.body.slice(0, 180).replace(/\n/g, ' ')}
                     </p>
 
-                    {/* Linked Talk */}
+                    {/* Linked Chant */}
                     {post.deliberation && (
                       <div className="mt-3 bg-accent/10 border border-accent/25 rounded-lg p-3">
-                        <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-1">Linked Talk</div>
+                        <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-1">Linked Chant</div>
                         <div className="text-sm text-foreground font-medium leading-snug">&ldquo;{post.deliberation.question}&rdquo;</div>
                       </div>
                     )}

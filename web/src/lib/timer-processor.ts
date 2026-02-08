@@ -433,8 +433,8 @@ async function processStuckCells(): Promise<string[]> {
  * @param trigger - Source that triggered this run (for logging)
  */
 /**
- * Purge empty talks — deliberations older than 24h with 0 ideas submitted.
- * Any idea submission saves the talk from purging.
+ * Purge empty chants — deliberations older than 24h with 0 ideas submitted.
+ * Any idea submission saves the chant from purging.
  */
 export async function purgeEmptyTalks(): Promise<string[]> {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000) // 24h ago
@@ -463,9 +463,9 @@ export async function purgeEmptyTalks(): Promise<string[]> {
       await prisma.deliberationMember.deleteMany({ where: { deliberationId: talk.id } })
       await prisma.deliberation.delete({ where: { id: talk.id } })
       purged.push(talk.id)
-      console.log(`[Purge] Deleted empty talk ${talk.id}: "${talk.question.slice(0, 50)}"`)
+      console.log(`[Purge] Deleted empty chant ${talk.id}: "${talk.question.slice(0, 50)}"`)
     } catch (err) {
-      console.error(`[Purge] Failed to delete talk ${talk.id}:`, err)
+      console.error(`[Purge] Failed to delete chant ${talk.id}:`, err)
     }
   }
 

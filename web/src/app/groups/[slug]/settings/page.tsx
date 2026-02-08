@@ -176,6 +176,21 @@ export default function CommunitySettingsPage() {
     }
   }
 
+  const handleDeleteGroup = async () => {
+    if (!confirm(`Permanently delete "${community?.name}"? Members, bans, and messages will be removed. Chants will be unlinked but keep their current visibility. This cannot be undone.`)) return
+    if (!confirm('Are you absolutely sure? This action is irreversible.')) return
+    try {
+      const res = await fetch(`/api/communities/${slug}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed')
+      }
+      router.push('/groups')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete group')
+    }
+  }
+
   const handleBanMember = async (userId: string, userName: string) => {
     if (!confirm(`Permanently ban ${userName} from this group? They will not be able to rejoin.`)) return
     try {
@@ -316,7 +331,7 @@ export default function CommunitySettingsPage() {
               </label>
             </div>
             <div>
-              <label className="block text-foreground font-medium mb-2">Who can create talks?</label>
+              <label className="block text-foreground font-medium mb-2">Who can create chants?</label>
               <div className="space-y-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -373,18 +388,6 @@ export default function CommunitySettingsPage() {
               {inviteSending ? 'Sending...' : 'Send Invites'}
             </button>
           </form>
-        </div>
-
-        {/* Purge Chat */}
-        <div className="bg-surface border border-border rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold text-foreground mb-2">Group Chat</h2>
-          <p className="text-muted text-sm mb-4">Delete all chat messages in this group.</p>
-          <button
-            onClick={handlePurgeChat}
-            className="bg-error/10 text-error border border-error/30 hover:bg-error/20 px-4 py-2 rounded-xl font-medium text-sm transition-colors"
-          >
-            Purge All Messages
-          </button>
         </div>
 
         {/* Members */}
@@ -487,6 +490,40 @@ export default function CommunitySettingsPage() {
                   </button>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Danger Zone */}
+        {community.userRole === 'OWNER' && (
+          <div className="border border-error/30 rounded-xl p-6 mt-6">
+            <h2 className="text-lg font-semibold text-error mb-4">Danger Zone</h2>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Purge all messages</p>
+                  <p className="text-xs text-muted">Delete all chat messages in this group.</p>
+                </div>
+                <button
+                  onClick={handlePurgeChat}
+                  className="text-xs px-4 py-2 rounded-xl font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                >
+                  Purge Messages
+                </button>
+              </div>
+              <div className="border-t border-error/15" />
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Delete this group</p>
+                  <p className="text-xs text-muted">Permanently delete the group, members, and messages. Chants keep their current visibility.</p>
+                </div>
+                <button
+                  onClick={handleDeleteGroup}
+                  className="text-xs px-4 py-2 rounded-xl font-medium bg-error text-white hover:bg-error-hover transition-colors"
+                >
+                  Delete Group
+                </button>
+              </div>
             </div>
           </div>
         )}

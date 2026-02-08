@@ -217,7 +217,7 @@ export default function NotificationsPage() {
 
   const getLink = (n: Notification) => {
     if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
-    if (n.deliberationId) return `/talks/${n.deliberationId}`
+    if (n.deliberationId) return `/chants/${n.deliberationId}`
     return null
   }
 

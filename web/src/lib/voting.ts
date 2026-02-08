@@ -197,7 +197,7 @@ export async function startVotingPhase(deliberationId: string) {
     return {
       success: false,
       reason: 'NO_IDEAS',
-      message: 'No ideas were submitted. The deliberation remains in submission phase.'
+      message: 'No ideas were submitted. The chant remains in submission phase.'
     }
   }
 
@@ -240,6 +240,11 @@ export async function startVotingPhase(deliberationId: string) {
       reason: 'INSUFFICIENT_PARTICIPANTS',
       message: 'Need at least 1 participant to start voting'
     }
+  }
+
+  // ── FCFS mode: create cells with ideas only, no pre-assigned participants ──
+  if (deliberation.allocationMode === 'fcfs') {
+    return startVotingPhaseFCFS(deliberationId, deliberation)
   }
 
   // Check if this is a resume (existing cells from a previous voting round)
@@ -451,6 +456,101 @@ export async function startVotingPhase(deliberationId: string) {
     message: isResume ? `Voting resumed with ${cells.length} new cells` : 'Voting started',
     cellsCreated: cells.length,
     tier: 1
+  }
+}
+
+/**
+ * FCFS voting start: create cells with ideas distributed but NO participants.
+ * Users join cells first-come-first-serve via the enter endpoint.
+ * Cell completes when it reaches FCFS_CELL_SIZE voters.
+ */
+const FCFS_CELL_SIZE = 5
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
+  const ideas = deliberation.ideas
+
+  // Number of cells based on IDEAS, not participants (participants arrive later)
+  const numCells = Math.max(1, Math.ceil(ideas.length / IDEAS_PER_CELL))
+  const ideaSizes = calculateIdeaSizes(ideas.length, numCells)
+
+  // Shuffle ideas for fairness (order shouldn't determine which cell gets which)
+  const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
+
+  // Distribute ideas to cells
+  const cellIdeaGroups: typeof shuffledIdeas[] = []
+  let ideaIndex = 0
+  for (let cellNum = 0; cellNum < numCells; cellNum++) {
+    const count = ideaSizes[cellNum] || 0
+    cellIdeaGroups.push(shuffledIdeas.slice(ideaIndex, ideaIndex + count))
+    ideaIndex += count
+  }
+
+  // Create cells with ideas but NO participants
+  const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
+
+  for (let cellNum = 0; cellNum < numCells; cellNum++) {
+    const cellIdeas = cellIdeaGroups[cellNum]
+    if (cellIdeas.length === 0) continue
+
+    await prisma.idea.updateMany({
+      where: { id: { in: cellIdeas.map((i: { id: string }) => i.id) } },
+      data: { status: 'IN_VOTING', tier: 1 },
+    })
+
+    const cell = await prisma.cell.create({
+      data: {
+        deliberationId,
+        tier: 1,
+        status: 'VOTING',
+        ideas: {
+          create: cellIdeas.map(idea => ({ ideaId: idea.id })),
+        },
+        // NO participants — they join via enter endpoint
+      },
+    })
+
+    cells.push(cell)
+  }
+
+  // Update deliberation phase
+  await prisma.deliberation.update({
+    where: { id: deliberationId },
+    data: {
+      phase: 'VOTING',
+      currentTier: 1,
+      currentTierStartedAt: new Date(),
+    },
+  })
+
+  // Notifications
+  const memberIds = deliberation.members.map((m: { userId: string }) => m.userId)
+  if (memberIds.length > 0) {
+    prisma.notification.createMany({
+      data: memberIds.map((userId: string) => ({
+        userId,
+        type: 'VOTE_NEEDED' as const,
+        title: 'Voting is open — join a cell to vote',
+        body: deliberation.question.length > 80 ? deliberation.question.slice(0, 80) + '...' : deliberation.question,
+        deliberationId,
+      })),
+    }).catch(err => console.error('Failed to create FCFS voting notifications:', err))
+  }
+
+  sendPushToDeliberation(
+    deliberationId,
+    notifications.votingStarted(deliberation.question, deliberationId)
+  ).catch(err => console.error('Failed to send push notifications:', err))
+
+  sendEmailToDeliberation(deliberationId, 'cell_ready', { tier: 1 })
+    .catch(err => console.error('Failed to send email notifications:', err))
+
+  return {
+    success: true,
+    reason: 'VOTING_STARTED_FCFS',
+    message: `Voting started (FCFS mode) — ${cells.length} cells open for voters`,
+    cellsCreated: cells.length,
+    tier: 1,
   }
 }
 
@@ -744,8 +844,12 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     const sortedIdeas = Object.entries(crossCellTally)
       .sort(([, a], [, b]) => b - a)
 
-    if (sortedIdeas.length > 0) {
-      const winnerId = sortedIdeas[0][0]
+    // If no votes were cast, pick a random winner from the ideas
+    const winnerId = sortedIdeas.length > 0
+      ? sortedIdeas[0][0]
+      : firstCellIdeaIds[Math.floor(Math.random() * firstCellIdeaIds.length)]
+
+    if (winnerId) {
 
       // Mark winner
       await prisma.idea.update({
@@ -1015,6 +1119,53 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     const nextTierDiscussionEndsAt = hasNextTierDiscussion && deliberation.discussionDurationMs! > 0
       ? new Date(Date.now() + deliberation.discussionDurationMs!)
       : null
+
+    // ── FCFS mode: create next-tier cells with ideas but NO participants ──
+    if (deliberation.allocationMode === 'fcfs') {
+      const numCells = Math.max(1, Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL))
+      const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, numCells)
+      let fcfsIdeaIdx = 0
+
+      if (shuffledIdeas.length <= 5) {
+        // Final showdown in FCFS: one cell with all ideas, no participants
+        await prisma.cell.create({
+          data: {
+            deliberationId,
+            tier: nextTier,
+            batch: 0,
+            status: 'VOTING',
+            ideas: { create: shuffledIdeas.map(idea => ({ ideaId: idea.id })) },
+          },
+        })
+      } else {
+        for (let cellNum = 0; cellNum < numCells; cellNum++) {
+          const count = ideaSizes[cellNum] || 0
+          const cellIdeas = shuffledIdeas.slice(fcfsIdeaIdx, fcfsIdeaIdx + count)
+          fcfsIdeaIdx += count
+          if (cellIdeas.length === 0) continue
+
+          await prisma.cell.create({
+            data: {
+              deliberationId,
+              tier: nextTier,
+              status: 'VOTING',
+              ideas: { create: cellIdeas.map(idea => ({ ideaId: idea.id })) },
+            },
+          })
+        }
+      }
+
+      // Notifications
+      sendPushToDeliberation(
+        deliberationId,
+        notifications.newTier(nextTier, deliberation.question, deliberationId)
+      ).catch(err => console.error('Failed to send push notifications:', err))
+
+      sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
+        .catch(err => console.error('Failed to send new tier email:', err))
+
+      return // FCFS tier creation done
+    }
 
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
     // Multiple cells for up-pollination of comments between cells

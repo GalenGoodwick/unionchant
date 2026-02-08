@@ -22,7 +22,7 @@ const tiers = [
     color: 'border-border',
     checkColor: 'text-success',
     features: [
-      'Unlimited public talks',
+      'Unlimited public chants',
       'Join, vote, and discuss',
       'Collective AI chat',
       'Join any group',
@@ -42,9 +42,9 @@ const tiers = [
     features: [
       'Everything in Free',
       '1 private group (500 members)',
-      'Private talks',
+      'Private chants',
       'Group feed page',
-      'Talk analytics',
+      'Chant analytics',
     ],
     priceEnv: 'pro',
   },
@@ -267,7 +267,7 @@ function PricingContent() {
           <div className="bg-background rounded-xl border border-border p-6">
             <h3 className="text-lg font-bold text-foreground mb-2">Members always join free</h3>
             <p className="text-muted text-sm leading-relaxed">
-              Only the organizer who creates a group or talk pays.
+              Only the organizer who creates a group or chant pays.
               Members can join, vote, discuss, and submit ideas at no cost on any plan.
             </p>
           </div>
@@ -280,15 +280,15 @@ function PricingContent() {
             <div>
               <h3 className="text-foreground font-semibold mb-1">What do I need Pro for?</h3>
               <p className="text-muted text-sm leading-relaxed">
-                Pro unlocks private groups and talks. If you&apos;re running internal decisions,
-                private group votes, or any talk that shouldn&apos;t be public, you need Pro.
+                Pro unlocks private groups and chants. If you&apos;re running internal decisions,
+                private group votes, or any chant that shouldn&apos;t be public, you need Pro.
               </p>
             </div>
             <div>
               <h3 className="text-foreground font-semibold mb-1">What&apos;s the member limit?</h3>
               <p className="text-muted text-sm leading-relaxed">
                 The member limit applies to private groups you create. Pro supports up to 500 members,
-                Org up to 5,000, and Scale is unlimited. Public talks have no member limits on any plan.
+                Org up to 5,000, and Scale is unlimited. Public chants have no member limits on any plan.
               </p>
             </div>
             <div>
@@ -301,7 +301,7 @@ function PricingContent() {
             <div>
               <h3 className="text-foreground font-semibold mb-1">Do members need to pay?</h3>
               <p className="text-muted text-sm leading-relaxed">
-                Never. Only the person creating private groups or talks needs a paid plan.
+                Never. Only the person creating private groups or chants needs a paid plan.
                 Everyone else joins, votes, and participates for free.
               </p>
             </div>

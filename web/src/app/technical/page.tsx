@@ -47,7 +47,7 @@ export default function TechnicalWhitepaperPage() {
           <section className="mb-12">
             <h2 className="text-2xl font-semibold text-foreground mb-4">Phase 1: Submission</h2>
             <p className="text-subtle leading-relaxed mb-4">
-              A facilitator creates a Talk&mdash;a question or prompt for the group to answer. Participants join and
+              A facilitator creates a Chant&mdash;a question or prompt for the group to answer. Participants join and
               submit ideas (one idea per person per phase). Submission ends via one of four triggers:
             </p>
             <ul className="list-disc list-inside text-subtle leading-relaxed space-y-2 mb-4 ml-2">
@@ -246,7 +246,7 @@ export default function TechnicalWhitepaperPage() {
             <h2 className="text-2xl font-semibold text-foreground mb-4">Phase 5: Priority Declared</h2>
             <p className="text-subtle leading-relaxed mb-4">
               When a single idea remains&mdash;either by being the last one standing or by winning the Final
-              Showdown&mdash;it becomes the Priority. At this point, the Talk either completes (one-time mode)
+              Showdown&mdash;it becomes the Priority. At this point, the Chant either completes (one-time mode)
               or enters Accumulation (rolling mode).
             </p>
           </section>
@@ -255,7 +255,7 @@ export default function TechnicalWhitepaperPage() {
           <section className="mb-12">
             <h2 className="text-2xl font-semibold text-foreground mb-4">Rolling Mode</h2>
             <p className="text-subtle leading-relaxed mb-4">
-              If the facilitator enables rolling mode, the Talk continues after a Priority is declared. New
+              If the facilitator enables rolling mode, the Chant continues after a Priority is declared. New
               participants can join and submit challenger ideas during an accumulation period. When the accumulation
               timer expires, a Challenge Round begins.
             </p>
@@ -270,7 +270,7 @@ export default function TechnicalWhitepaperPage() {
             </ol>
             <p className="text-subtle leading-relaxed">
               If no challengers are submitted after 3 consecutive accumulation periods, the Priority is declared
-              final and the Talk completes.
+              final and the Chant completes.
             </p>
 
             <div className="bg-surface rounded-lg border border-border p-6 font-mono text-sm text-muted my-6">
@@ -341,7 +341,7 @@ export default function TechnicalWhitepaperPage() {
                     ['Supermajority grace period', '10 minutes'],
                     ['Zero-vote extensions', '1 (then force-complete)'],
                     ['Retirement threshold', '2+ losses'],
-                    ['Max no-challenger rounds', '3 (then Talk completes)'],
+                    ['Max no-challenger rounds', '3 (then Chant completes)'],
                     ['Continuous flow cell trigger', 'Every 5 ideas'],
                     ['Scale: 1M participants', '~9 tiers'],
                     ['Scale: 8B (humanity)', '~14 tiers'],
@@ -367,10 +367,10 @@ export default function TechnicalWhitepaperPage() {
                 Read the Whitepaper
               </Link>
               <Link
-                href="/talks/new"
+                href="/chants/new"
                 className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
               >
-                Start a Talk
+                Start a Chant
               </Link>
             </div>
           </div>

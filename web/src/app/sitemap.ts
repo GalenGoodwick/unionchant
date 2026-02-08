@@ -15,7 +15,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 1,
     },
     {
-      url: `${baseUrl}/talks`,
+      url: `${baseUrl}/chants`,
       lastModified: new Date(),
       changeFrequency: 'daily',
       priority: 0.9,
@@ -82,7 +82,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       take: 500,
     })
     deliberationPages = deliberations.map(d => ({
-      url: `${baseUrl}/talks/${d.id}`,
+      url: `${baseUrl}/chants/${d.id}`,
       lastModified: d.updatedAt,
       changeFrequency: 'daily' as const,
       priority: 0.7,

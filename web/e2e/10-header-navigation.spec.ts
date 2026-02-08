@@ -8,7 +8,7 @@ test.describe('Header Navigation', () => {
     await expect(header.getByText('Unity Chant')).toBeVisible()
     await expect(header.getByRole('link', { name: 'Feed' })).toBeVisible()
     await expect(header.getByRole('link', { name: 'Groups' })).toBeVisible()
-    await expect(header.getByRole('link', { name: 'Talks' })).toBeVisible()
+    await expect(header.getByRole('link', { name: 'Chants' })).toBeVisible()
   })
 
   test('clicking Feed navigates to /feed', async ({ page }) => {
@@ -23,10 +23,10 @@ test.describe('Header Navigation', () => {
     await expect(page).toHaveURL('/groups')
   })
 
-  test('clicking Talks navigates to /talks', async ({ page }) => {
+  test('clicking Chants navigates to /chants', async ({ page }) => {
     await page.goto('/feed')
-    await page.locator('header').getByRole('link', { name: 'Talks' }).click()
-    await expect(page).toHaveURL('/talks')
+    await page.locator('header').getByRole('link', { name: 'Chants' }).click()
+    await expect(page).toHaveURL('/chants')
   })
 
   test('clicking logo navigates to /', async ({ page }) => {

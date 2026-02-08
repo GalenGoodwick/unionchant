@@ -41,15 +41,15 @@ export function useDeliberation(id: string) {
       const res = await fetch(`/api/deliberations/${id}`)
       if (!res.ok) {
         if (res.status === 404) {
-          showToast('This talk no longer exists or has been removed.', 'error')
-          router.push('/talks')
+          showToast('This chant no longer exists or has been removed.', 'error')
+          router.push('/chants')
         }
         return
       }
       setDeliberation(await res.json())
     } catch {
-      showToast('Could not load this talk. It may have moved or ended.', 'error')
-      router.push('/talks')
+      showToast('Could not load this chant. It may have moved or ended.', 'error')
+      router.push('/chants')
     } finally {
       setLoading(false)
     }

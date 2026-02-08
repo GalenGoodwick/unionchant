@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const cutoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) // 2 days ago
 
   try {
-    const [collectiveResult, groupResult] = await Promise.all([
+    const [collectiveResult, groupResult, anonResult] = await Promise.all([
       // Prune collective chat messages older than 2 days
       prisma.collectiveMessage.deleteMany({
         where: { createdAt: { lt: cutoff } },
@@ -25,15 +25,23 @@ export async function GET(req: NextRequest) {
       prisma.groupMessage.deleteMany({
         where: { createdAt: { lt: cutoff } },
       }),
+      // Delete expired anonymous accounts (24h+ old)
+      prisma.user.deleteMany({
+        where: {
+          isAnonymous: true,
+          anonymousExpiresAt: { lt: new Date() },
+        },
+      }),
     ])
 
-    console.log(`[Cleanup] Pruned ${collectiveResult.count} collective messages, ${groupResult.count} group messages (cutoff: ${cutoff.toISOString()})`)
+    console.log(`[Cleanup] Pruned ${collectiveResult.count} collective messages, ${groupResult.count} group messages, ${anonResult.count} anonymous accounts (cutoff: ${cutoff.toISOString()})`)
 
     return NextResponse.json({
       success: true,
       pruned: {
         collectiveMessages: collectiveResult.count,
         groupMessages: groupResult.count,
+        anonymousAccounts: anonResult.count,
       },
       cutoff: cutoff.toISOString(),
     })

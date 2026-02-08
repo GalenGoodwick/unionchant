@@ -638,7 +638,7 @@ async function buildActivityFeed(userId: string | null): Promise<FeedResponse> {
     activity.push({
       id: `join-${j.id}`,
       type: 'USER_JOINED',
-      title: 'You joined a talk',
+      title: 'You joined a chant',
       body: j.deliberation.question.length > 80 ? j.deliberation.question.slice(0, 80) + '...' : j.deliberation.question,
       deliberationId: j.deliberation.id,
       createdAt: j.joinedAt.toISOString(),

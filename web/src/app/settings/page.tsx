@@ -184,7 +184,7 @@ export default function SettingsPage() {
       <Header />
 
       <div className="max-w-xl mx-auto px-6 py-8">
-        <Link href="/feed" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
+        <Link href="/chants" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
           &larr; Back to feed
         </Link>
 
@@ -395,8 +395,8 @@ export default function SettingsPage() {
             {([
               { key: 'emailVoting' as const, label: 'Voting alerts', desc: 'Your turn to vote, voting ending soon' },
               { key: 'emailResults' as const, label: 'Results', desc: 'Priority declared, your idea advanced' },
-              { key: 'emailSocial' as const, label: 'Following', desc: 'People you follow create new talks' },
-              { key: 'emailCommunity' as const, label: 'Groups', desc: 'Invitations, new talks in your groups' },
+              { key: 'emailSocial' as const, label: 'Following', desc: 'People you follow create new chants' },
+              { key: 'emailCommunity' as const, label: 'Groups', desc: 'Invitations, new chants in your groups' },
               { key: 'emailNews' as const, label: 'News & announcements', desc: 'Platform updates and news' },
             ]).map(({ key, label, desc }) => (
               <div key={key} className="flex items-center justify-between">

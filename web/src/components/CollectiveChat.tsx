@@ -16,11 +16,11 @@ interface Message {
   createdAt: string
 }
 
-// Parse [action:navigate:/path]Label[/action] tags + bare /talks/ID links
+// Parse [action:navigate:/path]Label[/action] tags + bare /chants/ID links
 function parseMessageContent(content: string): ReactNode[] {
   const parts: ReactNode[] = []
-  // Match both action tags and bare /talks/ links
-  const regex = /\[action:navigate:(\/[^\]]+)\]([^\[]+)\[\/action\]|(\/talks\/[a-zA-Z0-9_-]+)/g
+  // Match both action tags and bare /chants/ links
+  const regex = /\[action:navigate:(\/[^\]]+)\]([^\[]+)\[\/action\]|(\/chants\/[a-zA-Z0-9_-]+)/g
   let lastIndex = 0
   let match
 
@@ -36,7 +36,7 @@ function parseMessageContent(content: string): ReactNode[] {
         <ActionButton key={`action-${match.index}`} path={match[1]} label={match[2]} />
       )
     } else if (match[3]) {
-      // Bare /talks/ID link
+      // Bare /chants/ID link
       parts.push(
         <ActionButton key={`link-${match.index}`} path={match[3]} label={match[3]} />
       )
@@ -300,7 +300,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           <div className="text-center text-muted text-sm py-12">
             <p className="mb-1 text-gold/80">The Collective</p>
             <p className="text-muted-light text-xs">
-              Ask about talks, get voting reminders, or explore the platform.
+              Ask about chants, get voting reminders, or explore the platform.
             </p>
           </div>
         )}

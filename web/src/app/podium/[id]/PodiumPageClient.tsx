@@ -92,7 +92,7 @@ export default function PodiumPageClient() {
       const res = await fetch(`/api/podiums/${params.id}`, { method: 'DELETE' })
       if (res.ok) {
         showToast('Post deleted', 'success')
-        router.push('/feed')
+        router.push('/chants')
       } else {
         const data = await res.json()
         showToast(data.error || 'Failed to delete', 'error')
@@ -114,7 +114,7 @@ export default function PodiumPageClient() {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
         <div className="text-2xl font-bold">Post not found</div>
-        <Link href="/feed" className="text-accent hover:text-accent-hover">
+        <Link href="/chants" className="text-accent hover:text-accent-hover">
           Back to feed
         </Link>
       </div>
@@ -123,8 +123,8 @@ export default function PodiumPageClient() {
 
   const isAuthor = session?.user?.email && podium.author.id === (session.user as { id?: string }).id
 
-  // Render body text: split by double newlines for paragraphs
-  const paragraphs = podium.body.split(/\n\n+/)
+  // Render body text with basic markdown support
+  const bodyBlocks = parseMarkdown(podium.body)
 
   return (
     <div className="min-h-screen bg-background">
@@ -175,11 +175,11 @@ export default function PodiumPageClient() {
         {/* Linked deliberation */}
         {podium.deliberation && (
           <Link
-            href={`/talks/${podium.deliberation.id}`}
+            href={`/chants/${podium.deliberation.id}`}
             className="block bg-accent/10 border border-accent/25 rounded-xl p-4 mb-8 hover:bg-accent/15 transition-colors"
           >
             <div className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">
-              Linked Talk
+              Linked Chant
             </div>
             <div className="text-foreground font-medium">
               &ldquo;{podium.deliberation.question}&rdquo;
@@ -194,21 +194,23 @@ export default function PodiumPageClient() {
 
         {/* Body */}
         <article className="mb-8">
-          {paragraphs.map((para, i) => (
-            <p key={i} className="text-subtle leading-relaxed mb-4 text-base">
-              {para}
-            </p>
-          ))}
+          {bodyBlocks.map((block, i) => {
+            if (block.type === 'h2') return <h2 key={i} className="text-xl font-bold text-foreground mt-8 mb-3">{block.text}</h2>
+            if (block.type === 'h3') return <h3 key={i} className="text-lg font-semibold text-foreground mt-6 mb-2">{block.text}</h3>
+            if (block.type === 'hr') return <hr key={i} className="border-border my-6" />
+            if (block.type === 'table') return <MarkdownTable key={i} rows={block.rows!} />
+            return <p key={i} className="text-subtle leading-relaxed mb-4 text-base"><InlineMarkdown text={block.text!} /></p>
+          })}
         </article>
 
-        {/* Join Talk CTA */}
+        {/* Join Chant CTA */}
         {podium.deliberation && (
           <div className="mb-8 border border-accent/25 rounded-xl overflow-hidden">
             <div className="bg-accent/10 px-4 py-2 text-xs font-semibold text-accent uppercase tracking-wider">
-              Linked Talk
+              Linked Chant
             </div>
             <Link
-              href={`/talks/${podium.deliberation.id}`}
+              href={`/chants/${podium.deliberation.id}`}
               className="block p-4 hover:bg-surface/50 transition-colors"
             >
               <div className="text-foreground font-medium mb-1">
@@ -231,10 +233,10 @@ export default function PodiumPageClient() {
               </div>
             </Link>
             <Link
-              href={`/talks/${podium.deliberation.id}`}
+              href={`/chants/${podium.deliberation.id}`}
               className="block w-full text-center bg-accent text-white font-semibold py-3 hover:bg-accent-hover transition-colors"
             >
-              Join the Talk &rarr;
+              Join the Chant &rarr;
             </Link>
           </div>
         )}
@@ -288,6 +290,139 @@ export default function PodiumPageClient() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Markdown rendering ──
+
+type Block = { type: 'p' | 'h2' | 'h3' | 'hr' | 'table'; text?: string; rows?: string[][] }
+
+function parseMarkdown(body: string): Block[] {
+  const lines = body.split('\n')
+  const blocks: Block[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Blank line — skip
+    if (line.trim() === '') { i++; continue }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      blocks.push({ type: 'hr' })
+      i++
+      continue
+    }
+
+    // Headings
+    if (line.startsWith('### ')) {
+      blocks.push({ type: 'h3', text: line.slice(4).trim() })
+      i++
+      continue
+    }
+    if (line.startsWith('## ')) {
+      blocks.push({ type: 'h2', text: line.slice(3).trim() })
+      i++
+      continue
+    }
+
+    // Table (consecutive lines starting with |)
+    if (line.trim().startsWith('|')) {
+      const tableLines: string[] = []
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        tableLines.push(lines[i])
+        i++
+      }
+      const rows = tableLines
+        .filter(l => !/^\|[\s-:|]+\|$/.test(l.trim())) // skip separator rows
+        .map(l => l.split('|').slice(1, -1).map(c => c.trim()))
+      if (rows.length > 0) blocks.push({ type: 'table', rows })
+      continue
+    }
+
+    // Paragraph — collect lines until blank line or special line
+    const paraLines: string[] = []
+    while (i < lines.length && lines[i].trim() !== '' && !lines[i].startsWith('## ') && !lines[i].startsWith('### ') && !lines[i].trim().startsWith('|') && !/^---+$/.test(lines[i].trim())) {
+      paraLines.push(lines[i])
+      i++
+    }
+    if (paraLines.length > 0) {
+      blocks.push({ type: 'p', text: paraLines.join(' ') })
+    }
+  }
+
+  return blocks
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  // Split on **bold** and *italic* patterns
+  const parts: { text: string; bold?: boolean; italic?: boolean }[] = []
+  let remaining = text
+
+  while (remaining.length > 0) {
+    // Bold
+    const boldMatch = remaining.match(/^([\s\S]*?)\*\*(.+?)\*\*([\s\S]*)$/)
+    if (boldMatch) {
+      if (boldMatch[1]) parts.push({ text: boldMatch[1] })
+      parts.push({ text: boldMatch[2], bold: true })
+      remaining = boldMatch[3]
+      continue
+    }
+    // Italic
+    const italicMatch = remaining.match(/^([\s\S]*?)\*(.+?)\*([\s\S]*)$/)
+    if (italicMatch) {
+      if (italicMatch[1]) parts.push({ text: italicMatch[1] })
+      parts.push({ text: italicMatch[2], italic: true })
+      remaining = italicMatch[3]
+      continue
+    }
+    // Plain text
+    parts.push({ text: remaining })
+    break
+  }
+
+  return (
+    <>
+      {parts.map((p, i) => {
+        if (p.bold) return <strong key={i} className="font-semibold text-foreground">{p.text}</strong>
+        if (p.italic) return <em key={i}>{p.text}</em>
+        return <span key={i}>{p.text}</span>
+      })}
+    </>
+  )
+}
+
+function MarkdownTable({ rows }: { rows: string[][] }) {
+  if (rows.length === 0) return null
+  const header = rows[0]
+  const body = rows.slice(1)
+
+  return (
+    <div className="overflow-x-auto my-4 rounded-lg border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-surface">
+            {header.map((cell, i) => (
+              <th key={i} className="text-left px-3 py-2 font-semibold text-foreground border-b border-border">
+                <InlineMarkdown text={cell} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, i) => (
+            <tr key={i} className={i % 2 === 0 ? '' : 'bg-surface/50'}>
+              {row.map((cell, j) => (
+                <td key={j} className="px-3 py-2 text-subtle border-b border-border/50">
+                  <InlineMarkdown text={cell} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

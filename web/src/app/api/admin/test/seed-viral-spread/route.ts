@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
       success: true,
       deliberationId: deliberation.id,
       yourCellId: cells[0].id,
-      message: `Created viral spread demo: 6 cells, 10 ideas, ${commentScenarios.length} comments. You're in cell 0. Open the talk to see viral comments from other cells.`,
+      message: `Created viral spread demo: 6 cells, 10 ideas, ${commentScenarios.length} comments. You're in cell 0. Open the chant to see viral comments from other cells.`,
       cells: cells.map((c, i) => ({
         index: i,
         id: c.id,

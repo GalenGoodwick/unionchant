@@ -372,7 +372,7 @@ export default function AdminDeliberationPage() {
             </div>
           </div>
           <Link
-            href={`/talks/${deliberation.id}`}
+            href={`/chants/${deliberation.id}`}
             className="text-accent hover:underline"
           >
             View Public Page &rarr;

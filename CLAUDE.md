@@ -10,7 +10,37 @@
 **Deployed:** https://unionchant.vercel.app
 **Status:** Full voting + accumulation (rolling mode) working
 
-**Latest Session (Feb 2026 — Documentation, Technical Whitepaper, Bug Fixes):**
+**Latest Session (Feb 2026 — PepperPhone Discord Bot):**
+- **Discord bot (PepperPhone)**: Full Discord integration for Unity Chant deliberations
+  - **Repo**: `https://github.com/GalenGoodwick/pepperphone-bot` (separate from web repo)
+  - **Local path**: `/Users/galengoodwick/Desktop/Union-Rolling/bot/` (has its own `.git`)
+  - **Hosted on Railway**: Project `serene-endurance`, runs 24/7 — no local machine needed
+  - **Railway deploy**: `cd bot && railway up` (or push to GitHub for auto-deploy)
+  - **Discord commands deploy**: `cd bot && npm run deploy-commands` (guild-specific, instant)
+  - **6 slash commands** (consolidated from original 11):
+    - `/chant` — subcommands: `new`, `results`, `status`
+    - `/manage` — subcommands: `facilitate`, `delete`, `default`, `load`, `unload`
+    - `/idea` — submit idea (chant required first, then text)
+    - `/vote` — cast FCFS vote
+    - `/setup` — subcommands: `channel`, `assign`, `off`, `show`
+    - `/help` — overview of all commands
+  - **Permission control**: `/setup assign` sets who can create chants (everyone/admins/specific role)
+    - `postingPermission` + `chantRoleId` on Community model
+    - API: `/api/bot/servers/permissions` (GET/POST)
+  - **All chant commands have autocomplete** — dropdown shows active chants by question text
+  - **Schema defaults**: `accumulationEnabled` defaults to false; no submission timer by default for Discord/CG/web chants
+  - **FCFS vote flow**: Status API returns `currentCellIdeas` in fcfsProgress; cell selection ordered by `createdAt asc`
+  - **Tier completion**: Bot waits 7s for backend processing, then shows results + new tier's voting cell
+  - **Bot API routes** on web: `/api/bot/*` (auth via BOT_SECRET Bearer token, CSRF exempt)
+  - **Discord OAuth**: Added to signin page, merges with bot-created synthetic accounts (`discord_{id}@bot.unitychant.com`)
+  - **Env vars on Railway**: DISCORD_TOKEN, DISCORD_CLIENT_ID, BOT_SECRET, API_BASE_URL
+  - **Env vars on Vercel**: DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET (for OAuth)
+  - **10-idea minimum**: Voting cannot start until at least 10 ideas submitted
+  - **Cascading delete**: Bot removal deletes community + all its deliberations and child records
+  - **PepperPhone landing page**: `/pepperphone` on unitychant.com
+  - **DiscordClaimBanner**: Shows on talk detail page for Discord guild owners
+
+**Previous Session (Feb 2026 — Documentation, Technical Whitepaper, Bug Fixes):**
 - **Technical whitepaper page**: New `/technical` page with full decision process explanation (phases, cell formation, XP voting, tier advancement, final showdown, rolling mode, continuous flow, up-pollination). Linked from landing page in Vision and Final CTA sections.
 - **Decision process doc**: `web/docs/DECISION_PROCESS.md` — comprehensive technical reference for the voting algorithm with all rules, parameters, and edge cases.
 - **Header logo fix**: Logo/name link changed from `href="/"` to `href="/?home"` to bypass middleware feed redirect for returning users.
@@ -399,10 +429,11 @@ Set via `ideaGoal` or `participantGoal` fields in deliberation creation.
 **Note:** All test endpoints are gated behind `NODE_ENV !== 'production'` and return 403 in production.
 
 ```
-POST /api/admin/test/populate         # Create test users + ideas
-POST /api/admin/test/simulate-voting  # Simulate votes through tiers
-POST /api/admin/test/simulate-accumulation  # Test challenge flow
-POST /api/admin/test/cleanup          # Delete test data
+POST /api/admin/test/populate              # Create test users + ideas
+POST /api/admin/test/simulate-voting       # Simulate votes through tiers
+POST /api/admin/test/simulate-accumulation # Test challenge flow
+POST /api/admin/test/cleanup               # Delete test data
+POST /api/admin/test/seed-discord-tier2    # Seed tier 2 FCFS chant with 1 vote remaining (loadable via invite code)
 ```
 
 ---
@@ -729,6 +760,9 @@ discussionEndsAt      DateTime? // when discussion period ends for this cell
 16. **Promoted Deliberations** — creators/orgs pay to feature in the feed. Native advertising that aligns with "paid amplification" model. Also "Sponsored by" deliberations on specific topics.
 17. **Analytics dashboard** — for creators/facilitators: funnel (views → joins → ideas → votes), drop-off points, engagement over time, demographic breakdown.
 18. **Spawn deliberation from winner** — winner's text becomes a new deliberation question (plan exists in `.claude/plans/`).
+19. **Playable demo on landing page** — Interactive "try it now" experience: user enters a fake cell with 4 AI agents, submits an idea, discusses, votes, watches results. ~60 seconds to feel the core loop. No signup required. Solves "why should I care" before they commit. Existing AI agent infrastructure (100 Haiku personas) can power the AI side.
+20. **AI backfill for real Talks** — When a Talk has fewer than 5 humans, seat AI agents to fill the cell. Humans never wait. Cells always form. Eliminates cold start. AI agents already exist in `ai-orchestrator.ts`.
+21. **Embeddable widget / API** — Let other platforms (Slack, Discord, Reddit, DAOs) embed Unity Chant deliberations. Don't require users to come to unitychant.com. Be infrastructure, not just a destination. Highest leverage path to scale.
 
 ### P2.5 — Performance & Infrastructure
 
@@ -894,6 +928,85 @@ Best practical upgrade: per-community AES keys stored in a secrets manager (e.g.
 3. **Why Vercel Postgres/Neon?** - Free PostgreSQL with built-in connection pooling, seamless Vercel integration
 4. **Why 5-person cells?** - Balance between deliberation quality and scale
 5. **Why cross-cell tallying?** - Prevents small-group capture, statistical robustness
+
+---
+
+## Chant Progress Visualization — Math & Structure
+
+### Core Concept
+
+The voting tournament is a **converging tree**: N ideas enter, 1 winner exits. At each tier, ideas are grouped into cells of G (default 5), each cell picks 1 winner, ideas reduce by G:1.
+
+### Formulas (G = group size, default 5)
+
+| Metric | Formula |
+|--------|---------|
+| Ideas at tier T | `N / G^(T-1)` |
+| Cells per tier | `N / G` (all participants re-assigned each tier) |
+| Batches at tier T | `ideas_T / G = N / G^T` |
+| Total tiers to final | `ceil(log_G(N))` |
+| Final showdown | When ideas remaining ≤ G |
+
+### Scale Examples
+
+| Participants | Tier 1 Ideas | Tier 2 Ideas | Tier 3 Ideas | Tier 4 | Final |
+|-------------|-------------|-------------|-------------|--------|-------|
+| 25 (5²) | 25 → 5 | 5 (final) | — | — | Tier 2 |
+| 125 (5³) | 125 → 25 | 25 → 5 | 5 (final) | — | Tier 3 |
+| 625 (5⁴) | 625 → 125 | 125 → 25 | 25 → 5 | 5 (final) | Tier 4 |
+| 1000 | 1000 → 200 | 200 → 40 | 40 → 8 | 8 → ≤5 | Tier 4/5 |
+
+### Pentagon Visualization (Fractal Constellation)
+
+**Mockups:** `/tmp/chant-viz-125.html` (125 participants), `/tmp/chant-viz-mockup.html` (1000 participants)
+
+Each tier is shown one at a time via buttons. The visual nesting depth = tier number:
+
+| Tier | Structure | Layout |
+|------|-----------|--------|
+| 1 | Cell pentagons only (no batches) | Flat grid |
+| 2 | Batch pentagon → 5 cell pentagons at vertices | Grid of constellations |
+| 3 | Batch pentagon → 5 sub-pentagons → 5 cell pentagons | Grid of deeper constellations |
+| Final | Pentagon^(depth) — full fractal | Single centered constellation |
+
+**Nesting rules:**
+- **Leaf level** = cell polygon (shape matches member count: pentagon for 5, quad for 4, etc.)
+- **Each higher level** = grouping polygon (batch, tier, etc.)
+- **Child center sits on parent vertex**, nudged 10% toward parent center
+- **Filled polygons** with background color for proper z-order occlusion
+- **Brighter strokes** at higher nesting levels (tier > batch > cell)
+
+**Color coding:**
+| Element | Color | Meaning |
+|---------|-------|---------|
+| Dot (cyan `#0891b2`) | Person voted | Cast their vote |
+| Dot (dark `#333`) | Person waiting | Haven't voted yet |
+| Dot (gold `#f59e0b`) | Winner | Winning idea's champion |
+| Cell stroke (green `#059669`) | Complete | All votes in |
+| Cell stroke (amber `#f59e0b`) | Active | Voting in progress (pulses) |
+| Cell stroke (dark `#222`) | Waiting | Not yet started |
+
+### Tree Visualization (Tournament Bracket)
+
+**Mockup:** `/tmp/chant-viz-tree.html`
+
+Shows all tiers simultaneously as a left-to-right converging bracket. Ideas flow through cells, winners advance right. Complementary to the pentagon view — pentagon shows one tier's live state, tree shows the full tournament progression.
+
+### Recursive Draw Algorithm
+
+```
+drawConstellation(cx, cy, levels[], cells[], cellIdx):
+  if levels.length === 1:
+    // Leaf: draw cell polygon + person dots
+    draw polygon at (cx, cy) with radius levels[0].r
+    draw dots at each vertex (colored by vote status)
+  else:
+    // Non-leaf: draw grouping polygon, recurse at each vertex
+    draw polygon at (cx, cy) with radius levels[0].r
+    for each vertex (vx, vy):
+      nudged = nudge(vx, vy, cx, cy, 0.1)  // pull 10% toward center
+      drawConstellation(nudged, levels[1:], cells, cellIdx)
+```
 
 ---
 

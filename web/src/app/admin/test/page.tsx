@@ -357,6 +357,42 @@ export default function AdminTestPage() {
             <button
               onClick={async () => {
                 setIsRunning(true)
+                addLog('info', 'Seeding Discord tier 2 test...')
+                try {
+                  const res = await fetch('/api/admin/test/seed-discord-tier2', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                  })
+                  const data = await res.json()
+                  if (res.ok) {
+                    addLog('success', data.message)
+                    addLog('info', `Deliberation: ${data.deliberationId}`)
+                    addLog('info', `Invite code: ${data.inviteCode}`)
+                    addLog('info', `Load into Discord: /chant load code:${data.inviteCode}`)
+                    addLog('info', `Cell 2 (your vote): ${data.cell2Id}`)
+                    addLog('info', 'Cell 2 ideas:')
+                    data.ideas.cell2.forEach((i: { text: string; status: string }) => addLog('info', `  • ${i.text} (${i.status})`))
+                    addLog('success', 'Load it, then /vote to complete the cell and create tier 3!')
+                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
+                  } else {
+                    addLog('error', data.error || 'Failed to seed')
+                    if (data.details) addLog('error', data.details)
+                  }
+                } catch (err) {
+                  addLog('error', 'Failed to seed Discord tier 2 test')
+                } finally {
+                  setIsRunning(false)
+                }
+              }}
+              disabled={isRunning}
+              className="px-6 py-2 rounded-lg font-semibold bg-warning hover:bg-warning-hover text-white"
+            >
+              Seed Discord Tier 2 Test
+            </button>
+
+            <button
+              onClick={async () => {
+                setIsRunning(true)
                 addLog('info', 'Creating viral spread demo...')
                 try {
                   const res = await fetch('/api/admin/test/seed-viral-spread', {
@@ -395,7 +431,7 @@ export default function AdminTestPage() {
             <p className="text-success font-medium mb-2">Test Deliberation Created</p>
             <div className="flex gap-4">
               <Link
-                href={`/talks/${createdDeliberation.id}`}
+                href={`/chants/${createdDeliberation.id}`}
                 className="text-accent hover:text-accent-hover underline"
               >
                 View Deliberation
@@ -444,13 +480,13 @@ export default function AdminTestPage() {
           <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
           <div className="flex gap-4 flex-wrap">
             <Link
-              href="/feed"
+              href="/chants"
               className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium"
             >
               View Feed
             </Link>
             <Link
-              href="/talks"
+              href="/chants"
               className="px-4 py-2 bg-surface hover:bg-border text-foreground rounded-lg border border-border"
             >
               Browse Deliberations
@@ -514,7 +550,7 @@ function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info'
   const fetchAccumulating = async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/talks')
+      const res = await fetch('/api/admin/chants')
       if (res.ok) {
         const data = await res.json()
         setAccumulatingDeliberations(data.filter((d: { phase: string }) => d.phase === 'ACCUMULATING'))
@@ -654,7 +690,7 @@ function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'e
 
   const fetchDeliberations = async () => {
     try {
-      const res = await fetch('/api/admin/talks')
+      const res = await fetch('/api/admin/chants')
       if (res.ok) {
         const data = await res.json()
         setDeliberations(Array.isArray(data) ? data : [])

@@ -9,19 +9,19 @@ test.describe('Feed Cards', () => {
 
     // Either there are feed cards or an empty state message
     const hasCards = await page.locator('[class*="rounded"]').count() > 0
-    const hasEmptyState = await page.getByText(/no.*talks|create|browse/i).isVisible().catch(() => false)
+    const hasEmptyState = await page.getByText(/no.*chants|create|browse/i).isVisible().catch(() => false)
     expect(hasCards || hasEmptyState).toBeTruthy()
   })
 
-  test('clicking a feed card navigates to talk detail', async ({ page }) => {
+  test('clicking a feed card navigates to chant detail', async ({ page }) => {
     await page.goto('/feed')
     await page.waitForTimeout(2000)
 
-    // Find any link to a talk detail page
-    const talkLink = page.locator('a[href*="/talks/"]').first()
+    // Find any link to a chant detail page
+    const talkLink = page.locator('a[href*="/chants/"]').first()
     if (await talkLink.isVisible()) {
       await talkLink.click()
-      await expect(page).toHaveURL(/\/talks\//)
+      await expect(page).toHaveURL(/\/chants\//)
     }
   })
 })

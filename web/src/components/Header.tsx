@@ -46,12 +46,11 @@ export default function Header() {
   const { openGuide } = useGuideContext()
   const { chatOpen, toggleChat } = useCollectiveChat()
   const pathname = usePathname()
-  const isTalkPage = pathname?.startsWith('/talks/')
+  const isTalkPage = pathname?.startsWith('/chants/')
   const [menuOpen, setMenuOpen] = useState(false)
   const navLinks = [
-    { href: '/feed', label: 'Feed' },
+    { href: '/chants', label: 'Chants' },
     { href: '/groups', label: 'Groups' },
-    { href: '/talks', label: 'Talks' },
     { href: '/podiums', label: 'Podiums' },
     { href: '/contact', label: 'Contact' },
     { href: '/pricing', label: 'Sustain Us' },
@@ -72,7 +71,7 @@ export default function Header() {
         <nav className="hidden lg:flex items-center gap-3 text-sm">
           {session && (
             <Link
-              href="/talks/new"
+              href="/chants/new"
               className="bg-accent hover:bg-accent-hover text-white px-3 py-1 rounded-lg font-medium transition-colors"
             >
               + Create
@@ -198,7 +197,7 @@ export default function Header() {
               ))}
             {session && (
               <Link
-                href="/talks/new"
+                href="/chants/new"
                 onClick={() => setMenuOpen(false)}
                 className="py-2 px-4 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium transition-colors text-center"
               >
@@ -283,8 +282,8 @@ export default function Header() {
           </nav>
         </div>
       )}
-      {/* Floating Collective button — hidden on talk detail pages */}
-      {!chatOpen && !isTalkPage && (
+      {/* Floating Collective button — hidden on chant detail pages */}
+      {!chatOpen && !isTalkPage && pathname !== '/demo' && (
         <button
           onClick={toggleChat}
           className="fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-gold text-header shadow-lg flex items-center justify-center"

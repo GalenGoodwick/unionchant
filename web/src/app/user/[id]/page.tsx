@@ -150,7 +150,7 @@ export default function UserProfilePage() {
         <div className="max-w-xl mx-auto px-6 py-8">
           <div className="text-center py-12">
             <p className="text-error mb-4">{error || 'User not found'}</p>
-            <Link href="/feed" className="text-accent hover:underline">
+            <Link href="/chants" className="text-accent hover:underline">
               Back to feed
             </Link>
           </div>
@@ -339,7 +339,7 @@ export default function UserProfilePage() {
               {profile.recentIdeas.map((idea) => (
                 <Link
                   key={idea.id}
-                  href={`/talks/${idea.deliberationId}`}
+                  href={`/chants/${idea.deliberationId}`}
                   className="block p-4 hover:bg-surface transition-colors"
                 >
                   <p className="text-foreground">{idea.text}</p>
@@ -376,7 +376,7 @@ export default function UserProfilePage() {
               {profile.recentActivity.map((activity) => (
                 <Link
                   key={activity.deliberationId}
-                  href={`/talks/${activity.deliberationId}`}
+                  href={`/chants/${activity.deliberationId}`}
                   className="block p-4 hover:bg-surface transition-colors"
                 >
                   <p className="text-foreground">{activity.question}</p>
@@ -407,8 +407,8 @@ export default function UserProfilePage() {
           <div className="text-center py-8 text-muted">
             <p>No activity yet</p>
             {isOwnProfile && (
-              <Link href="/talks" className="text-accent hover:underline mt-2 inline-block">
-                Join a talk to get started
+              <Link href="/chants" className="text-accent hover:underline mt-2 inline-block">
+                Join a chant to get started
               </Link>
             )}
           </div>

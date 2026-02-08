@@ -10,16 +10,16 @@ export default function LandingCTA({ variant = 'hero' }: { variant?: 'hero' | 'f
     return session ? (
       <>
         <Link
-          href="/feed"
+          href="/chants"
           className="bg-accent hover:bg-accent-hover text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
         >
           Go to Feed
         </Link>
         <Link
-          href="/talks/new"
+          href="/chants/new"
           className="bg-white/10 hover:bg-white/20 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors border border-white/20"
         >
-          Start a Talk
+          Start a Chant
         </Link>
       </>
     ) : (
@@ -41,28 +41,38 @@ export default function LandingCTA({ variant = 'hero' }: { variant?: 'hero' | 'f
   }
 
   return (
-    <div className="flex flex-col sm:flex-row gap-4 justify-center">
-      {session ? (
+    <div className="flex flex-col items-center gap-4">
+      <div className="flex flex-col sm:flex-row gap-4 justify-center">
+        {session ? (
+          <Link
+            href="/chants"
+            className="bg-accent hover:bg-accent-hover text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+          >
+            Go to Feed
+          </Link>
+        ) : (
+          <Link
+            href="/auth/signup"
+            className="bg-accent hover:bg-accent-hover text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+          >
+            Get Started
+          </Link>
+        )}
         <Link
-          href="/feed"
-          className="bg-accent hover:bg-accent-hover text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+          href="/demo"
+          className="bg-white/10 hover:bg-white/20 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors border border-white/20"
         >
-          Go to Feed
+          Watch the Demo
         </Link>
-      ) : (
+      </div>
+      {!session && (
         <Link
-          href="/auth/signup"
-          className="bg-accent hover:bg-accent-hover text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
+          href="/auth/anonymous"
+          className="text-white/70 hover:text-white text-sm transition-colors"
         >
-          Get Started
+          or enter anonymously (3 CAPTCHAs) →
         </Link>
       )}
-      <Link
-        href="/how-it-works"
-        className="bg-white/10 hover:bg-white/20 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors border border-white/20"
-      >
-        See the Full Process
-      </Link>
     </div>
   )
 }

@@ -200,7 +200,7 @@ function NewPodiumPageInner() {
         {/* Link deliberation */}
         <div className="border-t border-border pt-6 mt-6">
           <div className="text-sm font-semibold text-foreground mb-3">
-            Link a talk <span className="text-muted font-normal">(optional)</span>
+            Link a chant <span className="text-muted font-normal">(optional)</span>
           </div>
 
           {linkedDelib ? (
@@ -222,7 +222,7 @@ function NewPodiumPageInner() {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search your talks..."
+                placeholder="Search your chants..."
                 className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted outline-none mb-2"
               />
               {searchQuery && filteredDelibs.length > 0 && (
@@ -243,15 +243,15 @@ function NewPodiumPageInner() {
                 </div>
               )}
               {searchQuery && filteredDelibs.length === 0 && (
-                <div className="text-xs text-muted py-2">No matching talks found</div>
+                <div className="text-xs text-muted py-2">No matching chants found</div>
               )}
             </>
           )}
 
           <div className="text-xs text-muted mt-3">
-            Linking a talk adds a &ldquo;Join the Talk&rdquo; button to your post.{' '}
-            <Link href="/talks/new" className="text-accent hover:text-accent-hover">
-              Create a new talk
+            Linking a chant adds a &ldquo;Join the Chant&rdquo; button to your post.{' '}
+            <Link href="/chants/new" className="text-accent hover:text-accent-hover">
+              Create a new chant
             </Link>
           </div>
         </div>

@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
       userId = user?.id ?? null
     }
 
-    // Get community IDs user is a member of (for private talk access)
+    // Get community IDs user is a member of (for private chant access)
     let memberCommunityIds: string[] = []
     if (userId) {
       const memberships = await prisma.communityMember.findMany({
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
     }
 
-    // Private talks require a paid subscription
+    // Private chants require a paid subscription
     const effectivelyPrivate = isPublic === false || (communityOnly && communityId)
     if (effectivelyPrivate) {
       const adminUser = await isAdmin(session.user.email)
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
         if (tier === 'free') {
           return NextResponse.json({
             error: 'PRO_REQUIRED',
-            message: 'Upgrade to Pro to create private talks',
+            message: 'Upgrade to Pro to create private chants',
           }, { status: 403 })
         }
       }

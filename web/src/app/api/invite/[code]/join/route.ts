@@ -52,7 +52,7 @@ export async function POST(
 
     // Check if deliberation is still accepting members
     if (deliberation.phase === 'COMPLETED') {
-      return NextResponse.json({ error: 'This deliberation has ended' }, { status: 400 })
+      return NextResponse.json({ error: 'This chant has ended' }, { status: 400 })
     }
 
     // Join the deliberation

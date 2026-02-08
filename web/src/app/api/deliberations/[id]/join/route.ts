@@ -41,7 +41,7 @@ export async function POST(
 
     // Private deliberations cannot be joined directly — must use invite link
     if (!deliberation.isPublic) {
-      return NextResponse.json({ error: 'This deliberation requires an invite link to join' }, { status: 403 })
+      return NextResponse.json({ error: 'This chant requires an invite link to join' }, { status: 403 })
     }
 
     // Check if already a member

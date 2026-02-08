@@ -1000,7 +1000,7 @@ export default function AdminPage() {
                     <tr>
                       <th className="text-left p-4 text-muted font-medium text-sm">Title</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Author</th>
-                      <th className="text-left p-4 text-muted font-medium text-sm">Linked Talk</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Linked Chant</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Views</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Date</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Actions</th>
@@ -1028,7 +1028,7 @@ export default function AdminPage() {
                         </td>
                         <td className="p-4">
                           {p.deliberation ? (
-                            <Link href={`/talks/${p.deliberation.id}`} className="text-accent hover:underline text-sm">
+                            <Link href={`/chants/${p.deliberation.id}`} className="text-accent hover:underline text-sm">
                               {p.deliberation.question.length > 30 ? p.deliberation.question.slice(0, 30) + '...' : p.deliberation.question}
                             </Link>
                           ) : (
@@ -1110,7 +1110,7 @@ export default function AdminPage() {
                       <th className="text-left p-4 text-muted font-medium text-sm">Group</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Creator</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Members</th>
-                      <th className="text-left p-4 text-muted font-medium text-sm">Talks</th>
+                      <th className="text-left p-4 text-muted font-medium text-sm">Chants</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Messages</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Access</th>
                       <th className="text-left p-4 text-muted font-medium text-sm">Created</th>
@@ -1783,7 +1783,7 @@ export default function AdminPage() {
                           Manage
                         </Link>
                         <Link
-                          href={`/talks/${d.id}`}
+                          href={`/chants/${d.id}`}
                           className="text-muted hover:text-foreground text-sm"
                         >
                           View

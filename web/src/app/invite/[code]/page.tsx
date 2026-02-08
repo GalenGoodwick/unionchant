@@ -24,15 +24,15 @@ export async function generateMetadata({
 
   return {
     title: `Join: ${deliberation.question}`,
-    description: deliberation.description || `${deliberation._count.members} participants. Join the deliberation!`,
+    description: deliberation.description || `${deliberation._count.members} participants. Join the chant!`,
     openGraph: {
       title: `Join: ${deliberation.question}`,
-      description: deliberation.description || `${deliberation._count.members} participants. Join the deliberation!`,
+      description: deliberation.description || `${deliberation._count.members} participants. Join the chant!`,
     },
     twitter: {
       card: 'summary_large_image',
       title: `Join: ${deliberation.question}`,
-      description: deliberation.description || `Join the deliberation!`,
+      description: deliberation.description || `Join the chant!`,
     },
   }
 }

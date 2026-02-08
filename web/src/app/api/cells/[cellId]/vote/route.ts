@@ -81,6 +81,7 @@ export async function POST(
             select: {
               currentTierStartedAt: true,
               votingTimeoutMs: true,
+              allocationMode: true,
             },
           },
         },
@@ -199,13 +200,26 @@ export async function POST(
         SELECT DISTINCT "userId" FROM "Vote" WHERE "cellId" = ${cellId}
       `
 
-      const activeParticipantCount = cell.participants.filter(
-        (p: { status: string }) => p.status === 'ACTIVE' || p.status === 'VOTED'
-      ).length
+      const isFCFS = cell.deliberation.allocationMode === 'fcfs'
+      const FCFS_CELL_SIZE = 5
 
-      const allVoted = votedUserIds.length >= activeParticipantCount
+      let allVoted: boolean
+      if (isFCFS) {
+        // FCFS: cell completes when it reaches target voter count
+        allVoted = votedUserIds.length >= FCFS_CELL_SIZE
+      } else {
+        // Balanced: cell completes when all assigned participants have voted
+        const activeParticipantCount = cell.participants.filter(
+          (p: { status: string }) => p.status === 'ACTIVE' || p.status === 'VOTED'
+        ).length
+        allVoted = votedUserIds.length >= activeParticipantCount
+      }
 
-      return { allocations, allVoted, wasChange }
+      return {
+        allocations, allVoted, wasChange, isFCFS,
+        voterCount: votedUserIds.length,
+        votersNeeded: isFCFS ? FCFS_CELL_SIZE : cell.participants.length,
+      }
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       timeout: 10000,
@@ -292,6 +306,11 @@ export async function POST(
     return NextResponse.json({
       allocations: result.allocations,
       allVoted: result.allVoted,
+      ...(result.isFCFS ? {
+        voterCount: result.voterCount,
+        votersNeeded: result.votersNeeded,
+        cellCompleted: result.allVoted,
+      } : {}),
     }, { status: 201 })
   } catch (error) {
     // Handle known errors

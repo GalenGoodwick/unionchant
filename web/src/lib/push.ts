@@ -144,14 +144,14 @@ export const notifications = {
   votingStarted: (deliberationQuestion: string, deliberationId: string) => ({
     title: 'Time to Vote!',
     body: `Voting has started for: "${deliberationQuestion.slice(0, 50)}${deliberationQuestion.length > 50 ? '...' : ''}"`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `voting-${deliberationId}`,
   }),
 
   cellReady: (deliberationQuestion: string, deliberationId: string, cellId: string) => ({
     title: 'Your Cell is Ready',
     body: `Join your group to deliberate: "${deliberationQuestion.slice(0, 40)}..."`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `cell-${cellId}`,
     actions: [
       { action: 'vote', title: 'Vote Now' },
@@ -162,42 +162,42 @@ export const notifications = {
   spotExpiring: (minutesLeft: number, deliberationQuestion: string, deliberationId: string) => ({
     title: `${minutesLeft} Minutes Left!`,
     body: `Vote now in "${deliberationQuestion.slice(0, 40)}${deliberationQuestion.length > 40 ? '...' : ''}"`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `expiring-${deliberationId}`,
   }),
 
   newTier: (tierNumber: number, deliberationQuestion: string, deliberationId: string) => ({
     title: `Tier ${tierNumber} Started`,
     body: `New voting round for "${deliberationQuestion.slice(0, 40)}${deliberationQuestion.length > 40 ? '...' : ''}"`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `tier-${deliberationId}`,
   }),
 
   championDeclared: (deliberationQuestion: string, deliberationId: string) => ({
     title: 'Champion Declared!',
-    body: `The deliberation "${deliberationQuestion.slice(0, 40)}..." has concluded`,
-    url: `/talks/${deliberationId}`,
+    body: `The chant "${deliberationQuestion.slice(0, 40)}..." has concluded`,
+    url: `/chants/${deliberationId}`,
     tag: `champion-${deliberationId}`,
   }),
 
   accumulationStarted: (deliberationQuestion: string, deliberationId: string) => ({
     title: 'Champion Crowned - Submit Challengers!',
     body: `A champion has emerged for "${deliberationQuestion.slice(0, 35)}...". Submit ideas to challenge!`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `accumulation-${deliberationId}`,
   }),
 
   challengeRoundStarting: (deliberationQuestion: string, deliberationId: string, round: number) => ({
     title: `Round ${round + 1} Starting!`,
     body: `New challengers are competing in "${deliberationQuestion.slice(0, 35)}..."`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `challenge-${deliberationId}-${round}`,
   }),
 
   votingExpiring: (minutesLeft: number, deliberationQuestion: string, deliberationId: string, cellId: string) => ({
     title: `${minutesLeft} Minutes to Vote!`,
     body: `Deadline approaching for "${deliberationQuestion.slice(0, 40)}${deliberationQuestion.length > 40 ? '...' : ''}"`,
-    url: `/talks/${deliberationId}`,
+    url: `/chants/${deliberationId}`,
     tag: `vote-expiring-${cellId}`,
   }),
 }

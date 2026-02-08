@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { SessionProvider, useSession } from 'next-auth/react'
+import { usePathname } from 'next/navigation'
 import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
@@ -138,25 +139,29 @@ export function useCollectiveChat() {
 function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   const [chatOpen, setChatOpen] = useState(false)
   const toggleChat = useCallback(() => setChatOpen(prev => !prev), [])
+  const pathname = usePathname()
+  const hideChat = pathname === '/demo'
 
   return (
     <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
       {children}
-      {/* Backdrop on mobile */}
-      {chatOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
-          onClick={toggleChat}
-        />
-      )}
-      {/* Chat panel — always mounted (preloads messages), hidden when closed */}
-      <div className={`fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-14 md:top-auto md:left-auto rounded-t-xl transition-transform duration-200 ${
-        chatOpen ? 'translate-y-0 opacity-100' : 'translate-y-full pointer-events-none opacity-0'
-      }`}>
-        <div className="h-full md:h-[480px] flex flex-col">
-          <CollectiveChat onClose={toggleChat} />
+      {!hideChat && <>
+        {/* Backdrop on mobile */}
+        {chatOpen && (
+          <div
+            className="fixed inset-0 z-40 bg-black/50 md:hidden"
+            onClick={toggleChat}
+          />
+        )}
+        {/* Chat panel — always mounted (preloads messages), hidden when closed */}
+        <div className={`fixed z-50 shadow-2xl md:bottom-4 md:right-4 md:w-[380px] md:rounded-xl bottom-0 left-0 right-0 top-14 md:top-auto md:left-auto rounded-t-xl transition-transform duration-200 ${
+          chatOpen ? 'translate-y-0 opacity-100' : 'translate-y-full pointer-events-none opacity-0'
+        }`}>
+          <div className="h-full md:h-[480px] flex flex-col">
+            <CollectiveChat onClose={toggleChat} />
+          </div>
         </div>
-      </div>
+      </>}
     </CollectiveChatContext.Provider>
   )
 }

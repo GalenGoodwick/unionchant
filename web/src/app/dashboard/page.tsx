@@ -87,12 +87,12 @@ export default function DashboardPage() {
 
       <div className="max-w-xl mx-auto px-4 py-8">
         <FirstVisitTooltip id="manage-page">
-          This is your facilitator dashboard. Select a talk to start voting, open challenge rounds, set timers, and control the flow.
+          This is your facilitator dashboard. Select a chant to start voting, open challenge rounds, set timers, and control the flow.
         </FirstVisitTooltip>
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">My Talks</h1>
+          <h1 className="text-2xl font-bold text-foreground">My Chants</h1>
           <Link
-            href="/talks/new"
+            href="/chants/new"
             className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium transition-colors"
           >
             + Create New
@@ -116,12 +116,12 @@ export default function DashboardPage() {
 
         {!loading && !error && deliberations.length === 0 && (
           <div className="text-center py-16 bg-surface border border-border rounded-xl">
-            <p className="text-muted text-lg mb-4">You haven&apos;t created any talks yet.</p>
+            <p className="text-muted text-lg mb-4">You haven&apos;t created any chants yet.</p>
             <Link
-              href="/talks/new"
+              href="/chants/new"
               className="bg-accent hover:bg-accent-hover text-white px-6 py-3 rounded-lg font-medium transition-colors inline-block"
             >
-              Create Your First Talk
+              Create Your First Chant
             </Link>
           </div>
         )}
@@ -160,7 +160,7 @@ export default function DashboardPage() {
             <div className="space-y-6">
               {privateTalks.length > 0 && (
                 <div>
-                  <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Private Talks</h2>
+                  <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Private Chants</h2>
                   <div className="space-y-3">
                     {privateTalks.map(renderTalk)}
                   </div>
@@ -169,7 +169,7 @@ export default function DashboardPage() {
               {publicTalks.length > 0 && (
                 <div>
                   {privateTalks.length > 0 && (
-                    <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Public Talks</h2>
+                    <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Public Chants</h2>
                   )}
                   <div className="space-y-3">
                     {publicTalks.map(renderTalk)}
@@ -232,7 +232,7 @@ export default function DashboardPage() {
                     )}
                     <div className="flex items-center gap-3 mt-2 text-sm text-muted">
                       <span>{c._count.members} members</span>
-                      <span>{c._count.deliberations} talks</span>
+                      <span>{c._count.deliberations} chants</span>
                     </div>
                   </Link>
                 ))}

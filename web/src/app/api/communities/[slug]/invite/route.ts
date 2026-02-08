@@ -46,8 +46,8 @@ export async function POST(
       return NextResponse.json({ error: 'At least one email is required' }, { status: 400 })
     }
 
-    if (emails.length > 20) {
-      return NextResponse.json({ error: 'Maximum 20 invites at a time' }, { status: 400 })
+    if (emails.length > 50) {
+      return NextResponse.json({ error: 'Maximum 50 invites at a time' }, { status: 400 })
     }
 
     // Generate invite code if missing

@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isAdminEmail } from '@/lib/admin'
 
-// GET /api/admin/talks - List all deliberations (for admin)
+// GET /api/admin/deliberations - List all deliberations (for admin)
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)

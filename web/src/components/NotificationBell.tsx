@@ -120,8 +120,8 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
   // Get link for notification
   const getLink = (n: Notification) => {
     if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
-    if (n.deliberationId) return `/talks/${n.deliberationId}`
-    return '/feed'
+    if (n.deliberationId) return `/chants/${n.deliberationId}`
+    return '/chants'
   }
 
   // Format time ago
@@ -171,7 +171,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-80 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="fixed inset-x-0 top-14 mx-4 sm:absolute sm:inset-auto sm:right-0 sm:top-auto sm:mx-0 sm:mt-2 sm:w-80 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-border flex justify-between items-center">
             <span className="font-semibold text-foreground">Notifications</span>

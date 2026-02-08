@@ -54,6 +54,9 @@ export async function POST(
       return NextResponse.json({ error: 'Deliberation is not in voting phase' }, { status: 400 })
     }
 
+    const isFCFS = deliberation.allocationMode === 'fcfs'
+    const FCFS_CELL_SIZE = 5
+
     // Check if user is already in cells for current tier
     const existingParticipations = await prisma.cellParticipation.findMany({
       where: {
@@ -66,6 +69,7 @@ export async function POST(
       include: {
         cell: {
           include: {
+            _count: { select: { participants: true } },
             ideas: {
               include: {
                 idea: {
@@ -96,9 +100,83 @@ export async function POST(
             text: ci.idea.text,
             author: ci.idea.author?.name || 'Anonymous',
           })),
+          ...(isFCFS ? {
+            voterCount: activeParticipation.cell._count.participants,
+            votersNeeded: FCFS_CELL_SIZE,
+          } : {}),
         },
       })
     }
+
+    if (isFCFS) {
+      // ── FCFS mode: assign user to oldest open cell with room ──
+      // User already voted in this tier? Block them.
+      const alreadyVoted = existingParticipations.some(p => p.cell.status === 'COMPLETED')
+      if (alreadyVoted) {
+        return NextResponse.json({
+          error: 'You have already voted in this tier. Wait for the next tier.'
+        }, { status: 400 })
+      }
+
+      // Find oldest VOTING cell with < FCFS_CELL_SIZE participants
+      const openCells = await prisma.cell.findMany({
+        where: {
+          deliberationId,
+          tier: deliberation.currentTier,
+          status: 'VOTING',
+        },
+        include: {
+          _count: { select: { participants: true } },
+          ideas: {
+            include: {
+              idea: {
+                select: { id: true, text: true, author: { select: { name: true } } },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' }, // oldest first
+      })
+
+      const cellToJoin = openCells.find(c => c._count.participants < FCFS_CELL_SIZE)
+
+      if (!cellToJoin) {
+        return NextResponse.json({
+          error: 'All cells are full. Waiting for results before next round opens.',
+          roundFull: true,
+        }, { status: 400 })
+      }
+
+      // Ensure membership
+      await prisma.deliberationMember.upsert({
+        where: { deliberationId_userId: { userId: user.id, deliberationId } },
+        create: { userId: user.id, deliberationId },
+        update: {},
+      })
+
+      // Add to cell
+      await prisma.cellParticipation.create({
+        data: { cellId: cellToJoin.id, userId: user.id, status: 'ACTIVE' },
+      })
+
+      return NextResponse.json({
+        success: true,
+        isFCFS: true,
+        cell: {
+          id: cellToJoin.id,
+          tier: cellToJoin.tier,
+          ideas: cellToJoin.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+            author: ci.idea.author?.name || 'Anonymous',
+          })),
+          voterCount: cellToJoin._count.participants + 1, // including this user
+          votersNeeded: FCFS_CELL_SIZE,
+        },
+      })
+    }
+
+    // ── Balanced mode (original logic) ──
 
     // Check if user can join a 2nd cell (their first cell completed with window open)
     // Window is open if secondVotesEnabled and tier hasn't expired yet

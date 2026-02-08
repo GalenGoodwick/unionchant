@@ -34,7 +34,7 @@ const kindConfig: Record<string, { label: string; color: string; bgColor: string
   deliberate: { label: 'Discuss', color: 'text-blue', bgColor: 'bg-blue/10 border-blue', action: 'Join the discussion' },
   submit: { label: 'Submit Ideas', color: 'text-accent', bgColor: 'bg-accent-light border-accent', action: 'Submit your idea' },
   champion: { label: 'Accepting Ideas', color: 'text-purple', bgColor: 'bg-purple-bg border-purple', action: 'Submit a challenger' },
-  join: { label: 'Open', color: 'text-accent', bgColor: 'bg-accent-light border-accent', action: 'Join this talk' },
+  join: { label: 'Open', color: 'text-accent', bgColor: 'bg-accent-light border-accent', action: 'Join this chant' },
   waiting: { label: 'Waiting', color: 'text-muted', bgColor: 'bg-surface border-border', action: 'Waiting for results' },
   completed: { label: 'Completed', color: 'text-success', bgColor: 'bg-success-bg border-success', action: 'View results' },
 }
@@ -86,13 +86,13 @@ export default function CommunityFeedPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-bold text-foreground">{communityName} Feed</h1>
-            <p className="text-sm text-muted mt-0.5">{items.length} talk{items.length !== 1 ? 's' : ''}</p>
+            <p className="text-sm text-muted mt-0.5">{items.length} chant{items.length !== 1 ? 's' : ''}</p>
           </div>
           <Link
-            href={`/talks/new`}
+            href={`/chants/new`}
             className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
           >
-            + New Talk
+            + New Chant
           </Link>
         </div>
 
@@ -113,12 +113,12 @@ export default function CommunityFeedPage() {
 
         {!loading && !error && items.length === 0 && (
           <div className="text-center py-16 bg-surface border border-border rounded-xl">
-            <p className="text-muted mb-4">No talks in this group yet.</p>
+            <p className="text-muted mb-4">No chants in this group yet.</p>
             <Link
-              href="/talks/new"
+              href="/chants/new"
               className="text-accent hover:text-accent-hover font-medium text-sm"
             >
-              Create the first talk
+              Create the first chant
             </Link>
           </div>
         )}
@@ -172,7 +172,7 @@ function FeedCard({ item }: { item: FeedItem }) {
 
   return (
     <Link
-      href={`/talks/${item.id}`}
+      href={`/chants/${item.id}`}
       className={`block rounded-xl border p-4 transition-colors hover:border-accent ${config.bgColor}`}
     >
       <div className="flex items-start justify-between gap-3">

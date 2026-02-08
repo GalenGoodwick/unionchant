@@ -187,7 +187,7 @@ export async function POST(req: NextRequest) {
         },
         take: 10,
       }).catch(e => { console.error('[Collective] memberships query failed:', e.message); return [] }),
-      // 3. All talks (detailed)
+      // 3. All chants (detailed)
       prisma.deliberation.findMany({
         where: { isPublic: true },
         orderBy: { updatedAt: 'desc' },
@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
           },
           creator: { select: { name: true } },
         },
-      }).catch(e => { console.error('[Collective] talks query failed:', e.message); return [] }),
+      }).catch(e => { console.error('[Collective] chants query failed:', e.message); return [] }),
       // 4. Platform stats
       Promise.all([
         prisma.user.count({ where: { isAI: false } }).catch(() => 0),
@@ -253,9 +253,9 @@ export async function POST(req: NextRequest) {
       const c = cp.cell
       const hasVoted = c.votes.length > 0
       if (c.status === 'VOTING' && !hasVoted) {
-        actionLines.push(`- VOTE NOW in "${c.deliberation.question}" (Tier ${c.tier}) [action:navigate:/talks/${c.deliberation.id}]Vote Now[/action]`)
+        actionLines.push(`- VOTE NOW in "${c.deliberation.question}" (Tier ${c.tier}) [action:navigate:/chants/${c.deliberation.id}]Vote Now[/action]`)
       } else if (c.status === 'DELIBERATING') {
-        actionLines.push(`- DISCUSS in "${c.deliberation.question}" (Tier ${c.tier}) [action:navigate:/talks/${c.deliberation.id}]Join Discussion[/action]`)
+        actionLines.push(`- DISCUSS in "${c.deliberation.question}" (Tier ${c.tier}) [action:navigate:/chants/${c.deliberation.id}]Join Discussion[/action]`)
       } else if (c.status === 'VOTING' && hasVoted) {
         actionLines.push(`- WAITING for results in "${c.deliberation.question}" (Tier ${c.tier})`)
       }
@@ -265,25 +265,25 @@ export async function POST(req: NextRequest) {
       if (d.phase === 'SUBMISSION') {
         const alreadyListed = actionLines.some(l => l.includes(d.id))
         if (!alreadyListed) {
-          actionLines.push(`- SUBMIT IDEAS to "${d.question}" (${d._count.ideas} ideas so far) [action:navigate:/talks/${d.id}]Submit Idea[/action]`)
+          actionLines.push(`- SUBMIT IDEAS to "${d.question}" (${d._count.ideas} ideas so far) [action:navigate:/chants/${d.id}]Submit Idea[/action]`)
         }
       }
     }
-    const userActions = actionLines.length > 0 ? actionLines.join('\n') : '(No pending actions — browse talks or create one!)'
+    const userActions = actionLines.length > 0 ? actionLines.join('\n') : '(No pending actions — browse chants or create one!)'
 
     // Build memberships context
     const membershipLines = userMemberships.map(m => {
       const d = m.deliberation
-      return `- "${d.question}" [${d.phase}] — ${d._count.members} members, ${d._count.ideas} ideas [action:navigate:/talks/${d.id}]Go to Talk[/action]`
+      return `- "${d.question}" [${d.phase}] — ${d._count.members} members, ${d._count.ideas} ideas [action:navigate:/chants/${d.id}]Go to Chant[/action]`
     })
-    const membershipsContext = membershipLines.length > 0 ? membershipLines.join('\n') : '(You haven\'t joined any talks yet)'
+    const membershipsContext = membershipLines.length > 0 ? membershipLines.join('\n') : '(You haven\'t joined any chants yet)'
 
-    // Format all talks (detailed)
+    // Format all chants (detailed)
     const talksContext = allTalks.map(t => {
       const topIdea = t.ideas[0]
       const winner = t.ideas.find(i => i.status === 'WINNER')
-      return `- "${t.question}" [${t.phase}${t.currentTier > 1 ? ` T${t.currentTier}` : ''}] — ${t._count.members} members, ${t._count.ideas} ideas, ${t.upvoteCount} upvotes${winner ? `, WINNER: "${winner.text}"` : topIdea ? `, top: "${topIdea.text}" (${topIdea.totalXP} XP)` : ''} (by ${t.creator?.name || 'Anonymous'}) [action:navigate:/talks/${t.id}]Explore[/action]`
-    }).join('\n') || '(No talks yet)'
+      return `- "${t.question}" [${t.phase}${t.currentTier > 1 ? ` T${t.currentTier}` : ''}] — ${t._count.members} members, ${t._count.ideas} ideas, ${t.upvoteCount} upvotes${winner ? `, WINNER: "${winner.text}"` : topIdea ? `, top: "${topIdea.text}" (${topIdea.totalXP} XP)` : ''} (by ${t.creator?.name || 'Anonymous'}) [action:navigate:/chants/${t.id}]Explore[/action]`
+    }).join('\n') || '(No chants yet)'
 
     // Format recent ideas
     const ideasContext = recentIdeas
@@ -313,7 +313,7 @@ CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unitychan
 - Cells of 5 people × 5 ideas — winners advance tier by tier
 - "Chants" = collaborative edits: anyone proposes, 30% of cell confirms → text updates across all cells
 - Scale: 5 people = 2 tiers, 1M people = 9 tiers, 8B = 14 tiers
-- Upvotes expire after 24h to keep feed relevant. Talks with 100+ ideas become permanent.
+- Upvotes expire after 24h to keep feed relevant. Chants with 100+ ideas become permanent.
 - Whitepaper at /whitepaper, How It Works at /how-it-works
 ` : ''
 
@@ -324,7 +324,7 @@ CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unitychan
 You are speaking privately with ${userName}.
 
 PLATFORM STATUS:
-- ${totalUsers} registered users, ${totalTalks} talks, ${totalIdeas} total ideas, ${totalVotes} total votes cast
+- ${totalUsers} registered users, ${totalTalks} chants, ${totalIdeas} total ideas, ${totalVotes} total votes cast
 
 YOUR PENDING ACTIONS:
 ${userActions}
@@ -332,7 +332,7 @@ ${userActions}
 YOUR MEMBERSHIPS:
 ${membershipsContext}
 
-ALL TALKS:
+ALL CHANTS:
 ${talksContext}
 
 RECENT IDEAS (last 24h):
@@ -345,8 +345,8 @@ PODIUM POSTS:
 ${podiumsContext}
 ${codebaseContext}
 PLATFORM PAGES:
-- /talks — Browse all talks
-- /talks/new — Create a new talk
+- /chants — Browse all chants
+- /chants/new — Create a new chant
 - /feed — Your personalized feed
 - /groups — Communities/groups
 - /podiums — Long-form writing
@@ -364,11 +364,11 @@ Embed clickable actions: [action:navigate:/path]Button Label[/action]
 BEHAVIOR:
 - Be concise (2-3 sentences unless asked for more)
 - On first message or greeting, proactively tell user what they should do based on pending actions
-- If no pending actions, suggest browsing active talks or creating one
+- If no pending actions, suggest browsing active chants or creating one
 - Use action buttons naturally in responses
-- Reference specific talks, ideas, discussions, and podium posts when relevant
-- You CAN create talks for users using the create_talk tool. When a user wants to start a new deliberation, use the tool with a clear, concise question. Confirm with the user what question they want before creating.
-- When referencing talks, use action buttons so users can navigate directly.
+- Reference specific chants, ideas, discussions, and podium posts when relevant
+- You CAN create chants for users using the create_chant tool. When a user wants to start a new deliberation, use the tool with a clear, concise question. Confirm with the user what question they want before creating.
+- When referencing chants, use action buttons so users can navigate directly.
 - You CANNOT cast votes, submit ideas, or change user settings.
 - When users ask about how the platform works, reference /how-it-works and /whitepaper.`
 
@@ -409,8 +409,8 @@ BEHAVIOR:
     // Tools
     const tools: ToolDefinition[] = [
       {
-        name: 'create_talk',
-        description: 'Create a new Talk (deliberation) on the platform for the user. Use when the user wants to start a new discussion topic.',
+        name: 'create_chant',
+        description: 'Create a new Chant (deliberation) on the platform for the user. Use when the user wants to start a new discussion topic.',
         input_schema: {
           type: 'object',
           properties: {
@@ -430,7 +430,7 @@ BEHAVIOR:
       const result = await callClaudeWithTools(systemPrompt, conversationHistory, 'haiku', tools)
       reply = result.text
 
-      if (result.toolUse?.toolName === 'create_talk') {
+      if (result.toolUse?.toolName === 'create_chant') {
         const question = result.toolUse.toolInput.question as string
         if (question && question.trim().length > 0 && question.trim().length <= 2000) {
           try {
@@ -463,14 +463,14 @@ BEHAVIOR:
             createdTalk = { id: newTalk.id, question: newTalk.question }
             if (!reply.includes(newTalk.id)) {
               reply = reply
-                ? `${reply}\n\nI've created your talk: [action:navigate:/talks/${newTalk.id}]${newTalk.question}[/action]`
-                : `I've created your talk: [action:navigate:/talks/${newTalk.id}]${newTalk.question}[/action]`
+                ? `${reply}\n\nI've created your chant: [action:navigate:/chants/${newTalk.id}]${newTalk.question}[/action]`
+                : `I've created your chant: [action:navigate:/chants/${newTalk.id}]${newTalk.question}[/action]`
             }
           } catch (talkError) {
-            console.error('[Collective] Talk creation failed:', talkError)
+            console.error('[Collective] Chant creation failed:', talkError)
             reply = reply
-              ? `${reply}\n\n(I tried to create the talk but ran into an issue. You can create it manually.) [action:navigate:/talks/new]Create Talk[/action]`
-              : 'I tried to create a talk for you but ran into an issue. [action:navigate:/talks/new]Create Talk Manually[/action]'
+              ? `${reply}\n\n(I tried to create the chant but ran into an issue. You can create it manually.) [action:navigate:/chants/new]Create Chant[/action]`
+              : 'I tried to create a chant for you but ran into an issue. [action:navigate:/chants/new]Create Chant Manually[/action]'
           }
         }
       }
