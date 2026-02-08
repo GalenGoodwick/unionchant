@@ -21,8 +21,8 @@ export async function GET() {
 
     if (!user) return NextResponse.json({ needsChallenge: false })
 
-    // AI agents and admins skip challenges
-    if (user.isAI || user.role === 'ADMIN') {
+    // AI agents skip challenges
+    if (user.isAI) {
       return NextResponse.json({ needsChallenge: false })
     }
 

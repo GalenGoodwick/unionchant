@@ -17,47 +17,64 @@ interface RunawayButtonProps {
 /**
  * Runaway Button — a human verification challenge.
  *
- * How it works:
- * - A button runs away from your cursor/finger
- * - Chase it for 3 seconds and you automatically pass
- * - Sometimes it gets tired and lets you catch it early — click it then!
- * - If something clicks it instantly with no chasing = bot = flagged
- *
- * Collects behavioral data (pointer events, evasion count, chase duration)
- * for server-side validation. The server is the authority — client can't
- * fake a pass without realistic behavioral data.
- *
- * Works on desktop (mouse) and mobile (touch).
+ * - Chase the button for 3 seconds of active pursuit to auto-pass
+ * - Timer decays if you stop moving — can't pause and resume
+ * - Sometimes it surrenders — click it to pass early
+ * - Insta-click with no chase = bot = flagged
+ * - Mobile: tap a start circle first, then chase with finger
+ * - Desktop: move cursor toward button to start
  */
 export default function RunawayButton({ onCaught, onBotDetected }: RunawayButtonProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const chaseStartRef = useRef<number>(0)
+  const lastPointerMoveRef = useRef<number>(0)
+  const accumulatedMsRef = useRef<number>(0)
   const pointerCountRef = useRef<number>(0)
   const evadeCountRef = useRef<number>(0)
+  const chaseStartRef = useRef<number>(0)
   const [pos, setPos] = useState({ x: 50, y: 50 })
   const [surrendered, setSurrendered] = useState(false)
+  const [started, setStarted] = useState(false)
   const [chasing, setChasing] = useState(false)
   const [chaseTime, setChaseTime] = useState(0)
   const [passed, setPassed] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+  // Detect mobile on mount — desktop auto-starts
+  useEffect(() => {
+    const mobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    setIsMobile(mobile)
+    if (!mobile) setStarted(true)
+  }, [])
 
   const getBehavioralData = useCallback((): ChallengeData => ({
     pointerEvents: pointerCountRef.current,
-    chaseDurationMs: chaseStartRef.current ? Date.now() - chaseStartRef.current : 0,
+    chaseDurationMs: accumulatedMsRef.current,
     evadeCount: evadeCountRef.current,
     surrendered,
   }), [surrendered])
 
-  // Timer tick — auto-pass at 3s
+  // Timer tick — accumulates while active, decays while idle
   useEffect(() => {
     if (!chasing || passed) return
     const id = setInterval(() => {
-      const elapsed = (Date.now() - chaseStartRef.current) / 1000
+      const now = Date.now()
+      const timeSinceMove = now - lastPointerMoveRef.current
+
+      if (timeSinceMove < 600) {
+        // Active — accumulate
+        accumulatedMsRef.current += 50
+      } else {
+        // Idle — decay at same rate
+        accumulatedMsRef.current = Math.max(0, accumulatedMsRef.current - 50)
+      }
+
+      const elapsed = accumulatedMsRef.current / 1000
       setChaseTime(elapsed)
+
       if (elapsed >= 3) {
         setPassed(true)
         clearInterval(id)
-        // Auto-pass after 3s of chasing
         setTimeout(() => onCaught(getBehavioralData()), 400)
       }
     }, 50)
@@ -65,12 +82,13 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   }, [chasing, passed, onCaught, getBehavioralData])
 
   const processPointer = useCallback((clientX: number, clientY: number) => {
-    if (surrendered || passed) return
+    if (surrendered || passed || !started) return
     const container = containerRef.current
     const btn = btnRef.current
     if (!container || !btn) return
 
     pointerCountRef.current++
+    lastPointerMoveRef.current = Date.now()
 
     const rect = container.getBoundingClientRect()
     const btnRect = btn.getBoundingClientRect()
@@ -83,13 +101,13 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
     // Start chase on first approach
     if (dist < 150 && !chaseStartRef.current) {
       chaseStartRef.current = Date.now()
+      lastPointerMoveRef.current = Date.now()
       setChasing(true)
     }
 
     // Evade when pointer gets close
     if (dist < 80) {
-      // Sometimes let them catch it after enough chasing (15% chance after 1.5s)
-      const elapsed = chaseStartRef.current ? (Date.now() - chaseStartRef.current) / 1000 : 0
+      const elapsed = accumulatedMsRef.current / 1000
       if (elapsed > 1.5 && Math.random() < 0.15) {
         setSurrendered(true)
         return
@@ -105,7 +123,6 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
       nx = Math.max(12, Math.min(88, nx))
       ny = Math.max(12, Math.min(88, ny))
 
-      // Escape corners
       if ((nx <= 14 || nx >= 86) && (ny <= 14 || ny >= 86)) {
         nx = 50 + (Math.random() - 0.5) * 40
         ny = 50 + (Math.random() - 0.5) * 40
@@ -113,7 +130,7 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
 
       setPos({ x: nx, y: ny })
     }
-  }, [surrendered, passed, pos])
+  }, [surrendered, passed, started, pos])
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     processPointer(e.clientX, e.clientY)
@@ -125,13 +142,16 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
     }
   }, [processPointer])
 
+  const handleStart = () => {
+    setStarted(true)
+    lastPointerMoveRef.current = Date.now()
+  }
+
   const handleClick = () => {
-    // Insta-click with no chase = bot
     if (!chasing || (chaseStartRef.current && (Date.now() - chaseStartRef.current) < 300)) {
       onBotDetected?.(getBehavioralData())
       return
     }
-    // Only clickable when surrendered
     if (surrendered) {
       setPassed(true)
       setTimeout(() => onCaught(getBehavioralData()), 200)
@@ -169,31 +189,54 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
           </div>
         )}
 
-        <button
-          ref={btnRef}
-          onClick={handleClick}
-          className={`absolute px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-100 -translate-x-1/2 -translate-y-1/2 ${
-            passed
-              ? 'bg-success text-white scale-110'
-              : surrendered
-                ? 'bg-success text-white hover:bg-success-hover cursor-pointer animate-pulse'
-                : 'bg-accent text-white cursor-default'
-          }`}
-          style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-        >
-          {passed ? '✓' : surrendered ? 'Click me!' : 'Catch me!'}
-        </button>
+        {/* Mobile start circle — tap to begin */}
+        {!started && isMobile && (
+          <button
+            onClick={handleStart}
+            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 rounded-full border-4 border-dashed border-accent/60 bg-accent/10 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform"
+          >
+            <span className="text-accent text-2xl">👆</span>
+            <span className="text-accent text-xs font-semibold">Tap to start</span>
+          </button>
+        )}
 
-        {!chasing && (
+        {/* Runaway button — hidden until started on mobile, always visible on desktop */}
+        {(started || !isMobile) && (
+          <button
+            ref={btnRef}
+            onClick={handleClick}
+            className={`absolute px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-100 -translate-x-1/2 -translate-y-1/2 ${
+              passed
+                ? 'bg-success text-white scale-110'
+                : surrendered
+                  ? 'bg-success text-white hover:bg-success-hover cursor-pointer animate-pulse'
+                  : 'bg-accent text-white cursor-default'
+            }`}
+            style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+          >
+            {passed ? '✓' : surrendered ? 'Click me!' : 'Catch me!'}
+          </button>
+        )}
+
+        {/* Desktop: prompt to approach */}
+        {!started && !isMobile && !chasing && (
           <p className="absolute bottom-3 w-full text-center text-xs text-muted">
-            Move toward the button to start
+            Move your cursor toward the button to start
+          </p>
+        )}
+
+        {/* Mobile: post-start instructions */}
+        {started && !chasing && isMobile && (
+          <p className="absolute bottom-3 w-full text-center text-xs text-muted">
+            Drag your finger toward the button
           </p>
         )}
       </div>
       <p className="text-xs text-muted text-center">
         Chase the button for 3 seconds to pass, or catch it if it stops.
+        {!chasing && <><br /><span className="text-subtle">Timer decays if you stop — keep chasing!</span></>}
         <br />
-        <span className="text-subtle">Accessibility: on mobile, drag your finger across the box. Screen reader users can tap randomly — the timer still counts.</span>
+        <span className="text-subtle">Accessibility: drag your finger across the box. The timer counts all movement.</span>
       </p>
     </div>
   )

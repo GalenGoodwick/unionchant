@@ -2,73 +2,51 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
-import { usePathname } from 'next/navigation'
 import RunawayButton, { type ChallengeData } from './RunawayButton'
+
+const POLL_INTERVAL = 30_000 // 30s — picks up admin triggers fast
 
 /**
  * Server-authoritative challenge system.
  *
- * - Polls /api/challenge/status on mount + navigation to check if challenge is needed
- * - Server is the only authority — client can't bypass by navigating away
- * - On pass, sends behavioral data to /api/challenge/complete for server validation
- * - Server validates pointer events, chase duration, evasion count before marking as passed
+ * - Polls /api/challenge/status every 30s so admin triggers reach ALL users
+ * - Covers every page — wraps the entire app in providers.tsx
+ * - Server validates behavioral data before marking as passed
  * - No secret key ever reaches the client
  */
 export default function ChallengeProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession()
-  const pathname = usePathname()
   const [showChallenge, setShowChallenge] = useState(false)
-  const [checking, setChecking] = useState(false)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastCheckRef = useRef<number>(0)
+  const checkingRef = useRef(false)
 
   const checkStatus = useCallback(async () => {
-    if (!session?.user || checking) return
-    // Don't spam — at most once per 10 seconds
-    if (Date.now() - lastCheckRef.current < 10_000) return
-    lastCheckRef.current = Date.now()
-
-    setChecking(true)
+    if (!session?.user || checkingRef.current || showChallenge) return
+    checkingRef.current = true
     try {
       const res = await fetch('/api/challenge/status')
       const data = await res.json()
-
       if (data.needsChallenge) {
         setShowChallenge(true)
-      } else if (data.msUntilNext > 0) {
-        // Schedule next check
-        if (timeoutRef.current) clearTimeout(timeoutRef.current)
-        timeoutRef.current = setTimeout(() => {
-          lastCheckRef.current = 0 // allow immediate check
-          checkStatus()
-        }, data.msUntilNext)
       }
     } catch { /* silent */ }
-    setChecking(false)
-  }, [session, checking])
+    checkingRef.current = false
+  }, [session, showChallenge])
 
-  // Check on mount
+  // Poll every 30s — catches admin triggers, timer expiry, everything
   useEffect(() => {
-    if (session?.user) {
-      // Small delay on first load so the page renders first
-      const id = setTimeout(() => checkStatus(), 3000)
-      return () => clearTimeout(id)
-    }
-  }, [session?.user?.email]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!session?.user) return
 
-  // Re-check on navigation — prevents bypass by navigating away
-  useEffect(() => {
-    if (session?.user && !showChallenge) {
-      checkStatus()
-    }
-  }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Check immediately on mount (small delay for page render)
+    const initialId = setTimeout(() => checkStatus(), 2000)
 
-  // Cleanup timeout
-  useEffect(() => {
+    // Then poll every 30s
+    const intervalId = setInterval(() => checkStatus(), POLL_INTERVAL)
+
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      clearTimeout(initialId)
+      clearInterval(intervalId)
     }
-  }, [])
+  }, [session?.user?.email, checkStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCaught = useCallback(async (data: ChallengeData) => {
     try {
@@ -85,14 +63,10 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
       const json = await res.json()
       if (json.verified) {
         setShowChallenge(false)
-        // Schedule next check
-        lastCheckRef.current = 0
-        if (timeoutRef.current) clearTimeout(timeoutRef.current)
-        timeoutRef.current = setTimeout(() => checkStatus(), 2.5 * 60 * 60 * 1000)
       }
-      // If server rejects, challenge stays up — can't fake it
+      // If server rejects, challenge stays up
     } catch { /* silent — challenge stays up */ }
-  }, [checkStatus])
+  }, [])
 
   const handleBotDetected = useCallback(async (data: ChallengeData) => {
     try {
@@ -107,7 +81,6 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
         }),
       })
     } catch { /* silent */ }
-    // Challenge stays up — don't reveal detection
   }, [])
 
   return (
