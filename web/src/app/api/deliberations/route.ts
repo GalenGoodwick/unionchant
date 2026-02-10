@@ -207,7 +207,9 @@ export async function POST(req: NextRequest) {
         creatorId: user.id,
         submissionEndsAt,
         ...(effectiveSubmissionMs && { submissionDurationMs: effectiveSubmissionMs }),
-        ...(votingTimeoutMs !== undefined && { votingTimeoutMs }),
+        ...(votingTimeoutMs !== undefined
+          ? { votingTimeoutMs }
+          : continuousFlow ? { votingTimeoutMs: 0 } : {}),
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(accumulationTimeoutMs && { accumulationTimeoutMs }),

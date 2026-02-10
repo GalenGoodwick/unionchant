@@ -50,6 +50,7 @@ export async function GET(
       ideaId: comment.ideaId,
       createdAt: comment.createdAt,
       upvoteCount: comment.upvoteCount,
+      spreadCount: comment.spreadCount,
       userHasUpvoted: currentUserId
         ? (comment.upvotes && Array.isArray(comment.upvotes) && comment.upvotes.length > 0)
         : false,

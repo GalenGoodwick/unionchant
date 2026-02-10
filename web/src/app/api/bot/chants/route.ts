@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
         communityId: community.id,
         allocationMode: mode,
         continuousFlow: continuousFlow !== false, // default ON
+        votingTimeoutMs: 0, // continuous flow: no tier timer unless explicitly set
         ideaGoal: ideaGoal ?? 5,
         members: {
           create: {

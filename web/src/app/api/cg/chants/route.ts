@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
         allocationMode: allocationMode === 'balanced' ? 'balanced' : 'fcfs',
         continuousFlow: continuousFlow !== false, // default ON
         accumulationEnabled: true, // rolling mode — accept challengers after winner
+        votingTimeoutMs: 0, // continuous flow: no tier timer unless explicitly set
         ideaGoal: ideaGoal ?? 5,
         multipleIdeasAllowed: multipleIdeasAllowed === true,
         members: {

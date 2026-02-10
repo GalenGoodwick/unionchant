@@ -41,6 +41,19 @@ export async function GET(
             status: true,
             createdAt: true,
             _count: { select: { participants: true, votes: true } },
+            ideas: {
+              select: {
+                idea: {
+                  select: {
+                    id: true,
+                    text: true,
+                    totalXP: true,
+                    status: true,
+                    author: { select: { name: true } },
+                  },
+                },
+              },
+            },
           },
         },
         _count: { select: { members: true, ideas: true } },
@@ -139,7 +152,10 @@ export async function GET(
       creator: deliberation.creator,
       champion,
       ideas: deliberation.ideas,
-      cells: deliberation.cells,
+      cells: deliberation.cells.map(c => ({
+        ...c,
+        ideas: c.ideas.map(ci => ci.idea),
+      })),
       fcfsProgress,
       hasVoted,
       votedTiers,

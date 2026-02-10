@@ -139,7 +139,9 @@ export async function POST(req: NextRequest) {
         continuousFlow,
         accumulationEnabled,
         ...(ideaGoal && { ideaGoal }),
-        ...(votingTimeoutMs !== undefined && { votingTimeoutMs }),
+        ...(votingTimeoutMs !== undefined
+          ? { votingTimeoutMs }
+          : continuousFlow ? { votingTimeoutMs: 0 } : {}),
         ...(submissionDurationMs && { submissionDurationMs, submissionEndsAt }),
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),

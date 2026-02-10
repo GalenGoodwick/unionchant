@@ -4,7 +4,9 @@ import { resolveCGUser } from '@/lib/cg-user'
 import { prisma } from '@/lib/prisma'
 import { processCellResults, checkTierCompletion } from '@/lib/voting'
 
-// POST /api/cg/chants/[id]/end — Force-end a chant. Creator-only.
+// POST /api/cg/chants/[id]/end — Force-end OR declare priority. Creator-only.
+// Body: { cgUserId, cgUsername, cgImageUrl, declare?: true }
+// declare=true: just stamp the top idea as champion, don't touch cells or phase
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -15,7 +17,7 @@ export async function POST(
 
     const { id } = await params
     const body = await req.json()
-    const { cgUserId, cgUsername, cgImageUrl } = body
+    const { cgUserId, cgUsername, cgImageUrl, declare } = body
 
     if (!cgUserId || !cgUsername) {
       return NextResponse.json({ error: 'cgUserId and cgUsername are required' }, { status: 400 })
@@ -35,6 +37,50 @@ export async function POST(
       return NextResponse.json({ error: 'Only the creator can end the chant' }, { status: 403 })
     }
 
+    // ── Declare Priority (snapshot — chant keeps running) ──
+    if (declare) {
+      if (deliberation.phase !== 'VOTING' && deliberation.phase !== 'ACCUMULATING') {
+        return NextResponse.json({ error: 'Can only declare priority during voting' }, { status: 400 })
+      }
+
+      // Find top idea by XP (any active status)
+      const topIdea = await prisma.idea.findFirst({
+        where: { deliberationId: id, status: { in: ['ADVANCING', 'IN_VOTING', 'SUBMITTED', 'PENDING'] } },
+        orderBy: { totalXP: 'desc' },
+      })
+
+      if (!topIdea) {
+        return NextResponse.json({ error: 'No ideas to declare as priority' }, { status: 400 })
+      }
+
+      // Clear previous champion if any
+      if (deliberation.championId) {
+        await prisma.idea.updateMany({
+          where: { deliberationId: id, isChampion: true },
+          data: { isChampion: false },
+        })
+      }
+
+      await prisma.$transaction([
+        prisma.idea.update({
+          where: { id: topIdea.id },
+          data: { isChampion: true },
+        }),
+        prisma.deliberation.update({
+          where: { id },
+          data: { championId: topIdea.id },
+        }),
+      ])
+
+      return NextResponse.json({
+        success: true,
+        phase: deliberation.phase, // unchanged
+        champion: { id: topIdea.id, text: topIdea.text },
+        declared: true,
+      })
+    }
+
+    // ── Force End (destructive — closes cells, ends chant) ──
     if (deliberation.phase === 'COMPLETED') {
       return NextResponse.json({ error: 'Chant is already completed' }, { status: 400 })
     }
