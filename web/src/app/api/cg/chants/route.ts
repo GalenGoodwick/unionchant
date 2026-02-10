@@ -75,8 +75,9 @@ export async function POST(req: NextRequest) {
       url: `https://unitychant.com/chants/${deliberation.id}`,
     }, { status: 201 })
   } catch (error) {
-    console.error('Error creating CG chant:', error)
-    return NextResponse.json({ error: 'Failed to create chant' }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('Error creating CG chant:', msg, error)
+    return NextResponse.json({ error: `Failed to create chant: ${msg}` }, { status: 500 })
   }
 }
 
