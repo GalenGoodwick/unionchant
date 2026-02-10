@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
         ...(isPinned !== undefined && { isPinned }),
-        ...(allocationMode && { allocationMode }),
+        allocationMode: allocationMode || 'fcfs',
         ...(cellSize !== undefined && { cellSize: Number(cellSize) }),
         ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
         ...(fastCell !== undefined && { fastCell: Boolean(fastCell) }),

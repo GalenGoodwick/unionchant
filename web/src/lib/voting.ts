@@ -243,7 +243,8 @@ export async function startVotingPhase(deliberationId: string) {
   }
 
   // ── FCFS mode: create cells with ideas only, no pre-assigned participants ──
-  if (deliberation.allocationMode === 'fcfs') {
+  // Continuous flow REQUIRES FCFS — cells form from ideas, participants join later
+  if (deliberation.allocationMode === 'fcfs' || deliberation.continuousFlow) {
     return startVotingPhaseFCFS(deliberationId, deliberation)
   }
 
