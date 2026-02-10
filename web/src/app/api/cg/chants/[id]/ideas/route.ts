@@ -69,15 +69,18 @@ export async function POST(
       })
     }
 
-    // Check existing idea
+    // Check existing idea (creator can seed multiple during SUBMISSION)
+    const isCreator = deliberation.creatorId === user.id
     const isAccumulated = deliberation.phase === 'ACCUMULATING'
     const isContinuousVoting = deliberation.continuousFlow && deliberation.phase === 'VOTING'
     if (!isAccumulated && !isContinuousVoting) {
-      const existing = await prisma.idea.findFirst({
-        where: { deliberationId: id, authorId: user.id, isNew: false },
-      })
-      if (existing) {
-        return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
+      if (!isCreator) {
+        const existing = await prisma.idea.findFirst({
+          where: { deliberationId: id, authorId: user.id, isNew: false },
+        })
+        if (existing) {
+          return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
+        }
       }
     } else if (isContinuousVoting) {
       // In continuous flow voting, one idea per user per submission round
