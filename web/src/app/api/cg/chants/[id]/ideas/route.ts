@@ -16,7 +16,7 @@ export async function POST(
 
     const { id } = await params
     const body = await req.json()
-    const { cgUserId, cgUsername, cgImageUrl, text } = body
+    const { cgUserId, cgUsername, cgImageUrl, text, creatorSeed } = body
 
     if (!cgUserId || !cgUsername || !text?.trim()) {
       return NextResponse.json({ error: 'cgUserId, cgUsername, and text are required' }, { status: 400 })
@@ -73,10 +73,14 @@ export async function POST(
       })
     }
 
-    // Check existing idea (skip if multipleIdeasAllowed)
-    if (!deliberation.multipleIdeasAllowed) {
-      const isAccumulated = deliberation.phase === 'ACCUMULATING'
-      const isContinuousVoting = deliberation.continuousFlow && deliberation.phase === 'VOTING'
+    const isAccumulated = deliberation.phase === 'ACCUMULATING'
+    const isContinuousVoting = deliberation.continuousFlow && deliberation.phase === 'VOTING'
+
+    // Creator can always submit during SUBMISSION (seeding ideas)
+    const isCreatorInSubmission = deliberation.creatorId === user.id && deliberation.phase === 'SUBMISSION'
+
+    // Check existing idea (skip if multipleIdeasAllowed or creator seeding)
+    if (!deliberation.multipleIdeasAllowed && !isCreatorInSubmission) {
       if (!isAccumulated && !isContinuousVoting) {
         // SUBMISSION phase: one idea per user
         const existing = await prisma.idea.findFirst({

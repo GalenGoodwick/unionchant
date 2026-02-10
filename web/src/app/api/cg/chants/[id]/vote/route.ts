@@ -161,7 +161,7 @@ export async function POST(
       return { allVoted, voterCount: votedUserIds.length }
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      timeout: 10000,
+      timeout: 30000,
     })
 
     if (result.allVoted) {
@@ -212,7 +212,9 @@ export async function POST(
       const mapped = errorMap[error.message]
       if (mapped) return NextResponse.json({ error: mapped.message }, { status: mapped.status })
     }
-    console.error('Error in CG vote:', error)
-    return NextResponse.json({ error: 'Failed to vote' }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error('Error in CG vote:', msg, stack)
+    return NextResponse.json({ error: `Failed to vote: ${msg}` }, { status: 500 })
   }
 }
