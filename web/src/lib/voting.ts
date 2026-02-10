@@ -625,28 +625,29 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   if (!cell) return null
 
-  // Check if this is a final showdown cell (all cells in tier have same ideas, ≤4 ideas)
+  // Check if this cell is part of a batch (other cells in this tier share the same ideas).
+  // Batch cells defer winner/loser resolution to checkTierCompletion's cross-cell XP tally.
+  // This covers both final showdown (all cells same ideas) and multi-batch tiers.
   const allCellsInTier = await prisma.cell.findMany({
     where: { deliberationId: cell.deliberationId, tier: cell.tier },
     include: { ideas: true },
   })
 
   const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-  const isFinalShowdown = cellIdeaIds.length <= 5 && cellIdeaIds.length > 0 &&
-    allCellsInTier.every(c => {
-      const otherIdeaIds = c.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-      return otherIdeaIds.length === cellIdeaIds.length &&
-             otherIdeaIds.every((id: string, i: number) => id === cellIdeaIds[i])
-    })
+  const isBatchCell = allCellsInTier.some(c => {
+    if (c.id === cellId) return false
+    const otherIdeaIds = c.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
+    return otherIdeaIds.length === cellIdeaIds.length &&
+           otherIdeaIds.every((id: string, i: number) => id === cellIdeaIds[i])
+  })
 
-  console.log(`Processing cell ${cellId}: tier ${cell.tier}, ${cellIdeaIds.length} ideas, ${allCellsInTier.length} cells in tier, isFinalShowdown: ${isFinalShowdown}`)
+  console.log(`Processing cell ${cellId}: tier ${cell.tier}, ${cellIdeaIds.length} ideas, ${allCellsInTier.length} cells in tier, isBatchCell: ${isBatchCell}`)
 
   let winnerIds: string[] = []
   let loserIds: string[] = []
 
-  // In final showdown, don't mark individual winners/losers - wait for cross-cell tally
-  if (!isFinalShowdown) {
-    // Sum XP points per idea via raw SQL (xpPoints invisible to Prisma runtime client)
+  if (!isBatchCell) {
+    // ── Single-cell batch: resolve winner/loser from this cell's votes ──
     const cellVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
       SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cellId}
     `
@@ -655,8 +656,6 @@ export async function processCellResults(cellId: string, isTimeout = false) {
       xpTotals[vote.ideaId] = (xpTotals[vote.ideaId] || 0) + vote.xpPoints
     })
 
-    // Find winner(s) — ideas with most XP
-    // Minimum threshold: with only 1 voter, ideas need >= 4 XP to advance
     const voterResult = await prisma.$queryRaw<{ cnt: bigint }[]>`
       SELECT COUNT(DISTINCT "userId") as cnt FROM "Vote" WHERE "cellId" = ${cellId}
     `
@@ -665,14 +664,11 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     const maxXP = Math.max(...Object.values(xpTotals), 0)
 
     if (maxXP === 0) {
-      // No votes cast — all ideas advance
       winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
     } else {
-      // Filter by minimum threshold, then pick the highest
       const qualifiedIdeas = Object.entries(xpTotals).filter(([, total]) => total >= minXPToAdvance)
 
       if (qualifiedIdeas.length === 0) {
-        // No ideas met the minimum threshold — all advance (fallback)
         winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
         console.log(`Cell ${cellId}: No ideas met ${minXPToAdvance} XP threshold with ${numVoters} voter(s), all advance`)
       } else {
@@ -687,27 +683,77 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         .filter((id: string) => !winnerIds.includes(id))
     }
 
-    // Mark winners as advancing and update their tier
     await prisma.idea.updateMany({
       where: { id: { in: winnerIds } },
       data: { status: 'ADVANCING', tier: cell.tier },
     })
 
-    // Mark losers as eliminated (single elimination)
-    // TODO: Two-strike system was partially implemented but POOLED ideas
-    // were never re-entered into subsequent tiers. Disabled for now.
     if (loserIds.length > 0) {
       await prisma.idea.updateMany({
         where: { id: { in: loserIds } },
-        data: {
-          status: 'ELIMINATED',
-          losses: { increment: 1 },
-        },
+        data: { status: 'ELIMINATED', losses: { increment: 1 } },
       })
     }
 
-    // Resolve predictions for this cell
     await resolveCellPredictions(cellId, winnerIds)
+  } else {
+    // ── Multi-cell batch: check if ALL cells in this batch are complete ──
+    // If so, run cross-cell XP tally to determine the batch winner.
+    // This resolves per-batch instead of waiting for the entire tier.
+    const batchNum = cell.batch ?? 0
+    const batchCells = allCellsInTier.filter(c => (c.batch ?? 0) === batchNum)
+    const allBatchComplete = batchCells.every(c => c.status === 'COMPLETED')
+
+    if (allBatchComplete && batchCells.length > 1) {
+      const batchIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
+
+      // Only resolve if ideas are still unresolved (idempotency)
+      const unresolvedCount = await prisma.idea.count({
+        where: { id: { in: batchIdeaIds }, status: 'IN_VOTING' },
+      })
+
+      if (unresolvedCount > 0) {
+        const batchCellIds = batchCells.map(c => c.id)
+        const batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+          SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
+        `
+        const tally: Record<string, number> = {}
+        for (const vote of batchVotes) {
+          tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
+        }
+
+        const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a)
+        const batchWinnerId = sorted.length > 0
+          ? sorted[0][0]
+          : batchIdeaIds[Math.floor(Math.random() * batchIdeaIds.length)]
+
+        if (batchWinnerId) {
+          winnerIds = [batchWinnerId]
+          loserIds = batchIdeaIds.filter((id: string) => id !== batchWinnerId)
+
+          await prisma.idea.updateMany({
+            where: { id: { in: winnerIds } },
+            data: { status: 'ADVANCING', tier: cell.tier },
+          })
+
+          if (loserIds.length > 0) {
+            await prisma.idea.updateMany({
+              where: { id: { in: loserIds } },
+              data: { status: 'ELIMINATED', losses: { increment: 1 } },
+            })
+          }
+
+          // Resolve predictions for all cells in the batch
+          for (const bc of batchCells) {
+            await resolveCellPredictions(bc.id, winnerIds)
+          }
+
+          console.log(`processCellResults: batch ${batchNum} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
+        }
+      }
+    }
+    // If not all batch cells complete yet, winnerIds stays empty — that's fine,
+    // the tier handler will be called but won't advance yet.
   }
 
   // Cell already marked COMPLETED by atomic guard above.
@@ -874,122 +920,96 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     }
   }
 
-  // Check if this is a final showdown (all cells have same ideas, ≤4 ideas)
-  const firstCellIdeaIds = cells[0]?.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort() || []
-  const allCellsHaveSameIdeas = cells.every(cell => {
-    const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-    return cellIdeaIds.length === firstCellIdeaIds.length &&
-           cellIdeaIds.every((id: string, i: number) => id === firstCellIdeaIds[i])
+  // ── Per-batch cross-cell XP tally ──
+  // Group cells by batch. Multi-cell batches need cross-cell tally.
+  // Single-cell batches were already resolved by processCellResults.
+
+  const batchMap = new Map<number, typeof cells>()
+  for (const cell of cells) {
+    const b = cell.batch ?? 0
+    if (!batchMap.has(b)) batchMap.set(b, [])
+    batchMap.get(b)!.push(cell)
+  }
+
+  // For FCFS on-demand: check all expected batches have cells before auto-advancing.
+  // Expected batches = ceil(total tier ideas / cellSize)
+  const deliberation = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+    include: { members: { where: { role: { in: ['CREATOR', 'PARTICIPANT'] } } } },
   })
+  if (!deliberation) return
 
-  // FINAL SHOWDOWN: Cross-cell tallying when all cells vote on same ≤5 ideas
-  if (allCellsHaveSameIdeas && firstCellIdeaIds.length <= 5 && firstCellIdeaIds.length > 0) {
-    // Sum XP points across ALL cells via raw SQL (xpPoints invisible to Prisma runtime client)
-    const cellIds = cells.map(c => c.id)
-    const allVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
-      SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${cellIds})
-    `
-    const crossCellTally: Record<string, number> = {}
-    for (const vote of allVotes) {
-      crossCellTally[vote.ideaId] = (crossCellTally[vote.ideaId] || 0) + vote.xpPoints
-    }
+  const cellSize = deliberation.cellSize || DEFAULT_CELL_SIZE
 
-    // Find the winner (most total XP)
-    const sortedIdeas = Object.entries(crossCellTally)
-      .sort(([, a], [, b]) => b - a)
+  if (deliberation.allocationMode === 'fcfs') {
+    // Count ALL ideas at this tier (any status — some may already be ADVANCING/ELIMINATED)
+    const allTierIdeaCount = await prisma.idea.count({
+      where: { deliberationId, tier },
+    })
+    const expectedBatches = Math.max(1, Math.ceil(allTierIdeaCount / cellSize))
 
-    // If no votes were cast, pick a random winner from the ideas
-    const winnerId = sortedIdeas.length > 0
-      ? sortedIdeas[0][0]
-      : firstCellIdeaIds[Math.floor(Math.random() * firstCellIdeaIds.length)]
-
-    if (winnerId) {
-
-      // Mark winner
-      await prisma.idea.update({
-        where: { id: winnerId },
-        data: { status: 'WINNER', isChampion: true },
-      })
-
-      // Mark others as eliminated
-      const loserIds = firstCellIdeaIds.filter((id: string) => id !== winnerId)
-      if (loserIds.length > 0) {
-        await prisma.idea.updateMany({
-          where: { id: { in: loserIds } },
-          data: { status: 'ELIMINATED' },
-        })
+    for (let b = 0; b < expectedBatches; b++) {
+      if (!batchMap.has(b)) {
+        console.log(`checkTierCompletion: FCFS batch ${b} has no cells yet (expected ${expectedBatches} batches), waiting for voters`)
+        return
       }
-
-      // Get deliberation for accumulation check
-      const deliberation = await prisma.deliberation.findUnique({
-        where: { id: deliberationId },
-      })
-
-      if (deliberation?.accumulationEnabled) {
-        const accumulationEndsAt = deliberation.accumulationTimeoutMs
-          ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
-          : null
-        // Atomic: only transition if still in VOTING phase
-        const updated = await prisma.deliberation.updateMany({
-          where: { id: deliberationId, phase: 'VOTING' },
-          data: {
-            phase: 'ACCUMULATING',
-            championId: winnerId,
-            accumulationEndsAt,
-            championEnteredTier: Math.max(2, tier),
-          },
-        })
-
-        if (updated.count > 0) {
-          sendPushToDeliberation(
-            deliberationId,
-            notifications.accumulationStarted(deliberation.question, deliberationId)
-          ).catch(err => console.error('Failed to send push notifications:', err))
-        }
-      } else {
-        // Atomic: only complete if still in VOTING phase
-        const updated = await prisma.deliberation.updateMany({
-          where: { id: deliberationId, phase: 'VOTING' },
-          data: {
-            phase: 'COMPLETED',
-            championId: winnerId,
-            completedAt: new Date(),
-          },
-        })
-
-        if (updated.count > 0) {
-          const completedDeliberation = await prisma.deliberation.findUnique({
-            where: { id: deliberationId },
-            include: { ideas: { where: { id: winnerId } } }
-          })
-          if (completedDeliberation) {
-            sendPushToDeliberation(
-              deliberationId,
-              notifications.championDeclared(completedDeliberation.question, deliberationId)
-            ).catch(err => console.error('Failed to send push notifications:', err))
-
-            // Email: champion declared
-            sendEmailToDeliberation(deliberationId, 'champion_declared', {
-              championText: completedDeliberation.ideas[0]?.text || 'Unknown',
-            }).catch(err => console.error('Failed to send champion email:', err))
-
-          }
-        }
-      }
-
-      // Resolve predictions for champion
-      await resolveChampionPredictions(deliberationId, winnerId)
-
-      const winnerForHook = await prisma.idea.findUnique({ where: { id: winnerId }, select: { text: true } })
-      fireWebhookEvent('winner_declared', {
-        deliberationId, winnerId, winnerText: winnerForHook?.text || '', totalTiers: tier,
-      })
-
-      return // Final showdown complete
     }
   }
 
-  // Normal case: Get advancing ideas
+  // Process multi-cell batches: cross-cell XP tally
+  for (const [batchNum, batchCells] of batchMap.entries()) {
+    if (batchCells.length <= 1) continue // Single-cell batch: already resolved
+
+    const batchCellIds = batchCells.map(c => c.id)
+    const batchIdeaIds = batchCells[0].ideas.map((ci: { ideaId: string }) => ci.ideaId)
+
+    // Check if ideas are still unresolved (IN_VOTING) — skip if already processed
+    const unresolvedCount = await prisma.idea.count({
+      where: { id: { in: batchIdeaIds }, status: 'IN_VOTING' },
+    })
+    if (unresolvedCount === 0) continue // Already resolved
+
+    // Cross-cell XP tally for this batch
+    const batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+      SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
+    `
+    const tally: Record<string, number> = {}
+    for (const vote of batchVotes) {
+      tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
+    }
+
+    // Find batch winner (most total XP)
+    const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a)
+    const batchWinnerId = sorted.length > 0
+      ? sorted[0][0]
+      : batchIdeaIds[Math.floor(Math.random() * batchIdeaIds.length)]
+
+    if (!batchWinnerId) continue
+
+    const batchLoserIds = batchIdeaIds.filter((id: string) => id !== batchWinnerId)
+
+    console.log(`checkTierCompletion: batch ${batchNum} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
+
+    // Mark batch winner as ADVANCING, losers as ELIMINATED
+    await prisma.idea.update({
+      where: { id: batchWinnerId },
+      data: { status: 'ADVANCING', tier },
+    })
+
+    if (batchLoserIds.length > 0) {
+      await prisma.idea.updateMany({
+        where: { id: { in: batchLoserIds } },
+        data: { status: 'ELIMINATED', losses: { increment: 1 } },
+      })
+    }
+
+    // Resolve predictions for batch cells
+    for (const cell of batchCells) {
+      await resolveCellPredictions(cell.id, [batchWinnerId])
+    }
+  }
+
+  // Collect all advancing ideas (from both single-cell and multi-cell batches)
   const advancingIdeas = await prisma.idea.findMany({
     where: { deliberationId, status: 'ADVANCING' },
   })
@@ -998,12 +1018,69 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     return
   }
 
-  const deliberation = await prisma.deliberation.findUnique({
-    where: { id: deliberationId },
-    include: { members: { where: { role: { in: ['CREATOR', 'PARTICIPANT'] } } } },
-  })
+  // Check if this is a single-batch final showdown (1 winner = champion)
+  const totalBatches = batchMap.size
+  if (totalBatches === 1 && advancingIdeas.length === 1) {
+    // Final showdown: the single advancing idea is the champion
+    const winnerId = advancingIdeas[0].id
+    await prisma.idea.update({
+      where: { id: winnerId },
+      data: { status: 'WINNER', isChampion: true },
+    })
 
-  if (!deliberation) return
+    if (deliberation.accumulationEnabled) {
+      const accumulationEndsAt = deliberation.accumulationTimeoutMs
+        ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
+        : null
+      const updated = await prisma.deliberation.updateMany({
+        where: { id: deliberationId, phase: 'VOTING' },
+        data: {
+          phase: 'ACCUMULATING',
+          championId: winnerId,
+          accumulationEndsAt,
+          championEnteredTier: Math.max(2, tier),
+        },
+      })
+      if (updated.count > 0) {
+        sendPushToDeliberation(
+          deliberationId,
+          notifications.accumulationStarted(deliberation.question, deliberationId)
+        ).catch(err => console.error('Failed to send push notifications:', err))
+      }
+    } else {
+      const updated = await prisma.deliberation.updateMany({
+        where: { id: deliberationId, phase: 'VOTING' },
+        data: {
+          phase: 'COMPLETED',
+          championId: winnerId,
+          completedAt: new Date(),
+        },
+      })
+      if (updated.count > 0) {
+        const completedDeliberation = await prisma.deliberation.findUnique({
+          where: { id: deliberationId },
+          include: { ideas: { where: { id: winnerId } } }
+        })
+        if (completedDeliberation) {
+          sendPushToDeliberation(
+            deliberationId,
+            notifications.championDeclared(completedDeliberation.question, deliberationId)
+          ).catch(err => console.error('Failed to send push notifications:', err))
+          sendEmailToDeliberation(deliberationId, 'champion_declared', {
+            championText: completedDeliberation.ideas[0]?.text || 'Unknown',
+          }).catch(err => console.error('Failed to send champion email:', err))
+        }
+      }
+    }
+
+    await resolveChampionPredictions(deliberationId, winnerId)
+    const winnerForHook = await prisma.idea.findUnique({ where: { id: winnerId }, select: { text: true } })
+    fireWebhookEvent('winner_declared', {
+      deliberationId, winnerId, winnerText: winnerForHook?.text || '', totalTiers: tier,
+    })
+
+    return // Final showdown complete — champion declared
+  }
 
   // Check if defending champion needs to be added at this tier
   if (deliberation.championEnteredTier && tier + 1 === deliberation.championEnteredTier) {
@@ -1192,33 +1269,10 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       ? new Date(Date.now() + deliberation.discussionDurationMs!)
       : null
 
-    // ── FCFS mode: create next-tier cells with ideas but NO participants ──
+    // ── FCFS mode: NO upfront cell creation — all cells created on-demand ──
+    // via the enter endpoint. This applies to both final showdown (≤ cellSize ideas)
+    // and multi-batch tiers (> cellSize ideas). Voters round-robin across batches.
     if (deliberation.allocationMode === 'fcfs') {
-      const numCells = Math.max(1, Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL))
-      const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, numCells)
-      let fcfsIdeaIdx = 0
-
-      if (shuffledIdeas.length <= CELL_SIZE) {
-        // Final showdown in FCFS: cells created on-demand via enter endpoint.
-        // No upfront cell creation — avoids empty cells.
-      } else {
-        for (let cellNum = 0; cellNum < numCells; cellNum++) {
-          const count = ideaSizes[cellNum] || 0
-          const cellIdeas = shuffledIdeas.slice(fcfsIdeaIdx, fcfsIdeaIdx + count)
-          fcfsIdeaIdx += count
-          if (cellIdeas.length === 0) continue
-
-          await prisma.cell.create({
-            data: {
-              deliberationId,
-              tier: nextTier,
-              status: 'VOTING',
-              ideas: { create: cellIdeas.map(idea => ({ ideaId: idea.id })) },
-            },
-          })
-        }
-      }
-
       // Notifications
       sendPushToDeliberation(
         deliberationId,
@@ -1228,7 +1282,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
         .catch(err => console.error('Failed to send new tier email:', err))
 
-      return // FCFS tier creation done
+      return // FCFS: cells created on-demand when voters enter
     }
 
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas

@@ -85,114 +85,155 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }, { status: 400 })
     }
 
-    // Find oldest VOTING cell with room
-    const openCells = await prisma.cell.findMany({
-      where: {
-        deliberationId,
-        tier: deliberation.currentTier,
-        status: 'VOTING',
-      },
+    // ── Batch-aware on-demand cell creation ──
+    // Compute batches deterministically from IN_VOTING ideas.
+    // Round-robin across batches: join the least-filled open cell,
+    // or create a new cell in the batch with fewest total participants.
+
+    const tierIdeas = await prisma.idea.findMany({
+      where: { deliberationId, status: 'IN_VOTING', tier: deliberation.currentTier },
+      select: { id: true, text: true },
+      orderBy: { id: 'asc' }, // deterministic ordering
+    })
+
+    if (tierIdeas.length === 0) {
+      return NextResponse.json({
+        error: 'No ideas in voting at this tier.',
+        roundFull: true,
+      }, { status: 400 })
+    }
+
+    // Compute batch groups
+    const numBatches = Math.max(1, Math.ceil(tierIdeas.length / FCFS_CELL_SIZE))
+    const batchIdeaGroups: typeof tierIdeas[] = []
+    const basePer = Math.floor(tierIdeas.length / numBatches)
+    const extraIdeas = tierIdeas.length % numBatches
+    let bIdx = 0
+    for (let b = 0; b < numBatches; b++) {
+      const count = basePer + (b < extraIdeas ? 1 : 0)
+      batchIdeaGroups.push(tierIdeas.slice(bIdx, bIdx + count))
+      bIdx += count
+    }
+
+    // Get ALL cells at current tier (VOTING + COMPLETED) for batch totals
+    const allTierCells = await prisma.cell.findMany({
+      where: { deliberationId, tier: deliberation.currentTier },
       include: {
         _count: { select: { participants: true } },
         ideas: {
-          include: {
-            idea: { select: { id: true, text: true, status: true } },
-          },
+          include: { idea: { select: { id: true, text: true, status: true } } },
         },
       },
       orderBy: { createdAt: 'asc' },
     })
 
-    const cellToJoin = openCells.find(c => c._count.participants < FCFS_CELL_SIZE)
+    // Group cells by batch
+    const cellsByBatch = new Map<number, typeof allTierCells>()
+    for (const cell of allTierCells) {
+      const b = cell.batch ?? 0
+      if (!cellsByBatch.has(b)) cellsByBatch.set(b, [])
+      cellsByBatch.get(b)!.push(cell)
+    }
 
-    if (!cellToJoin) {
-      // FCFS batch: auto-create a new cell with the same ideas when all are full
-      const tierIdeas = await prisma.idea.findMany({
-        where: {
-          deliberationId,
-          status: 'IN_VOTING',
-          tier: deliberation.currentTier,
-        },
-        select: { id: true, text: true },
-      })
+    // Find best open cell (round-robin: least participants across all batches)
+    let cellToJoin: typeof allTierCells[0] | null = null
+    let minParticipants = FCFS_CELL_SIZE
 
-      if (tierIdeas.length === 0 || tierIdeas.length > FCFS_CELL_SIZE) {
-        // No ideas or too many for a batch cell — cells should already exist
-        return NextResponse.json({
-          error: 'All cells are full. Waiting for results before next round opens.',
-          roundFull: true,
-        }, { status: 400 })
+    for (let b = 0; b < numBatches; b++) {
+      const bCells = cellsByBatch.get(b) || []
+      const open = bCells.find(c => c.status === 'VOTING' && c._count.participants < FCFS_CELL_SIZE)
+      if (open && open._count.participants < minParticipants) {
+        minParticipants = open._count.participants
+        cellToJoin = open
       }
+    }
 
-      // Final showdown batch: create new cell with same ideas (≤ cellSize)
-      const newCell = await prisma.cell.create({
-        data: {
-          deliberationId,
-          tier: deliberation.currentTier,
-          batch: 0,
-          status: 'VOTING',
-          ideas: {
-            create: tierIdeas.map(i => ({ ideaId: i.id })),
-          },
-        },
-        include: {
-          ideas: {
-            include: {
-              idea: { select: { id: true, text: true, status: true } },
-            },
-          },
-        },
-      })
-
-      // Ensure membership
+    if (cellToJoin) {
+      // Join existing cell
       await prisma.deliberationMember.upsert({
         where: { deliberationId_userId: { userId, deliberationId } },
         create: { userId, deliberationId },
         update: {},
       })
 
-      // Add to new cell
       await prisma.cellParticipation.create({
-        data: { cellId: newCell.id, userId, status: 'ACTIVE' },
+        data: { cellId: cellToJoin.id, userId, status: 'ACTIVE' },
       })
 
       return NextResponse.json({
         entered: true,
         cell: {
-          id: newCell.id,
-          tier: newCell.tier,
-          ideas: newCell.ideas.map(ci => ({
+          id: cellToJoin.id,
+          tier: cellToJoin.tier,
+          batch: cellToJoin.batch,
+          ideas: cellToJoin.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
           })),
-          voterCount: 1,
+          voterCount: cellToJoin._count.participants + 1,
           votersNeeded: FCFS_CELL_SIZE,
         },
       })
     }
 
-    // Ensure membership
+    // No open cell — create new cell in batch with fewest total participants
+    let createBatch = 0
+    let minTotal = Infinity
+    for (let b = 0; b < numBatches; b++) {
+      const bCells = cellsByBatch.get(b) || []
+      const total = bCells.reduce((sum, c) => sum + c._count.participants, 0)
+      if (total < minTotal) {
+        minTotal = total
+        createBatch = b
+      }
+    }
+
+    // If this batch already has cells (e.g., seed cells from continuous flow),
+    // use the same ideas as existing cells for batch consistency.
+    // Otherwise, use the computed batch ideas.
+    const existingBatchCells = cellsByBatch.get(createBatch) || []
+    const cellIdeaIds = existingBatchCells.length > 0
+      ? existingBatchCells[0].ideas.map(ci => ci.idea.id)
+      : batchIdeaGroups[createBatch].map(i => i.id)
+
+    const newCell = await prisma.cell.create({
+      data: {
+        deliberationId,
+        tier: deliberation.currentTier,
+        batch: createBatch,
+        status: 'VOTING',
+        ideas: {
+          create: cellIdeaIds.map(id => ({ ideaId: id })),
+        },
+      },
+      include: {
+        ideas: {
+          include: { idea: { select: { id: true, text: true, status: true } } },
+        },
+      },
+    })
+
     await prisma.deliberationMember.upsert({
       where: { deliberationId_userId: { userId, deliberationId } },
       create: { userId, deliberationId },
       update: {},
     })
 
-    // Add to cell
     await prisma.cellParticipation.create({
-      data: { cellId: cellToJoin.id, userId, status: 'ACTIVE' },
+      data: { cellId: newCell.id, userId, status: 'ACTIVE' },
     })
 
     return NextResponse.json({
       entered: true,
       cell: {
-        id: cellToJoin.id,
-        tier: cellToJoin.tier,
-        ideas: cellToJoin.ideas.map(ci => ({
+        id: newCell.id,
+        tier: newCell.tier,
+        batch: createBatch,
+        ideas: newCell.ideas.map(ci => ({
           id: ci.idea.id,
           text: ci.idea.text,
         })),
-        voterCount: cellToJoin._count.participants + 1,
+        voterCount: 1,
         votersNeeded: FCFS_CELL_SIZE,
       },
     })

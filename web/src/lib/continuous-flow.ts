@@ -121,10 +121,23 @@ export async function tryAdvanceContinuousFlowTier(
 
   // Create the next-tier cell (FCFS: no participants pre-assigned)
   const isFCFS = deliberation.allocationMode === 'fcfs'
+
+  // For FCFS: assign a batch number so the enter endpoint can create
+  // additional cells in the same batch for cross-cell XP tally.
+  // Batch = count of existing cells at this tier (each seed cell = new batch).
+  let batchNumber: number | undefined = undefined
+  if (isFCFS) {
+    const existingCellCount = await prisma.cell.count({
+      where: { deliberationId, tier: nextTier },
+    })
+    batchNumber = existingCellCount
+  }
+
   const cell = await prisma.cell.create({
     data: {
       deliberationId,
       tier: nextTier,
+      batch: batchNumber ?? null,
       status: cellStatus,
       discussionEndsAt,
       votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
