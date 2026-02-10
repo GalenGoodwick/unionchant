@@ -100,19 +100,22 @@ export async function GET(
       }
     }
 
-    // Check if requesting user has already voted this tier
+    // Check which tiers the user has voted in
     let hasVoted = false
-    if (cgUserId && deliberation.phase === 'VOTING') {
+    let votedTiers: number[] = []
+    if (cgUserId) {
       const cgUser = await prisma.user.findFirst({ where: { cgId: cgUserId } })
       if (cgUser) {
-        const voted = await prisma.cellParticipation.findFirst({
+        const votes = await prisma.cellParticipation.findMany({
           where: {
             userId: cgUser.id,
             status: 'VOTED',
-            cell: { deliberationId: id, tier: deliberation.currentTier },
+            cell: { deliberationId: id },
           },
+          select: { cell: { select: { tier: true } } },
         })
-        hasVoted = !!voted
+        votedTiers = [...new Set(votes.map(v => v.cell.tier))].sort((a, b) => a - b)
+        hasVoted = votedTiers.includes(deliberation.currentTier)
       }
     }
 
@@ -138,6 +141,7 @@ export async function GET(
       cells: deliberation.cells,
       fcfsProgress,
       hasVoted,
+      votedTiers,
       createdAt: deliberation.createdAt,
     })
   } catch (error) {
