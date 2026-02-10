@@ -106,10 +106,69 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const cellToJoin = openCells.find(c => c._count.participants < FCFS_CELL_SIZE)
 
     if (!cellToJoin) {
+      // FCFS batch: auto-create a new cell with the same ideas when all are full
+      const tierIdeas = await prisma.idea.findMany({
+        where: {
+          deliberationId,
+          status: 'IN_VOTING',
+          tier: deliberation.currentTier,
+        },
+        select: { id: true, text: true },
+      })
+
+      if (tierIdeas.length === 0 || tierIdeas.length > FCFS_CELL_SIZE) {
+        // No ideas or too many for a batch cell — cells should already exist
+        return NextResponse.json({
+          error: 'All cells are full. Waiting for results before next round opens.',
+          roundFull: true,
+        }, { status: 400 })
+      }
+
+      // Final showdown batch: create new cell with same ideas (≤ cellSize)
+      const newCell = await prisma.cell.create({
+        data: {
+          deliberationId,
+          tier: deliberation.currentTier,
+          batch: 0,
+          status: 'VOTING',
+          ideas: {
+            create: tierIdeas.map(i => ({ ideaId: i.id })),
+          },
+        },
+        include: {
+          ideas: {
+            include: {
+              idea: { select: { id: true, text: true, status: true } },
+            },
+          },
+        },
+      })
+
+      // Ensure membership
+      await prisma.deliberationMember.upsert({
+        where: { deliberationId_userId: { userId, deliberationId } },
+        create: { userId, deliberationId },
+        update: {},
+      })
+
+      // Add to new cell
+      await prisma.cellParticipation.create({
+        data: { cellId: newCell.id, userId, status: 'ACTIVE' },
+      })
+
       return NextResponse.json({
-        error: 'All cells are full. Waiting for results before next round opens.',
-        roundFull: true,
-      }, { status: 400 })
+        entered: true,
+        cell: {
+          id: newCell.id,
+          tier: newCell.tier,
+          ideas: newCell.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+          })),
+          voterCount: 1,
+          votersNeeded: FCFS_CELL_SIZE,
+        },
+      })
     }
 
     // Ensure membership
