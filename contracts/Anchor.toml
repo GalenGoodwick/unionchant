@@ -4,6 +4,11 @@ skip-lint = false
 
 [programs.localnet]
 contracts = "5ngmZdSGoTX1J1iZF3BDJzWf983aS4aEpQH8CWZ9mBgb"
+chant_audit = "CyjjTdnnVKgqKjnjRnz9g8wgc1LBWs2d1QEjqzbCCJUh"
+
+[programs.devnet]
+contracts = "5ngmZdSGoTX1J1iZF3BDJzWf983aS4aEpQH8CWZ9mBgb"
+chant_audit = "CyjjTdnnVKgqKjnjRnz9g8wgc1LBWs2d1QEjqzbCCJUh"
 
 [registry]
 url = "https://api.apr.dev"
