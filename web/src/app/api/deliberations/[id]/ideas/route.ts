@@ -82,7 +82,7 @@ export async function POST(
 
     // Continuous flow: idea submission is open during voting
     const isContinuousFlow = deliberation.continuousFlow && deliberation.phase === 'VOTING'
-    const isContinuousFlowTier1 = isContinuousFlow && deliberation.currentTier === 1
+    const isContinuousFlowTier1 = isContinuousFlow // Ideas always enter at tier 1 in continuous flow
 
     // Check if user has already submitted an idea in this phase
     if (deliberation.phase === 'SUBMISSION' || isContinuousFlowTier1) {

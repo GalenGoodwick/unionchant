@@ -1434,7 +1434,7 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
     },
   })
 
-  if (!deliberation || deliberation.phase !== 'VOTING' || !deliberation.continuousFlow || deliberation.currentTier !== 1) {
+  if (!deliberation || deliberation.phase !== 'VOTING' || !deliberation.continuousFlow) {
     return { cellCreated: false }
   }
 
@@ -1566,10 +1566,10 @@ export async function closeSubmissions(deliberationId: string): Promise<{ closed
   // Create a final cell with whatever ideas remain (even if < cellSize)
   const isFCFS = deliberation.allocationMode === 'fcfs'
 
-  // Mark ideas as IN_VOTING
+  // Mark ideas as IN_VOTING at tier 1 (new ideas always enter at bottom of pyramid)
   await prisma.idea.updateMany({
     where: { id: { in: unassignedIdeas.map(i => i.id) } },
-    data: { status: 'IN_VOTING', tier: deliberation.currentTier },
+    data: { status: 'IN_VOTING', tier: 1 },
   })
 
   const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
@@ -1581,7 +1581,7 @@ export async function closeSubmissions(deliberationId: string): Promise<{ closed
   const cell = await prisma.cell.create({
     data: {
       deliberationId,
-      tier: deliberation.currentTier,
+      tier: 1,
       status: cellStatus,
       discussionEndsAt,
       votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0

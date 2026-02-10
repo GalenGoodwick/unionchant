@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           const mod = moderateContent(ideaText)
           if (mod.allowed) {
             const isCF = deliberation.continuousFlow && deliberation.phase === 'VOTING'
-            const isCFTier1 = isCF && deliberation.currentTier === 1
+            const isCFTier1 = isCF // Ideas always enter at tier 1 in continuous flow
             let ideaStatus: 'SUBMITTED' | 'PENDING' = 'SUBMITTED'
             if (deliberation.phase === 'VOTING' && !isCFTier1) ideaStatus = 'PENDING'
             if (deliberation.phase === 'ACCUMULATING') ideaStatus = 'PENDING'

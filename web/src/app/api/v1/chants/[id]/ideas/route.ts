@@ -49,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     })
 
     const isContinuousFlow = deliberation.continuousFlow && deliberation.phase === 'VOTING'
-    const isContinuousFlowTier1 = isContinuousFlow && deliberation.currentTier === 1
+    const isContinuousFlowTier1 = isContinuousFlow // Ideas always enter at tier 1 in continuous flow
 
     // Determine idea status based on phase
     let status: 'SUBMITTED' | 'PENDING' = 'SUBMITTED'

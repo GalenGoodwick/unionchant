@@ -4,6 +4,8 @@ import { resolveCGUser } from '@/lib/cg-user'
 import { prisma } from '@/lib/prisma'
 
 // POST /api/cg/chants/[id]/reopen — Reopen for submissions. Creator-only.
+// Continuous flow: just clears submissionsClosed (voting continues at all tiers).
+// Non-continuous: resets to SUBMISSION phase.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -24,7 +26,7 @@ export async function POST(
 
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },
-      select: { id: true, question: true, phase: true, creatorId: true },
+      select: { id: true, question: true, phase: true, creatorId: true, continuousFlow: true, submissionsClosed: true },
     })
 
     if (!deliberation) {
@@ -35,6 +37,22 @@ export async function POST(
       return NextResponse.json({ error: 'Only the creator can reopen this chant' }, { status: 403 })
     }
 
+    if (deliberation.continuousFlow && deliberation.phase === 'VOTING') {
+      // Continuous flow: just reopen submissions. Voting continues at all tiers.
+      if (!deliberation.submissionsClosed) {
+        return NextResponse.json({ error: 'Submissions are already open' }, { status: 400 })
+      }
+
+      await prisma.deliberation.update({
+        where: { id },
+        data: { submissionsClosed: false },
+      })
+
+      console.log(`[CG] Reopened submissions for continuous flow deliberation ${id} (${deliberation.question})`)
+      return NextResponse.json({ success: true, question: deliberation.question, mode: 'continuous' })
+    }
+
+    // Non-continuous: reset to SUBMISSION phase
     if (deliberation.phase === 'SUBMISSION') {
       return NextResponse.json({ error: 'Chant is already accepting ideas' }, { status: 400 })
     }
@@ -50,7 +68,7 @@ export async function POST(
 
     console.log(`[CG] Reopened deliberation ${id} (${deliberation.question})`)
 
-    return NextResponse.json({ success: true, question: deliberation.question })
+    return NextResponse.json({ success: true, question: deliberation.question, mode: 'reset' })
   } catch (error) {
     console.error('Error reopening CG chant:', error)
     return NextResponse.json({ error: 'Failed to reopen chant' }, { status: 500 })

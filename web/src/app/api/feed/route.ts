@@ -403,8 +403,8 @@ async function buildYourTurnFeed(
       myIdea,
     }
 
-    // Continuous flow (Tier 1 only): submit first, then vote
-    if (d.continuousFlow && d.phase === 'VOTING' && d.currentTier === 1 && !myIdea) {
+    // Continuous flow: submit ideas at any tier (they enter at tier 1)
+    if (d.continuousFlow && d.phase === 'VOTING' && !myIdea) {
       entries.push({ kind: 'submit', id: `submit-cf-${d.id}`, priority: 60, ...base })
       continue
     }
