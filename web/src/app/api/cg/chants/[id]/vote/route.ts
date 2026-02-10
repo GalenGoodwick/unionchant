@@ -47,20 +47,22 @@ export async function POST(
       return NextResponse.json({ error: 'Chant is not in voting phase' }, { status: 400 })
     }
 
-    // Check if user already voted in this tier
-    const existingParticipation = await prisma.cellParticipation.findFirst({
+    // Get cells user already voted in this tier
+    const votedCellIds = await prisma.cellParticipation.findMany({
       where: {
         userId: user.id,
         status: 'VOTED',
         cell: { deliberationId: id, tier: deliberation.currentTier },
       },
-    })
+      select: { cellId: true },
+    }).then(ps => ps.map(p => p.cellId))
 
-    if (existingParticipation) {
+    // Normal mode: one vote per tier. Unlimited: one vote per cell, multiple cells allowed.
+    if (!deliberation.multipleIdeasAllowed && votedCellIds.length > 0) {
       return NextResponse.json({ error: 'You already voted in this tier' }, { status: 400 })
     }
 
-    // Check if user is already in an active cell
+    // Check if user is already ACTIVE in a cell (entered but not yet voted)
     let cellId: string | null = null
     const activeParticipation = await prisma.cellParticipation.findFirst({
       where: {
@@ -73,12 +75,13 @@ export async function POST(
     if (activeParticipation) {
       cellId = activeParticipation.cellId
     } else {
-      // FCFS: auto-assign to oldest open cell
+      // FCFS: auto-assign to oldest open cell (skip cells already voted in)
       const openCells = await prisma.cell.findMany({
         where: {
           deliberationId: id,
           tier: deliberation.currentTier,
           status: 'VOTING',
+          ...(votedCellIds.length > 0 ? { id: { notIn: votedCellIds } } : {}),
         },
         include: { _count: { select: { participants: true } } },
         orderBy: { createdAt: 'asc' },
@@ -86,7 +89,7 @@ export async function POST(
 
       const cellToJoin = openCells.find(c => c._count.participants < FCFS_CELL_SIZE)
       if (!cellToJoin) {
-        return NextResponse.json({ error: 'All cells are full. Waiting for next round.' }, { status: 400 })
+        return NextResponse.json({ error: deliberation.multipleIdeasAllowed ? 'No more cells available to vote in.' : 'All cells are full. Waiting for next round.' }, { status: 400 })
       }
 
       await prisma.deliberationMember.upsert({
@@ -124,7 +127,10 @@ export async function POST(
         }
       }
 
-      await tx.$executeRaw`DELETE FROM "Vote" WHERE "cellId" = ${cellId} AND "userId" = ${user.id}`
+      // In unlimited mode, keep previous votes (additive XP). Otherwise replace.
+      if (!deliberation.multipleIdeasAllowed) {
+        await tx.$executeRaw`DELETE FROM "Vote" WHERE "cellId" = ${cellId} AND "userId" = ${user.id}`
+      }
 
       const now = new Date()
       for (const a of allocations as { ideaId: string; points: number }[]) {

@@ -469,27 +469,36 @@ const FCFS_CELL_SIZE = 5 // Default; overridden by deliberation.cellSize when av
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
   const ideas = deliberation.ideas
+  const cellSize = deliberation.cellSize || IDEAS_PER_CELL
 
-  // Number of cells based on IDEAS, not participants (participants arrive later)
-  const numCells = Math.max(1, Math.ceil(ideas.length / IDEAS_PER_CELL))
-  const ideaSizes = calculateIdeaSizes(ideas.length, numCells)
-
-  // Shuffle ideas for fairness (order shouldn't determine which cell gets which)
+  // Shuffle ideas for fairness
   const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
 
-  // Distribute ideas to cells
+  // In continuous flow, only create FULL cells (leftover ideas wait for more)
+  // In non-continuous, split evenly across cells (all ideas must be assigned)
   const cellIdeaGroups: typeof shuffledIdeas[] = []
-  let ideaIndex = 0
-  for (let cellNum = 0; cellNum < numCells; cellNum++) {
-    const count = ideaSizes[cellNum] || 0
-    cellIdeaGroups.push(shuffledIdeas.slice(ideaIndex, ideaIndex + count))
-    ideaIndex += count
+  if (deliberation.continuousFlow) {
+    // Full cells only — leftovers stay unassigned for tryCreateContinuousFlowCell
+    const numFullCells = Math.floor(shuffledIdeas.length / cellSize)
+    for (let i = 0; i < numFullCells; i++) {
+      cellIdeaGroups.push(shuffledIdeas.slice(i * cellSize, (i + 1) * cellSize))
+    }
+  } else {
+    // Non-continuous: distribute all ideas evenly
+    const numCells = Math.max(1, Math.ceil(shuffledIdeas.length / cellSize))
+    const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, numCells)
+    let ideaIndex = 0
+    for (let cellNum = 0; cellNum < numCells; cellNum++) {
+      const count = ideaSizes[cellNum] || 0
+      cellIdeaGroups.push(shuffledIdeas.slice(ideaIndex, ideaIndex + count))
+      ideaIndex += count
+    }
   }
 
   // Create cells with ideas but NO participants
   const cells: Awaited<ReturnType<typeof prisma.cell.create>>[] = []
 
-  for (let cellNum = 0; cellNum < numCells; cellNum++) {
+  for (let cellNum = 0; cellNum < cellIdeaGroups.length; cellNum++) {
     const cellIdeas = cellIdeaGroups[cellNum]
     if (cellIdeas.length === 0) continue
 

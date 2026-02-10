@@ -21,7 +21,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Question too long (max 200 characters)' }, { status: 400 })
     }
 
-    if (description && description.trim().length > 500) {
+    const descTrimmed = description?.trim() || null
+
+    if (descTrimmed && descTrimmed.length > 500) {
       return NextResponse.json({ error: 'Description too long (max 500 characters)' }, { status: 400 })
     }
 
@@ -29,8 +31,8 @@ export async function POST(req: NextRequest) {
     if (!modQ.allowed) {
       return NextResponse.json({ error: modQ.reason }, { status: 400 })
     }
-    if (description) {
-      const modD = moderateContent(description)
+    if (descTrimmed) {
+      const modD = moderateContent(descTrimmed)
       if (!modD.allowed) {
         return NextResponse.json({ error: modD.reason }, { status: 400 })
       }
@@ -51,7 +53,7 @@ export async function POST(req: NextRequest) {
     const deliberation = await prisma.deliberation.create({
       data: {
         question: question.trim(),
-        description: description?.trim() || null,
+        description: descTrimmed,
         isPublic: true,
         inviteCode,
         creatorId: user.id,
