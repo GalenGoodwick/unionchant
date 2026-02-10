@@ -44,6 +44,10 @@ export async function POST(
       return NextResponse.json({ error: 'Chant has ended' }, { status: 400 })
     }
 
+    if (deliberation.submissionsClosed) {
+      return NextResponse.json({ error: 'Submissions are closed' }, { status: 400 })
+    }
+
     if (deliberation.phase !== 'SUBMISSION' && deliberation.phase !== 'ACCUMULATING') {
       return NextResponse.json({ error: 'Chant is not accepting ideas right now' }, { status: 400 })
     }

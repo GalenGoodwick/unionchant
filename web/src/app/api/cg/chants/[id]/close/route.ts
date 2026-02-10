@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyCGAuth } from '../../../auth'
 import { resolveCGUser } from '@/lib/cg-user'
 import { prisma } from '@/lib/prisma'
-import { processCellResults, checkTierCompletion } from '@/lib/voting'
+import { closeSubmissions } from '@/lib/voting'
 
 // POST /api/cg/chants/[id]/close — Close submissions (continuous flow). Creator-only.
+// Sets submissionsClosed=true, creates final cell from leftovers, lets existing cells finish naturally.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -43,37 +44,11 @@ export async function POST(
       return NextResponse.json({ error: 'Continuous flow is not enabled' }, { status: 400 })
     }
 
-    if (deliberation.currentTier !== 1) {
-      return NextResponse.json({ error: 'Already past tier 1' }, { status: 400 })
-    }
-
-    const openCells = await prisma.cell.findMany({
-      where: {
-        deliberationId: id,
-        tier: 1,
-        status: { in: ['VOTING', 'DELIBERATING'] },
-      },
-      select: { id: true },
-    })
-
-    let closedCells = 0
-    for (const cell of openCells) {
-      await processCellResults(cell.id, true)
-      closedCells++
-    }
-
-    await checkTierCompletion(id, 1)
-
-    const updated = await prisma.deliberation.findUnique({
-      where: { id },
-      select: { currentTier: true, phase: true },
-    })
+    const result = await closeSubmissions(id)
 
     return NextResponse.json({
       success: true,
-      closedCells,
-      currentTier: updated?.currentTier,
-      phase: updated?.phase,
+      ...result,
     })
   } catch (error) {
     console.error('Error closing CG submissions:', error)

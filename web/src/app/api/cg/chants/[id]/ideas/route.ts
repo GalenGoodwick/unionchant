@@ -43,6 +43,10 @@ export async function POST(
       return NextResponse.json({ error: 'Chant has ended' }, { status: 400 })
     }
 
+    if (deliberation.submissionsClosed) {
+      return NextResponse.json({ error: 'Submissions are closed' }, { status: 400 })
+    }
+
     const allowedPhases = ['SUBMISSION', 'ACCUMULATING']
     if (deliberation.continuousFlow && deliberation.phase === 'VOTING') {
       allowedPhases.push('VOTING')

@@ -34,6 +34,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Chant not found' }, { status: 404 })
     }
 
+    if (deliberation.submissionsClosed) {
+      return NextResponse.json({ error: 'Submissions are closed' }, { status: 400 })
+    }
+
     // Ideas are always attributed to the API key owner
     const authorId = auth.user.id
 

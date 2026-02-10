@@ -44,6 +44,7 @@ export async function POST(
       data: {
         phase: 'SUBMISSION',
         submissionEndsAt: null,
+        submissionsClosed: false,
       },
     })
 

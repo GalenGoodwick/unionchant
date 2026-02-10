@@ -76,6 +76,10 @@ export async function POST(
       return NextResponse.json({ error: 'Deliberation has ended' }, { status: 400 })
     }
 
+    if (deliberation.submissionsClosed) {
+      return NextResponse.json({ error: 'Submissions are closed' }, { status: 400 })
+    }
+
     // Continuous flow: idea submission is open during voting
     const isContinuousFlow = deliberation.continuousFlow && deliberation.phase === 'VOTING'
     const isContinuousFlowTier1 = isContinuousFlow && deliberation.currentTier === 1

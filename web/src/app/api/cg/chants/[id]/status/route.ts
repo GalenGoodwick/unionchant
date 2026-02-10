@@ -128,6 +128,7 @@ export async function GET(
       phase: deliberation.phase,
       allocationMode: deliberation.allocationMode,
       continuousFlow: deliberation.continuousFlow,
+      submissionsClosed: deliberation.submissionsClosed,
       currentTier: deliberation.currentTier,
       memberCount: deliberation._count.members,
       ideaCount: deliberation._count.ideas,

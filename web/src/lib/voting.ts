@@ -1518,3 +1518,82 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
 
   return { cellCreated: true, cellId: cell.id }
 }
+
+/**
+ * Close submissions in continuous flow mode.
+ * Sets submissionsClosed=true, creates a final cell from any leftover unassigned ideas
+ * (even if fewer than cellSize), and lets existing cells finish voting naturally.
+ */
+export async function closeSubmissions(deliberationId: string): Promise<{ closed: boolean; finalCellCreated: boolean; finalCellId?: string; leftoverIdeas: number }> {
+  const deliberation = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+    select: {
+      id: true,
+      phase: true,
+      continuousFlow: true,
+      currentTier: true,
+      votingTimeoutMs: true,
+      discussionDurationMs: true,
+      allocationMode: true,
+      cellSize: true,
+    },
+  })
+
+  if (!deliberation || deliberation.phase !== 'VOTING' || !deliberation.continuousFlow) {
+    return { closed: false, finalCellCreated: false, leftoverIdeas: 0 }
+  }
+
+  // Set submissionsClosed flag
+  await prisma.deliberation.update({
+    where: { id: deliberationId },
+    data: { submissionsClosed: true },
+  })
+
+  // Find unassigned ideas
+  const unassignedIdeas = await prisma.idea.findMany({
+    where: {
+      deliberationId,
+      status: 'SUBMITTED',
+      cellIdeas: { none: {} },
+    },
+    select: { id: true, authorId: true },
+  })
+
+  if (unassignedIdeas.length === 0) {
+    return { closed: true, finalCellCreated: false, leftoverIdeas: 0 }
+  }
+
+  // Create a final cell with whatever ideas remain (even if < cellSize)
+  const isFCFS = deliberation.allocationMode === 'fcfs'
+
+  // Mark ideas as IN_VOTING
+  await prisma.idea.updateMany({
+    where: { id: { in: unassignedIdeas.map(i => i.id) } },
+    data: { status: 'IN_VOTING', tier: deliberation.currentTier },
+  })
+
+  const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
+  const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+  const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
+    ? new Date(Date.now() + deliberation.discussionDurationMs!)
+    : null
+
+  const cell = await prisma.cell.create({
+    data: {
+      deliberationId,
+      tier: deliberation.currentTier,
+      status: cellStatus,
+      discussionEndsAt,
+      votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
+        ? new Date(Date.now() + deliberation.votingTimeoutMs)
+        : null,
+      ideas: {
+        create: unassignedIdeas.map(idea => ({ ideaId: idea.id })),
+      },
+    },
+  })
+
+  console.log(`Close submissions: created final cell ${cell.id} with ${unassignedIdeas.length} leftover ideas${isFCFS ? ' (FCFS)' : ''}`)
+
+  return { closed: true, finalCellCreated: true, finalCellId: cell.id, leftoverIdeas: unassignedIdeas.length }
+}
