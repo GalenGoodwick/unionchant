@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (!auth.authenticated) return auth.response
 
     const body = await req.json()
-    const { cgUserId, cgUsername, cgImageUrl, cgCommunityId, cgCommunityName, question, description, allocationMode, continuousFlow, ideaGoal } = body
+    const { cgUserId, cgUsername, cgImageUrl, cgCommunityId, cgCommunityName, question, description, allocationMode, continuousFlow, ideaGoal, multipleIdeasAllowed } = body
 
     if (!cgUserId || !cgUsername || !cgCommunityId || !cgCommunityName || !question?.trim()) {
       return NextResponse.json({ error: 'cgUserId, cgUsername, cgCommunityId, cgCommunityName, and question are required' }, { status: 400 })
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
         continuousFlow: continuousFlow !== false, // default ON
         accumulationEnabled: true, // rolling mode — accept challengers after winner
         ideaGoal: ideaGoal ?? 5,
+        multipleIdeasAllowed: multipleIdeasAllowed === true,
         members: {
           create: { userId: user.id, role: 'CREATOR' },
         },

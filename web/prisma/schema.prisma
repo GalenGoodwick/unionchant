@@ -224,6 +224,7 @@ model Deliberation {
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
   continuousFlow        Boolean  @default(false)     // Tier 1: submit + vote in parallel; tier 2+: new ideas pool for next round
   submissionsClosed     Boolean  @default(false)     // Facilitator closed idea submissions (continuous flow)
+  multipleIdeasAllowed  Boolean  @default(false)     // Allow multiple ideas per person (creator toggle)
   fastCell              Boolean  @default(false)     // Single cell, no tiers. 5 agents vote once, winner declared immediately. For arbitration/disputes.
   supermajorityEnabled  Boolean  @default(true)      // No-timer mode: auto-advance tier when 80%+ cells done (10min grace)
   allocationMode        String   @default("balanced") // "balanced" = random shuffle + conflict avoidance; "fcfs" = first-come-first-serve, no pre-assigned participants

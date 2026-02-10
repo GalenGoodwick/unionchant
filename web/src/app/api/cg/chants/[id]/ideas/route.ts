@@ -73,33 +73,33 @@ export async function POST(
       })
     }
 
-    // Check existing idea (creator can seed multiple during SUBMISSION)
-    const isCreator = deliberation.creatorId === user.id
-    const isAccumulated = deliberation.phase === 'ACCUMULATING'
-    const isContinuousVoting = deliberation.continuousFlow && deliberation.phase === 'VOTING'
-    if (!isAccumulated && !isContinuousVoting) {
-      if (!isCreator) {
+    // Check existing idea (skip if multipleIdeasAllowed)
+    if (!deliberation.multipleIdeasAllowed) {
+      const isAccumulated = deliberation.phase === 'ACCUMULATING'
+      const isContinuousVoting = deliberation.continuousFlow && deliberation.phase === 'VOTING'
+      if (!isAccumulated && !isContinuousVoting) {
+        // SUBMISSION phase: one idea per user
         const existing = await prisma.idea.findFirst({
           where: { deliberationId: id, authorId: user.id, isNew: false },
         })
         if (existing) {
           return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
         }
-      }
-    } else if (isContinuousVoting) {
-      // In continuous flow voting, one idea per user per submission round
-      const existing = await prisma.idea.findFirst({
-        where: { deliberationId: id, authorId: user.id, status: 'SUBMITTED' },
-      })
-      if (existing) {
-        return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
-      }
-    } else {
-      const existingChallenger = await prisma.idea.findFirst({
-        where: { deliberationId: id, authorId: user.id, isNew: true, status: 'PENDING' },
-      })
-      if (existingChallenger) {
-        return NextResponse.json({ error: 'You have already submitted a challenger idea' }, { status: 400 })
+      } else if (isContinuousVoting) {
+        // Continuous flow: one SUBMITTED idea at a time
+        const existing = await prisma.idea.findFirst({
+          where: { deliberationId: id, authorId: user.id, status: 'SUBMITTED' },
+        })
+        if (existing) {
+          return NextResponse.json({ error: 'You already have an idea waiting for a cell' }, { status: 400 })
+        }
+      } else {
+        const existingChallenger = await prisma.idea.findFirst({
+          where: { deliberationId: id, authorId: user.id, isNew: true, status: 'PENDING' },
+        })
+        if (existingChallenger) {
+          return NextResponse.json({ error: 'You have already submitted a challenger idea' }, { status: 400 })
+        }
       }
     }
 
