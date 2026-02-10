@@ -113,30 +113,41 @@ export async function GET(
       }
     }
 
+    // Get XP data via raw SQL (xpPoints is not in Prisma schema)
+    const cellIds = cells.map(c => c.id)
+    const xpData = cellIds.length > 0
+      ? await prisma.$queryRaw<{ cellId: string; ideaId: string; userId: string; xpPoints: number }[]>`
+          SELECT "cellId", "ideaId", "userId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${cellIds})
+        `
+      : []
+
     // Calculate totals
     const totalCells = cells.length
     const totalParticipants = cells.reduce((sum, c) => sum + c._count.participants, 0)
-    const totalVotesCast = cells.reduce((sum, c) => sum + c._count.votes, 0)
+    // Count unique voters (not vote records)
+    const totalVoters = new Set(xpData.map(v => `${v.cellId}:${v.userId}`)).size
     const totalVotesExpected = totalParticipants
 
     // Cell-level stats
     const cellStats = cells.map(cell => {
-      // Use actual votes count rather than participant status (status updates may lag)
-      const votedCount = cell._count.votes
-      // Get winner for completed cells
+      const cellVotes = xpData.filter(v => v.cellId === cell.id)
+      // Count unique voters in this cell
+      const votedCount = new Set(cellVotes.map(v => v.userId)).size
+      // Sum XP per idea in this cell
+      const ideaXP: Record<string, number> = {}
+      for (const v of cellVotes) {
+        ideaXP[v.ideaId] = (ideaXP[v.ideaId] || 0) + v.xpPoints
+      }
+
+      // Get winner for completed cells (by XP, not vote count)
       const winner = cell.status === 'COMPLETED' && cell.ideas.length > 0
         ? (() => {
-            // Find the idea with most votes in this cell
-            const voteCounts: Record<string, number> = {}
-            for (const vote of cell.votes) {
-              voteCounts[vote.ideaId] = (voteCounts[vote.ideaId] || 0) + 1
-            }
-            let maxVotes = 0
+            let maxXP = 0
             let winnerIdea = cell.ideas[0]?.idea
             for (const ci of cell.ideas) {
-              const votes = voteCounts[ci.ideaId] || 0
-              if (votes > maxVotes) {
-                maxVotes = votes
+              const xp = ideaXP[ci.ideaId] || 0
+              if (xp > maxXP) {
+                maxXP = xp
                 winnerIdea = ci.idea
               }
             }
@@ -158,20 +169,18 @@ export async function GET(
         votingDeadline: votingDeadline?.toISOString() || null,
         ideas: cell.ideas.map(ci => ({
           ...ci.idea,
-          voteCount: cell.votes.filter(v => v.ideaId === ci.ideaId).length,
+          voteCount: ideaXP[ci.ideaId] || 0,
         })),
         winner,
       }
     })
 
-    // For batches, calculate cross-cell vote tally (live results)
+    // For batches, calculate cross-cell XP tally (live results)
     let liveTally: { ideaId: string; text: string; voteCount: number }[] | undefined
     if (isBatch) {
       const tally: Record<string, number> = {}
-      for (const cell of cells) {
-        for (const vote of cell.votes) {
-          tally[vote.ideaId] = (tally[vote.ideaId] || 0) + 1
-        }
+      for (const v of xpData) {
+        tally[v.ideaId] = (tally[v.ideaId] || 0) + v.xpPoints
       }
       liveTally = allIdeas.map(idea => ({
         ideaId: idea.id,
@@ -195,10 +204,10 @@ export async function GET(
         totalCells,
         completedCells,
         totalParticipants,
-        totalVotesCast,
+        totalVotesCast: totalVoters,
         totalVotesExpected,
         votingProgress: totalVotesExpected > 0
-          ? Math.round((totalVotesCast / totalVotesExpected) * 100)
+          ? Math.round((totalVoters / totalVotesExpected) * 100)
           : 0,
       },
 

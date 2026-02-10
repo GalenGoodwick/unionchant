@@ -1199,16 +1199,20 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       let fcfsIdeaIdx = 0
 
       if (shuffledIdeas.length <= CELL_SIZE) {
-        // Final showdown in FCFS: one cell with all ideas, no participants
-        await prisma.cell.create({
-          data: {
-            deliberationId,
-            tier: nextTier,
-            batch: 0,
-            status: 'VOTING',
-            ideas: { create: shuffledIdeas.map(idea => ({ ideaId: idea.id })) },
-          },
-        })
+        // Final showdown in FCFS: multiple batch cells with same ideas for up-pollination
+        const memberCount = deliberation.members.length
+        const numBatchCells = Math.max(2, Math.ceil(memberCount / CELL_SIZE))
+        for (let c = 0; c < numBatchCells; c++) {
+          await prisma.cell.create({
+            data: {
+              deliberationId,
+              tier: nextTier,
+              batch: 0,
+              status: 'VOTING',
+              ideas: { create: shuffledIdeas.map(idea => ({ ideaId: idea.id })) },
+            },
+          })
+        }
       } else {
         for (let cellNum = 0; cellNum < numCells; cellNum++) {
           const count = ideaSizes[cellNum] || 0

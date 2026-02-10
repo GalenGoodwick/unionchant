@@ -79,17 +79,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           data: { status: 'IN_VOTING', tier: nextTier },
         })
 
-        const isFCFS = deliberation.allocationMode === 'fcfs'
-        await prisma.cell.create({
-          data: {
-            deliberationId: id,
-            tier: nextTier,
-            status: 'VOTING',
-            ideas: {
-              create: advancingIdeas.map(i => ({ ideaId: i.id })),
-            },
-          },
+        // Create multiple batch cells for up-pollination between cells
+        const memberCount = await prisma.deliberationMember.count({
+          where: { deliberationId: id },
         })
+        const numCells = Math.max(2, Math.ceil(memberCount / cellSize))
+        for (let c = 0; c < numCells; c++) {
+          await prisma.cell.create({
+            data: {
+              deliberationId: id,
+              tier: nextTier,
+              batch: 0,
+              status: 'VOTING',
+              ideas: {
+                create: advancingIdeas.map(i => ({ ideaId: i.id })),
+              },
+            },
+          })
+        }
 
         await prisma.deliberation.update({
           where: { id },

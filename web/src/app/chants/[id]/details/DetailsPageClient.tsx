@@ -156,7 +156,7 @@ export default function DetailsPageClient() {
             </div>
             <p className="text-foreground font-medium">{d.winner.text}</p>
             <p className="text-xs text-muted mt-1">
-              {d.winner.totalXP} VP &middot; by {getDisplayName(d.winner.author)}
+              {d.winner.totalXP} XP &middot; by {getDisplayName(d.winner.author)}
             </p>
           </div>
         )}
@@ -305,7 +305,7 @@ export default function DetailsPageClient() {
                           {idea.status}
                         </span>
                         {idea.totalXP > 0 && (
-                          <p className="text-xs text-muted font-mono">{idea.totalXP} VP</p>
+                          <p className="text-xs text-muted font-mono">{idea.totalXP} XP</p>
                         )}
                       </div>
                     </div>
@@ -402,7 +402,7 @@ function TierAuditContent({ data }: { data: TierData }) {
         </div>
         <div className="text-center">
           <div className="text-lg font-bold font-mono text-foreground">{data.stats.totalVotesCast}</div>
-          <div className="text-[10px] text-muted">Votes</div>
+          <div className="text-[10px] text-muted">Voted</div>
         </div>
         <div className="text-center">
           <div className="text-lg font-bold font-mono text-accent">{data.stats.votingProgress}%</div>
@@ -447,7 +447,7 @@ function TierAuditContent({ data }: { data: TierData }) {
                 cell.winner && cell.winner.text === idea.text ? 'text-success font-medium' : 'text-muted'
               }`}>
                 <span className="truncate flex-1">{idea.text}</span>
-                <span className="font-mono ml-2">{idea.voteCount} VP</span>
+                <span className="font-mono ml-2">{idea.voteCount} XP</span>
               </div>
             ))}
           </div>
