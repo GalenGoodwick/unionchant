@@ -11,29 +11,43 @@ export async function resolveCGUser(
   cgImageUrl?: string | null,
 ) {
   // Try to find existing user by cgId
-  const existing = await prisma.user.findUnique({
+  const byCgId = await prisma.user.findUnique({
     where: { cgId: cgUserId },
   })
+  if (byCgId) return byCgId
 
-  if (existing) {
-    return existing
+  // Try by synthetic email (handles case where user exists but cgId not linked)
+  const email = `cg_${cgUserId}@plugin.unitychant.com`
+  const byEmail = await prisma.user.findUnique({ where: { email } })
+  if (byEmail) {
+    if (!byEmail.cgId) {
+      await prisma.user.update({ where: { id: byEmail.id }, data: { cgId: cgUserId } })
+    }
+    return byEmail
   }
 
   // Create new user with synthetic email
   const now = new Date()
-  const user = await prisma.user.create({
-    data: {
-      email: `cg_${cgUserId}@plugin.unitychant.com`,
-      name: cgUsername,
-      image: cgImageUrl || null,
-      cgId: cgUserId,
-      emailVerified: now,
-      captchaVerifiedAt: now,
-      onboardedAt: now,
-    },
-  })
-
-  return user
+  try {
+    return await prisma.user.create({
+      data: {
+        email,
+        name: cgUsername,
+        image: cgImageUrl || null,
+        cgId: cgUserId,
+        emailVerified: now,
+        captchaVerifiedAt: now,
+        onboardedAt: now,
+      },
+    })
+  } catch {
+    // Race condition: another request created between our checks
+    const fallback = await prisma.user.findFirst({
+      where: { OR: [{ cgId: cgUserId }, { email }] },
+    })
+    if (fallback) return fallback
+    throw new Error(`Failed to resolve CG user: ${cgUserId}`)
+  }
 }
 
 /**
