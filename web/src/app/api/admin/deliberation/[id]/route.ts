@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdmin } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // GET /api/admin/deliberation/[id] - Get full deliberation details for admin
 export async function GET(
@@ -10,10 +8,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const { id } = await params
 
@@ -102,10 +98,8 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const { id } = await params
     const body = await req.json()

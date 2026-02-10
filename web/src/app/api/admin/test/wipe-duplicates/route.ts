@@ -1,17 +1,12 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { isAdmin } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/wipe-duplicates - Delete duplicate deliberations (keep oldest)
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     // Find all deliberations grouped by question
     const allDelibs = await prisma.deliberation.findMany({

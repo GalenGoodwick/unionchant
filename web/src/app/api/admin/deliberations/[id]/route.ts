@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // DELETE /api/admin/chants/[id] - Delete a deliberation
 export async function DELETE(
@@ -11,11 +9,8 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },
@@ -26,12 +21,16 @@ export async function DELETE(
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
-    // Check if user is admin or the creator
-    const isAdmin = isAdminEmail(session.user.email)
-    const isCreator = deliberation.creator.email === session.user.email
+    if (deliberation.isPinned) {
+      return NextResponse.json({ error: 'Cannot delete a pinned deliberation' }, { status: 403 })
+    }
 
-    if (!isAdmin && !isCreator) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    // Block deletion if other users have submitted 5+ ideas
+    const otherUserIdeas = await prisma.idea.count({
+      where: { deliberationId: id, authorId: { not: deliberation.creator.id } },
+    })
+    if (otherUserIdeas >= 5) {
+      return NextResponse.json({ error: `Cannot delete — ${otherUserIdeas} ideas submitted by other users` }, { status: 403 })
     }
 
     // Delete in order due to foreign key constraints

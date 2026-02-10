@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // GET /api/admin/users - List users with search, filter, pagination
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const { searchParams } = new URL(req.url)
     const q = searchParams.get('q') || ''

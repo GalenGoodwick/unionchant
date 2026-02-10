@@ -12,6 +12,12 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <Header />
       <LandingParallax />
+      <div className="sr-only" role="note" aria-label="Accessibility information">
+        Unity Chant uses a button-chase challenge to verify you are human.
+        Audio cues help with this: a rising vroom sound with a drum roll means the chase started.
+        A ding means the button stopped — tap anywhere in the box to catch it.
+        A falling vroom sound means you passed. The timer counts all finger movement across the box.
+      </div>
     </div>
   )
 }

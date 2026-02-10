@@ -8,7 +8,11 @@ import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
 import CollectiveChat from '@/components/CollectiveChat'
 import ChallengeProvider from '@/components/ChallengeProvider'
+import PasskeyPrompt from '@/components/PasskeyPrompt'
 import { useOnboarding } from '@/hooks/useOnboarding'
+import dynamic from 'next/dynamic'
+
+const WalletProvider = dynamic(() => import('@/components/crypto/WalletProvider'), { ssr: false })
 
 type OnboardingContextType = {
   needsOnboarding: boolean
@@ -121,6 +125,59 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Passkey Prompt ────────────────────────────────────────────
+
+type PasskeyPromptContextType = {
+  triggerPasskeyPrompt: (action: string, onCancel?: () => void) => void
+}
+
+const PasskeyPromptContext = createContext<PasskeyPromptContextType>({
+  triggerPasskeyPrompt: () => {},
+})
+
+export function usePasskeyPrompt() {
+  return useContext(PasskeyPromptContext)
+}
+
+function PasskeyPromptGate({ children }: { children: React.ReactNode }) {
+  const { data: session } = useSession()
+  const [promptAction, setPromptAction] = useState<string | null>(null)
+  const [cancelCallback, setCancelCallback] = useState<(() => void) | null>(null)
+
+  const triggerPasskeyPrompt = useCallback((action: string, onCancel?: () => void) => {
+    // Only show for anonymous users who haven't dismissed or registered
+    if (typeof window === 'undefined') return
+    if (sessionStorage.getItem('passkeyPromptDismissed')) return
+    if (sessionStorage.getItem('passkeyRegistered')) return
+    setPromptAction(action)
+    setCancelCallback(() => onCancel || null)
+  }, [])
+
+  // Only relevant for anonymous users
+  const isAnonymous = session?.user?.email?.includes('@temporary.unitychant.com')
+
+  const handleDone = useCallback(() => {
+    setPromptAction(null)
+    setCancelCallback(null)
+  }, [])
+
+  const handleCancel = useCallback(() => {
+    const cb = cancelCallback
+    setPromptAction(null)
+    setCancelCallback(null)
+    cb?.()
+  }, [cancelCallback])
+
+  return (
+    <PasskeyPromptContext.Provider value={{ triggerPasskeyPrompt }}>
+      {children}
+      {isAnonymous && promptAction && (
+        <PasskeyPrompt action={promptAction} onDone={handleDone} onCancel={handleCancel} />
+      )}
+    </PasskeyPromptContext.Provider>
+  )
+}
+
 // ── Collective Chat ───────────────────────────────────────────
 
 type CollectiveChatContextType = {
@@ -139,7 +196,16 @@ export function useCollectiveChat() {
 
 function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   const [chatOpen, setChatOpen] = useState(false)
-  const toggleChat = useCallback(() => setChatOpen(prev => !prev), [])
+  const { triggerPasskeyPrompt } = usePasskeyPrompt()
+  const toggleChat = useCallback(() => {
+    setChatOpen(prev => !prev)
+  }, [])
+  // Trigger passkey prompt after state update (not during render)
+  useEffect(() => {
+    if (chatOpen) {
+      triggerPasskeyPrompt('opened the collective chat', () => setChatOpen(false))
+    }
+  }, [chatOpen, triggerPasskeyPrompt])
   const pathname = usePathname()
   const hideChat = pathname === '/demo'
 
@@ -167,6 +233,13 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   )
 }
 
+const CRYPTO_ENABLED = process.env.NEXT_PUBLIC_FEATURE_CRYPTO === 'true'
+
+function MaybeWalletProvider({ children }: { children: React.ReactNode }) {
+  if (!CRYPTO_ENABLED) return <>{children}</>
+  return <WalletProvider>{children}</WalletProvider>
+}
+
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
@@ -174,11 +247,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ToastProvider>
           <GuideGate>
             <OnboardingGate>
-              <CollectiveChatGate>
-                <ChallengeProvider>
-                  {children}
-                </ChallengeProvider>
-              </CollectiveChatGate>
+              <PasskeyPromptGate>
+                <CollectiveChatGate>
+                  <ChallengeProvider>
+                    <MaybeWalletProvider>
+                      {children}
+                    </MaybeWalletProvider>
+                  </ChallengeProvider>
+                </CollectiveChatGate>
+              </PasskeyPromptGate>
             </OnboardingGate>
           </GuideGate>
         </ToastProvider>

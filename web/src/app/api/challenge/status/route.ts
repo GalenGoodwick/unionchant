@@ -26,28 +26,45 @@ export async function GET() {
       return NextResponse.json({ needsChallenge: false })
     }
 
-    // Never passed = needs challenge (but give 5 min grace on first session)
+    let needsChallenge = false
+
+    // Never passed = needs challenge
     if (!user.lastChallengePassedAt) {
+      needsChallenge = true
+    } else {
+      const elapsed = Date.now() - user.lastChallengePassedAt.getTime()
+      const interval = MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS)
+      if (elapsed >= interval) {
+        needsChallenge = true
+      } else {
+        return NextResponse.json({
+          needsChallenge: false,
+          msUntilNext: Math.ceil(interval - elapsed),
+        })
+      }
+    }
+
+    if (needsChallenge) {
+      // Generate a one-time challenge token and store it
+      const challengeToken = crypto.randomUUID()
+      await prisma.challengeLog.create({
+        data: {
+          userId: session.user.id,
+          challengeToken,
+          issuedAt: new Date(),
+          result: 'pending',
+          used: false,
+        },
+      })
+
       return NextResponse.json({
         needsChallenge: true,
+        challengeToken,
         msUntilNext: 0,
       })
     }
 
-    const elapsed = Date.now() - user.lastChallengePassedAt.getTime()
-    const interval = MIN_INTERVAL_MS + Math.random() * (MAX_INTERVAL_MS - MIN_INTERVAL_MS)
-
-    if (elapsed >= interval) {
-      return NextResponse.json({
-        needsChallenge: true,
-        msUntilNext: 0,
-      })
-    }
-
-    return NextResponse.json({
-      needsChallenge: false,
-      msUntilNext: Math.ceil(interval - elapsed),
-    })
+    return NextResponse.json({ needsChallenge: false })
   } catch {
     return NextResponse.json({ needsChallenge: false })
   }

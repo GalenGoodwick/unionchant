@@ -3,9 +3,10 @@
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useCallback, Suspense } from 'react'
 import Header from '@/components/Header'
 import { FullPageSpinner } from '@/components/Spinner'
+import { usePasskeyPrompt } from '@/app/providers'
 
 
 type CommunityOption = { id: string; name: string; slug: string; isPublic: boolean }
@@ -22,6 +23,7 @@ function NewDeliberationForm() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { triggerPasskeyPrompt } = usePasskeyPrompt()
   const communitySlug = searchParams.get('community')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -32,6 +34,7 @@ function NewDeliberationForm() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [podiums, setPodiums] = useState<{ id: string; title: string }[]>([])
   const [selectedPodiumId, setSelectedPodiumId] = useState<string | null>(null)
+  const [generatingIdeas, setGeneratingIdeas] = useState(false)
 
   const [formData, setFormData] = useState({
     question: '',
@@ -54,6 +57,10 @@ function NewDeliberationForm() {
     discussionMinutes: 120,
     // Continuous flow
     continuousFlow: false,
+    // Allow AI agents
+    allowAI: true,
+    // Seed ideas (for continuous flow)
+    seedIdeas: Array(10).fill('') as string[],
     // Supermajority auto-advance (no-timer mode)
     supermajorityEnabled: true,
   })
@@ -88,6 +95,39 @@ function NewDeliberationForm() {
         .catch(() => {})
     }
   }, [status, communitySlug, session?.user?.id])
+
+  const generateSeedIdeas = useCallback(async (useChat = false) => {
+    if (generatingIdeas) return
+    if (!formData.question.trim()) {
+      setError('Enter a question first so AI knows what to generate')
+      return
+    }
+    setGeneratingIdeas(true)
+    setError('')
+    try {
+      const res = await fetch('/api/deliberations/generate-ideas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: formData.question,
+          description: formData.description,
+          count: formData.ideaGoal || 10,
+          useChat,
+        }),
+      })
+      if (!res.ok) throw new Error('Failed to generate ideas')
+      const { ideas } = await res.json()
+      const updated = Array(formData.ideaGoal || 10).fill('')
+      ideas.forEach((idea: string, i: number) => {
+        if (i < updated.length) updated[i] = idea
+      })
+      setFormData(prev => ({ ...prev, seedIdeas: updated }))
+    } catch {
+      setError('AI generation failed. Fill ideas manually or try again.')
+    } finally {
+      setGeneratingIdeas(false)
+    }
+  }, [formData.question, formData.description, formData.ideaGoal])
 
   if (status === 'loading') {
     return (
@@ -128,6 +168,15 @@ function NewDeliberationForm() {
       setLoading(false)
       return
     }
+    // Validate seed ideas for continuous flow
+    const seedIdeas = formData.continuousFlow
+      ? formData.seedIdeas.map(s => s.trim()).filter(s => s.length > 0)
+      : []
+    if (formData.continuousFlow && seedIdeas.length < (formData.ideaGoal || 10)) {
+      setError(`Continuous flow needs at least ${formData.ideaGoal || 10} seed ideas to start voting immediately`)
+      setLoading(false)
+      return
+    }
     try {
       const tags = formData.tagsInput
         .split(',')
@@ -153,6 +202,7 @@ function NewDeliberationForm() {
             : null,
           ideaGoal: formData.startMode === 'ideas' ? formData.ideaGoal : null,
           continuousFlow: formData.continuousFlow,
+          allowAI: formData.allowAI,
           supermajorityEnabled: formData.tierAdvanceMode === 'natural' ? formData.supermajorityEnabled : false,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
@@ -169,6 +219,17 @@ function NewDeliberationForm() {
 
       const deliberation = await res.json()
 
+      // Submit seed ideas (for continuous flow)
+      if (seedIdeas.length > 0) {
+        await Promise.all(seedIdeas.map(text =>
+          fetch(`/api/deliberations/${deliberation.id}/ideas`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text }),
+          })
+        ))
+      }
+
       // Link podium if selected
       if (selectedPodiumId) {
         const linkRes = await fetch(`/api/podiums/${selectedPodiumId}`, {
@@ -181,6 +242,8 @@ function NewDeliberationForm() {
         }
       }
 
+      // Trigger passkey prompt for anonymous users (cancel → /chants, register → stays on chant)
+      triggerPasskeyPrompt('created a chant', () => router.push('/chants'))
       router.push(`/chants/${deliberation.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -539,21 +602,81 @@ function NewDeliberationForm() {
                   )}
                 </div>
 
-                {/* Continuous Flow */}
+                {/* Allow AI Agents */}
                 <div>
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={formData.continuousFlow}
-                      onChange={(e) => setFormData({ ...formData, continuousFlow: e.target.checked })}
+                      checked={formData.allowAI}
+                      onChange={(e) => setFormData({ ...formData, allowAI: e.target.checked })}
                       className="rounded border-border text-accent focus:ring-accent"
                     />
-                    <span className="text-foreground font-medium text-sm">Continuous flow</span>
+                    <span className="text-foreground font-medium text-sm">Allow AI agents</span>
                   </label>
-                  <p className="text-muted text-xs mt-1 ml-6">Ideas can be submitted during Tier 1 voting. New ideas create additional cells. After Tier 1, new ideas pool for the next round.</p>
+                  <p className="text-muted text-xs mt-1 ml-6">{formData.allowAI ? 'AI agents can join and vote via the API.' : 'Humans only — AI agents will be blocked from joining.'}</p>
                 </div>
+
+                {/* Continuous Flow - moved to top-level, see below */}
               </div>
             )}
+
+            {/* Continuous Flow (top-level, always visible) */}
+            <div className="bg-surface border border-border rounded-lg p-4 space-y-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.continuousFlow}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    continuousFlow: e.target.checked,
+                    ...(e.target.checked ? { startMode: 'ideas' as const } : {}),
+                  })}
+                  className="rounded border-border text-accent focus:ring-accent"
+                />
+                <span className="text-foreground font-medium text-sm">Continuous flow</span>
+              </label>
+              <p className="text-muted text-xs ml-6 -mt-2">Voting starts immediately with seed ideas. New ideas create additional cells as they arrive.</p>
+
+              {formData.continuousFlow && (
+                <div className="border border-border rounded-lg p-4 space-y-3">
+                  <div>
+                    <h4 className="text-foreground font-medium text-sm">Seed Ideas</h4>
+                    <p className="text-muted text-xs mt-1">Need {formData.ideaGoal || 10} ideas to start voting.</p>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => generateSeedIdeas(false)}
+                      disabled={generatingIdeas}
+                      className="flex-1 bg-purple hover:bg-purple-hover disabled:opacity-50 text-white text-sm font-medium py-2 px-3 rounded-lg transition-colors"
+                    >
+                      {generatingIdeas ? 'Generating...' : 'AI Fill'}
+                    </button>
+                  </div>
+
+                  {formData.seedIdeas.map((idea, i) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <span className="text-muted text-xs font-mono mt-2.5 w-5 text-right shrink-0">{i + 1}.</span>
+                      <input
+                        type="text"
+                        maxLength={300}
+                        placeholder={`Idea ${i + 1}`}
+                        value={idea}
+                        onChange={(e) => {
+                          const updated = [...formData.seedIdeas]
+                          updated[i] = e.target.value
+                          setFormData({ ...formData, seedIdeas: updated })
+                        }}
+                        className="flex-1 bg-surface border border-border rounded px-3 py-2 text-foreground text-sm placeholder-muted-light focus:outline-none focus:border-accent"
+                      />
+                    </div>
+                  ))}
+                  <p className="text-muted text-xs">{formData.seedIdeas.filter(s => s.trim()).length}/{formData.ideaGoal || 10} filled</p>
+                </div>
+              )}
+            </div>
 
             {error && (
               <div className="bg-error-bg border border-error-border text-error px-4 py-3 rounded-lg">

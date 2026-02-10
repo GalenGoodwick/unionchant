@@ -5,6 +5,9 @@ import { prisma } from '@/lib/prisma'
 import { callClaudeWithTools } from '@/lib/claude'
 import type { ToolDefinition } from '@/lib/claude'
 import { checkRateLimit, incrementChatStrike } from '@/lib/rate-limit'
+import { ARCHITECTURE_MAP } from '@/lib/architecture-map'
+import { moderateContent } from '@/lib/moderation'
+import { fireWebhookEvent } from '@/lib/webhooks'
 
 
 // GET /api/collective-chat - Returns per-user messages
@@ -77,7 +80,7 @@ export async function POST(req: NextRequest) {
 
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
-      select: { id: true, name: true, subscriptionTier: true },
+      select: { id: true, name: true, subscriptionTier: true, isAnonymous: true },
     })
 
     if (!user) {
@@ -292,21 +295,10 @@ export async function POST(req: NextRequest) {
       .join('\n') || '(no podium posts yet)'
 
     // Detect if user is asking about the codebase / how it works
-    const codebaseKeywords = /\b(code|codebase|source|github|how.*(work|built|made)|architecture|algorithm|open.?source|repo|whitepaper|spec|voting.*(logic|system)|tiered|cells?|tiers?)\b/i
+    const codebaseKeywords = /\b(code|codebase|source|github|how.*(work|built|made)|architecture|algorithm|open.?source|repo|whitepaper|spec|voting.*(logic|system|engine)|tiered|cells?|tiers?|xp|upvot|up.?pollinat|rolling|accumul|challenge|subscription|stripe|pricing)\b/i
     const includeCodebase = codebaseKeywords.test(message.trim())
 
-    const codebaseContext = includeCodebase ? `
-
-CODEBASE & ARCHITECTURE (open source: https://github.com/GalenGoodwick/unitychant):
-- Next.js 15 (App Router) + Prisma ORM + PostgreSQL (Neon) + Tailwind CSS v4, deployed on Vercel
-- Core: web/src/lib/voting.ts (tiered voting), web/src/lib/challenge.ts (rolling mode)
-- 10 XP point distribution voting — voters spread 10 XP across ideas in their cell
-- Cells of 5 people × 5 ideas — winners advance tier by tier
-- "Chants" = collaborative edits: anyone proposes, 30% of cell confirms → text updates across all cells
-- Scale: 5 people = 2 tiers, 1M people = 9 tiers, 8B = 14 tiers
-- Upvotes expire after 24h to keep feed relevant. Chants with 100+ ideas become permanent.
-- Whitepaper at /whitepaper, How It Works at /how-it-works
-` : ''
+    const codebaseContext = includeCodebase ? `\n${ARCHITECTURE_MAP}\n` : ''
 
     const userName = user.name || 'Anonymous'
 
@@ -335,22 +327,11 @@ ${discussionContext}
 PODIUM POSTS:
 ${podiumsContext}
 ${codebaseContext}
-PLATFORM PAGES:
-- /chants — Browse all chants
-- /chants/new — Create a new chant
-- /feed — Your personalized feed
-- /groups — Communities/groups
-- /podiums — Long-form writing
-- /how-it-works — How Unity Chant works
-- /whitepaper — Full whitepaper
-- /terms — Terms of Service
-- /privacy — Privacy Policy
-- /profile — Your profile
-- /pricing — Pro subscription info
-- /donate — Support the project
-
 ACTION FORMAT:
-Embed clickable actions: [action:navigate:/path]Button Label[/action]
+The ONLY action tag format is: [action:navigate:/path]Button Label[/action]
+This creates a clickable navigation button. The path MUST start with / and be a valid page route.
+Examples: [action:navigate:/chants/abc123]View Chant[/action] or [action:navigate:/chants/new]Create Chant[/action]
+NEVER use any other action format like [action:create_chant] — that does NOT work and will show as broken text.
 
 BEHAVIOR:
 - Be concise (2-3 sentences unless asked for more)
@@ -358,10 +339,14 @@ BEHAVIOR:
 - If no pending actions, suggest browsing active chants or creating one
 - Use action buttons naturally in responses
 - Reference specific chants, ideas, discussions, and podium posts when relevant
-- You CAN create chants for users using the create_chant tool. When a user wants to start a new deliberation, use the tool with a clear, concise question. Confirm with the user what question they want before creating.
-- When referencing chants, use action buttons so users can navigate directly.
-- You CANNOT cast votes, submit ideas, or change user settings.
-- When users ask about how the platform works, reference /how-it-works and /whitepaper.`
+- You have TOOLS to take actions on behalf of the user: create_chant, join_chant, submit_idea, post_comment, vote.
+- Use tools when the user asks you to do something. Confirm before voting (it's irreversible).
+- When referencing chants, use [action:navigate:/chants/ID] buttons so users can navigate directly.
+- When users ask about how the platform works, reference /how-it-works and /whitepaper.
+- All votes are equal — there is NO reputation-based voting influence. Every person's 10 XP counts the same.
+- Upvotes on chants do NOT expire. They are permanent.
+- NEVER fabricate features that don't exist. If unsure, say you don't know.
+- NEVER mention "30% consensus", "upvote expiration", or "reputation-based voting". These do NOT exist.`
 
     // Get per-user conversation history
     const recentMessages = await prisma.collectiveMessage.findMany({
@@ -397,7 +382,7 @@ BEHAVIOR:
       conversationHistory.shift()
     }
 
-    // Tools
+    // Tools — the AI can take actions on behalf of the user
     const tools: ToolDefinition[] = [
       {
         name: 'create_chant',
@@ -405,15 +390,220 @@ BEHAVIOR:
         input_schema: {
           type: 'object',
           properties: {
-            question: {
-              type: 'string',
-              description: 'The deliberation question. Should be clear, concise, and framed as a question.',
-            },
+            question: { type: 'string', description: 'The deliberation question. Clear, concise, framed as a question.' },
           },
           required: ['question'],
         },
       },
+      {
+        name: 'join_chant',
+        description: 'Join an existing chant so the user can participate. Use when user wants to join a specific chant.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            chantId: { type: 'string', description: 'The ID of the chant to join.' },
+          },
+          required: ['chantId'],
+        },
+      },
+      {
+        name: 'submit_idea',
+        description: 'Submit an idea to a chant the user has joined. Auto-joins if not a member. Use when user wants to propose something.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            chantId: { type: 'string', description: 'The ID of the chant to submit to.' },
+            text: { type: 'string', description: 'The idea text. Should be clear and actionable.' },
+          },
+          required: ['chantId', 'text'],
+        },
+      },
+      {
+        name: 'post_comment',
+        description: 'Post a comment in the user\'s active cell discussion. Use when user wants to discuss or argue for/against an idea.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            chantId: { type: 'string', description: 'The ID of the chant.' },
+            text: { type: 'string', description: 'The comment text.' },
+            ideaId: { type: 'string', description: 'Optional: ID of a specific idea to comment on.' },
+          },
+          required: ['chantId', 'text'],
+        },
+      },
+      {
+        name: 'vote',
+        description: 'Cast a vote in the user\'s active voting cell. Allocates exactly 10 XP across ideas. ONLY use when the user explicitly asks to vote and specifies how to allocate points.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            chantId: { type: 'string', description: 'The ID of the chant.' },
+            allocations: {
+              type: 'array',
+              description: 'Array of {ideaId, points} objects. Points must sum to exactly 10.',
+              items: {
+                type: 'object',
+                properties: {
+                  ideaId: { type: 'string' },
+                  points: { type: 'number', description: 'XP points (integer >= 1). All points must sum to 10.' },
+                },
+                required: ['ideaId', 'points'],
+              },
+            },
+          },
+          required: ['chantId', 'allocations'],
+        },
+      },
     ]
+
+    // Tool execution — runs actions as the current user
+    const executeTool = async (toolName: string, input: Record<string, unknown>): Promise<string> => {
+      try {
+        switch (toolName) {
+          case 'create_chant': {
+            const question = (input.question as string)?.trim()
+            if (!question || question.length > 2000) return 'Invalid question (must be 1-2000 chars).'
+            const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+            const submissionDurationMs = 86400000
+            const newTalk = await prisma.deliberation.create({
+              data: {
+                creatorId: user.id, question, isPublic: true, phase: 'SUBMISSION',
+                accumulationEnabled: true, submissionDurationMs,
+                votingTimeoutMs: 3600000, secondVoteTimeoutMs: 900000,
+                accumulationTimeoutMs: 86400000, inviteCode,
+                submissionEndsAt: new Date(Date.now() + submissionDurationMs),
+              },
+            })
+            await prisma.deliberationMember.create({
+              data: { deliberationId: newTalk.id, userId: user.id, role: 'CREATOR' },
+            })
+            return `Created chant "${question}" (ID: ${newTalk.id}). Link: [action:navigate:/chants/${newTalk.id}]View Chant[/action]`
+          }
+
+          case 'join_chant': {
+            const chantId = input.chantId as string
+            const delib = await prisma.deliberation.findUnique({
+              where: { id: chantId },
+              select: { id: true, question: true, allowAI: true },
+            })
+            if (!delib) return `Chant ${chantId} not found.`
+            await prisma.deliberationMember.upsert({
+              where: { deliberationId_userId: { deliberationId: chantId, userId: user.id } },
+              update: {},
+              create: { deliberationId: chantId, userId: user.id, role: 'PARTICIPANT' },
+            })
+            return `Joined "${delib.question}". [action:navigate:/chants/${chantId}]Go to Chant[/action]`
+          }
+
+          case 'submit_idea': {
+            const chantId = input.chantId as string
+            const text = (input.text as string)?.trim()
+            if (!text || text.length > 2000) return 'Idea text must be 1-2000 characters.'
+            const mod = moderateContent(text)
+            if (!mod.allowed) return `Idea blocked by moderation: ${mod.reason}`
+            const delib = await prisma.deliberation.findUnique({
+              where: { id: chantId },
+              select: { id: true, question: true, phase: true, ideaGoal: true },
+            })
+            if (!delib) return `Chant ${chantId} not found.`
+            // Auto-join
+            await prisma.deliberationMember.upsert({
+              where: { deliberationId_userId: { deliberationId: chantId, userId: user.id } },
+              update: {},
+              create: { deliberationId: chantId, userId: user.id, role: 'PARTICIPANT' },
+            })
+            const status = delib.phase === 'SUBMISSION' ? 'SUBMITTED' : 'PENDING'
+            const idea = await prisma.idea.create({
+              data: { deliberationId: chantId, authorId: user.id, text, status, isNew: delib.phase !== 'SUBMISSION' },
+            })
+            fireWebhookEvent('idea_submitted', { deliberationId: chantId, ideaId: idea.id, text }).catch(() => {})
+            return `Submitted idea "${text}" (status: ${status}) to "${delib.question}". [action:navigate:/chants/${chantId}]View Chant[/action]`
+          }
+
+          case 'post_comment': {
+            const chantId = input.chantId as string
+            const text = (input.text as string)?.trim()
+            const ideaId = input.ideaId as string | undefined
+            if (!text || text.length > 2000) return 'Comment must be 1-2000 characters.'
+            const mod = moderateContent(text)
+            if (!mod.allowed) return `Comment blocked: ${mod.reason}`
+            // Find user's active cell
+            const cell = await prisma.cell.findFirst({
+              where: {
+                deliberationId: chantId,
+                status: { in: ['DELIBERATING', 'VOTING'] },
+                participants: { some: { userId: user.id } },
+              },
+              orderBy: { tier: 'desc' },
+              select: { id: true, tier: true },
+            })
+            if (!cell) return 'You don\'t have an active cell in this chant. You may need to join first or wait for voting to start.'
+            const comment = await prisma.comment.create({
+              data: { cellId: cell.id, userId: user.id, text, ideaId: ideaId || null },
+            })
+            return `Comment posted in Tier ${cell.tier} cell (ID: ${comment.id}).`
+          }
+
+          case 'vote': {
+            const chantId = input.chantId as string
+            const allocations = input.allocations as { ideaId: string; points: number }[]
+            if (!allocations || allocations.length === 0) return 'No allocations provided.'
+            const totalXP = allocations.reduce((sum, a) => sum + a.points, 0)
+            if (totalXP !== 10) return `XP must sum to exactly 10 (got ${totalXP}).`
+            if (allocations.some(a => a.points < 1 || !Number.isInteger(a.points))) return 'Each allocation must be a positive integer.'
+            // Find voting cell
+            const cell = await prisma.cell.findFirst({
+              where: {
+                deliberationId: chantId,
+                status: 'VOTING',
+                participants: { some: { userId: user.id } },
+              },
+              orderBy: { tier: 'desc' },
+              select: { id: true, tier: true },
+            })
+            if (!cell) return 'No active voting cell found. You may not be in the voting phase yet.'
+            // Validate ideas are in this cell
+            const cellIdeaIds = (await prisma.cellIdea.findMany({
+              where: { cellId: cell.id }, select: { ideaId: true },
+            })).map(ci => ci.ideaId)
+            for (const a of allocations) {
+              if (!cellIdeaIds.includes(a.ideaId)) return `Idea ${a.ideaId} is not in your cell.`
+            }
+            // Delete existing votes and cast new ones
+            await prisma.vote.deleteMany({ where: { cellId: cell.id, userId: user.id } })
+            const now = new Date()
+            for (const a of allocations) {
+              const voteId = crypto.randomUUID().replace(/-/g, '').slice(0, 25)
+              await prisma.$executeRawUnsafe(
+                `INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt") VALUES ($1, $2, $3, $4, $5, $6)`,
+                voteId, cell.id, user.id, a.ideaId, a.points, now
+              )
+            }
+            // Update idea totals
+            for (const a of allocations) {
+              const agg = await prisma.vote.aggregate({ where: { cellId: cell.id, ideaId: a.ideaId }, _sum: { xpPoints: true }, _count: true })
+              await prisma.idea.update({
+                where: { id: a.ideaId },
+                data: { totalXP: agg._sum.xpPoints || 0, totalVotes: agg._count },
+              })
+            }
+            // Mark participant as voted
+            await prisma.cellParticipation.updateMany({
+              where: { cellId: cell.id, userId: user.id },
+              data: { status: 'VOTED', votedAt: now },
+            })
+            fireWebhookEvent('vote_cast', { deliberationId: chantId, cellId: cell.id, userId: user.id }).catch(() => {})
+            return `Vote cast in Tier ${cell.tier}! Allocated ${allocations.map(a => `${a.points}XP`).join(', ')} across ${allocations.length} ideas. [action:navigate:/chants/${chantId}]View Results[/action]`
+          }
+
+          default:
+            return `Unknown tool: ${toolName}`
+        }
+      } catch (err) {
+        console.error(`[Collective] Tool ${toolName} failed:`, err)
+        return `Action failed: ${err instanceof Error ? err.message : 'unknown error'}`
+      }
+    }
 
     let reply: string
     let createdTalk: { id: string; question: string } | null = null
@@ -421,48 +611,17 @@ BEHAVIOR:
       const result = await callClaudeWithTools(systemPrompt, conversationHistory, 'haiku', tools)
       reply = result.text
 
-      if (result.toolUse?.toolName === 'create_chant') {
-        const question = result.toolUse.toolInput.question as string
-        if (question && question.trim().length > 0 && question.trim().length <= 2000) {
-          try {
-            const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
-            const submissionDurationMs = 86400000
-            const newTalk = await prisma.deliberation.create({
-              data: {
-                creatorId: user.id,
-                question: question.trim(),
-                isPublic: true,
-                phase: 'SUBMISSION',
-                accumulationEnabled: true,
-                submissionDurationMs,
-                votingTimeoutMs: 3600000,
-                secondVoteTimeoutMs: 900000,
-                accumulationTimeoutMs: 86400000,
-                inviteCode,
-                submissionEndsAt: new Date(Date.now() + submissionDurationMs),
-              },
-            })
-
-            await prisma.deliberationMember.create({
-              data: {
-                deliberationId: newTalk.id,
-                userId: user.id,
-                role: 'CREATOR',
-              },
-            })
-
-            createdTalk = { id: newTalk.id, question: newTalk.question }
-            if (!reply.includes(newTalk.id)) {
-              reply = reply
-                ? `${reply}\n\nI've created your chant: [action:navigate:/chants/${newTalk.id}]${newTalk.question}[/action]`
-                : `I've created your chant: [action:navigate:/chants/${newTalk.id}]${newTalk.question}[/action]`
-            }
-          } catch (talkError) {
-            console.error('[Collective] Chant creation failed:', talkError)
-            reply = reply
-              ? `${reply}\n\n(I tried to create the chant but ran into an issue. You can create it manually.) [action:navigate:/chants/new]Create Chant[/action]`
-              : 'I tried to create a chant for you but ran into an issue. [action:navigate:/chants/new]Create Chant Manually[/action]'
-          }
+      if (result.toolUse) {
+        const toolResult = await executeTool(result.toolUse.toolName, result.toolUse.toolInput)
+        // Append tool result to reply
+        reply = reply
+          ? `${reply}\n\n${toolResult}`
+          : toolResult
+        // Track created chant for response
+        if (result.toolUse.toolName === 'create_chant' && toolResult.includes('ID: ')) {
+          const idMatch = toolResult.match(/ID: ([a-z0-9]+)/)
+          const qMatch = toolResult.match(/Created chant "(.+?)"/)
+          if (idMatch && qMatch) createdTalk = { id: idMatch[1], question: qMatch[1] }
         }
       }
     } catch (aiError: unknown) {

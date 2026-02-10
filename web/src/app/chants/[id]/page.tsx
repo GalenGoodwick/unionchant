@@ -40,6 +40,9 @@ export async function generateMetadata({
   const description = deliberation.description
     || `${deliberation._count.members} participants, ${deliberation._count.ideas} ideas. Phase: ${deliberation.phase}.`
 
+  const baseUrl = process.env.NEXTAUTH_URL || 'https://unitychant.com'
+  const ogImageUrl = `${baseUrl}/api/og?title=${encodeURIComponent(deliberation.question)}&members=${deliberation._count.members}&ideas=${deliberation._count.ideas}&phase=${encodeURIComponent(deliberation.phase)}${deliberation.organization ? `&org=${encodeURIComponent(deliberation.organization)}` : ''}`
+
   return {
     title: deliberation.question,
     description,
@@ -47,11 +50,13 @@ export async function generateMetadata({
       title: deliberation.question,
       description,
       type: 'article',
+      images: [{ url: ogImageUrl, width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: deliberation.question,
       description,
+      images: [ogImageUrl],
     },
   }
 }

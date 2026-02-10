@@ -22,6 +22,7 @@ interface Deliberation {
   accumulationEnabled: boolean
   continuousFlow: boolean
   isPublic: boolean
+  isPinned: boolean
   _count: {
     ideas: number
     members: number
@@ -1349,8 +1350,8 @@ export default function DashboardDetailPage() {
           </div>
         </div>
 
-        {/* Danger Zone — at the very end */}
-        <div className="bg-surface border border-error/30 rounded-xl p-4 mt-4">
+        {/* Danger Zone — at the very end (hidden for pinned chants) */}
+        {!deliberation.isPinned && <div className="bg-surface border border-error/30 rounded-xl p-4 mt-4">
           <h2 className="text-lg font-semibold text-error mb-2">Danger Zone</h2>
           {!confirmDelete ? (
             <button
@@ -1382,7 +1383,7 @@ export default function DashboardDetailPage() {
               </div>
             </div>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   )

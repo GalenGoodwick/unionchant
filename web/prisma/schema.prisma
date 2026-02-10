@@ -33,6 +33,7 @@ model User {
   status        UserStatus @default(ACTIVE)
   role          UserRole   @default(USER)
   onboardedAt   DateTime?  // Set when user completes onboarding
+  tutorialCompletedAt DateTime? // Set when user completes the world peace tutorial
   captchaVerifiedAt DateTime?  // Last CAPTCHA verification (valid for 24h)
   isAnonymous   Boolean    @default(false)      // Temporary anonymous account (auto-deleted after 24h)
   anonymousExpiresAt DateTime?                  // When to auto-delete this anonymous account
@@ -60,8 +61,9 @@ model User {
   updatedAt     DateTime   @updatedAt
 
   // Auth relations
-  accounts      Account[]
-  sessions      Session[]
+  accounts             Account[]
+  sessions             Session[]
+  webauthnCredentials  WebAuthnCredential[]
 
   // App relations
   deliberationsCreated Deliberation[]     @relation("Creator")
@@ -130,6 +132,18 @@ model User {
 
   // Challenge logs
   challengeLogs         ChallengeLog[]
+
+  // API keys
+  apiKeys               ApiKey[]
+
+  // Webhook integrations
+  integrations          Integration[]
+
+  // Crypto module (feature-flagged, removable)
+  walletAddress         String?  @unique  // Solana wallet address
+  boosts                Boost[]
+  launchContributions   Contribution[]
+  launchPoolsCreated    LaunchPool[]
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -169,6 +183,21 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+model WebAuthnCredential {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId  String    @unique
+  publicKey     Bytes
+  counter       BigInt    @default(0)
+  transports    String[]  @default([])
+  deviceName    String?
+  createdAt     DateTime  @default(now())
+  lastUsedAt    DateTime?
+
+  @@index([userId])
+}
+
 // ============ DELIBERATION (ROOM) ============
 
 model Deliberation {
@@ -179,6 +208,7 @@ model Deliberation {
   // Content
   question     String
   description  String?
+  context      String?   // Evidence, links, background info — exempt from URL moderation
   organization String?   // Organization name (e.g., "Minneapolis Teachers Union")
   tags         String[]  @default([])
 
@@ -193,8 +223,11 @@ model Deliberation {
   accumulationEnabled   Boolean  @default(false)
   accumulationTimeoutMs Int      @default(86400000)  // 24 hours
   continuousFlow        Boolean  @default(false)     // Tier 1: submit + vote in parallel; tier 2+: new ideas pool for next round
+  fastCell              Boolean  @default(false)     // Single cell, no tiers. 5 agents vote once, winner declared immediately. For arbitration/disputes.
   supermajorityEnabled  Boolean  @default(true)      // No-timer mode: auto-advance tier when 80%+ cells done (10min grace)
   allocationMode        String   @default("balanced") // "balanced" = random shuffle + conflict avoidance; "fcfs" = first-come-first-serve, no pre-assigned participants
+  cellSize              Int      @default(5)          // Participants per cell (3-7). Default 5.
+  allowAI               Boolean  @default(true)       // Whether AI agents (isAI=true) can join
   isPublic              Boolean  @default(true)
 
   // Goal-based auto-start (null = unlimited/manual start)
@@ -228,6 +261,9 @@ model Deliberation {
   // Upvotes (collective priority)
   upvoteCount   Int      @default(0)
 
+  // Featured/pinned chant (shown prominently, onboarding funnel target)
+  isPinned      Boolean  @default(false)
+
   // Relations
   members       DeliberationMember[]
   ideas         Idea[]
@@ -238,8 +274,9 @@ model Deliberation {
   aiAgents      AIAgent[]
   upvotes       DeliberationUpvote[]
 
-  // Servers that have loaded this chant (many-to-many with Community)
-  servers       DeliberationServer[]
+  // Crypto module (feature-flagged, removable)
+  boosts        Boost[]
+  launchPool    LaunchPool?
 
   @@index([creatorId])
   @@index([isPublic, phase])
@@ -251,20 +288,6 @@ model Deliberation {
 }
 
 // Tracks which Discord servers have loaded a chant (cross-server deliberation)
-model DeliberationServer {
-  id              String       @id @default(cuid())
-  deliberationId  String
-  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
-  communityId     String
-  community       Community    @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  isOrigin        Boolean      @default(false)  // True for the server that created the chant
-  startVoteApproved Boolean   @default(false)   // Has this server's facilitator approved starting voting?
-  loadedAt        DateTime     @default(now())
-
-  @@unique([deliberationId, communityId])
-  @@index([deliberationId])
-  @@index([communityId])
-}
 
 enum Phase {
   SUBMISSION
@@ -627,6 +650,7 @@ enum NotificationType {
   CONTENT_REMOVED      // Your content was removed by a moderator
   COMMUNITY_BAN        // You banned a user from a group
   PODIUM_NEWS          // Admin news broadcast via podium
+  ADMIN_CHALLENGE      // Admin triggered mass challenge
 }
 
 // ============ COMMUNITIES ============
@@ -669,7 +693,6 @@ model Community {
   deliberations Deliberation[]
   chatMessages  GroupMessage[]
   bans          CommunityBan[]
-  loadedChants  DeliberationServer[]
 
   @@index([creatorId])
   @@index([isPublic])
@@ -775,15 +798,6 @@ enum ReportStatus {
 
 // ============ RATE LIMIT CONFIG ============
 
-model RateLimitConfig {
-  id          String   @id @default(cuid())
-  endpoint    String   @unique  // e.g. "vote", "idea", "signup", "deliberation"
-  maxRequests Int      @default(10)
-  windowMs    Int      @default(60000)  // Window in milliseconds
-  keyType     String   @default("userId")  // "userId" or "ip"
-  enabled     Boolean  @default(true)
-  updatedAt   DateTime @updatedAt
-}
 
 // ============ PODIUM (LONG-FORM WRITING) ============
 
@@ -946,13 +960,116 @@ model GroupMessage {
 
 model ChallengeLog {
   id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  result          String   // "passed", "failed_insta_click", "failed_no_chase", "expired"
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  result          String   // "pending", "passed", "failed_insta_click", "failed_no_chase", "failed_validation", "failed_replay", "expired"
   pointerEvents   Int      @default(0)
   chaseDurationMs Int      @default(0)
   evadeCount      Int      @default(0)
+  surrendered     Boolean  @default(false)
+  chasePath       Json?    // [{x,y,t}] sampled pointer path for behavioral fingerprinting
+  challengeToken  String?  @unique // crypto nonce, one-time use
+  issuedAt        DateTime? // when challenge was shown to user
+  pathHash        String?  // SHA-256 of rounded coordinate sequence for replay detection
+  used            Boolean  @default(false) // consumed on completion
   createdAt       DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@index([pathHash])
+}
+
+// ============ API KEYS ============
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  name        String                            // "Claude", "Enterprise Dev", etc.
+  keyHash     String    @unique                 // SHA-256 hash of the raw key
+  keyPrefix   String                            // First 8 chars for display ("uc_ak_a1...")
+  userId      String                            // Owner who created the key
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scopes      String[]  @default(["read", "write"])
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?                         // null = never expires
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ============ WEBHOOK INTEGRATIONS ============
+
+model Integration {
+  id           String    @id @default(cuid())
+  name         String                            // "AgentMemory", "SlotScribe"
+  webhookUrl   String                            // Where to POST events
+  secret       String                            // HMAC secret for signature verification
+  events       String[]                          // ["idea_submitted","vote_cast","tier_complete","winner_declared"]
+  enabled      Boolean   @default(true)
+  userId       String                            // Owner (who registered it)
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastCalledAt DateTime?
+  failCount    Int       @default(0)             // Auto-disable after 10 consecutive failures
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ============ CRYPTO MODULE (pluggable, feature-flagged) ============
+
+enum LaunchStatus {
+  FUNDING        // Accepting SOL contributions
+  DELIBERATING   // UC cells voting on proposals
+  DISTRIBUTING   // Winner declared, funds being sent
+  COMPLETE       // Done
+  CANCELLED      // Refunded
+}
+
+model Boost {
+  id              String   @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountLamports  BigInt              // SOL amount in lamports (1 SOL = 1e9 lamports)
+  txSignature     String?  @unique   // Solana tx signature (null = honor system / Phase 1)
+  verified        Boolean  @default(false) // On-chain verification (Phase 2)
+  createdAt       DateTime @default(now())
+
+  @@index([deliberationId])
+  @@index([userId])
+}
+
+model LaunchPool {
+  id               String       @id @default(cuid())
+  deliberationId   String       @unique  // 1:1 with deliberation — the chant IS the launch
+  deliberation     Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  creatorId        String
+  creator          User         @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  targetLamports   BigInt                 // Funding goal in lamports
+  currentLamports  BigInt       @default(0)
+  treasuryAddress  String?               // Solana escrow address (Phase 2)
+  status           LaunchStatus @default(FUNDING)
+  winnerIdeaId     String?               // UC idea that won deliberation
+  poolDeadline     DateTime              // When funding period ends
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  contributions    Contribution[]
+
+  @@index([creatorId])
+  @@index([status])
+}
+
+model Contribution {
+  id             String    @id @default(cuid())
+  launchPoolId   String
+  launchPool     LaunchPool @relation(fields: [launchPoolId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amountLamports BigInt
+  txSignature    String?   @unique  // Solana tx (Phase 2; Phase 1 = honor system)
+  verified       Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  @@index([launchPoolId])
+  @@index([userId])
 }

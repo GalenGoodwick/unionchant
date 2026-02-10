@@ -267,7 +267,7 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const displayCell = activeCell || votedCurrentTierCell
 
   // Continuous flow (Tier 1 only): show submission form if user hasn't submitted yet
-  if (delib.continuousFlow && delib.currentTier === 1 && delib.isMember && !delib.userSubmittedIdea) {
+  if (delib.continuousFlow && delib.currentTier === 1 && d.session && !delib.userSubmittedIdea) {
     return (
       <div className="space-y-4">
         <div className="bg-warning-bg border border-warning rounded-[10px] px-4 py-2.5 flex items-center gap-2">
@@ -670,7 +670,7 @@ export default function DeliberationPageClient() {
           </Link>
         )}
 
-        {d.session && !delib.isMember && delib.phase === 'SUBMISSION' && (
+        {d.session && !delib.isMember && (delib.phase === 'SUBMISSION' || delib.phase === 'ACCUMULATING' || (delib.continuousFlow && delib.phase === 'VOTING')) && (
           <button
             onClick={d.handleJoin}
             disabled={d.joining}

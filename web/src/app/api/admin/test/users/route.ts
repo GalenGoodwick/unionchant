@@ -1,21 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // GET /api/admin/test/users - Get test user count
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     // Block test endpoints in production
     if (process.env.NODE_ENV === 'production') {
       return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
     }
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const count = await prisma.user.count({
       where: { email: { endsWith: '@test.local' } }
@@ -31,10 +27,8 @@ export async function GET() {
 // POST /api/admin/test/users - Create test user pool
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const body = await req.json()
     const targetCount = body.count || 1000

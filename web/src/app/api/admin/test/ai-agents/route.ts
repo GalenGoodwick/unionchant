@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdmin } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 import {
   runAgentTest,
   getTestProgress,
@@ -18,10 +16,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
     }
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     // Also get count of existing test agents
     const existingTestAgents = await prisma.user.count({
@@ -46,10 +42,8 @@ export async function GET(req: NextRequest) {
 // POST /api/admin/test/ai-agents - Start a new AI agent test
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const body = await req.json()
     const {
@@ -85,7 +79,7 @@ export async function POST(req: NextRequest) {
       upvoteRate,
       newJoinRate,
       forceStartVoting,
-      excludeAdminEmail: excludeAdmin ? session.user.email : undefined,
+      excludeAdminEmail: excludeAdmin ? auth.email : undefined,
     }
 
     // Run test in background (don't await)
@@ -107,10 +101,8 @@ export async function POST(req: NextRequest) {
 // PUT /api/admin/test/ai-agents - Stop the running test
 export async function PUT(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const { stopTest } = await import('@/lib/ai-test-agent')
     stopTest()
@@ -127,10 +119,8 @@ export async function PUT(req: NextRequest) {
 // DELETE /api/admin/test/ai-agents - Clean up test data
 export async function DELETE(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const deleted = await cleanupTestAgents()
 

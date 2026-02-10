@@ -232,12 +232,6 @@ export default function PodiumPageClient() {
                 </span>
               </div>
             </Link>
-            <Link
-              href={`/chants/${podium.deliberation.id}`}
-              className="block w-full text-center bg-accent text-white font-semibold py-3 hover:bg-accent-hover transition-colors"
-            >
-              Join the Chant &rarr;
-            </Link>
           </div>
         )}
 

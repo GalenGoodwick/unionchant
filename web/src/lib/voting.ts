@@ -2,8 +2,9 @@ import { prisma } from './prisma'
 import { sendPushToDeliberation, notifications } from './push'
 import { sendEmailToDeliberation } from './email'
 import { updateAgreementScores } from './agreement'
+import { fireWebhookEvent } from './webhooks'
 
-const CELL_SIZE = 5
+const DEFAULT_CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
 const MAX_CELL_SIZE = 7  // Allow cells up to 7 for flexible sizing
 
@@ -12,32 +13,27 @@ const MAX_CELL_SIZE = 7  // Allow cells up to 7 for flexible sizing
  * Avoids creating tiny cells (1-2 people) that can't have meaningful deliberation
  * Ported from union-chant-engine.js
  */
-export function calculateCellSizes(totalParticipants: number): number[] {
+export function calculateCellSizes(totalParticipants: number, targetSize: number = DEFAULT_CELL_SIZE): number[] {
   if (totalParticipants < 3) return [totalParticipants] // Edge case: tiny group
-  if (totalParticipants === 3) return [3]
-  if (totalParticipants === 4) return [4]
+  if (totalParticipants <= targetSize) return [totalParticipants]
 
-  let numCells = Math.floor(totalParticipants / 5)
-  let remainder = totalParticipants % 5
+  let numCells = Math.floor(totalParticipants / targetSize)
+  let remainder = totalParticipants % targetSize
 
-  // Perfect division by 5
-  if (remainder === 0) return Array(numCells).fill(5)
+  // Perfect division
+  if (remainder === 0) return Array(numCells).fill(targetSize)
 
   // Remainder of 1 or 2: Absorb into larger cell (avoid 1-2 person cells)
   if (remainder === 1 || remainder === 2) {
     if (numCells > 0) {
       numCells--
-      remainder += 5
-      // remainder is now 6 or 7
-      return [...Array(numCells).fill(5), remainder]
+      remainder += targetSize
+      return [...Array(numCells).fill(targetSize), remainder]
     }
   }
 
-  // Remainder of 3 or 4: Create a separate cell
-  if (remainder === 3) return [...Array(numCells).fill(5), 3]
-  if (remainder === 4) return [...Array(numCells).fill(5), 4]
-
-  return Array(numCells).fill(5)
+  // Remainder of 3+: Create a separate cell
+  return [...Array(numCells).fill(targetSize), remainder]
 }
 
 /**
@@ -118,7 +114,7 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
  * Resolve all predictions when a champion is declared
  * Updates ideaBecameChampion and ideaFinalTier for all predictions on that idea
  */
-async function resolveChampionPredictions(deliberationId: string, championId: string) {
+export async function resolveChampionPredictions(deliberationId: string, championId: string) {
   const champion = await prisma.idea.findUnique({
     where: { id: championId },
   })
@@ -225,6 +221,10 @@ export async function startVotingPhase(deliberationId: string) {
     // Resolve predictions for champion
     await resolveChampionPredictions(deliberationId, winningIdea.id)
 
+    fireWebhookEvent('winner_declared', {
+      deliberationId, winnerId: winningIdea.id, winnerText: winningIdea.text, totalTiers: 0,
+    })
+
     return {
       success: true,
       reason: 'SINGLE_IDEA',
@@ -274,7 +274,7 @@ export async function startVotingPhase(deliberationId: string) {
   const shuffledMembers = [...members].sort(() => Math.random() - 0.5)
 
   // Use flexible cell sizing algorithm to determine cell structure
-  const cellSizes = calculateCellSizes(shuffledMembers.length)
+  const cellSizes = calculateCellSizes(shuffledMembers.length, deliberation.cellSize || DEFAULT_CELL_SIZE)
   const numCells = cellSizes.length
 
   // Number of cells is determined by PARTICIPANTS (never create unstaffed cells).
@@ -464,7 +464,7 @@ export async function startVotingPhase(deliberationId: string) {
  * Users join cells first-come-first-serve via the enter endpoint.
  * Cell completes when it reaches FCFS_CELL_SIZE voters.
  */
-const FCFS_CELL_SIZE = 5
+const FCFS_CELL_SIZE = 5 // Default; overridden by deliberation.cellSize when available
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
@@ -706,8 +706,52 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     console.error('Agreement score update failed:', err)
   )
 
-  // Check if all cells in this tier are complete
-  await checkTierCompletion(cell.deliberationId, cell.tier)
+  // Fast cell: single cell, no tiers. Winner declared immediately.
+  if (cell.deliberation.fastCell && winnerIds.length > 0) {
+    const fastWinnerId = winnerIds[0]
+    await prisma.idea.update({
+      where: { id: fastWinnerId },
+      data: { status: 'WINNER', isChampion: true },
+    })
+    const updated = await prisma.deliberation.updateMany({
+      where: { id: cell.deliberationId, phase: 'VOTING' },
+      data: {
+        phase: 'COMPLETED',
+        championId: fastWinnerId,
+        completedAt: new Date(),
+      },
+    })
+    if (updated.count > 0) {
+      const winnerIdea = await prisma.idea.findUnique({ where: { id: fastWinnerId }, select: { text: true } })
+      sendPushToDeliberation(
+        cell.deliberationId,
+        notifications.championDeclared(cell.deliberation.question, cell.deliberationId)
+      ).catch(err => console.error('Failed to send push notifications:', err))
+      sendEmailToDeliberation(cell.deliberationId, 'champion_declared', {
+        championText: winnerIdea?.text || 'Unknown',
+      }).catch(err => console.error('Failed to send champion email:', err))
+      fireWebhookEvent('winner_declared', {
+        deliberationId: cell.deliberationId,
+        winnerId: fastWinnerId,
+        winnerText: winnerIdea?.text || '',
+        totalTiers: 1,
+        fastCell: true,
+      })
+      await resolveChampionPredictions(cell.deliberationId, fastWinnerId)
+      console.log(`fastCell: winner declared! Idea ${fastWinnerId} in deliberation ${cell.deliberationId}`)
+    }
+    return { winnerIds, loserIds }
+  }
+
+  // Check tier advancement
+  if (cell.deliberation.continuousFlow) {
+    // Continuous flow: form next-tier cells as winners accumulate (fractal)
+    const { handleContinuousFlowCellComplete } = await import('./continuous-flow')
+    await handleContinuousFlowCellComplete(cell.deliberationId, cell.tier, winnerIds)
+  } else {
+    // Standard batch: wait for ALL cells at this tier to complete
+    await checkTierCompletion(cell.deliberationId, cell.tier)
+  }
 
   return { winnerIds, loserIds }
 }
@@ -926,6 +970,11 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       // Resolve predictions for champion
       await resolveChampionPredictions(deliberationId, winnerId)
 
+      const winnerForHook = await prisma.idea.findUnique({ where: { id: winnerId }, select: { text: true } })
+      fireWebhookEvent('winner_declared', {
+        deliberationId, winnerId, winnerText: winnerForHook?.text || '', totalTiers: tier,
+      })
+
       return // Final showdown complete
     }
   }
@@ -1021,6 +1070,10 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     // Resolve predictions for champion
     await resolveChampionPredictions(deliberationId, winnerId)
+
+    fireWebhookEvent('winner_declared', {
+      deliberationId, winnerId, winnerText: advancingIdeas[0]?.text || '', totalTiers: tier,
+    })
   } else {
     // Need another tier - create new cells with advancing ideas
     const nextTier = tier + 1
@@ -1052,6 +1105,15 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     }
 
     console.log(`checkTierCompletion: claimed tier advancement ${tier}→${nextTier} for ${deliberationId}`)
+
+    // Fire tier_complete webhook
+    fireWebhookEvent('tier_complete', {
+      deliberationId,
+      completedTier: tier,
+      nextTier,
+      advancingIdeas: advancingIdeas.map(i => ({ id: i.id, text: i.text })),
+      advancingCount: advancingIdeas.length,
+    })
 
     // Backfill to 5 ideas for final showdown if we have 2-4 advancing
     if (advancingIdeas.length >= 2 && advancingIdeas.length < 5) {
@@ -1101,8 +1163,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     const shuffledIdeas = [...advancingIdeas].sort(() => Math.random() - 0.5)
     const shuffledMembers = [...deliberation.members].sort(() => Math.random() - 0.5)
 
-    const IDEAS_PER_CELL = 5
-    const CELL_SIZE = 5
+    const IDEAS_PER_CELL = deliberation.cellSize || DEFAULT_CELL_SIZE
+    const CELL_SIZE = deliberation.cellSize || DEFAULT_CELL_SIZE
 
     // Reset advancing ideas status
     await prisma.idea.updateMany({
@@ -1126,7 +1188,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, numCells)
       let fcfsIdeaIdx = 0
 
-      if (shuffledIdeas.length <= 5) {
+      if (shuffledIdeas.length <= CELL_SIZE) {
         // Final showdown in FCFS: one cell with all ideas, no participants
         await prisma.cell.create({
           data: {
@@ -1170,7 +1232,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
     // Multiple cells for up-pollination of comments between cells
     console.log(`Creating tier ${nextTier}: ${shuffledIdeas.length} ideas, ${shuffledMembers.length} members, final showdown: ${shuffledIdeas.length <= 5}`)
-    if (shuffledIdeas.length <= 5) {
+    if (shuffledIdeas.length <= CELL_SIZE) {
       // Create cells for all members, all voting on same ideas
       // Each participant only in ONE cell (no duplicates)
       let remainingMembers = [...shuffledMembers]
@@ -1352,9 +1414,10 @@ export async function addLateJoinerToCell(deliberationId: string, userId: string
 }
 
 /**
- * Continuous Flow: Try to create a new tier 1 cell from unassigned ideas + members.
+ * Continuous Flow: Try to create a new tier 1 cell from unassigned ideas.
  * Called after each idea submission during VOTING phase with continuousFlow enabled.
- * Only creates a cell if there are 5+ unassigned ideas AND 3+ unassigned members.
+ * FCFS mode: creates cell with ideas only (users join via stream/enter).
+ * Non-FCFS mode: also requires 3+ unassigned members, pre-assigns them.
  */
 export async function tryCreateContinuousFlowCell(deliberationId: string): Promise<{ cellCreated: boolean; cellId?: string }> {
   const deliberation = await prisma.deliberation.findUnique({
@@ -1366,12 +1429,16 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
       currentTier: true,
       votingTimeoutMs: true,
       discussionDurationMs: true,
+      allocationMode: true,
+      cellSize: true,
     },
   })
 
   if (!deliberation || deliberation.phase !== 'VOTING' || !deliberation.continuousFlow || deliberation.currentTier !== 1) {
     return { cellCreated: false }
   }
+
+  const isFCFS = deliberation.allocationMode === 'fcfs'
 
   // Find unassigned ideas: status SUBMITTED and not in any cell
   const unassignedIdeas = await prisma.idea.findMany({
@@ -1383,37 +1450,36 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
     select: { id: true, authorId: true },
   })
 
-  if (unassignedIdeas.length < CELL_SIZE) {
+  const cfCellSize = deliberation.cellSize || DEFAULT_CELL_SIZE
+  if (unassignedIdeas.length < cfCellSize) {
     return { cellCreated: false }
   }
 
-  // Find unassigned members: not in any tier 1 cell
-  const membersInTier1 = await prisma.cellParticipation.findMany({
-    where: {
-      cell: { deliberationId, tier: 1 },
-    },
-    select: { userId: true },
-  })
-  const assignedUserIds = new Set(membersInTier1.map(p => p.userId))
+  // For non-FCFS, also need unassigned members
+  let cellMembers: { userId: string }[] = []
+  if (!isFCFS) {
+    const membersInTier1 = await prisma.cellParticipation.findMany({
+      where: { cell: { deliberationId, tier: 1 } },
+      select: { userId: true },
+    })
+    const assignedUserIds = new Set(membersInTier1.map(p => p.userId))
 
-  const allMembers = await prisma.deliberationMember.findMany({
-    where: {
-      deliberationId,
-      role: { in: ['CREATOR', 'PARTICIPANT'] },
-    },
-    select: { userId: true },
-  })
+    const allMembers = await prisma.deliberationMember.findMany({
+      where: { deliberationId, role: { in: ['CREATOR', 'PARTICIPANT'] } },
+      select: { userId: true },
+    })
 
-  const unassignedMembers = allMembers.filter(m => !assignedUserIds.has(m.userId))
+    const unassignedMembers = allMembers.filter(m => !assignedUserIds.has(m.userId))
+    if (unassignedMembers.length < 3) {
+      return { cellCreated: false }
+    }
 
-  if (unassignedMembers.length < 3) {
-    return { cellCreated: false }
+    const memberCount = Math.min(unassignedMembers.length, cfCellSize)
+    cellMembers = unassignedMembers.slice(0, memberCount)
   }
 
-  // Take first 5 ideas and up to 5 members (min 3)
-  const cellIdeas = unassignedIdeas.slice(0, CELL_SIZE)
-  const memberCount = Math.min(unassignedMembers.length, CELL_SIZE)
-  const cellMembers = unassignedMembers.slice(0, memberCount)
+  // Take first N ideas (based on cell size)
+  const cellIdeas = unassignedIdeas.slice(0, cfCellSize)
 
   // Mark ideas as IN_VOTING
   await prisma.idea.updateMany({
@@ -1440,13 +1506,15 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
       ideas: {
         create: cellIdeas.map(idea => ({ ideaId: idea.id })),
       },
-      participants: {
-        create: cellMembers.map(m => ({ userId: m.userId })),
-      },
+      ...(cellMembers.length > 0 && {
+        participants: {
+          create: cellMembers.map(m => ({ userId: m.userId })),
+        },
+      }),
     },
   })
 
-  console.log(`Continuous flow: created tier 1 cell ${cell.id} with ${cellIdeas.length} ideas and ${cellMembers.length} members`)
+  console.log(`Continuous flow: created tier 1 cell ${cell.id} with ${cellIdeas.length} ideas${isFCFS ? ' (FCFS)' : ` and ${cellMembers.length} members`}`)
 
   return { cellCreated: true, cellId: cell.id }
 }

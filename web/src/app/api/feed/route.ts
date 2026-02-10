@@ -71,6 +71,7 @@ export type FeedEntry = {
     creatorName?: string | null
     votingDeadline?: string | null
     submissionDeadline?: string | null
+    accumulationDeadline?: string | null
     upvoteCount?: number
     userUpvoted?: boolean
   }
@@ -163,7 +164,9 @@ async function getDiscovery() {
       currentTier: true,
       challengeRound: true,
       continuousFlow: true,
+      isPinned: true,
       submissionEndsAt: true,
+      accumulationEndsAt: true,
       votingTimeoutMs: true,
       currentTierStartedAt: true,
       completedAt: true,
@@ -376,6 +379,7 @@ async function buildYourTurnFeed(
       : undefined
 
     const base = {
+      pinned: d.isPinned || false,
       deliberation: {
         id: d.id,
         question: d.question,
@@ -390,6 +394,7 @@ async function buildYourTurnFeed(
           ? new Date(d.currentTierStartedAt.getTime() + d.votingTimeoutMs).toISOString()
           : null,
         submissionDeadline: d.submissionEndsAt?.toISOString() ?? null,
+        accumulationDeadline: d.accumulationEndsAt?.toISOString() ?? null,
         upvoteCount: d.upvoteCount ?? 0,
         userUpvoted: userCtx?.upvotedDelibIds.has(d.id) ?? false,
       },
@@ -440,9 +445,15 @@ async function buildYourTurnFeed(
         entries.push({ kind: 'vote_now', id: `vote-${d.id}`, priority: 100, ...base })
       }
     }
-    // Voting phase, member but no cell — round is full, they'll participate next tier
+    // Voting phase, member but no cell
     else if (d.phase === 'VOTING' && isMember && !cell) {
-      entries.push({ kind: 'waiting', id: `waiting-full-${d.id}`, priority: 5, roundFull: true, ...base })
+      if (d.continuousFlow) {
+        // Continuous flow / FCFS — user can still enter a cell
+        entries.push({ kind: 'vote_now', id: `vote-enter-${d.id}`, priority: 80, ...base })
+      } else {
+        // Traditional — round is full, they'll participate next tier
+        entries.push({ kind: 'waiting', id: `waiting-full-${d.id}`, priority: 5, roundFull: true, ...base })
+      }
     }
     // Voting phase, not a member yet — show join/vote card
     else if (d.phase === 'VOTING' && !cell) {
@@ -464,8 +475,17 @@ async function buildYourTurnFeed(
     }
   }
 
-  // Sort by priority desc
-  entries.sort((a, b) => b.priority - a.priority)
+  // Boost pinned entries so they always surface (minimum priority 50)
+  for (const e of entries) {
+    if (e.pinned && e.priority < 50) e.priority = 50
+  }
+
+  // Sort: pinned first, then by priority desc
+  entries.sort((a, b) => {
+    if (a.pinned && !b.pinned) return -1
+    if (!a.pinned && b.pinned) return 1
+    return b.priority - a.priority
+  })
 
   // Build podiums summary card (pinned at top, max 5 most recent)
   const podiumsSummary: FeedEntry = {
@@ -706,6 +726,7 @@ async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedRespon
         creatorName: d.creator?.name,
         votingDeadline: null,
         submissionDeadline: null,
+        accumulationDeadline: null,
         upvoteCount: d.upvoteCount ?? 0,
         userUpvoted: userCtx?.upvotedDelibIds.has(d.id) ?? false,
       },

@@ -55,7 +55,7 @@ export async function POST(
     }
 
     const isFCFS = deliberation.allocationMode === 'fcfs'
-    const FCFS_CELL_SIZE = 5
+    const FCFS_CELL_SIZE = deliberation.cellSize || 5
 
     // Check if user is already in cells for current tier
     const existingParticipations = await prisma.cellParticipation.findMany({

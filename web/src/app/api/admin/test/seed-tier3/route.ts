@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/seed-tier3 - Create a Tier 3 deliberation with comments near up-pollination
 // Body params:
@@ -14,18 +12,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
     }
 
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    if (!isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+      where: { email: auth.email },
     })
 
     if (!user) {

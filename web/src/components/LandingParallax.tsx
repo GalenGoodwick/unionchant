@@ -133,6 +133,11 @@ export default function LandingParallax() {
         @media (max-width: 640px) { .lp-viz-gap { height: 350px; } .lp-tier-tab { font-size: 0.55rem; letter-spacing: 1px; padding: 6px 12px; white-space: normal; max-width: 90vw; } }
       `}</style>
 
+      {/* ── ANONYMOUS NOTICE ── */}
+      <div className="relative z-[2] bg-error/10 border-b border-error/30 text-error text-center py-2 px-4 text-sm font-medium">
+        Anonymous entry with chase-the-button bot blocker at end of page
+      </div>
+
       {/* ── HERO ── */}
       <section className="relative z-[2] bg-header text-white">
         <div className="max-w-[800px] mx-auto px-6 py-24 md:py-28 text-center" style={{ paddingTop: '100px', paddingBottom: '100px' }}>
@@ -298,13 +303,13 @@ export default function LandingParallax() {
             That is collective will made tangible.&rdquo;
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
-            <Link href="/whitepaper" className="text-accent hover:text-accent-hover font-medium transition-colors">
+            <Link href="/whitepaper" className="text-accent hover:text-accent-hover font-medium transition-colors py-2 px-3 -mx-3 relative z-10">
               Read the Whitepaper &rarr;
             </Link>
-            <Link href="/technical" className="text-muted hover:text-foreground font-medium transition-colors">
+            <Link href="/technical" className="text-muted hover:text-foreground font-medium transition-colors py-2 px-3 -mx-3 relative z-10">
               Technical Whitepaper &rarr;
             </Link>
-            <Link href="/podiums" className="text-muted hover:text-foreground font-medium transition-colors">
+            <Link href="/podiums" className="text-muted hover:text-foreground font-medium transition-colors py-2 px-3 -mx-3 relative z-10">
               Read Articles &rarr;
             </Link>
           </div>

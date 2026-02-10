@@ -1,22 +1,17 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/wipe-2026 - Delete the stuck 2026 deliberation
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
     // Block test endpoints in production
     if (process.env.NODE_ENV === 'production') {
       return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
     }
 
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     // Find all deliberations with "2026" or "Test Completed Cell" in the question
     const deliberations = await prisma.deliberation.findMany({

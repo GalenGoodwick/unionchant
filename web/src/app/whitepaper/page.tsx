@@ -157,7 +157,7 @@ export default function WhitepaperPage() {
               <strong className="text-foreground">Some raise concerns about bad actors or trolls.</strong> Small groups reduce the effectiveness of disruption. It's hard to troll effectively when you're one of five people in a discussion, and others can see your contributions. Persistent bad-faith behavior is harder to sustain when participants are visible to one another and discussion is structured.
             </p>
             <p className="text-subtle leading-relaxed">
-              <strong className="text-foreground">A common question is whether this is just another voting system.</strong> It's fundamentally different. Traditional voting asks people to choose between fixed options in a single moment. Unity Chant lets people generate the options, deliberate on them, and refine collective understanding across multiple rounds. It's not just counting preferences. It's building shared understanding.
+              <strong className="text-foreground">A common question is whether this is just another voting system.</strong> It's fundamentally different. Traditional voting asks people to choose between fixed options in a single moment. Unity Chant lets people generate the options, discuss them in small cells, and surface the strongest through competitive elimination across tiers. It's not just counting preferences — it's stress-testing ideas at scale.
             </p>
           </section>
 

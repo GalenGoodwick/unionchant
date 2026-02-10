@@ -3,7 +3,7 @@ import { verifyCGAuth } from '../../../auth'
 import { resolveCGUser } from '@/lib/cg-user'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
-import { startVotingPhase } from '@/lib/voting'
+import { startVotingPhase, tryCreateContinuousFlowCell } from '@/lib/voting'
 
 // POST /api/cg/chants/[id]/ideas — Submit an idea via CG plugin
 export async function POST(
@@ -43,7 +43,12 @@ export async function POST(
       return NextResponse.json({ error: 'Chant has ended' }, { status: 400 })
     }
 
-    if (deliberation.phase !== 'SUBMISSION' && deliberation.phase !== 'ACCUMULATING') {
+    const allowedPhases = ['SUBMISSION', 'ACCUMULATING']
+    if (deliberation.continuousFlow && deliberation.phase === 'VOTING') {
+      allowedPhases.push('VOTING')
+    }
+
+    if (!allowedPhases.includes(deliberation.phase)) {
       return NextResponse.json({ error: 'Chant is not accepting ideas right now' }, { status: 400 })
     }
 
@@ -66,9 +71,18 @@ export async function POST(
 
     // Check existing idea
     const isAccumulated = deliberation.phase === 'ACCUMULATING'
-    if (!isAccumulated) {
+    const isContinuousVoting = deliberation.continuousFlow && deliberation.phase === 'VOTING'
+    if (!isAccumulated && !isContinuousVoting) {
       const existing = await prisma.idea.findFirst({
         where: { deliberationId: id, authorId: user.id, isNew: false },
+      })
+      if (existing) {
+        return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
+      }
+    } else if (isContinuousVoting) {
+      // In continuous flow voting, one idea per user per submission round
+      const existing = await prisma.idea.findFirst({
+        where: { deliberationId: id, authorId: user.id, status: 'SUBMITTED' },
       })
       if (existing) {
         return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
@@ -102,7 +116,7 @@ export async function POST(
       },
     })
 
-    // Check if idea goal is met
+    // Check if idea goal is met (SUBMISSION → auto-start voting)
     if (deliberation.phase === 'SUBMISSION' && deliberation.ideaGoal) {
       const ideaCount = await prisma.idea.count({
         where: { deliberationId: id, status: 'SUBMITTED' },
@@ -113,6 +127,15 @@ export async function POST(
         } catch (err) {
           console.error('Failed to auto-start voting on idea goal:', err)
         }
+      }
+    }
+
+    // Continuous flow: try to create new cells from unassigned ideas
+    if (isContinuousVoting) {
+      try {
+        await tryCreateContinuousFlowCell(id)
+      } catch (err) {
+        console.error('Failed to create continuous flow cell:', err)
       }
     }
 

@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (!auth.authenticated) return auth.response
 
     const body = await req.json()
-    const { guildId, discordUserId, discordUsername, question, description, allocationMode } = body
+    const { guildId, discordUserId, discordUsername, question, description, allocationMode, continuousFlow, ideaGoal } = body
 
     if (!guildId || !discordUserId || !discordUsername || !question?.trim()) {
       return NextResponse.json({ error: 'guildId, discordUserId, discordUsername, and question are required' }, { status: 400 })
@@ -70,19 +70,12 @@ export async function POST(req: NextRequest) {
         creatorId: user.id,
         communityId: community.id,
         allocationMode: mode,
-        ideaGoal: 2,
-        // No timer — facilitator controls via /manage facilitate
+        continuousFlow: continuousFlow !== false, // default ON
+        ideaGoal: ideaGoal ?? 5,
         members: {
           create: {
             userId: user.id,
             role: 'CREATOR',
-          },
-        },
-        // Auto-register creating server
-        servers: {
-          create: {
-            communityId: community.id,
-            isOrigin: true,
           },
         },
       },
@@ -136,10 +129,7 @@ export async function GET(req: NextRequest) {
     const chants = await prisma.deliberation.findMany({
       where: {
         phase: { not: 'COMPLETED' },
-        OR: [
-          { communityId: community.id },
-          { servers: { some: { communityId: community.id } } },
-        ],
+        communityId: community.id,
       },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -151,16 +141,13 @@ export async function GET(req: NextRequest) {
         communityId: true,
         creator: { select: { name: true, discordId: true } },
         _count: { select: { members: true, ideas: true } },
-        servers: { select: { communityId: true, isOrigin: true } },
       },
     })
 
-    // Add metadata about whether this server is the origin
     const result = chants.map(c => ({
       ...c,
       isOrigin: c.communityId === community.id,
-      serverCount: c.servers.length,
-      servers: undefined, // Don't leak server details
+      serverCount: 1,
     }))
 
     return NextResponse.json(result)

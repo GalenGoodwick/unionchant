@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 
 interface OnboardingProps {
   onComplete: () => void
@@ -9,10 +10,25 @@ interface OnboardingProps {
 
 export default function Onboarding({ onComplete }: OnboardingProps) {
   const { data: session, update } = useSession()
+  const router = useRouter()
   const [name, setName] = useState(session?.user?.name || '')
   const [bio, setBio] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Redirect to pinned chant if one exists
+  const redirectToPinned = useCallback(async () => {
+    try {
+      const res = await fetch('/api/chants/pinned')
+      if (res.ok) {
+        const data = await res.json()
+        if (data.pinned?.id) {
+          router.push(`/chants/${data.pinned.id}`)
+          return
+        }
+      }
+    } catch { /* fall through */ }
+  }, [router])
 
   // ESC key to skip
   useEffect(() => {
@@ -34,6 +50,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
       // Still dismiss even if API fails
     }
     onComplete()
+    await redirectToPinned()
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -64,6 +81,7 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
 
       await update({ name: name.trim() })
       onComplete()
+      await redirectToPinned()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {

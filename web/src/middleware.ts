@@ -10,6 +10,7 @@ const CSRF_EXEMPT_PATHS = [
   '/api/stripe/webhook',
   '/api/bot/',
   '/api/cg/',
+  '/api/v1/',
 ]
 
 export function middleware(req: NextRequest) {

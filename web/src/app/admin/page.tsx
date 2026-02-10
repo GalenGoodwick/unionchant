@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
 import Header from '@/components/Header'
+import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 
 function UserAvatar({ image, name }: { image: string | null; name: string | null }) {
   const [imgError, setImgError] = useState(false)
@@ -99,6 +100,12 @@ export default function AdminPage() {
   const [deliberations, setDeliberations] = useState<Deliberation[]>([])
   const [loading, setLoading] = useState(true)
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null)
+  const [isAdminVerified, setIsAdminVerified] = useState(false)
+  const [hasPasskeys, setHasPasskeys] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [verifyError, setVerifyError] = useState<string | null>(null)
+  const [registering, setRegistering] = useState(false)
+  const [registerMsg, setRegisterMsg] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'public' | 'private'>('all')
   const [search, setSearch] = useState('')
@@ -150,18 +157,16 @@ export default function AdminPage() {
   const [flaggedLoading, setFlaggedLoading] = useState(false)
   const [flagActioning, setFlagActioning] = useState<string | null>(null)
 
+  // Seed world peace state
+  const [seeding, setSeeding] = useState(false)
+  const [seedResult, setSeedResult] = useState<string | null>(null)
+
   // Challenge state
   const [challengeTriggering, setChallengeTriggering] = useState(false)
   const [challengeStats, setChallengeStats] = useState<ChallengeStats | null>(null)
   const [challengeStatsLoading, setChallengeStatsLoading] = useState(false)
   const [challengeResult, setChallengeResult] = useState<string | null>(null)
 
-  // Rate limit config
-  const [rateLimits, setRateLimits] = useState<Array<{
-    id?: string; endpoint: string; maxRequests: number; windowMs: number; keyType: string; enabled: boolean
-  }>>([])
-  const [rateLimitsLoading, setRateLimitsLoading] = useState(false)
-  const [rateLimitsSaving, setRateLimitsSaving] = useState<string | null>(null)
 
   // Podiums state
   const [podiums, setPodiums] = useState<Array<{
@@ -502,15 +507,10 @@ export default function AdminPage() {
         .then(res => res.json())
         .then(data => {
           setIsAdmin(data.isAdmin)
+          setIsAdminVerified(data.isAdminVerified === true)
+          setHasPasskeys(data.hasPasskeys === true)
           if (data.isAdmin) {
             fetchDeliberations()
-            // Fetch rate limits
-            setRateLimitsLoading(true)
-            fetch('/api/admin/rate-limits')
-              .then(r => r.json())
-              .then(d => setRateLimits(Array.isArray(d) ? d : []))
-              .catch(() => {})
-              .finally(() => setRateLimitsLoading(false))
           }
         })
         .catch(() => setIsAdmin(false))
@@ -580,9 +580,128 @@ export default function AdminPage() {
     )
   }
 
+  // Passkey verification gate
+  const handleVerify = async () => {
+    setVerifying(true)
+    setVerifyError(null)
+    try {
+      const optRes = await fetch('/api/admin/webauthn/authenticate-options')
+      if (!optRes.ok) throw new Error('Failed to get challenge')
+      const options = await optRes.json()
+
+      const credential = await startAuthentication({ optionsJSON: options })
+
+      const verifyRes = await fetch('/api/admin/webauthn/authenticate-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      })
+      if (!verifyRes.ok) throw new Error('Verification failed')
+
+      setIsAdminVerified(true)
+    } catch (err) {
+      setVerifyError(err instanceof Error ? err.message : 'Verification failed')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const handleRegisterPasskey = async () => {
+    setRegistering(true)
+    setRegisterMsg(null)
+    try {
+      const optRes = await fetch('/api/admin/webauthn/register-options')
+      if (!optRes.ok) throw new Error('Failed to get registration options')
+      const options = await optRes.json()
+      const credential = await startRegistration({ optionsJSON: options })
+      const verifyRes = await fetch('/api/admin/webauthn/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, deviceName: 'Admin device' }),
+      })
+      if (!verifyRes.ok) throw new Error('Registration failed')
+      setHasPasskeys(true)
+      setRegisterMsg('Passkey registered! You will need to verify on next visit.')
+      setTimeout(() => setRegisterMsg(null), 5000)
+    } catch (err) {
+      setRegisterMsg(err instanceof Error ? err.message : 'Registration failed')
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  if (hasPasskeys && !isAdminVerified) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <Header />
+        <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
+          <div className="bg-background rounded-xl p-8 border border-border max-w-sm w-full text-center">
+            <div className="text-4xl mb-4">🔐</div>
+            <h1 className="text-xl font-bold text-foreground mb-2">Admin Verification</h1>
+            <p className="text-muted text-sm mb-6">
+              Verify your identity with your passkey to access the admin panel.
+            </p>
+            <button
+              onClick={handleVerify}
+              disabled={verifying}
+              className="w-full px-4 py-3 bg-accent text-white rounded-xl hover:bg-accent-hover disabled:opacity-50 font-medium"
+            >
+              {verifying ? 'Verifying...' : 'Verify with Passkey'}
+            </button>
+            {verifyError && (
+              <p className="text-error text-sm mt-3">{verifyError}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-surface">
       <Header />
+
+      {/* ── FINGERPRINT SECURITY ── */}
+      <div className={`border-b-2 ${hasPasskeys ? 'bg-success/10 border-success' : 'bg-warning/10 border-warning'}`}>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl">{hasPasskeys ? '🔒' : '🔓'}</span>
+            <div>
+              <span className="text-foreground font-semibold text-sm">
+                {hasPasskeys ? 'Passkey Active' : 'No Passkey Set'}
+              </span>
+              <span className="text-muted text-xs ml-2">
+                {hasPasskeys
+                  ? isAdminVerified ? '— Verified (4h session)' : '— Needs verification'
+                  : '— Admin is unprotected'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {registerMsg && (
+              <span className={`text-xs ${registerMsg.includes('failed') ? 'text-error' : 'text-success'}`}>
+                {registerMsg}
+              </span>
+            )}
+            {!hasPasskeys ? (
+              <button
+                onClick={handleRegisterPasskey}
+                disabled={registering}
+                className="bg-warning hover:bg-warning/80 text-background font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {registering ? 'Registering...' : 'Register Fingerprint'}
+              </button>
+            ) : (
+              <Link
+                href="/settings#security"
+                className="text-muted hover:text-foreground text-xs underline"
+              >
+                Manage passkeys
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* ── CHALLENGE CONTROL — big red button ── */}
       <div className="bg-error/10 border-b-2 border-error">
@@ -1738,7 +1857,36 @@ export default function AdminPage() {
             >
               Wipe Duplicates
             </button>
+            <button
+              onClick={async () => {
+                setSeeding(true)
+                setSeedResult(null)
+                try {
+                  const res = await fetch('/api/admin/test/seed-world-peace', { method: 'POST' })
+                  const data = await res.json()
+                  if (res.ok) {
+                    setSeedResult(`Seeded! Chant ID: ${data.id}`)
+                    fetchDeliberations()
+                  } else {
+                    setSeedResult(`Error: ${data.error}`)
+                  }
+                } catch {
+                  setSeedResult('Error: Failed to seed')
+                } finally {
+                  setSeeding(false)
+                }
+              }}
+              disabled={seeding}
+              className="bg-success hover:bg-success-hover text-white px-4 py-2 rounded transition-colors text-sm disabled:opacity-50"
+            >
+              {seeding ? 'Seeding...' : 'Seed World Peace'}
+            </button>
           </div>
+          {seedResult && (
+            <p className={`text-xs mt-2 ${seedResult.startsWith('Seeded') ? 'text-success' : 'text-error'}`}>
+              {seedResult}
+            </p>
+          )}
         </div>
 
         {/* Stats */}
@@ -1917,102 +2065,27 @@ export default function AdminPage() {
         {/* Rate Limits Section */}
         <div className="bg-background rounded-xl p-6 border border-border">
           <h2 className="text-xl font-bold text-foreground mb-4">Rate Limits</h2>
-          <p className="text-muted text-sm mb-4">Configure rate limiting for different endpoints. Changes take effect within 60 seconds.</p>
-
-          {rateLimitsLoading ? (
-            <div className="text-muted text-sm">Loading rate limits...</div>
-          ) : rateLimits.length === 0 ? (
-            <div className="text-muted text-sm">No rate limit configs found. They will be created with defaults on first use.</div>
-          ) : (
-            <div className="space-y-4">
-              {rateLimits.map((rl) => (
-                <div key={rl.endpoint} className="bg-surface border border-border rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-foreground font-semibold">{rl.endpoint}</span>
-                      <span className="text-xs text-muted px-2 py-0.5 bg-background rounded">key: {rl.keyType}</span>
-                    </div>
-                    <button
-                      onClick={async () => {
-                        setRateLimitsSaving(rl.endpoint)
-                        try {
-                          const res = await fetch('/api/admin/rate-limits', {
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ endpoint: rl.endpoint, enabled: !rl.enabled }),
-                          })
-                          if (res.ok) {
-                            setRateLimits(prev => prev.map(r =>
-                              r.endpoint === rl.endpoint ? { ...r, enabled: !r.enabled } : r
-                            ))
-                          }
-                        } catch {}
-                        setRateLimitsSaving(null)
-                      }}
-                      disabled={rateLimitsSaving === rl.endpoint}
-                      className={`text-sm font-medium px-3 py-1 rounded ${rl.enabled ? 'bg-success-bg text-success' : 'bg-error-bg text-error'}`}
-                    >
-                      {rl.enabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs text-muted mb-1 block">Max requests</label>
-                      <input
-                        type="number"
-                        value={rl.maxRequests}
-                        min={1}
-                        onChange={e => {
-                          const val = parseInt(e.target.value) || 1
-                          setRateLimits(prev => prev.map(r =>
-                            r.endpoint === rl.endpoint ? { ...r, maxRequests: val } : r
-                          ))
-                        }}
-                        className="w-full bg-background border border-border rounded px-3 py-1.5 text-foreground text-sm font-mono"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted mb-1 block">Window (seconds)</label>
-                      <input
-                        type="number"
-                        value={Math.round(rl.windowMs / 1000)}
-                        min={1}
-                        onChange={e => {
-                          const val = (parseInt(e.target.value) || 1) * 1000
-                          setRateLimits(prev => prev.map(r =>
-                            r.endpoint === rl.endpoint ? { ...r, windowMs: val } : r
-                          ))
-                        }}
-                        className="w-full bg-background border border-border rounded px-3 py-1.5 text-foreground text-sm font-mono"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      setRateLimitsSaving(rl.endpoint)
-                      try {
-                        await fetch('/api/admin/rate-limits', {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            endpoint: rl.endpoint,
-                            maxRequests: rl.maxRequests,
-                            windowMs: rl.windowMs,
-                            enabled: rl.enabled,
-                          }),
-                        })
-                      } catch {}
-                      setRateLimitsSaving(null)
-                    }}
-                    disabled={rateLimitsSaving === rl.endpoint}
-                    className="mt-3 bg-accent hover:bg-accent-hover text-white text-sm px-4 py-1.5 rounded transition-colors disabled:opacity-50"
-                  >
-                    {rateLimitsSaving === rl.endpoint ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <p className="text-muted text-sm mb-4">In-memory sliding window rate limits. Edit in <code className="text-foreground">src/lib/rate-limit.ts</code> to change defaults.</p>
+          <div className="space-y-2">
+            {[
+              { endpoint: 'vote', maxRequests: 10, windowMs: 60_000 },
+              { endpoint: 'idea', maxRequests: 5, windowMs: 60_000 },
+              { endpoint: 'signup', maxRequests: 5, windowMs: 3_600_000 },
+              { endpoint: 'deliberation', maxRequests: 3, windowMs: 3_600_000 },
+              { endpoint: 'join', maxRequests: 20, windowMs: 60_000 },
+              { endpoint: 'enter', maxRequests: 10, windowMs: 60_000 },
+              { endpoint: 'follow', maxRequests: 30, windowMs: 60_000 },
+              { endpoint: 'comment', maxRequests: 10, windowMs: 60_000 },
+              { endpoint: 'upvote', maxRequests: 30, windowMs: 60_000 },
+              { endpoint: 'login', maxRequests: 10, windowMs: 60_000 },
+              { endpoint: 'collective_chat', maxRequests: 8, windowMs: 60_000 },
+            ].map((rl) => (
+              <div key={rl.endpoint} className="flex items-center justify-between py-2 px-3 bg-surface border border-border rounded">
+                <span className="font-mono text-foreground text-sm font-semibold">{rl.endpoint}</span>
+                <span className="text-muted text-sm">{rl.maxRequests} req / {rl.windowMs >= 3_600_000 ? `${rl.windowMs / 3_600_000}h` : `${rl.windowMs / 1000}s`}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
         </>)}

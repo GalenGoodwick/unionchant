@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/seed-feed - Create test deliberations in ALL phases/states
 // Produces every card type: vote_now, deliberate, challenge, submit, join,
@@ -26,12 +24,11 @@ export async function POST(req: NextRequest) {
       user = await prisma.user.findUnique({ where: { email: body.userEmail } })
     }
 
-    // Fallback: try server session
+    // Fallback: use requireAdminVerified
     if (!user) {
-      const session = await getServerSession(authOptions)
-      if (session?.user?.email) {
-        user = await prisma.user.findUnique({ where: { email: session.user.email } })
-      }
+      const auth = await requireAdminVerified(req)
+      if (!auth.authorized) return auth.response
+      user = await prisma.user.findUnique({ where: { email: auth.email } })
     }
 
     // Last resort in dev: create test user

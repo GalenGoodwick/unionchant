@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdmin } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 import { resetTestProgress } from '@/lib/ai-test-agent'
 
 // POST /api/admin/deliberation/[id]/reset - Reset deliberation to SUBMISSION phase
@@ -11,10 +9,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const { id: deliberationId } = await params
 
@@ -120,19 +116,13 @@ export async function POST(
     })
 
     // Re-add admin as member if they were excluded during testing
-    const adminUser = await prisma.user.findUnique({
-      where: { email: session.user.email! },
-      select: { id: true },
+    await prisma.deliberationMember.upsert({
+      where: {
+        deliberationId_userId: { deliberationId, userId: auth.userId },
+      },
+      create: { deliberationId, userId: auth.userId, role: 'CREATOR' },
+      update: {},
     })
-    if (adminUser) {
-      await prisma.deliberationMember.upsert({
-        where: {
-          deliberationId_userId: { deliberationId, userId: adminUser.id },
-        },
-        create: { deliberationId, userId: adminUser.id, role: 'CREATOR' },
-        update: {},
-      })
-    }
 
     return NextResponse.json({
       success: true,

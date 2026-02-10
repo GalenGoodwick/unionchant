@@ -1,24 +1,21 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/create-completed-cell
 // Creates a test deliberation with a completed cell for testing comments
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
     // Block test endpoints in production
     if (process.env.NODE_ENV === 'production') {
       return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
     }
 
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+      where: { email: auth.email },
     })
 
     if (!user) {

@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     if (!auth.authenticated) return auth.response
 
     const body = await req.json()
-    const { cgUserId, cgUsername, cgImageUrl, cgCommunityId, cgCommunityName, question, description } = body
+    const { cgUserId, cgUsername, cgImageUrl, cgCommunityId, cgCommunityName, question, description, allocationMode, continuousFlow, ideaGoal } = body
 
     if (!cgUserId || !cgUsername || !cgCommunityId || !cgCommunityName || !question?.trim()) {
       return NextResponse.json({ error: 'cgUserId, cgUsername, cgCommunityId, cgCommunityName, and question are required' }, { status: 400 })
@@ -56,8 +56,9 @@ export async function POST(req: NextRequest) {
         inviteCode,
         creatorId: user.id,
         communityId: community.id,
-        allocationMode: 'fcfs',
-        // No timer — facilitator controls manually
+        allocationMode: allocationMode === 'balanced' ? 'balanced' : 'fcfs',
+        continuousFlow: continuousFlow !== false, // default ON
+        ideaGoal: ideaGoal ?? 5,
         members: {
           create: { userId: user.id, role: 'CREATOR' },
         },

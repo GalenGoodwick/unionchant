@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
-import { isAdmin } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/deliberation/[id]/force-end-voting
 // Force end all voting and pick a winner
@@ -12,10 +10,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.email || !(await isAdmin(session.user.email))) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const { id } = await params
 

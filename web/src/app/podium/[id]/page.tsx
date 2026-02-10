@@ -33,6 +33,11 @@ export async function generateMetadata({
       type: 'article',
       authors: podium.author?.name ? [podium.author.name] : undefined,
     },
+    twitter: {
+      card: 'summary_large_image',
+      title: podium.title,
+      description,
+    },
   }
 }
 

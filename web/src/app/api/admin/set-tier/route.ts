@@ -1,20 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { requireAdminVerified } from '@/lib/admin'
 
 // Admin-only endpoint to manually set subscription tier (for testing/support)
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  // Check if user is admin
-  const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim())
-  if (!adminEmails.includes(session.user.email)) {
-    return NextResponse.json({ error: 'Admin only' }, { status: 403 })
-  }
+  const auth = await requireAdminVerified(req)
+  if (!auth.authorized) return auth.response
 
   const { email, tier } = await req.json()
   if (!email || !tier) {

@@ -1,17 +1,12 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // GET /api/admin/clutter - Check for test data and orphans
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     // Test users
     const testUsers = await prisma.user.count({
@@ -68,13 +63,10 @@ export async function GET() {
 }
 
 // DELETE /api/admin/clutter - Clean up test data and orphans
-export async function DELETE() {
+export async function DELETE(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     // Get deliberation IDs for orphan check
     const deliberations = await prisma.deliberation.findMany({

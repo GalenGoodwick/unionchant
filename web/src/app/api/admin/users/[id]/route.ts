@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 import { getStripe } from '@/lib/stripe'
 
 // GET /api/admin/users/[id] - Get user details
@@ -12,11 +10,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const user = await prisma.user.findUnique({
       where: { id },
@@ -61,11 +56,8 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email || !isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const body = await req.json()
     const { action, reason } = body
@@ -79,7 +71,7 @@ export async function POST(
     }
 
     // Prevent admins from banning themselves
-    if (user.email === session.user.email) {
+    if (user.email === auth.email) {
       return NextResponse.json({ error: 'Cannot modify your own account' }, { status: 400 })
     }
 
@@ -141,7 +133,7 @@ export async function POST(
             text: '[removed]',
             isRemoved: true,
             removedAt: new Date(),
-            removedBy: session.user.id as string,
+            removedBy: auth.userId,
           },
         })
 

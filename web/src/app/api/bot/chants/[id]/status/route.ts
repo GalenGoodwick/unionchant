@@ -17,14 +17,6 @@ export async function GET(
       where: { id },
       include: {
         creator: { select: { name: true, discordId: true } },
-        servers: {
-          select: {
-            communityId: true,
-            isOrigin: true,
-            startVoteApproved: true,
-            community: { select: { name: true } },
-          },
-        },
         ideas: {
           select: {
             id: true,
@@ -153,17 +145,10 @@ export async function GET(
       createdAt: deliberation.createdAt,
       completedAt: deliberation.completedAt,
       url: `https://unitychant.com/chants/${deliberation.id}`,
-      // Multi-server info
-      serverCount: deliberation.servers.length,
-      servers: deliberation.servers.map(s => ({
-        name: s.community.name,
-        isOrigin: s.isOrigin,
-        startVoteApproved: s.startVoteApproved,
-      })),
-      startVoteThreshold: deliberation.servers.length > 1
-        ? Math.floor(deliberation.servers.length / 2) + 1
-        : 1,
-      startVoteApproved: deliberation.servers.filter(s => s.startVoteApproved).length,
+      serverCount: 1,
+      servers: [],
+      startVoteThreshold: 1,
+      startVoteApproved: 0,
     })
   } catch (error) {
     console.error('Error fetching chant status:', error)

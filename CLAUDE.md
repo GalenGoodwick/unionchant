@@ -10,7 +10,42 @@
 **Deployed:** https://unionchant.vercel.app
 **Status:** Full voting + accumulation (rolling mode) working
 
-**Latest Session (Feb 2026 — PepperPhone Discord Bot):**
+**Latest Session (Feb 2026 — Solana Agent Hackathon, Full v1 API, Webhooks, Reputation):**
+- **Hackathon**: Colosseum Agent Hackathon (ends Feb 12, 2026). Project submitted, 2 forum posts, 15+ replies.
+- **17 v1 API endpoints live**: register, create/get chants, submit ideas, join, start, get cell, read/post comments, upvote, vote, check status, reputation, webhook CRUD
+- **Webhook system**: `src/lib/webhooks.ts` — fire-and-forget, HMAC-SHA256 signed, auto-disable after 10 failures. Events: `idea_submitted`, `vote_cast`, `tier_complete`, `winner_declared`
+- **Reputation Oracle**: `GET /api/v1/agents/:id/reputation` — foresight score computed from idea advancement rate, voting accuracy, prediction accuracy, participation volume. Earned through deliberation, not self-reported.
+- **Arbitration Layer**: UC can serve as dispute resolution for other systems. Create a chant where the question is the dispute, ideas are possible outcomes, a cell of 5 neutral agents deliberates and votes. Result returned via status endpoint or webhook. Already requested by Agent Casino (Claude-the-Romulan) for poker bounty disputes.
+- **Key framing insight**: Other agents see UC primarily as a **reputation oracle** (who to trust) and **arbitration layer** (what to decide), not just governance. These framings land better than "collective decision-making."
+- **Self-service registration**: `POST /api/v1/register` — no auth, no paywall, returns API key instantly
+- **Schema**: Added `Integration` model for webhooks
+- **Forum**: Post #2905 (architecture), Post #2954 (API announcement). Human URL: `https://colosseum.com/agent-hackathon/forum/{id}`
+- **Registered on**: MoltLaunch (verified), AgentOS/Zolty (recognized)
+
+**Previous Session (Feb 2026 — API Keys, Continuous Flow, Onboarding Funnel):**
+- **API Key System**: Public REST API at `/api/v1/` for external clients (Claude, enterprise devs)
+  - `ApiKey` model: name, SHA-256 hashed key, scopes, expiry, linked to User
+  - Key format: `uc_ak_{32 hex chars}`, shown once on creation, stored hashed
+  - Auth: `Authorization: Bearer uc_ak_...` header → `verifyApiKey()` helper
+  - Routes: POST/GET chants, POST ideas, POST join, POST start, GET status
+  - Management UI at `/settings#api` (create, list, revoke)
+  - CSRF exempt (`/api/v1/` in middleware)
+- **Continuous Flow World Peace Chant**: "How do we bring about world peace?"
+  - `continuousFlow: true`, `accumulationEnabled: true`, `ideaGoal: 10`
+  - Seeded with 10 AI users + 10 AI ideas → auto-starts voting → 2 cells ready
+  - `isPinned: true` on Deliberation model (featured chant)
+  - Rolling mode: after priority declared → accumulation → new challengers
+- **Onboarding Funnel**: After signup + name creation → redirect to pinned chant
+  - `GET /api/chants/pinned` returns featured chant ID
+  - User lands on chant detail → sees "Submit an Idea" form naturally
+- **Passkey Account Preservation**: Anonymous users prompted to save with Touch ID
+  - Three triggers: join chant, create chant, open collective chat
+  - Cancel behavior: closes chat (from chat) or navigates to /chants (from create)
+  - "Restore session with Touch ID" on signin page (subtle text link)
+  - 4 new routes under `/api/webauthn/` (register + authenticate, non-admin)
+- **Tools Page**: `/tools` with PepperPhone link + "more coming" placeholder
+
+**Previous Session (Feb 2026 — PepperPhone Discord Bot):**
 - **Discord bot (PepperPhone)**: Full Discord integration for Unity Chant deliberations
   - **Repo**: `https://github.com/GalenGoodwick/pepperphone-bot` (separate from web repo)
   - **Local path**: `/Users/galengoodwick/Desktop/Union-Rolling/bot/` (has its own `.git`)

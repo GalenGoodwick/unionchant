@@ -15,7 +15,11 @@ export async function POST() {
     select: { stripeCustomerId: true },
   })
 
-  if (!user?.stripeCustomerId) {
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
+  if (!user.stripeCustomerId) {
     return NextResponse.json({ error: 'No billing account found' }, { status: 404 })
   }
 

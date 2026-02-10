@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
 import RunawayButton, { type ChallengeData } from './RunawayButton'
@@ -15,11 +15,14 @@ import RunawayButton, { type ChallengeData } from './RunawayButton'
  *
  * When server says needsChallenge, modal pops over everything.
  * Can't be bypassed by navigating — re-checks on every route.
+ * Challenge token ties each attempt to a server-issued nonce.
  */
 export default function ChallengeProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession()
   const pathname = usePathname()
   const [showChallenge, setShowChallenge] = useState(false)
+  const [challengeToken, setChallengeToken] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
   const showRef = useRef(false)
   const checkingRef = useRef(false)
 
@@ -38,6 +41,7 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
         const res = await fetch(`/api/challenge/status?t=${Date.now()}`, { cache: 'no-store' })
         const data = await res.json()
         if (mounted && data.needsChallenge) {
+          setChallengeToken(data.challengeToken || null)
           setShowChallenge(true)
           showRef.current = true
         }
@@ -58,40 +62,60 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
     }
   }, [session?.user?.email, pathname]) // re-runs on every navigation
 
-  const handleCaught = async (data: ChallengeData) => {
+  const handleCaught = useCallback(async (data: ChallengeData) => {
     try {
       const res = await fetch('/api/challenge/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           result: 'passed',
+          challengeToken,
           pointerEvents: data.pointerEvents,
           chaseDurationMs: data.chaseDurationMs,
           evadeCount: data.evadeCount,
+          surrendered: data.surrendered,
+          chasePath: data.chasePath,
         }),
       })
       const json = await res.json()
       if (json.verified) {
         setShowChallenge(false)
         showRef.current = false
+        setChallengeToken(null)
+      } else {
+        // Server rejected — fetch fresh token and reset the RunawayButton
+        try {
+          const statusRes = await fetch(`/api/challenge/status?t=${Date.now()}`, { cache: 'no-store' })
+          const statusData = await statusRes.json()
+          if (statusData.needsChallenge) {
+            setChallengeToken(statusData.challengeToken || null)
+          }
+        } catch { /* use existing token */ }
+        setRetryKey(k => k + 1)
       }
-    } catch { /* challenge stays up */ }
-  }
+    } catch {
+      // Network error — reset button so user can retry
+      setRetryKey(k => k + 1)
+    }
+  }, [challengeToken])
 
-  const handleBotDetected = async (data: ChallengeData) => {
+  const handleBotDetected = useCallback(async (data: ChallengeData) => {
     try {
       await fetch('/api/challenge/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           result: 'failed_insta_click',
+          challengeToken,
           pointerEvents: data.pointerEvents,
           chaseDurationMs: data.chaseDurationMs,
           evadeCount: data.evadeCount,
+          surrendered: data.surrendered,
+          chasePath: data.chasePath,
         }),
       })
     } catch { /* silent */ }
-  }
+  }, [challengeToken])
 
   return (
     <>
@@ -105,7 +129,12 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
             <p className="text-muted text-sm text-center mb-4">
               Quick check — catch the button to continue.
             </p>
-            <RunawayButton onCaught={handleCaught} onBotDetected={handleBotDetected} />
+            <div className="sr-only" role="note">
+              Audio cues: A rising vroom sound with a drum roll means the chase has started.
+              A ding means the button has stopped moving — tap anywhere in the box to catch it.
+              A falling vroom sound means you passed the challenge.
+            </div>
+            <RunawayButton key={retryKey} onCaught={handleCaught} onBotDetected={handleBotDetected} />
           </div>
         </div>
       )}

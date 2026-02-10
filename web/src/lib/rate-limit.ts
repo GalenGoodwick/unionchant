@@ -1,10 +1,7 @@
-import { prisma } from './prisma'
-
 // In-memory sliding window rate limiter
 // Stores: key -> array of timestamps
 const windows = new Map<string, number[]>()
 
-// Default limits (used when no DB config found)
 const DEFAULT_LIMITS: Record<string, { maxRequests: number; windowMs: number }> = {
   vote: { maxRequests: 10, windowMs: 60_000 },
   idea: { maxRequests: 5, windowMs: 60_000 },
@@ -19,36 +16,9 @@ const DEFAULT_LIMITS: Record<string, { maxRequests: number; windowMs: number }> 
   collective_chat: { maxRequests: 8, windowMs: 60_000 },
 }
 
-// Cache DB config to avoid querying on every request
-let configCache: Map<string, { maxRequests: number; windowMs: number; enabled: boolean }> | null = null
-let configCacheTime = 0
-const CONFIG_CACHE_TTL = 60_000 // Refresh config every 60s
-
-async function getConfig(endpoint: string): Promise<{ maxRequests: number; windowMs: number; enabled: boolean }> {
-  const now = Date.now()
-
-  // Refresh cache if stale
-  if (!configCache || now - configCacheTime > CONFIG_CACHE_TTL) {
-    try {
-      const configs = await prisma.rateLimitConfig.findMany()
-      configCache = new Map()
-      for (const c of configs) {
-        configCache.set(c.endpoint, { maxRequests: c.maxRequests, windowMs: c.windowMs, enabled: c.enabled })
-      }
-      configCacheTime = now
-    } catch {
-      // If DB query fails, use defaults
-      configCache = new Map()
-      configCacheTime = now
-    }
-  }
-
-  const dbConfig = configCache.get(endpoint)
-  if (dbConfig) return dbConfig
-
-  const defaultConfig = DEFAULT_LIMITS[endpoint]
-  if (defaultConfig) return { ...defaultConfig, enabled: true }
-
+function getConfig(endpoint: string): { maxRequests: number; windowMs: number; enabled: boolean } {
+  const config = DEFAULT_LIMITS[endpoint]
+  if (config) return { ...config, enabled: true }
   return { maxRequests: 10, windowMs: 60_000, enabled: true }
 }
 
@@ -100,13 +70,6 @@ if (typeof setInterval !== 'undefined') {
   }, 5 * 60_000)
 }
 
-/**
- * Invalidate the config cache (called after admin updates)
- */
-export function invalidateRateLimitCache() {
-  configCache = null
-  configCacheTime = 0
-}
 
 // ── Chat CAPTCHA strike tracking ──
 // Tracks how many times a user has been rate-limited in chat.

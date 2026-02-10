@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import Header from '@/components/Header'
@@ -186,6 +186,12 @@ export default function ProfilePage() {
                 <h1 className="text-2xl font-bold text-foreground">{profile.name}</h1>
                 <div className="flex items-center gap-2">
                   <Link
+                    href="/profile/manage"
+                    className="text-sm text-muted hover:text-foreground border border-border rounded-xl px-3 py-1.5 transition-colors"
+                  >
+                    Manage
+                  </Link>
+                  <Link
                     href="/billing"
                     className="text-sm text-muted hover:text-foreground border border-border rounded-xl px-3 py-1.5 transition-colors"
                   >
@@ -197,6 +203,12 @@ export default function ProfilePage() {
                   >
                     Settings
                   </Link>
+                  <button
+                    onClick={() => signOut({ callbackUrl: '/' })}
+                    className="text-sm text-error hover:text-error-hover border border-error/30 rounded-xl px-3 py-1.5 transition-colors"
+                  >
+                    Sign out
+                  </button>
                 </div>
               </div>
 

@@ -4,12 +4,14 @@ import { useEffect, useState, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
+import { usePasskeyPrompt } from '@/app/providers'
 import type { Deliberation, Cell, Idea } from '@/components/deliberation/types'
 
 export function useDeliberation(id: string) {
   const { data: session } = useSession()
   const router = useRouter()
   const { showToast } = useToast()
+  const { triggerPasskeyPrompt } = usePasskeyPrompt()
 
   const [deliberation, setDeliberation] = useState<Deliberation | null>(null)
   const [cells, setCells] = useState<Cell[]>([])
@@ -103,6 +105,26 @@ export function useDeliberation(id: string) {
     }
   }, [deliberation?.phase, session, fetchCells])
 
+  // Auto-join + auto-enter when landing on a VOTING chant with no cell
+  const [autoEntered, setAutoEntered] = useState(false)
+  useEffect(() => {
+    if (!session || !deliberation || !cellsLoaded || autoEntered || enteringVoting) return
+    if (deliberation.phase !== 'VOTING') return
+    if (cells.length > 0) return // already in a cell
+    setAutoEntered(true)
+    // Silently join + enter
+    ;(async () => {
+      try {
+        await fetch(`/api/deliberations/${id}/join`, { method: 'POST' })
+        const res = await fetch(`/api/deliberations/${id}/enter`, { method: 'POST' })
+        if (res.ok) {
+          fetchCells()
+          fetchDeliberation()
+        }
+      } catch { /* silent */ }
+    })()
+  }, [session, deliberation, cellsLoaded, cells.length, autoEntered, enteringVoting, id, fetchCells, fetchDeliberation])
+
   // Fetch history on mount + phase changes
   useEffect(() => {
     if (deliberation) fetchHistory()
@@ -179,6 +201,7 @@ export function useDeliberation(id: string) {
       if (res.ok) {
         fetchCells()
         fetchDeliberation()
+        triggerPasskeyPrompt('joined a chant')
       } else {
         const data = await res.json()
         showToast(data.error || 'No spots available', 'error')

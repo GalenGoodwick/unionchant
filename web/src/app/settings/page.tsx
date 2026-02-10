@@ -3,11 +3,14 @@
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { usePushNotifications } from '@/hooks/usePushNotifications'
 import { useAdmin } from '@/hooks/useAdmin'
 import Header from '@/components/Header'
 import { useTheme } from '@/app/providers'
+import { startRegistration } from '@simplewebauthn/browser'
+
+type Passkey = { id: string; deviceName: string | null; createdAt: string; lastUsedAt: string | null }
 
 export default function SettingsPage() {
   const { data: session, status, update } = useSession()
@@ -37,6 +40,83 @@ export default function SettingsPage() {
     emailCommunity: true,
     emailNews: true,
   })
+
+  // Passkey management (admin only)
+  const [passkeys, setPasskeys] = useState<Passkey[]>([])
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
+  const [passkeyError, setPasskeyError] = useState<string | null>(null)
+  const [passkeySuccess, setPasskeySuccess] = useState<string | null>(null)
+  const [newDeviceName, setNewDeviceName] = useState('')
+
+  // API key management
+  type ApiKeyEntry = { id: string; name: string; keyPrefix: string; lastUsedAt: string | null; createdAt: string }
+  const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([])
+  const [apiKeyName, setApiKeyName] = useState('')
+  const [newApiKey, setNewApiKey] = useState<string | null>(null)
+  const [apiKeyCreating, setApiKeyCreating] = useState(false)
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null)
+
+  const fetchPasskeys = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/webauthn/credentials')
+      if (res.ok) setPasskeys(await res.json())
+    } catch { /* silent */ }
+  }, [])
+
+  const fetchApiKeys = useCallback(async () => {
+    try {
+      const res = await fetch('/api/user/api-keys')
+      if (res.ok) {
+        const data = await res.json()
+        setApiKeys(data.keys)
+      }
+    } catch { /* silent */ }
+  }, [])
+
+  useEffect(() => {
+    if (isAdmin) fetchPasskeys()
+  }, [isAdmin, fetchPasskeys])
+
+  useEffect(() => {
+    fetchApiKeys()
+  }, [fetchApiKeys])
+
+  const handleRegisterPasskey = async () => {
+    setPasskeyLoading(true)
+    setPasskeyError(null)
+    setPasskeySuccess(null)
+    try {
+      const optRes = await fetch('/api/admin/webauthn/register-options')
+      if (!optRes.ok) throw new Error('Failed to get registration options')
+      const options = await optRes.json()
+
+      const credential = await startRegistration({ optionsJSON: options })
+
+      const verifyRes = await fetch('/api/admin/webauthn/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, deviceName: newDeviceName || undefined }),
+      })
+      if (!verifyRes.ok) throw new Error('Registration failed')
+
+      setPasskeySuccess('Passkey registered!')
+      setNewDeviceName('')
+      fetchPasskeys()
+      setTimeout(() => setPasskeySuccess(null), 3000)
+    } catch (err) {
+      setPasskeyError(err instanceof Error ? err.message : 'Registration failed')
+    } finally {
+      setPasskeyLoading(false)
+    }
+  }
+
+  const handleDeletePasskey = async (id: string) => {
+    if (!confirm('Remove this passkey?')) return
+    try {
+      await fetch(`/api/admin/webauthn/credentials/${id}`, { method: 'DELETE' })
+      fetchPasskeys()
+    } catch { /* silent */ }
+  }
 
   const {
     isSupported,
@@ -421,6 +501,62 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        {/* Security Section (admin only) */}
+        {isAdmin && (
+          <section id="security" className="bg-background rounded-xl p-6 border border-border mb-6">
+            <h2 className="text-lg font-semibold text-foreground mb-1">Security</h2>
+            <p className="text-muted text-sm mb-4">
+              Secure admin access with a passkey (Touch ID, Face ID, or security key).
+            </p>
+
+            {passkeys.length > 0 && (
+              <div className="space-y-3 mb-4">
+                {passkeys.map(pk => (
+                  <div key={pk.id} className="flex items-center justify-between p-3 bg-surface rounded-lg border border-border">
+                    <div>
+                      <div className="text-foreground text-sm font-medium">{pk.deviceName || 'Passkey'}</div>
+                      <div className="text-muted text-xs">
+                        Added {new Date(pk.createdAt).toLocaleDateString()}
+                        {pk.lastUsedAt && ` · Last used ${new Date(pk.lastUsedAt).toLocaleDateString()}`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeletePasskey(pk.id)}
+                      className="text-error text-xs hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-muted mb-1">Device name (optional)</label>
+                <input
+                  type="text"
+                  value={newDeviceName}
+                  onChange={e => setNewDeviceName(e.target.value)}
+                  placeholder="e.g. MacBook Touch ID"
+                  maxLength={50}
+                  className="w-full px-3 py-2 border border-border rounded-xl bg-surface text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+              <button
+                onClick={handleRegisterPasskey}
+                disabled={passkeyLoading}
+                className="px-4 py-2 bg-accent text-white rounded-xl hover:bg-accent-hover disabled:opacity-50 text-sm whitespace-nowrap"
+              >
+                {passkeyLoading ? 'Registering...' : 'Register Passkey'}
+              </button>
+            </div>
+
+            {passkeyError && <p className="text-error text-sm mt-2">{passkeyError}</p>}
+            {passkeySuccess && <p className="text-success text-sm mt-2">{passkeySuccess}</p>}
+          </section>
+        )}
+
         {/* Data Export Section */}
         <section className="bg-background rounded-xl p-6 border border-border mb-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Your Data</h2>
@@ -448,6 +584,100 @@ export default function SettingsPage() {
           >
             Sign Out
           </button>
+        </section>
+
+        {/* API Keys Section */}
+        <section id="api" className="bg-background rounded-xl p-6 border border-border mb-6">
+          <h2 className="text-lg font-semibold text-foreground mb-1">API Keys</h2>
+          <p className="text-muted text-sm mb-4">Programmatic access to Unity Chant. Keys are shown once on creation.</p>
+
+          {/* Create new key */}
+          <div className="flex gap-2 mb-4">
+            <input
+              type="text"
+              value={apiKeyName}
+              onChange={e => { setApiKeyName(e.target.value); setNewApiKey(null); setApiKeyError(null) }}
+              placeholder="Key name (e.g. Claude, My App)"
+              maxLength={50}
+              className="flex-1 px-3 py-2 border border-border rounded-lg bg-surface text-foreground text-sm placeholder:text-muted focus:outline-none focus:border-accent"
+            />
+            <button
+              onClick={async () => {
+                if (!apiKeyName.trim()) return
+                setApiKeyCreating(true)
+                setApiKeyError(null)
+                try {
+                  const res = await fetch('/api/user/api-keys', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: apiKeyName.trim() }),
+                  })
+                  const data = await res.json()
+                  if (!res.ok) throw new Error(data.error)
+                  setNewApiKey(data.key)
+                  setApiKeyName('')
+                  fetchApiKeys()
+                } catch (err) {
+                  setApiKeyError(err instanceof Error ? err.message : 'Failed to create key')
+                } finally {
+                  setApiKeyCreating(false)
+                }
+              }}
+              disabled={apiKeyCreating || !apiKeyName.trim()}
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+            >
+              {apiKeyCreating ? 'Creating...' : 'Create Key'}
+            </button>
+          </div>
+
+          {apiKeyError && (
+            <div className="bg-error-bg border border-error text-error text-xs p-2 rounded-lg mb-3">{apiKeyError}</div>
+          )}
+
+          {/* Show new key once */}
+          {newApiKey && (
+            <div className="bg-success-bg border border-success rounded-lg p-3 mb-4">
+              <p className="text-success text-xs font-medium mb-1">Key created! Copy it now — it won&apos;t be shown again.</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs text-foreground bg-background px-2 py-1 rounded border border-border break-all">{newApiKey}</code>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(newApiKey); }}
+                  className="px-3 py-1 bg-success hover:bg-success-hover text-white text-xs rounded transition-colors"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* List existing keys */}
+          {apiKeys.length > 0 ? (
+            <div className="space-y-2">
+              {apiKeys.map(k => (
+                <div key={k.id} className="flex items-center justify-between bg-surface rounded-lg px-3 py-2 border border-border">
+                  <div>
+                    <span className="text-sm text-foreground font-medium">{k.name}</span>
+                    <span className="text-xs text-muted ml-2 font-mono">{k.keyPrefix}</span>
+                    <div className="text-xs text-muted">
+                      Created {new Date(k.createdAt).toLocaleDateString()}
+                      {k.lastUsedAt && <> · Last used {new Date(k.lastUsedAt).toLocaleDateString()}</>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await fetch(`/api/user/api-keys/${k.id}`, { method: 'DELETE' })
+                      fetchApiKeys()
+                    }}
+                    className="text-error text-xs hover:text-error-hover transition-colors"
+                  >
+                    Revoke
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted text-sm">No API keys yet.</p>
+          )}
         </section>
 
         {/* Delete Account Section */}

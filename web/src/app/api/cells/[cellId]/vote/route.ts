@@ -82,6 +82,7 @@ export async function POST(
               currentTierStartedAt: true,
               votingTimeoutMs: true,
               allocationMode: true,
+              cellSize: true,
             },
           },
         },
@@ -201,12 +202,12 @@ export async function POST(
       `
 
       const isFCFS = cell.deliberation.allocationMode === 'fcfs'
-      const FCFS_CELL_SIZE = 5
+      const fcfsCellSize = cell.deliberation.cellSize || 5
 
       let allVoted: boolean
       if (isFCFS) {
         // FCFS: cell completes when it reaches target voter count
-        allVoted = votedUserIds.length >= FCFS_CELL_SIZE
+        allVoted = votedUserIds.length >= fcfsCellSize
       } else {
         // Balanced: cell completes when all assigned participants have voted
         const activeParticipantCount = cell.participants.filter(
@@ -218,7 +219,7 @@ export async function POST(
       return {
         allocations, allVoted, wasChange, isFCFS,
         voterCount: votedUserIds.length,
-        votersNeeded: isFCFS ? FCFS_CELL_SIZE : cell.participants.length,
+        votersNeeded: isFCFS ? fcfsCellSize : cell.participants.length,
       }
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

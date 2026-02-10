@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 
 const FCFS_CELL_SIZE = 5
 
-// GET /api/cg/chants/[id]/status — Full chant status
+// GET /api/cg/chants/[id]/status?cgUserId=... — Full chant status
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -14,6 +14,7 @@ export async function GET(
     if (!auth.authenticated) return auth.response
 
     const { id } = await params
+    const cgUserId = req.nextUrl.searchParams.get('cgUserId')
 
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },
@@ -57,6 +58,7 @@ export async function GET(
       currentCellVoters: number
       votersNeeded: number
       completedCells: number
+      currentCellIdeas?: { id: string; text: string; author: { id: string; name: string } }[]
     } | null = null
     if (deliberation.allocationMode === 'fcfs' && deliberation.phase === 'VOTING') {
       const tierCells = deliberation.cells.filter(c => c.tier === deliberation.currentTier)
@@ -64,12 +66,53 @@ export async function GET(
       const votingCells = tierCells.filter(c => c.status === 'VOTING')
       const currentCell = votingCells[0]
 
+      // Get ideas for the next available cell (what the voter will see)
+      let currentCellIdeas: { id: string; text: string; author: { id: string; name: string } }[] | undefined
+      if (currentCell) {
+        const cellWithIdeas = await prisma.cell.findUnique({
+          where: { id: currentCell.id },
+          include: {
+            ideas: {
+              include: {
+                idea: {
+                  select: { id: true, text: true, author: { select: { id: true, name: true } } },
+                },
+              },
+            },
+          },
+        })
+        if (cellWithIdeas) {
+          currentCellIdeas = cellWithIdeas.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+            author: { id: ci.idea.author.id, name: ci.idea.author.name || 'Anonymous' },
+          }))
+        }
+      }
+
       fcfsProgress = {
         currentCellIndex: completedCells,
         totalCells: tierCells.length,
         currentCellVoters: currentCell?._count.participants || 0,
         votersNeeded: FCFS_CELL_SIZE,
         completedCells,
+        currentCellIdeas,
+      }
+    }
+
+    // Check if requesting user has already voted this tier
+    let hasVoted = false
+    if (cgUserId && deliberation.phase === 'VOTING') {
+      const cgUser = await prisma.user.findFirst({ where: { cgId: cgUserId } })
+      if (cgUser) {
+        const voted = await prisma.cellParticipation.findFirst({
+          where: {
+            userId: cgUser.id,
+            status: 'VOTED',
+            cell: { deliberationId: id, tier: deliberation.currentTier },
+          },
+        })
+        hasVoted = !!voted
       }
     }
 
@@ -84,6 +127,7 @@ export async function GET(
       description: deliberation.description,
       phase: deliberation.phase,
       allocationMode: deliberation.allocationMode,
+      continuousFlow: deliberation.continuousFlow,
       currentTier: deliberation.currentTier,
       memberCount: deliberation._count.members,
       ideaCount: deliberation._count.ideas,
@@ -92,6 +136,7 @@ export async function GET(
       ideas: deliberation.ideas,
       cells: deliberation.cells,
       fcfsProgress,
+      hasVoted,
       createdAt: deliberation.createdAt,
     })
   } catch (error) {

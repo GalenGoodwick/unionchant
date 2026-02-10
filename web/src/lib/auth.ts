@@ -52,6 +52,25 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
+        // Passkey signin: token-based auth from WebAuthn verify endpoint
+        if (credentials.email === '__passkey__') {
+          const { verifyPasskeyToken } = await import('./webauthn')
+          const userId = verifyPasskeyToken(credentials.password)
+          if (!userId) return null
+          const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, email: true, name: true, image: true, status: true },
+          })
+          if (!user || user.status === 'BANNED') return null
+          if (user.status === 'DELETED') {
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { status: 'ACTIVE', deletedAt: null },
+            })
+          }
+          return { id: user.id, email: user.email, name: user.name, image: user.image }
+        }
+
         // Rate limit login attempts by email (10/min)
         const rateLimited = await checkRateLimit('login', credentials.email)
         if (rateLimited) return null

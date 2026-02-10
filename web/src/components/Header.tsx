@@ -52,6 +52,7 @@ export default function Header() {
     { href: '/chants', label: 'Chants' },
     { href: '/groups', label: 'Groups' },
     { href: '/podiums', label: 'Podiums' },
+    { href: '/tools', label: 'Tools' },
     { href: '/contact', label: 'Contact' },
     { href: '/pricing', label: 'Sustain Us' },
   ]

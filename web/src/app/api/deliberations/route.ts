@@ -110,6 +110,7 @@ export async function POST(req: NextRequest) {
     const {
       question,
       description,
+      context,
       organization,
       isPublic = true,
       tags = [],
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
       continuousFlow,
       supermajorityEnabled,
       ideaGoal,
+      allowAI,
       // Community integration
       communityId,
       communityOnly,
@@ -128,6 +130,17 @@ export async function POST(req: NextRequest) {
 
     if (!question?.trim()) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
+    }
+
+    // Validate context — allow up to one link, max 2000 chars
+    if (context && typeof context === 'string') {
+      if (context.trim().length > 2000) {
+        return NextResponse.json({ error: 'Context too long (max 2000 characters)' }, { status: 400 })
+      }
+      const urlMatches = context.match(/https?:\/\/[^\s]+/gi) || []
+      if (urlMatches.length > 1) {
+        return NextResponse.json({ error: 'Context allows at most one link' }, { status: 400 })
+      }
     }
 
     // Private chants require a paid subscription
@@ -172,22 +185,28 @@ export async function POST(req: NextRequest) {
     // Generate a short, readable invite code
     const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
+    // Anonymous users must use a submission timer (default 24h)
+    const DEFAULT_ANON_SUBMISSION_MS = 86400000 // 24 hours
+    const effectiveSubmissionMs = submissionDurationMs
+      || (user.isAnonymous ? DEFAULT_ANON_SUBMISSION_MS : null)
+
     // Calculate submission end time if duration provided
-    const submissionEndsAt = submissionDurationMs
-      ? new Date(Date.now() + submissionDurationMs)
+    const submissionEndsAt = effectiveSubmissionMs
+      ? new Date(Date.now() + effectiveSubmissionMs)
       : null
 
     const deliberation = await prisma.deliberation.create({
       data: {
         question: question.trim(),
         description: description?.trim() || null,
+        context: context?.trim() || null,
         organization: organization?.trim() || null,
         isPublic,
         inviteCode,
         tags: cleanTags,
         creatorId: user.id,
         submissionEndsAt,
-        ...(submissionDurationMs && { submissionDurationMs }),
+        ...(effectiveSubmissionMs && { submissionDurationMs: effectiveSubmissionMs }),
         ...(votingTimeoutMs !== undefined && { votingTimeoutMs }),
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
@@ -196,6 +215,7 @@ export async function POST(req: NextRequest) {
         ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
+        ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
         // Community integration
         ...(communityId && { communityId }),
         ...(communityOnly && communityId && { isPublic: false }),

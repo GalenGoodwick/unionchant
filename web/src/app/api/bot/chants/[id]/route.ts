@@ -24,11 +24,23 @@ export async function DELETE(
 
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },
-      select: { id: true, question: true, creatorId: true },
+      select: { id: true, question: true, creatorId: true, isPinned: true },
     })
 
     if (!deliberation) {
       return NextResponse.json({ error: 'Chant not found' }, { status: 404 })
+    }
+
+    if (deliberation.isPinned) {
+      return NextResponse.json({ error: 'Cannot delete a pinned chant' }, { status: 403 })
+    }
+
+    // Block deletion if other users have submitted 5+ ideas
+    const otherUserIdeas = await prisma.idea.count({
+      where: { deliberationId: id, authorId: { not: deliberation.creatorId } },
+    })
+    if (otherUserIdeas >= 5) {
+      return NextResponse.json({ error: `Cannot delete — ${otherUserIdeas} ideas submitted by other users` }, { status: 403 })
     }
 
     if (deliberation.creatorId !== user.id) {

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
-import { isAdminEmail } from '@/lib/admin'
+import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/simulate-voting - Simulate votes for ONE tier per request.
 // Client should loop calling this endpoint until isComplete=true.
@@ -14,16 +12,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
     }
 
-    const session = await getServerSession(authOptions)
-
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Admin-only endpoint
-    if (!isAdminEmail(session.user.email)) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    const auth = await requireAdminVerified(req)
+    if (!auth.authorized) return auth.response
 
     const body = await req.json()
     const { deliberationId, leaveFinalVote = true, leaveVotesOpen = 1 } = body

@@ -19,7 +19,7 @@ export default function TermsPage() {
 
         <article className="bg-background rounded-lg border border-border p-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">Terms of Service</h1>
-          <p className="text-muted mb-8">Last updated: January 2025</p>
+          <p className="text-muted mb-8">Last updated: February 2026</p>
 
           <div className="prose prose-slate max-w-none">
             <section className="mb-8">
@@ -67,24 +67,52 @@ export default function TermsPage() {
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-3">5. Content Ownership</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-3">5. Open Source Content</h2>
               <p className="text-subtle mb-4">
-                You retain ownership of content you submit to the Service. By submitting content, you grant
-                Unity Chant a non-exclusive, worldwide license to use, display, and distribute your content
-                as necessary to provide the Service.
+                <strong className="text-foreground">All content submitted to public deliberations is open source.</strong>{' '}
+                By submitting ideas, votes, or comments to a public deliberation, you agree that this content
+                becomes a public contribution to collective decision-making and is freely available for anyone
+                to view, reference, build upon, and redistribute.
+              </p>
+              <p className="text-subtle mb-4">
+                This reflects the core philosophy of Unity Chant: democratic decisions should be transparent
+                and their inputs should belong to everyone, not locked behind proprietary walls.
+              </p>
+              <p className="text-subtle mb-4">
+                Specifically, content submitted to public deliberations is made available under{' '}
+                <a href="https://creativecommons.org/publicdomain/zero/1.0/" className="text-accent hover:text-accent-hover" target="_blank" rel="noopener noreferrer">
+                  Creative Commons Zero (CC0)
+                </a>{' '}
+                — dedicated to the public domain. You waive all copyright and related rights to the extent
+                permitted by law.
+              </p>
+              <p className="text-subtle mb-4">
+                <strong className="text-foreground">Private deliberations</strong> are excluded from this clause.
+                Content in private deliberations is visible only to invited members and is not made public.
               </p>
             </section>
 
             <section className="mb-8">
               <h2 className="text-xl font-semibold text-foreground mb-3">6. Public Deliberations</h2>
               <p className="text-subtle mb-4">
-                Ideas and votes submitted to public deliberations are visible to all participants.
-                Consider this before submitting sensitive information.
+                Ideas, votes, and comments submitted to public deliberations are visible to all users.
+                This transparency is fundamental to democratic decision-making. Consider this before
+                submitting sensitive information.
               </p>
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-3">7. Termination</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-3">7. Privacy and Anti-Data Policy</h2>
+              <p className="text-subtle mb-4">
+                We operate an explicit anti-data policy. We do not collect IP addresses, location data,
+                device fingerprints, or browsing behavior. See our{' '}
+                <Link href="/privacy" className="text-accent hover:text-accent-hover">Privacy Policy</Link>{' '}
+                for full details on what we do and do not collect.
+              </p>
+            </section>
+
+            <section className="mb-8">
+              <h2 className="text-xl font-semibold text-foreground mb-3">8. Termination</h2>
               <p className="text-subtle mb-4">
                 We reserve the right to suspend or terminate accounts that violate these terms.
                 You may delete your account at any time through your account settings.
@@ -92,7 +120,7 @@ export default function TermsPage() {
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-3">8. Disclaimer of Warranties</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-3">9. Disclaimer of Warranties</h2>
               <p className="text-subtle mb-4">
                 The Service is provided "as is" without warranties of any kind. We do not guarantee
                 uninterrupted access, freedom from errors, or specific outcomes from deliberations.
@@ -100,7 +128,7 @@ export default function TermsPage() {
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-3">9. Limitation of Liability</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-3">10. Limitation of Liability</h2>
               <p className="text-subtle mb-4">
                 Unity Chant shall not be liable for any indirect, incidental, special, or consequential
                 damages arising from your use of the Service.
@@ -108,7 +136,7 @@ export default function TermsPage() {
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-3">10. Changes to Terms</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-3">11. Changes to Terms</h2>
               <p className="text-subtle mb-4">
                 We may update these terms from time to time. Continued use of the Service after changes
                 constitutes acceptance of the new terms.
@@ -116,7 +144,7 @@ export default function TermsPage() {
             </section>
 
             <section className="mb-8">
-              <h2 className="text-xl font-semibold text-foreground mb-3">11. Contact</h2>
+              <h2 className="text-xl font-semibold text-foreground mb-3">12. Contact</h2>
               <p className="text-subtle">
                 Questions about these terms? Contact us at{' '}
                 <a href="mailto:galen.goodwick@icloud.com" className="text-accent hover:text-accent-hover">

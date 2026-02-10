@@ -44,6 +44,11 @@ export async function POST(
       return NextResponse.json({ error: 'This chant requires an invite link to join' }, { status: 403 })
     }
 
+    // Check if AI agents are allowed
+    if (!deliberation.allowAI && user.isAI) {
+      return NextResponse.json({ error: 'This chant does not allow AI agents' }, { status: 403 })
+    }
+
     // Check if already a member
     const existingMembership = await prisma.deliberationMember.findUnique({
       where: {

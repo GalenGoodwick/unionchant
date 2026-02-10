@@ -16,7 +16,7 @@ interface Message {
 }
 
 // Parse [action:navigate:/path]Label[/action] tags + bare /chants/ID links
-function parseMessageContent(content: string): ReactNode[] {
+function parseMessageContent(content: string, onNavigate?: () => void): ReactNode[] {
   const parts: ReactNode[] = []
   // Match both action tags and bare /chants/ links
   const regex = /\[action:navigate:(\/[^\]]+)\]([^\[]+)\[\/action\]|(\/chants\/[a-zA-Z0-9_-]+)/g
@@ -32,12 +32,12 @@ function parseMessageContent(content: string): ReactNode[] {
     if (match[1] && match[2]) {
       // Action tag: [action:navigate:/path]Label[/action]
       parts.push(
-        <ActionButton key={`action-${match.index}`} path={match[1]} label={match[2]} />
+        <ActionButton key={`action-${match.index}`} path={match[1]} label={match[2]} onNavigate={onNavigate} />
       )
     } else if (match[3]) {
       // Bare /chants/ID link
       parts.push(
-        <ActionButton key={`link-${match.index}`} path={match[3]} label={match[3]} />
+        <ActionButton key={`link-${match.index}`} path={match[3]} label={match[3]} onNavigate={onNavigate} />
       )
     }
 
@@ -52,11 +52,11 @@ function parseMessageContent(content: string): ReactNode[] {
   return parts.length > 0 ? parts : [content]
 }
 
-function ActionButton({ path, label }: { path: string; label: string }) {
+function ActionButton({ path, label, onNavigate }: { path: string; label: string; onNavigate?: () => void }) {
   const router = useRouter()
   return (
     <button
-      onClick={() => router.push(path)}
+      onClick={() => { onNavigate?.(); router.push(path) }}
       className="inline-flex items-center gap-1 px-2 py-0.5 my-0.5 rounded bg-gold/15 text-gold hover:bg-gold/25 text-xs font-medium border border-gold-border transition-colors"
     >
       {label} &rarr;
@@ -288,7 +288,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 </div>
               )}
               <div className="whitespace-pre-wrap leading-relaxed">
-                {parseMessageContent(msg.content)}
+                {parseMessageContent(msg.content, onClose)}
               </div>
             </div>
             <div className="flex items-center gap-2 mt-0.5 px-1">

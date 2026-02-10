@@ -2,16 +2,120 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 
+export interface ChasePoint {
+  x: number  // 0-100 (% of container)
+  y: number  // 0-100
+  t: number  // ms since chase start
+}
+
 export interface ChallengeData {
   pointerEvents: number
   chaseDurationMs: number
   evadeCount: number
   surrendered: boolean
+  chasePath: ChasePoint[]
 }
 
 interface RunawayButtonProps {
   onCaught: (data: ChallengeData) => void
   onBotDetected?: (data: ChallengeData) => void
+}
+
+// ── Synthesized sound effects via Web Audio API ──
+
+let audioCtx: AudioContext | null = null
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new AudioContext()
+  if (audioCtx.state === 'suspended') audioCtx.resume()
+  return audioCtx
+}
+
+function playVroomUp() {
+  try {
+    const ctx = getAudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(150, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.35)
+    gain.gain.setValueAtTime(0.15, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.4)
+  } catch { /* silent fallback */ }
+}
+
+function playDing() {
+  try {
+    const ctx = getAudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(880, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.08)
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.3)
+    gain.gain.setValueAtTime(0.25, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.6)
+  } catch { /* silent fallback */ }
+}
+
+function playVroomDown() {
+  try {
+    const ctx = getAudioCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(500, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.4)
+    gain.gain.setValueAtTime(0.15, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start()
+    osc.stop(ctx.currentTime + 0.45)
+  } catch { /* silent fallback */ }
+}
+
+let drumRollOsc: OscillatorNode | null = null
+let drumRollGain: GainNode | null = null
+
+function startDrumRoll() {
+  try {
+    const ctx = getAudioCtx()
+    // Noise-like rapid tapping via low-frequency square wave
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.type = 'square'
+    osc.frequency.setValueAtTime(80, ctx.currentTime)
+    gain.gain.setValueAtTime(0.04, ctx.currentTime)
+    osc.connect(gain).connect(ctx.destination)
+    osc.start()
+    drumRollOsc = osc
+    drumRollGain = gain
+  } catch { /* silent fallback */ }
+}
+
+function updateDrumRoll(progress: number) {
+  // Speed up and get louder as progress increases (0-1)
+  try {
+    if (!drumRollOsc || !drumRollGain) return
+    const ctx = getAudioCtx()
+    drumRollOsc.frequency.setTargetAtTime(80 + progress * 120, ctx.currentTime, 0.05)
+    drumRollGain.gain.setTargetAtTime(0.04 + progress * 0.08, ctx.currentTime, 0.05)
+  } catch { /* silent fallback */ }
+}
+
+function stopDrumRoll() {
+  try {
+    if (drumRollOsc) {
+      drumRollOsc.stop()
+      drumRollOsc = null
+    }
+    drumRollGain = null
+  } catch { /* silent fallback */ }
 }
 
 /**
@@ -32,6 +136,9 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   const pointerCountRef = useRef<number>(0)
   const evadeCountRef = useRef<number>(0)
   const chaseStartRef = useRef<number>(0)
+  const chasePathRef = useRef<ChasePoint[]>([])
+  const lastSampleRef = useRef<number>(0)
+  const completedRef = useRef(false) // guard against double-fire
   const [pos, setPos] = useState({ x: 50, y: 50 })
   const [surrendered, setSurrendered] = useState(false)
   const [started, setStarted] = useState(false)
@@ -52,11 +159,12 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
     chaseDurationMs: accumulatedMsRef.current,
     evadeCount: evadeCountRef.current,
     surrendered,
+    chasePath: chasePathRef.current,
   }), [surrendered])
 
-  // Timer tick — accumulates while active, decays while idle
+  // Timer tick — accumulates while active, decays while idle, freezes on surrender
   useEffect(() => {
-    if (!chasing || passed) return
+    if (!chasing || passed || surrendered) return
     const id = setInterval(() => {
       const now = Date.now()
       const timeSinceMove = now - lastPointerMoveRef.current
@@ -71,15 +179,20 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
 
       const elapsed = accumulatedMsRef.current / 1000
       setChaseTime(elapsed)
+      updateDrumRoll(Math.min(1, elapsed / 3))
 
       if (elapsed >= 3) {
+        if (completedRef.current) return
+        completedRef.current = true
+        stopDrumRoll()
         setPassed(true)
+        playVroomDown()
         clearInterval(id)
         setTimeout(() => onCaught(getBehavioralData()), 400)
       }
     }, 50)
     return () => clearInterval(id)
-  }, [chasing, passed, onCaught, getBehavioralData])
+  }, [chasing, passed, surrendered, onCaught, getBehavioralData])
 
   const processPointer = useCallback((clientX: number, clientY: number) => {
     if (surrendered || passed || !started) return
@@ -88,9 +201,22 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
     if (!container || !btn) return
 
     pointerCountRef.current++
-    lastPointerMoveRef.current = Date.now()
+    const now = Date.now()
+    lastPointerMoveRef.current = now
 
     const rect = container.getBoundingClientRect()
+
+    // Sample chase path every ~50ms (capped at ~200 points for a 10s chase)
+    if (chaseStartRef.current && now - lastSampleRef.current >= 50) {
+      lastSampleRef.current = now
+      const pxPct = ((clientX - rect.left) / rect.width) * 100
+      const pyPct = ((clientY - rect.top) / rect.height) * 100
+      chasePathRef.current.push({
+        x: Math.round(pxPct * 10) / 10,
+        y: Math.round(pyPct * 10) / 10,
+        t: now - chaseStartRef.current,
+      })
+    }
     const btnRect = btn.getBoundingClientRect()
     const px = clientX - rect.left
     const py = clientY - rect.top
@@ -103,17 +229,21 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
       chaseStartRef.current = Date.now()
       lastPointerMoveRef.current = Date.now()
       setChasing(true)
+      playVroomUp()
+      startDrumRoll()
     }
 
     // Evade when pointer gets close
     if (dist < 80) {
+      evadeCountRef.current++
+
       const elapsed = accumulatedMsRef.current / 1000
       if (elapsed > 1.5 && Math.random() < 0.15) {
+        stopDrumRoll()
         setSurrendered(true)
+        playDing()
         return
       }
-
-      evadeCountRef.current++
 
       const angle = Math.atan2(by - py, bx - px)
       const jump = 15 + Math.random() * 20
@@ -143,18 +273,27 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   }, [processPointer])
 
   const handleStart = () => {
+    // Unlock AudioContext on user gesture (required for mobile browsers)
+    getAudioCtx()
     setStarted(true)
     lastPointerMoveRef.current = Date.now()
   }
 
   const handleClick = () => {
-    if (!chasing || (chaseStartRef.current && (Date.now() - chaseStartRef.current) < 300)) {
-      onBotDetected?.(getBehavioralData())
+    // Guard OFF — button surrendered, legitimate human click
+    if (surrendered && !passed) {
+      if (completedRef.current) return
+      completedRef.current = true
+      setPassed(true)
+      playVroomDown()
+      setTimeout(() => onCaught(getBehavioralData()), 200)
       return
     }
-    if (surrendered) {
-      setPassed(true)
-      setTimeout(() => onCaught(getBehavioralData()), 200)
+    // Guard ON — clicking a moving button = hacking
+    // Also catches pre-chase insta-clicks
+    if (!surrendered) {
+      onBotDetected?.(getBehavioralData())
+      return
     }
   }
 
@@ -166,6 +305,7 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
+        onTouchStart={() => getAudioCtx()}
         className="relative w-full h-52 bg-surface border border-border rounded-lg overflow-hidden select-none touch-none"
       >
         {/* Progress bar */}
@@ -179,12 +319,12 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
           </div>
         )}
         {surrendered && !passed && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-success font-semibold">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-success font-semibold" role="status" aria-live="assertive">
             It stopped! Tap it!
           </div>
         )}
         {passed && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-success font-semibold">
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-success font-semibold" role="status" aria-live="assertive">
             Verified!
           </div>
         )}
@@ -206,7 +346,8 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
           <button
             ref={btnRef}
             onClick={handleClick}
-            className={`absolute px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-100 -translate-x-1/2 -translate-y-1/2 ${
+            onTouchEnd={surrendered && !passed ? (e) => { e.preventDefault(); handleClick() } : undefined}
+            className={`absolute px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-100 -translate-x-1/2 -translate-y-1/2 touch-auto ${
               passed
                 ? 'bg-success text-white scale-110'
                 : surrendered
@@ -237,7 +378,7 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         Chase the button for 3 seconds to pass, or catch it if it stops.
         {!chasing && <><br /><span className="text-subtle">Timer decays if you stop — keep chasing!</span></>}
         <br />
-        <span className="text-subtle">Accessibility: drag your finger across the box. The timer counts all movement.</span>
+        <span className="text-subtle">Screen reader: a rising sound starts the chase with a drum roll. A ding means the button stopped — tap anywhere in the box to catch it. A falling sound means you passed.</span>
       </p>
     </div>
   )

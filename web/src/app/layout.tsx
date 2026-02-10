@@ -43,11 +43,13 @@ export const metadata: Metadata = {
     siteName: 'Unity Chant',
     title: 'Unity Chant - Consensus at Scale',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
+    images: [{ url: '/api/og', width: 1200, height: 630 }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Unity Chant - Consensus at Scale',
     description: 'Holding quiet hope. Small group deliberation at any scale.',
+    images: ['/api/og'],
   },
   robots: {
     index: true,

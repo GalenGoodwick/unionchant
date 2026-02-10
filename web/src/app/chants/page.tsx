@@ -22,6 +22,7 @@ export default function FeedPage() {
   const [tab, setTab] = useState<Tab>('your-turn')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const hasDataRef = useRef(false)
 
   // Per-tab cached data
   const [yourTurnData, setYourTurnData] = useState<{ items: FeedEntry[]; actionableCount: number }>({ items: [], actionableCount: 0 })
@@ -35,6 +36,7 @@ export default function FeedPage() {
       const res = await fetch(`/api/feed?tab=${targetTab}`)
       if (res.ok) {
         const data: FeedResponse = await res.json()
+        hasDataRef.current = true
         setError(false)
         if (targetTab === 'your-turn') {
           setYourTurnData({ items: data.items, actionableCount: data.actionableCount ?? 0 })
@@ -43,11 +45,11 @@ export default function FeedPage() {
         } else {
           setResultsData({ items: data.items })
         }
-      } else {
+      } else if (!hasDataRef.current) {
         setError(true)
       }
     } catch {
-      setError(true)
+      if (!hasDataRef.current) setError(true)
     } finally {
       setLoading(false)
     }
@@ -122,7 +124,10 @@ export default function FeedPage() {
         {tab === 'all-chants' ? (
           <AllChantsTab />
         ) : loading && (tab === 'your-turn' ? yourTurnData.items.length === 0 : tab === 'activity' ? !activityData.pulse : resultsData.items.length === 0) ? (
-          <div className="text-center py-20 text-muted">Loading...</div>
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <div className="w-8 h-8 border-2 border-border border-t-accent rounded-full animate-spin" />
+            <span className="text-sm text-muted">Loading...</span>
+          </div>
         ) : tab === 'your-turn' ? (
           <YourTurnTab items={yourTurnData.items} actionableCount={yourTurnData.actionableCount} authenticated={!!session} />
         ) : tab === 'activity' ? (
@@ -439,9 +444,13 @@ function YourTurnTab({ items, actionableCount, authenticated }: { items: FeedEnt
   // Split: upvoted (has upvotes, sorted by count desc) vs new (no upvotes)
   const podiumsSummary = allItems.find(e => e.kind === 'podiums_summary')
   const upvoted = allItems
-    .filter(e => (e.deliberation?.upvoteCount ?? 0) > 0 && e.kind !== 'podiums_summary')
-    .sort((a, b) => (b.deliberation?.upvoteCount ?? 0) - (a.deliberation?.upvoteCount ?? 0))
-  const fresh = allItems.filter(e => (e.deliberation?.upvoteCount ?? 0) === 0 && e.kind !== 'podiums_summary')
+    .filter(e => ((e.deliberation?.upvoteCount ?? 0) > 0 || e.pinned) && e.kind !== 'podiums_summary')
+    .sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1
+      if (!a.pinned && b.pinned) return 1
+      return (b.deliberation?.upvoteCount ?? 0) - (a.deliberation?.upvoteCount ?? 0)
+    })
+  const fresh = allItems.filter(e => (e.deliberation?.upvoteCount ?? 0) === 0 && !e.pinned && e.kind !== 'podiums_summary')
 
   const upvotedList = (
     <div className="flex flex-col gap-3">
@@ -630,7 +639,7 @@ function ResultsTab({ items }: { items: FeedEntry[] }) {
 function ResultCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-success)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-success)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-success)" bg="var(--color-success-bg)">{'\u{1F451}'} Priority Declared</Badge>
         <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
@@ -759,6 +768,7 @@ function Card({
       } ${extraClass || ''}`}
       style={accentColor ? { borderLeft: `4px solid ${accentColor}` } : undefined}
     >
+      {pinned && <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>}
       {children}
     </div>
   )
@@ -871,7 +881,7 @@ function WaitingCard({ entry }: { entry: FeedEntry }) {
   const isRoundFull = (entry as any).roundFull === true
   return (
     <div className="opacity-70">
-      <Card accentColor="var(--color-border)" href={`/chants/${d.id}`}>
+      <Card accentColor="var(--color-border)" href={`/chants/${d.id}`} pinned={entry.pinned}>
         <div className="flex justify-between items-center">
           <Badge color="var(--color-muted)" bg="rgba(113,113,122,0.1)">
             {isRoundFull ? '\u{1F512}' : '\u23F3'} {isRoundFull ? 'Round Full' : 'Waiting'} &middot; Tier {d.tier}
@@ -929,7 +939,7 @@ function AdvancedCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const myIdea = entry.myIdea
   return (
-    <Card accentColor="var(--color-success)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-success)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <Badge color="var(--color-success)" bg="var(--color-success-bg)">{'\u{1F389}'} Your Pick Advanced</Badge>
       <Question text={d.question} />
       {myIdea && (
@@ -996,11 +1006,11 @@ function VoteNowCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const cell = entry.cell
   return (
-    <Card accentColor="var(--color-warning)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-warning)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-warning)" bg="var(--color-warning-bg)">Vote Now &middot; Tier {d.tier}</Badge>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono font-semibold text-warning">{d.votingDeadline ? timeLeft(d.votingDeadline) : 'Facilitated'}</span>
+          <span className="text-xs font-mono font-semibold text-warning">{d.votingDeadline ? `Timed \u00b7 ${timeLeft(d.votingDeadline)}` : 'Facilitated'}</span>
           <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
         </div>
       </div>
@@ -1033,7 +1043,7 @@ function DeliberateCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const cell = entry.cell
   return (
-    <Card accentColor="var(--color-blue)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-blue)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-blue)" bg="var(--color-blue-bg)">{'\u{1F4AC}'} Deliberate &middot; Tier {d.tier}</Badge>
         <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
@@ -1070,7 +1080,7 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   const isVotingLive = d.phase === 'VOTING'
   return (
-    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">{'\u{1F4A1}'} Submit Ideas</Badge>
         <div className="flex items-center gap-2">
@@ -1080,7 +1090,7 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
               Voting live
             </span>
           )}
-          <span className="text-xs text-muted-light">{d.submissionDeadline ? `${timeLeft(d.submissionDeadline)} left` : 'Facilitated'}</span>
+          <span className="text-xs text-muted-light">{d.submissionDeadline ? `Timed \u00b7 ${timeLeft(d.submissionDeadline)}` : 'Facilitated'}</span>
           <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
         </div>
       </div>
@@ -1100,7 +1110,7 @@ function SubmitCard({ entry }: { entry: FeedEntry }) {
 function JoinCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">
           Join &middot; {d.phase === 'SUBMISSION' ? 'Accepting Ideas' : `Tier ${d.tier}`}
@@ -1132,11 +1142,11 @@ function JoinCard({ entry }: { entry: FeedEntry }) {
 function ChampionCardInline({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-purple)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-purple)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-purple)" bg="var(--color-purple-bg)">{'\u2605'} Accepting New Ideas</Badge>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono font-semibold text-purple">Facilitated</span>
+          <span className="text-xs font-mono font-semibold text-purple">{d.accumulationDeadline ? `Timed \u00b7 ${timeLeft(d.accumulationDeadline)}` : 'Facilitated'}</span>
           <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
         </div>
       </div>
@@ -1160,11 +1170,11 @@ function ChampionCardInline({ entry }: { entry: FeedEntry }) {
 function ChallengeCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-orange)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-orange)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-orange)" bg="var(--color-orange-bg)">Challenge Vote &middot; Round {d.challengeRound + 1} &middot; Tier {d.tier}</Badge>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono font-semibold text-orange">{d.votingDeadline ? `${timeLeft(d.votingDeadline)} left` : 'Facilitated'}</span>
+          <span className="text-xs font-mono font-semibold text-orange">{d.votingDeadline ? `Timed \u00b7 ${timeLeft(d.votingDeadline)}` : 'Facilitated'}</span>
           <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />
         </div>
       </div>
@@ -1188,7 +1198,7 @@ function ChallengeCard({ entry }: { entry: FeedEntry }) {
 function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`}>
+    <Card accentColor="var(--color-accent)" href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-accent)" bg="var(--color-accent-light)">Extra Vote &middot; Tier {d.tier}</Badge>
         <div className="flex items-center gap-2">
@@ -1212,7 +1222,7 @@ function ExtraVoteCard({ entry }: { entry: FeedEntry }) {
 function CompletedCard({ entry }: { entry: FeedEntry }) {
   const d = entry.deliberation!
   return (
-    <Card href={`/chants/${d.id}`}>
+    <Card href={`/chants/${d.id}`} pinned={entry.pinned}>
       <div className="flex justify-between items-center">
         <Badge color="var(--color-success)" bg="var(--color-success-bg)">Priority Declared</Badge>
         <UpvoteButton deliberationId={d.id} count={d.upvoteCount ?? 0} userUpvoted={d.userUpvoted ?? false} />

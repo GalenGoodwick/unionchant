@@ -19,6 +19,47 @@ function SignInForm() {
   const [loading, setLoading] = useState(false)
   const [forgotMode, setForgotMode] = useState(false)
   const [forgotSent, setForgotSent] = useState(false)
+  const [passkeyLoading, setPasskeyLoading] = useState(false)
+
+  const handlePasskeySignin = async () => {
+    setError('')
+    setPasskeyLoading(true)
+    try {
+      const { startAuthentication } = await import('@simplewebauthn/browser')
+      const optRes = await fetch('/api/webauthn/authenticate-options')
+      if (!optRes.ok) throw new Error('No passkeys available')
+      const options = await optRes.json()
+
+      const credential = await startAuthentication({ optionsJSON: options })
+
+      const verifyRes = await fetch('/api/webauthn/authenticate-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      })
+      if (!verifyRes.ok) throw new Error('Verification failed')
+      const { passkeyToken } = await verifyRes.json()
+
+      const result = await signIn('credentials', {
+        email: '__passkey__',
+        password: passkeyToken,
+        redirect: false,
+      })
+
+      if (result?.error) {
+        setError('Passkey sign-in failed')
+      } else {
+        router.push('/')
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Passkey sign-in failed'
+      if (!msg.includes('ceremony was sent an abort signal') && !msg.includes('not allowed')) {
+        setError(msg)
+      }
+    } finally {
+      setPasskeyLoading(false)
+    }
+  }
   const handleCredentialsLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
@@ -166,6 +207,16 @@ function SignInForm() {
               </svg>
               Enter Anonymously (No Data Collected)
             </Link>
+            <button
+              onClick={handlePasskeySignin}
+              disabled={passkeyLoading}
+              className="w-full text-muted hover:text-foreground text-sm py-2 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2zm-2 4c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm9-8c0-1.1-.9-2-2-2s-2 .9-2 2 .9 2 2 2 2-.9 2-2z" />
+              </svg>
+              {passkeyLoading ? 'Verifying...' : 'Restore session with Touch ID'}
+            </button>
             <button
               onClick={() => signIn('discord', { callbackUrl: '/' })}
               className="w-full bg-[#5865F2] hover:bg-[#4752C4] text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 transition-colors"
