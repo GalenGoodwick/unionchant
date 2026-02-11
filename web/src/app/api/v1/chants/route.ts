@@ -110,6 +110,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Validate ideaGoal for AI chants — must be a multiple of cellSize
+    // to ensure clean cell formation (no remainder cells)
+    if (allowAI && ideaGoal) {
+      const cs = Number(cellSize) || 5
+      if (ideaGoal % cs !== 0) {
+        return NextResponse.json({
+          error: `ideaGoal must be a multiple of cellSize (${cs}) for AI chants. Try ${Math.ceil(ideaGoal / cs) * cs}.`,
+        }, { status: 400 })
+      }
+    }
+
     // Validate callbackUrl if provided
     if (callbackUrl && typeof callbackUrl === 'string') {
       try {

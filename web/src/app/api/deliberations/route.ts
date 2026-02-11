@@ -132,6 +132,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Question is required' }, { status: 400 })
     }
 
+    // Validate ideaGoal for AI chants — must be a multiple of cellSize
+    if (allowAI && ideaGoal) {
+      const cs = 5 // default cellSize
+      if (ideaGoal % cs !== 0) {
+        return NextResponse.json({
+          error: `ideaGoal must be a multiple of ${cs} for AI chants. Try ${Math.ceil(ideaGoal / cs) * cs}.`,
+        }, { status: 400 })
+      }
+    }
+
     // Validate context — allow up to one link, max 2000 chars
     if (context && typeof context === 'string') {
       if (context.trim().length > 2000) {

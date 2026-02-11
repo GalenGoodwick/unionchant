@@ -398,6 +398,7 @@ export async function startVotingPhase(deliberationId: string) {
       data: {
         deliberationId,
         tier: 1,
+        batch: cellNum,
         status: cellStatus,
         discussionEndsAt,
         ideas: {
@@ -512,6 +513,7 @@ async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
       data: {
         deliberationId,
         tier: 1,
+        batch: cellNum,
         status: 'VOTING',
         ideas: {
           create: cellIdeas.map(idea => ({ ideaId: idea.id })),
@@ -942,18 +944,26 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
   const cellSize = deliberation.cellSize || DEFAULT_CELL_SIZE
 
   if (deliberation.allocationMode === 'fcfs') {
-    // Count ALL ideas at this tier (any status — some may already be ADVANCING/ELIMINATED)
-    const allTierIdeaCount = await prisma.idea.count({
-      where: { deliberationId, tier },
-    })
-    const expectedBatches = Math.max(1, Math.ceil(allTierIdeaCount / cellSize))
+    // Check if all cells have batch numbers assigned.
+    // Legacy cells (or cells created without batch) have batch=null — all map to key 0.
+    // In that case, skip the batch check since we can't verify expected batch count.
+    const allHaveBatch = cells.every(c => c.batch !== null)
 
-    for (let b = 0; b < expectedBatches; b++) {
-      if (!batchMap.has(b)) {
-        console.log(`checkTierCompletion: FCFS batch ${b} has no cells yet (expected ${expectedBatches} batches), waiting for voters`)
-        return
+    if (allHaveBatch) {
+      // Count ALL ideas at this tier (any status — some may already be ADVANCING/ELIMINATED)
+      const allTierIdeaCount = await prisma.idea.count({
+        where: { deliberationId, tier },
+      })
+      const expectedBatches = Math.max(1, Math.ceil(allTierIdeaCount / cellSize))
+
+      for (let b = 0; b < expectedBatches; b++) {
+        if (!batchMap.has(b)) {
+          console.log(`checkTierCompletion: FCFS batch ${b} has no cells yet (expected ${expectedBatches} batches), waiting for voters`)
+          return
+        }
       }
     }
+    // If cells have null batches, all cells are in batchMap key 0 — proceed with tier completion
   }
 
   // Process multi-cell batches: cross-cell XP tally
@@ -1550,10 +1560,16 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
     ? new Date(Date.now() + deliberation.discussionDurationMs!)
     : null
 
+  // Determine batch number from existing tier 1 cells
+  const existingCellCount = await prisma.cell.count({
+    where: { deliberationId, tier: 1 },
+  })
+
   const cell = await prisma.cell.create({
     data: {
       deliberationId,
       tier: 1,
+      batch: existingCellCount, // Sequential batch number
       status: cellStatus,
       discussionEndsAt,
       votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
@@ -1634,10 +1650,16 @@ export async function closeSubmissions(deliberationId: string): Promise<{ closed
     ? new Date(Date.now() + deliberation.discussionDurationMs!)
     : null
 
+  // Determine batch number for this leftover cell
+  const existingCellCount = await prisma.cell.count({
+    where: { deliberationId, tier: 1 },
+  })
+
   const cell = await prisma.cell.create({
     data: {
       deliberationId,
       tier: 1,
+      batch: existingCellCount,
       status: cellStatus,
       discussionEndsAt,
       votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
