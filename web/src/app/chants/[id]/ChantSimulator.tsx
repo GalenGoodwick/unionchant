@@ -17,10 +17,18 @@ import { PentagonConstellation } from '@/components/ConstellationCanvas'
 
 type Tab = 'join' | 'vote' | 'hearts' | 'submit' | 'cells' | 'manage'
 
-export default function ChantSimulator({ id }: { id: string }) {
+export default function ChantSimulator({ id, authToken }: { id: string; authToken?: string | null }) {
   const { data: session } = useSession()
-  const userId = session?.user?.email // used to detect login, actual auth is server-side
+  const userId = authToken ? 'embed-user' : session?.user?.email // used to detect login, actual auth is server-side
   const router = useRouter()
+
+  // Authenticated fetch — passes embed token when in iframe context
+  const authFetch = useCallback((url: string, opts?: RequestInit) => {
+    if (!authToken) return fetch(url, opts)
+    const headers = new Headers(opts?.headers)
+    headers.set('Authorization', `Bearer ${authToken}`)
+    return fetch(url, { ...opts, headers })
+  }, [authToken])
 
   const [status, setStatus] = useState<ChantStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -91,7 +99,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     }
     setJoining(true)
     try {
-      const res = await fetch(`/api/deliberations/${id}/join`, { method: 'POST' })
+      const res = await authFetch(`/api/deliberations/${id}/join`, { method: 'POST' })
       if (res.ok) {
         setJoined(true)
         participated.current = true
@@ -124,7 +132,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     if (fetchingStatus.current) return // prevent stacking
     fetchingStatus.current = true
     try {
-      const res = await fetch(`/api/deliberations/${id}/status`)
+      const res = await authFetch(`/api/deliberations/${id}/status`)
       if (!res.ok) {
         // Don't kill the page on transient errors — only on first load
         if (!status) throw new Error('Failed to fetch')
@@ -157,18 +165,18 @@ export default function ChantSimulator({ id }: { id: string }) {
       setLoading(false)
       fetchingStatus.current = false
     }
-  }, [id, tabInitialized, status])
+  }, [id, tabInitialized, status, authFetch])
 
   const fetchComments = useCallback(async () => {
     try {
-      const res = await fetch(`/api/deliberations/${id}/flat-comments`)
+      const res = await authFetch(`/api/deliberations/${id}/flat-comments`)
       if (!res.ok) return
       const data = await res.json()
       setComments(data.comments || [])
     } catch {
       // silent fail
     }
-  }, [id])
+  }, [id, authFetch])
 
   useEffect(() => {
     fetchStatus()
@@ -224,7 +232,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     setSubmitSuccess(false)
 
     try {
-      const res = await fetch(`/api/deliberations/${id}/ideas`, {
+      const res = await authFetch(`/api/deliberations/${id}/ideas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: ideaText.trim() }),
@@ -268,7 +276,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     delete tierAllocationsRef.current[voteTier]
 
     try {
-      const res = await fetch(`/api/deliberations/${id}/vote`, {
+      const res = await authFetch(`/api/deliberations/${id}/vote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -318,7 +326,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     setStartError('')
 
     try {
-      const res = await fetch(`/api/deliberations/${id}/start-voting`, {
+      const res = await authFetch(`/api/deliberations/${id}/start-voting`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -344,13 +352,13 @@ export default function ChantSimulator({ id }: { id: string }) {
 
     try {
       if (action === 'delete') {
-        const res = await fetch(`/api/deliberations/${id}`, {
+        const res = await authFetch(`/api/deliberations/${id}`, {
           method: 'DELETE',
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data.error || `Failed to ${label}`)
       } else {
-        const res = await fetch(`/api/deliberations/${id}/facilitate`, {
+        const res = await authFetch(`/api/deliberations/${id}/facilitate`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action }),
@@ -378,7 +386,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     setCommentError('')
 
     try {
-      const res = await fetch(`/api/deliberations/${id}/flat-comments`, {
+      const res = await authFetch(`/api/deliberations/${id}/flat-comments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, ideaId }),
@@ -402,7 +410,7 @@ export default function ChantSimulator({ id }: { id: string }) {
     setUpvoting(commentId)
 
     try {
-      const res = await fetch(`/api/deliberations/${id}/upvote-comment`, {
+      const res = await authFetch(`/api/deliberations/${id}/upvote-comment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ commentId }),
@@ -1462,7 +1470,7 @@ export default function ChantSimulator({ id }: { id: string }) {
                       setActionLoading('advance-discussion')
                       setActionError('')
                       setActionSuccess('')
-                      fetch(`/api/deliberations/${id}/advance-discussion`, { method: 'POST' })
+                      authFetch(`/api/deliberations/${id}/advance-discussion`, { method: 'POST' })
                         .then(res => res.json().then(data => {
                           if (!res.ok) throw new Error(data.error || 'Failed')
                           setActionSuccess(`Voting opened for ${data.cellsAdvanced || 0} cells`)
@@ -1526,7 +1534,7 @@ export default function ChantSimulator({ id }: { id: string }) {
                           setActionLoading('force-next-tier')
                           setActionError('')
                           setActionSuccess('')
-                          fetch(`/api/deliberations/${id}/force-next-tier`, { method: 'POST' })
+                          authFetch(`/api/deliberations/${id}/force-next-tier`, { method: 'POST' })
                             .then(res => res.json().then(data => {
                               if (!res.ok) throw new Error(data.error || 'Failed')
                               setActionSuccess(`Processed ${data.cellsProcessed || 0} cells`)
@@ -1604,7 +1612,7 @@ export default function ChantSimulator({ id }: { id: string }) {
                           setActionLoading('start-challenge')
                           setActionError('')
                           setActionSuccess('')
-                          fetch(`/api/deliberations/${id}/start-challenge`, { method: 'POST' })
+                          authFetch(`/api/deliberations/${id}/start-challenge`, { method: 'POST' })
                             .then(res => res.json().then(data => {
                               if (!res.ok) throw new Error(data.error || 'Failed')
                               setActionSuccess('Challenge round started!')

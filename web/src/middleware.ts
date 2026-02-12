@@ -11,6 +11,7 @@ const CSRF_EXEMPT_PATHS = [
   '/api/bot/',
   '/api/cg/',
   '/api/v1/',
+  '/api/embed/',
 ]
 
 // Patterns that match via regex (for dynamic segments)
@@ -21,6 +22,18 @@ const CSRF_EXEMPT_PATTERNS = [
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
+
+  // ── CORS preflight for embed API routes ──
+  if (req.method === 'OPTIONS' && pathname.startsWith('/api/embed/')) {
+    return new NextResponse(null, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Plugin-Token, X-Community-Slug',
+      },
+    })
+  }
 
   // ── Backward-compat: /talks/* → /chants/* ──
   if (pathname.startsWith('/talks')) {

@@ -1,10 +1,11 @@
 'use client'
 
-import { type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useEmbedAuth } from './EmbedAuthContext'
 
 export default function EmbedLayout({ children }: { children: ReactNode }) {
-  const { isAuthenticated, userName, login, logout } = useEmbedAuth()
+  const { isAuthenticated, userName, login, logout, debugLog } = useEmbedAuth()
+  const [showDebug, setShowDebug] = useState(true)
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -31,7 +32,22 @@ export default function EmbedLayout({ children }: { children: ReactNode }) {
             Sign In
           </button>
         )}
+        <button
+          onClick={() => setShowDebug(!showDebug)}
+          className="text-[10px] text-muted hover:text-warning transition-colors"
+        >
+          {showDebug ? 'x' : 'dbg'}
+        </button>
       </div>
+
+      {/* Debug Panel */}
+      {showDebug && debugLog.length > 0 && (
+        <div className="shrink-0 max-h-[200px] overflow-y-auto bg-black/90 text-green-400 p-2 font-mono text-[10px] leading-tight border-b border-green-800/50">
+          {debugLog.map((line, i) => (
+            <div key={i}>{line}</div>
+          ))}
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">

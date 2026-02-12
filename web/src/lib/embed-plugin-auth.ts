@@ -55,7 +55,16 @@ export function verifyPluginToken(token: string, secret: string): PluginTokenPay
 
   // Decode and validate payload
   try {
-    const payload: PluginTokenPayload = JSON.parse(Buffer.from(data, 'base64url').toString())
+    const raw = JSON.parse(Buffer.from(data, 'base64url').toString())
+
+    // Support CG-format tokens (cgUserId/cgUsername/cgImageUrl) — maps to standard fields
+    const payload: PluginTokenPayload = {
+      userId: raw.userId || raw.cgUserId,
+      username: raw.username || raw.cgUsername,
+      imageUrl: raw.imageUrl ?? raw.cgImageUrl ?? null,
+      exp: raw.exp,
+    }
+
     if (!payload.userId || !payload.username) return null
     if (payload.exp < Math.floor(Date.now() / 1000)) return null
     return payload
@@ -81,7 +90,7 @@ export async function resolveEmbedPluginUser(
   // Synthetic email scoped to this community
   const email = `embed_${externalUserId}_${communityId}@plugin.unitychant.com`
 
-  // Try by email first (most reliable lookup)
+  // Try by embed email first (most reliable lookup)
   const existing = await prisma.user.findUnique({ where: { email } })
   if (existing) {
     // Sync name/image if changed
@@ -92,6 +101,28 @@ export async function resolveEmbedPluginUser(
       })
     }
     return existing
+  }
+
+  // Check for existing CG user (bridges CG → embed migration)
+  // CG users have cgId field and cg_{id}@plugin.unitychant.com emails
+  const cgUser = await prisma.user.findUnique({ where: { cgId: externalUserId } })
+  if (cgUser) {
+    // Link embed identity to existing CG account
+    await prisma.user.update({
+      where: { id: cgUser.id },
+      data: {
+        embedExternalId: `${externalUserId}:${communityId}`,
+        name: username,
+        image: imageUrl || cgUser.image,
+      },
+    })
+    // Ensure community membership
+    await prisma.communityMember.upsert({
+      where: { communityId_userId: { communityId, userId: cgUser.id } },
+      update: { lastActiveAt: new Date() },
+      create: { communityId, userId: cgUser.id, role: 'MEMBER' },
+    })
+    return cgUser
   }
 
   // Create new synthetic user
