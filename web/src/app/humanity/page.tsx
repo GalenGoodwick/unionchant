@@ -1,5 +1,6 @@
 import { Metadata } from 'next'
 import Link from 'next/link'
+import FrameLayout from '@/components/FrameLayout'
 
 export const metadata: Metadata = {
   title: 'Humanity - Unity Chant',
@@ -8,8 +9,8 @@ export const metadata: Metadata = {
 
 export default function HumanityPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-3xl mx-auto px-6 py-16">
+    <FrameLayout showBack hideFooter>
+      <div className="py-6">
 
         <div className="mb-20">
           <h1 className="text-3xl font-bold mb-3">Humanity</h1>
@@ -181,6 +182,6 @@ export default function HumanityPage() {
           </div>
         </section>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

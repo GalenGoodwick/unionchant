@@ -27,6 +27,12 @@
 .DS_Store
 *.pem
 
+# secrets / keypairs
+*.keypair.json
+keypair.json
+scripts/reset-votes.sh
+supabase/.temp/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

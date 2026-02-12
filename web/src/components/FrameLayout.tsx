@@ -9,6 +9,7 @@ import NotificationBell from '@/components/NotificationBell'
 import { useAdmin } from '@/hooks/useAdmin'
 import { AmbientConstellation } from '@/components/ConstellationCanvas'
 import { useCollectiveChat } from '@/app/providers'
+import CollectiveChat from '@/components/CollectiveChat'
 
 interface FrameLayoutProps {
   active?: 'chants' | 'podiums' | 'groups'
@@ -32,6 +33,18 @@ const menuLinks = [
   { href: '/contact', label: 'Contact' },
 ]
 
+const topBarLinksLeft = [
+  { href: '/sdk', label: 'SDK' },
+  { href: '/api-docs', label: 'API' },
+  { href: '/ai', label: 'AI' },
+]
+
+const topBarLinksRight = [
+  { href: '/humanity', label: 'Humanity' },
+  { href: '/embed', label: 'Embed' },
+  { href: '/methodology', label: 'Method' },
+]
+
 export default function FrameLayout({
   active,
   header,
@@ -52,6 +65,20 @@ export default function FrameLayout({
   const [menuOpen, setMenuOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
+
+  const [topBarOpen, setTopBarOpen] = useState(true)
+
+  useEffect(() => {
+    if (localStorage.getItem('topBarOpen') === 'false') setTopBarOpen(false)
+  }, [])
+
+  const toggleTopBar = () => {
+    setTopBarOpen(prev => {
+      const next = !prev
+      localStorage.setItem('topBarOpen', String(next))
+      return next
+    })
+  }
 
   useEffect(() => {
     if (menuOpen && btnRef.current) {
@@ -82,13 +109,48 @@ export default function FrameLayout({
   ]
 
   return (
-    <div className="fixed inset-0 z-10 flex flex-col bg-background overflow-hidden pt-11 px-2 pb-2 sm:pt-12 sm:px-4 sm:pb-4">
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-4 border-white/50 rounded-xl">
+    <div className="fixed inset-0 z-10 flex flex-col bg-background overflow-hidden sm:px-4 sm:pb-4 sm:pt-4">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden sm:max-w-[480px] w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
         <AmbientConstellation />
+
+        {/* ── Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method) ── */}
+        {topBarOpen && (
+          <div className="shrink-0 relative z-10 px-3 pt-2 pb-1 border-b border-border/50">
+            <div className="flex justify-center items-center gap-1 flex-wrap">
+              {topBarLinksLeft.map(link => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md whitespace-nowrap transition-colors ${
+                    pathname === link.href || pathname?.startsWith(link.href + '/')
+                      ? 'bg-white/15 text-foreground font-semibold'
+                      : 'text-muted hover:text-foreground hover:bg-surface/80'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+              <Link href="/chants" className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors">Beta</Link>
+              {topBarLinksRight.map(link => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`px-2 py-1 text-[11px] font-medium rounded-md whitespace-nowrap transition-colors ${
+                    pathname === link.href || pathname?.startsWith(link.href + '/')
+                      ? 'bg-white/15 text-foreground font-semibold'
+                      : 'text-muted hover:text-foreground hover:bg-surface/80'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Top bar (in-frame controls) ── */}
         {(showBack || header || session) && (
-          <div className="shrink-0 px-3 pt-3 pb-1 relative z-10">
+          <div className="shrink-0 px-3 pt-2 pb-1 relative z-10">
             <div className="flex items-center gap-2">
               {showBack && (
                 <button
@@ -107,6 +169,18 @@ export default function FrameLayout({
                   </svg>
                 </button>
               )}
+
+              {/* Toggle top bar */}
+              <button
+                onClick={toggleTopBar}
+                className="w-6 h-6 rounded-full bg-accent/20 hover:bg-accent/30 border border-accent/40 text-accent flex items-center justify-center transition-colors shrink-0"
+                aria-label={topBarOpen ? 'Hide top bar' : 'Show top bar'}
+                title={topBarOpen ? 'Hide top bar' : 'Show top bar'}
+              >
+                <svg className={`w-3 h-3 transition-transform duration-200 ${topBarOpen ? '' : 'rotate-180'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                </svg>
+              </button>
 
               <div className="flex-1" />
 
@@ -168,16 +242,16 @@ export default function FrameLayout({
         {/* ── Content ── */}
         <div
           ref={scrollRef}
-          className={`flex-1 min-h-0 overflow-y-auto relative z-10 ${noPadding ? '' : 'px-4 pb-4'} ${contentClassName}`}
+          className={`flex-1 min-h-0 overflow-y-auto relative z-10 border-t-2 border-b-2 border-accent/30 ${noPadding ? '' : 'px-4 pb-4'} ${contentClassName}`}
         >
           {children}
         </div>
 
-        {/* ── Bottom tab bar ── */}
-        {!hideFooter && (
-          <div className="shrink-0 relative z-10 border-t border-border/50">
-            <div className="flex items-end px-2 py-1.5">
-              <div className="flex-1 flex justify-around items-center">
+        {/* ── Bottom bar ── */}
+        <div className="shrink-0 relative z-10 border-t border-border/50">
+          <div className="flex items-end px-2 py-1.5">
+            {!hideFooter && (
+              <div className="flex-1 flex items-center gap-1">
                 {tabs.map(tab => {
                   const isActive = tab.key === active
                   return (
@@ -196,27 +270,40 @@ export default function FrameLayout({
                   )
                 })}
               </div>
+            )}
+            {hideFooter && <div className="flex-1" />}
 
-              <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                <button
-                  onClick={toggleChat}
-                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-                    chatOpen ? 'bg-gold/20 text-gold' : 'bg-gold/80 text-header hover:bg-gold'
-                  }`}
-                  aria-label="Collective"
-                  title="Collective"
-                >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                    <circle cx="12" cy="12" r="3" />
-                    <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
-                    <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
-                  </svg>
-                </button>
-                {footerRight}
-              </div>
+            <div className="flex items-center gap-1.5 shrink-0 ml-1">
+              <button
+                onClick={toggleChat}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                  chatOpen ? 'bg-gold/20 text-gold' : 'bg-gold text-header hover:bg-gold/80'
+                }`}
+                aria-label="Collective"
+                title="Collective"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                  <circle cx="12" cy="12" r="3" />
+                  <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
+                  <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
+                </svg>
+              </button>
+              {footerRight}
             </div>
           </div>
+        </div>
+
+        {/* ── Collective Chat (inside frame) ── */}
+        {chatOpen && (
+          <div className="absolute inset-0 z-50 bg-black/50" onClick={toggleChat} />
         )}
+        <div className={`absolute inset-0 z-50 shadow-2xl transition-transform duration-200 ${
+          chatOpen ? 'translate-y-0 opacity-100' : 'translate-y-full pointer-events-none opacity-0'
+        }`}>
+          <div className="h-full flex flex-col">
+            <CollectiveChat onClose={toggleChat} />
+          </div>
+        </div>
       </div>
     </div>
   )

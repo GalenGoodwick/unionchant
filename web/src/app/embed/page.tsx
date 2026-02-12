@@ -22,7 +22,7 @@ function Section({ id, title, children }: { id: string; title: string; children:
 
 export default function EmbedPage() {
   return (
-    <FrameLayout hideFooter>
+    <FrameLayout showBack hideFooter>
       <div className="py-4">
         <h1 className="text-xl font-bold text-foreground mb-1">Embed Unity Chant</h1>
         <p className="text-muted text-xs mb-2">

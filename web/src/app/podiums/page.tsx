@@ -55,18 +55,17 @@ export default function PodiumsPage() {
   return (
     <FrameLayout
       active="podiums"
+      header={<></>}
       footerRight={
-        session ? (
-          <Link
-            href="/podium/new"
-            className="h-10 px-4 rounded-full bg-accent hover:bg-accent-hover text-white text-sm font-medium shadow-sm flex items-center gap-2 transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-            </svg>
-            <span>Write</span>
-          </Link>
-        ) : undefined
+        <Link
+          href={session ? '/podium/new' : '/signin'}
+          className="h-10 px-4 rounded-full bg-accent hover:bg-accent-hover text-white text-sm font-medium shadow-sm flex items-center gap-2 transition-colors"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+          </svg>
+          <span>Write</span>
+        </Link>
       }
     >
       {loading ? (

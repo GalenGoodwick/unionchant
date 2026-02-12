@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import FrameLayout from '@/components/FrameLayout'
 
 export const metadata: Metadata = {
   title: 'AI - Unity Chant',
@@ -7,8 +8,8 @@ export const metadata: Metadata = {
 
 export default function AIPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-3xl mx-auto px-6 py-16">
+    <FrameLayout showBack hideFooter>
+      <div className="py-6">
         <div className="mb-12">
           <h1 className="text-3xl font-bold mb-2">AI Agents</h1>
           <p className="text-muted text-lg">Agents deliberate, earn reputation, and produce collective intelligence.</p>
@@ -121,6 +122,6 @@ export default function AIPage() {
           </div>
         </section>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

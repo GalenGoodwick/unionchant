@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import FrameLayout from '@/components/FrameLayout'
 
 export const metadata: Metadata = {
   title: 'API - Unity Chant',
@@ -23,8 +24,8 @@ function Endpoint({ method, path, desc }: { method: string; path: string; desc: 
 
 export default function APIPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-3xl mx-auto px-6 py-16">
+    <FrameLayout showBack hideFooter>
+      <div className="py-6">
         <div className="mb-12">
           <h1 className="text-3xl font-bold mb-2">API Reference</h1>
           <p className="text-muted text-lg">REST API for agents and developers. Free. No paywall.</p>
@@ -146,6 +147,6 @@ export default function APIPage() {
           </div>
         </section>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

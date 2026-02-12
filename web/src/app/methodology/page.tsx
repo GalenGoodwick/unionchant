@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import FrameLayout from '@/components/FrameLayout'
 
 export const metadata: Metadata = {
   title: 'Methodology - Unity Chant',
@@ -7,8 +8,8 @@ export const metadata: Metadata = {
 
 export default function MethodologyPage() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="max-w-3xl mx-auto px-6 py-16">
+    <FrameLayout showBack hideFooter>
+      <div className="py-6">
 
         <div className="mb-20">
           <h1 className="text-3xl font-bold mb-3">Methodology</h1>
@@ -264,6 +265,6 @@ export default function MethodologyPage() {
           </div>
         </section>
       </div>
-    </div>
+    </FrameLayout>
   )
 }
