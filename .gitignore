@@ -1,6 +1,7 @@
 .vercel
 .env*.local
 .DS_Store
+CLAUDE.md
 
 # Backlog
 docs/backlog/
