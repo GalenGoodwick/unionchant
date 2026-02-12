@@ -4,8 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
-import Header from '@/components/Header'
-import { phaseLabel } from '@/lib/labels'
+import FrameLayout from '@/components/FrameLayout'
 
 type FeedItem = {
   id: string
@@ -73,97 +72,90 @@ export default function CommunityFeedPage() {
   const completed = items.filter(i => i.kind === 'completed')
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-
-      <div className="max-w-xl mx-auto px-4 py-6">
-        <div className="flex items-center gap-2 mb-6">
-          <Link href={`/groups/${slug}`} className="text-muted hover:text-foreground text-sm">
-            &larr; {communityName || 'Group'}
-          </Link>
-        </div>
-
-        <div className="flex items-center justify-between mb-6">
+    <FrameLayout
+      active="groups" showBack
+      header={
+        <div className="flex items-center justify-between py-3">
           <div>
-            <h1 className="text-xl font-bold text-foreground">{communityName} Feed</h1>
-            <p className="text-sm text-muted mt-0.5">{items.length} chant{items.length !== 1 ? 's' : ''}</p>
+            <h1 className="text-sm font-bold text-foreground">{communityName} Feed</h1>
+            <p className="text-[10px] text-muted mt-0.5">{items.length} chant{items.length !== 1 ? 's' : ''}</p>
           </div>
           <Link
             href={`/chants/new`}
-            className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+            className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg font-medium text-xs transition-colors"
           >
             + New Chant
           </Link>
         </div>
+      }
+    >
+      {loading && (
+        <div className="space-y-2 pt-2">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="animate-pulse bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <div className="h-3 bg-background rounded w-2/3 mb-2" />
+              <div className="h-2.5 bg-background rounded w-1/3" />
+            </div>
+          ))}
+        </div>
+      )}
 
-        {loading && (
-          <div className="space-y-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="animate-pulse bg-surface border border-border rounded-xl p-4">
-                <div className="h-4 bg-background rounded w-2/3 mb-2" />
-                <div className="h-3 bg-background rounded w-1/3" />
+      {error && (
+        <div className="bg-error-bg text-error p-3 rounded-lg text-xs mt-2">{error}</div>
+      )}
+
+      {!loading && !error && items.length === 0 && (
+        <div className="text-center py-12 bg-surface/90 backdrop-blur-sm border border-border rounded-lg mt-2">
+          <p className="text-muted text-xs mb-3">No chants in this group yet.</p>
+          <Link
+            href="/chants/new"
+            className="text-accent hover:text-accent-hover font-medium text-xs"
+          >
+            Create the first chant
+          </Link>
+        </div>
+      )}
+
+      {!loading && !error && (
+        <div className="space-y-4 pt-2">
+          {/* Actionable */}
+          {actionable.length > 0 && (
+            <div>
+              <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Your Turn</h2>
+              <div className="space-y-1.5">
+                {actionable.map(item => (
+                  <FeedCard key={item.id} item={item} />
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
 
-        {error && (
-          <div className="bg-error-bg text-error p-4 rounded-lg text-sm">{error}</div>
-        )}
-
-        {!loading && !error && items.length === 0 && (
-          <div className="text-center py-16 bg-surface border border-border rounded-xl">
-            <p className="text-muted mb-4">No chants in this group yet.</p>
-            <Link
-              href="/chants/new"
-              className="text-accent hover:text-accent-hover font-medium text-sm"
-            >
-              Create the first chant
-            </Link>
-          </div>
-        )}
-
-        {!loading && !error && (
-          <div className="space-y-6">
-            {/* Actionable */}
-            {actionable.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">Your Turn</h2>
-                <div className="space-y-2">
-                  {actionable.map(item => (
-                    <FeedCard key={item.id} item={item} />
-                  ))}
-                </div>
+          {/* Waiting */}
+          {waiting.length > 0 && (
+            <div>
+              <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">In Progress</h2>
+              <div className="space-y-1.5">
+                {waiting.map(item => (
+                  <FeedCard key={item.id} item={item} />
+                ))}
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Waiting */}
-            {waiting.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">In Progress</h2>
-                <div className="space-y-2">
-                  {waiting.map(item => (
-                    <FeedCard key={item.id} item={item} />
-                  ))}
-                </div>
+          {/* Completed */}
+          {completed.length > 0 && (
+            <div>
+              <h2 className="text-xs font-semibold text-foreground uppercase tracking-wider mb-2">Results</h2>
+              <div className="space-y-1.5">
+                {completed.map(item => (
+                  <FeedCard key={item.id} item={item} />
+                ))}
               </div>
-            )}
-
-            {/* Completed */}
-            {completed.length > 0 && (
-              <div>
-                <h2 className="text-sm font-semibold text-muted uppercase tracking-wider mb-3">Results</h2>
-                <div className="space-y-2">
-                  {completed.map(item => (
-                    <FeedCard key={item.id} item={item} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+            </div>
+          )}
+        </div>
+      )}
+    </FrameLayout>
   )
 }
 
@@ -173,32 +165,32 @@ function FeedCard({ item }: { item: FeedItem }) {
   return (
     <Link
       href={`/chants/${item.id}`}
-      className={`block rounded-xl border p-4 transition-colors hover:border-accent ${config.bgColor}`}
+      className={`block rounded-lg border p-3 transition-colors hover:border-accent ${config.bgColor}`}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className={`text-xs font-semibold ${config.color}`}>{config.label}</span>
+          <div className="flex items-center gap-1.5 mb-0.5">
+            <span className={`text-[10px] font-semibold ${config.color}`}>{config.label}</span>
             {!item.isPublic && (
-              <span className="text-xs text-muted bg-surface px-1.5 py-0.5 rounded">Private</span>
+              <span className="text-[10px] text-muted bg-surface px-1 py-0.5 rounded">Private</span>
             )}
           </div>
-          <h3 className="text-foreground font-medium text-sm leading-snug">{item.question}</h3>
+          <h3 className="text-foreground font-medium text-xs leading-snug">{item.question}</h3>
           {item.champion && item.kind === 'completed' && (
-            <p className="text-xs text-success mt-1 truncate">
+            <p className="text-[10px] text-success mt-0.5 truncate">
               Priority: {item.champion.text}
             </p>
           )}
         </div>
         <div className="text-right shrink-0">
-          <div className="text-xs text-muted">{item.memberCount} members</div>
-          <div className="text-xs text-muted">{item.ideaCount} ideas</div>
+          <div className="text-[10px] text-muted">{item.memberCount} members</div>
+          <div className="text-[10px] text-muted">{item.ideaCount} ideas</div>
         </div>
       </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-xs text-muted">{config.action}</span>
+      <div className="flex items-center justify-between mt-1.5">
+        <span className="text-[10px] text-muted">{config.action}</span>
         {item.tier > 0 && item.kind !== 'completed' && (
-          <span className="text-xs text-muted">Tier {item.tier}</span>
+          <span className="text-[10px] text-muted">Tier {item.tier}</span>
         )}
       </div>
     </Link>

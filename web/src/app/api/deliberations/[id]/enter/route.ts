@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { checkDeliberationAccess } from '@/lib/privacy'
 import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
+import { atomicJoinCell } from '@/lib/voting'
 
 // POST /api/deliberations/[id]/enter - Join a voting cell
 export async function POST(
@@ -57,13 +58,19 @@ export async function POST(
     const isFCFS = deliberation.allocationMode === 'fcfs'
     const FCFS_CELL_SIZE = deliberation.cellSize || 5
 
-    // Check if user is already in cells for current tier
+    // For continuous flow, check ALL tiers for active/voted cells (voting stack)
+    // For regular mode, only check current tier
+    const tierFilter = deliberation.continuousFlow
+      ? {} // all tiers
+      : { tier: deliberation.currentTier }
+
+    // Check if user is already in cells
     const existingParticipations = await prisma.cellParticipation.findMany({
       where: {
         userId: user.id,
         cell: {
           deliberationId,
-          tier: deliberation.currentTier,
+          ...tierFilter,
         },
       },
       include: {
@@ -86,10 +93,128 @@ export async function POST(
       },
     })
 
-    // Check if user has an active (not completed) cell
-    const activeParticipation = existingParticipations.find(p => p.cell.status === 'VOTING' || p.cell.status === 'DELIBERATING')
+    // ── Stale seat cleanup: release ACTIVE participations older than 10min ──
+    if (deliberation.continuousFlow) {
+      await prisma.cellParticipation.deleteMany({
+        where: {
+          status: 'ACTIVE',
+          joinedAt: { lt: new Date(Date.now() - 10 * 60 * 1000) },
+          cell: { deliberationId, status: 'VOTING' },
+        },
+      })
+    }
+
+    // Check if user has active (not completed) cells
+    const activeParticipations = existingParticipations.filter(p => p.cell.status === 'VOTING' || p.cell.status === 'DELIBERATING')
+
+    // ── Continuous flow multi-cell: return ALL active cells + join missing tiers ──
+    if (deliberation.continuousFlow && isFCFS) {
+      const votedTiers = new Set(
+        existingParticipations
+          .filter(p => p.status === 'VOTED' || p.cell.status === 'COMPLETED')
+          .map(p => p.cell.tier)
+      )
+      const activeTiers = new Set(activeParticipations.map(p => p.cell.tier))
+      const excludeTiers = new Set([...votedTiers, ...activeTiers])
+
+      // Find open cells at tiers user hasn't voted in or isn't active in
+      const openCells = await prisma.cell.findMany({
+        where: {
+          deliberationId,
+          status: 'VOTING',
+          ...(excludeTiers.size > 0 ? { tier: { notIn: [...excludeTiers] } } : {}),
+        },
+        include: {
+          _count: { select: { participants: true } },
+          ideas: {
+            include: {
+              idea: {
+                select: { id: true, text: true, author: { select: { name: true } } },
+              },
+            },
+          },
+        },
+        orderBy: [{ tier: 'asc' }, { createdAt: 'asc' }],
+      })
+
+      // Group by tier — pick one cell per tier (first with room)
+      const cellsByTier = new Map<number, typeof openCells[0]>()
+      for (const c of openCells) {
+        if (!cellsByTier.has(c.tier) && c._count.participants < FCFS_CELL_SIZE) {
+          cellsByTier.set(c.tier, c)
+        }
+      }
+
+      console.log('[enter] CF multi-cell:', {
+        excludeTiers: [...excludeTiers],
+        openCells: openCells.map(c => ({ id: c.id, tier: c.tier, participants: c._count.participants })),
+        cellsByTier: [...cellsByTier.entries()].map(([t, c]) => ({ tier: t, id: c.id })),
+      })
+
+      // Join all new cells
+      const newCells: typeof openCells = []
+      for (const [, cell] of cellsByTier) {
+        const joined = await atomicJoinCell(cell.id, user.id, FCFS_CELL_SIZE)
+        console.log('[enter] atomicJoinCell:', { cellId: cell.id, tier: cell.tier, joined })
+        if (joined) newCells.push(cell)
+      }
+
+      // Ensure membership
+      if (newCells.length > 0 || activeParticipations.length === 0) {
+        await prisma.deliberationMember.upsert({
+          where: { deliberationId_userId: { userId: user.id, deliberationId } },
+          create: { userId: user.id, deliberationId },
+          update: {},
+        })
+      }
+
+      // Build response: all cells user is now in (active + newly joined)
+      const allCells = [
+        ...activeParticipations.map(p => ({
+          id: p.cell.id,
+          tier: p.cell.tier,
+          ideas: p.cell.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+            author: ci.idea.author?.name || 'Anonymous',
+          })),
+          voterCount: p.cell._count.participants,
+          votersNeeded: FCFS_CELL_SIZE,
+        })),
+        ...newCells.map(c => ({
+          id: c.id,
+          tier: c.tier,
+          ideas: c.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+            author: ci.idea.author?.name || 'Anonymous',
+          })),
+          voterCount: c._count.participants + 1,
+          votersNeeded: FCFS_CELL_SIZE,
+        })),
+      ].sort((a, b) => a.tier - b.tier)
+
+      if (allCells.length === 0) {
+        return NextResponse.json({
+          error: 'All cells are full. Waiting for results before next round opens.',
+          roundFull: true,
+        }, { status: 400 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        isFCFS: true,
+        multiCell: true,
+        cells: allCells,
+        // Also return first cell as `cell` for backwards compat
+        cell: allCells[0],
+        ...(activeParticipations.length > 0 ? { alreadyInCell: true } : {}),
+      })
+    }
+
+    // ── Single-cell modes (regular FCFS or balanced) ──
+    const activeParticipation = activeParticipations[0]
     if (activeParticipation) {
-      // Already in an active cell, return it
       return NextResponse.json({
         alreadyInCell: true,
         cell: {
@@ -109,16 +234,19 @@ export async function POST(
     }
 
     if (isFCFS) {
-      // ── FCFS mode: assign user to oldest open cell with room ──
-      // User already voted in this tier? Block them.
-      const alreadyVoted = existingParticipations.some(p => p.cell.status === 'COMPLETED')
-      if (alreadyVoted) {
+      // ── Regular FCFS mode: assign user to oldest open cell with room ──
+      const votedTiers = new Set(
+        existingParticipations
+          .filter(p => p.status === 'VOTED' || p.cell.status === 'COMPLETED')
+          .map(p => p.cell.tier)
+      )
+
+      if (votedTiers.has(deliberation.currentTier)) {
         return NextResponse.json({
           error: 'You have already voted in this tier. Wait for the next tier.'
         }, { status: 400 })
       }
 
-      // Find oldest VOTING cell with < FCFS_CELL_SIZE participants
       const openCells = await prisma.cell.findMany({
         where: {
           deliberationId,
@@ -135,7 +263,7 @@ export async function POST(
             },
           },
         },
-        orderBy: { createdAt: 'asc' }, // oldest first
+        orderBy: { createdAt: 'asc' },
       })
 
       const cellToJoin = openCells.find(c => c._count.participants < FCFS_CELL_SIZE)
@@ -147,16 +275,18 @@ export async function POST(
         }, { status: 400 })
       }
 
-      // Ensure membership
+      const joined = await atomicJoinCell(cellToJoin.id, user.id, FCFS_CELL_SIZE)
+      if (!joined) {
+        return NextResponse.json({
+          error: 'All cells are full. Waiting for results before next round opens.',
+          roundFull: true,
+        }, { status: 400 })
+      }
+
       await prisma.deliberationMember.upsert({
         where: { deliberationId_userId: { userId: user.id, deliberationId } },
         create: { userId: user.id, deliberationId },
         update: {},
-      })
-
-      // Add to cell
-      await prisma.cellParticipation.create({
-        data: { cellId: cellToJoin.id, userId: user.id, status: 'ACTIVE' },
       })
 
       return NextResponse.json({
@@ -170,7 +300,7 @@ export async function POST(
             text: ci.idea.text,
             author: ci.idea.author?.name || 'Anonymous',
           })),
-          voterCount: cellToJoin._count.participants + 1, // including this user
+          voterCount: cellToJoin._count.participants + 1,
           votersNeeded: FCFS_CELL_SIZE,
         },
       })
@@ -267,6 +397,16 @@ export async function POST(
       }, { status: 400 })
     }
 
+    // Atomically join cell (prevents race where two users both see room)
+    const MAX_CELL = 7
+    const joinedLate = await atomicJoinCell(cellToJoin.id, user.id, MAX_CELL)
+    if (!joinedLate) {
+      return NextResponse.json({
+        error: 'This round is full. You\'ll be included in the next round.',
+        roundFull: true,
+      }, { status: 400 })
+    }
+
     // Ensure user is a member of the deliberation
     await prisma.deliberationMember.upsert({
       where: {
@@ -280,15 +420,6 @@ export async function POST(
         deliberationId,
       },
       update: {},
-    })
-
-    // Add user to the cell
-    await prisma.cellParticipation.create({
-      data: {
-        cellId: cellToJoin.id,
-        userId: user.id,
-        status: 'ACTIVE',
-      },
     })
 
     return NextResponse.json({

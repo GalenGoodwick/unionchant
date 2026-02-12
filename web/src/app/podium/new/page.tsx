@@ -4,8 +4,8 @@ import { Suspense, useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import Header from '@/components/Header'
 import { useToast } from '@/components/Toast'
+import FrameLayout from '@/components/FrameLayout'
 
 const TITLE_MAX = 200
 const BODY_MAX = 10000
@@ -18,7 +18,7 @@ type DelibOption = {
 
 export default function NewPodiumPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center"><div className="text-muted">Loading...</div></div>}>
+    <Suspense fallback={<FrameLayout active="podiums" showBack><div className="flex items-center justify-center py-12"><div className="text-muted text-xs">Loading...</div></div></FrameLayout>}>
       <NewPodiumPageInner />
     </Suspense>
   )
@@ -121,9 +121,11 @@ function NewPodiumPageInner() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
-      </div>
+      <FrameLayout active="podiums" showBack>
+        <div className="flex items-center justify-center py-12">
+          <div className="text-muted text-xs">Loading...</div>
+        </div>
+      </FrameLayout>
     )
   }
 
@@ -134,21 +136,14 @@ function NewPodiumPageInner() {
   const linkedDelib = deliberations.find(d => d.id === deliberationId)
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <div className="max-w-2xl mx-auto px-4 py-8">
+    <FrameLayout active="podiums" showBack>
+      <div className="py-4">
         {/* Top bar */}
-        <div className="flex justify-between items-center mb-8">
-          <Link
-            href="/podiums"
-            className="text-muted hover:text-foreground transition-colors text-sm"
-          >
-            &larr; Back to Podiums
-          </Link>
+        <div className="flex justify-end items-center mb-4">
           <button
             onClick={handleSubmit}
             disabled={submitting || !title.trim() || !body.trim()}
-            className="bg-accent text-white font-semibold px-6 py-2 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-accent text-white font-semibold px-4 py-1.5 rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs"
           >
             {submitting ? 'Publishing...' : 'Publish'}
           </button>
@@ -161,9 +156,9 @@ function NewPodiumPageInner() {
           onChange={e => setTitle(e.target.value)}
           placeholder="Title"
           maxLength={TITLE_MAX}
-          className="w-full bg-transparent text-3xl font-bold text-foreground placeholder-border outline-none mb-2"
+          className="w-full bg-transparent text-sm font-bold text-foreground placeholder-border outline-none mb-1"
         />
-        <div className="text-xs text-muted mb-6">{title.length}/{TITLE_MAX}</div>
+        <div className="text-xs text-muted mb-4">{title.length}/{TITLE_MAX}</div>
 
         {/* Body */}
         <textarea
@@ -171,7 +166,7 @@ function NewPodiumPageInner() {
           onChange={e => setBody(e.target.value)}
           placeholder="Write your post..."
           maxLength={BODY_MAX}
-          className="w-full bg-transparent text-base text-muted placeholder-border outline-none leading-relaxed resize-none min-h-[400px]"
+          className="w-full bg-transparent text-xs text-muted placeholder-border outline-none leading-relaxed resize-none min-h-[300px]"
         />
         <div className={`text-xs mt-1 ${body.length > BODY_MAX * 0.9 ? 'text-warning' : 'text-muted'}`}>
           {body.length.toLocaleString()}/{BODY_MAX.toLocaleString()}
@@ -179,7 +174,7 @@ function NewPodiumPageInner() {
 
         {/* Admin: Send as news */}
         {isUserAdmin && (
-          <div className="border-t border-border pt-6 mt-6">
+          <div className="border-t border-border pt-4 mt-4">
             <label className="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -188,7 +183,7 @@ function NewPodiumPageInner() {
                 className="mt-0.5 w-4 h-4 rounded border-border accent-accent"
               />
               <div>
-                <div className="text-sm font-semibold text-foreground">Send as news email</div>
+                <div className="text-xs font-semibold text-foreground">Send as news email</div>
                 <div className="text-xs text-muted mt-0.5">
                   This will email all users who have news notifications enabled.
                 </div>
@@ -198,8 +193,8 @@ function NewPodiumPageInner() {
         )}
 
         {/* Link deliberation */}
-        <div className="border-t border-border pt-6 mt-6">
-          <div className="text-sm font-semibold text-foreground mb-3">
+        <div className="border-t border-border pt-4 mt-4">
+          <div className="text-xs font-semibold text-foreground mb-2">
             Link a chant <span className="text-muted font-normal">(optional)</span>
           </div>
 
@@ -256,6 +251,6 @@ function NewPodiumPageInner() {
           </div>
         </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

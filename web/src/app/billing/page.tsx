@@ -4,7 +4,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import Header from '@/components/Header'
+import FrameLayout from '@/components/FrameLayout'
 
 const tierInfo: Record<string, { name: string; price: string; description: string }> = {
   free: { name: 'Free', price: '$0', description: 'For individuals and open groups' },
@@ -60,41 +60,34 @@ export default function BillingPage() {
 
   if (status === 'loading' || loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-lg mx-auto px-4 py-12 text-center text-muted">Loading...</div>
-      </div>
+      <FrameLayout hideFooter showBack>
+        <div className="text-center text-muted py-12">Loading...</div>
+      </FrameLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-
-      <div className="max-w-lg mx-auto px-4 sm:px-6 py-8">
-        <Link href="/profile" className="text-muted hover:text-foreground text-sm mb-6 inline-block">
-          &larr; Back to profile
-        </Link>
-
-        <h1 className="text-2xl font-bold text-foreground mb-6">Billing</h1>
+    <FrameLayout hideFooter showBack>
+      <div className="py-4">
+        <h1 className="text-sm font-bold text-foreground mb-4">Billing</h1>
 
         {error && (
-          <div className="bg-error-bg border border-error-border text-error px-4 py-3 rounded-xl mb-6 text-sm">
+          <div className="bg-error-bg border border-error-border text-error px-4 py-3 rounded-lg mb-4 text-xs">
             {error}
           </div>
         )}
 
         {/* Current Plan */}
-        <div className="bg-surface border border-border rounded-xl p-6 mb-6">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4 mb-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-muted mb-1">Current plan</p>
-              <h2 className="text-xl font-bold text-foreground">{info.name}</h2>
-              <p className="text-muted text-sm mt-1">{info.description}</p>
+              <p className="text-xs text-muted mb-1">Current plan</p>
+              <h2 className="text-sm font-bold text-foreground">{info.name}</h2>
+              <p className="text-muted text-xs mt-1">{info.description}</p>
             </div>
             <div className="text-right">
-              <span className="text-2xl font-bold text-foreground font-mono">{info.price}</span>
-              <span className="text-muted text-sm">/mo</span>
+              <span className="text-sm font-bold text-foreground font-mono">{info.price}</span>
+              <span className="text-muted text-xs">/mo</span>
             </div>
           </div>
         </div>
@@ -103,12 +96,12 @@ export default function BillingPage() {
         <div className="space-y-3">
           {tier === 'free' ? (
             <>
-              <p className="text-muted text-sm">
+              <p className="text-muted text-xs">
                 You&apos;re on the Free plan. Upgrade to unlock private groups, analytics, and more.
               </p>
               <Link
                 href="/pricing"
-                className="block text-center bg-accent hover:bg-accent-hover text-white font-medium py-3 px-6 rounded-xl transition-colors"
+                className="block text-center bg-accent hover:bg-accent-hover text-white font-medium py-2.5 px-4 rounded-lg transition-colors text-xs"
               >
                 View Plans
               </Link>
@@ -117,7 +110,7 @@ export default function BillingPage() {
             <>
               <Link
                 href="/pricing"
-                className="block text-center border border-border text-foreground hover:bg-surface-hover font-medium py-3 px-6 rounded-xl transition-colors"
+                className="block text-center border border-border text-foreground hover:bg-surface-hover font-medium py-2.5 px-4 rounded-lg transition-colors text-xs"
               >
                 Change Plan
               </Link>
@@ -126,21 +119,21 @@ export default function BillingPage() {
                 <button
                   onClick={handleManageSubscription}
                   disabled={portalLoading}
-                  className="w-full border border-border text-foreground hover:bg-surface-hover font-medium py-3 px-6 rounded-xl transition-colors disabled:opacity-50"
+                  className="w-full border border-border text-foreground hover:bg-surface-hover font-medium py-2.5 px-4 rounded-lg transition-colors disabled:opacity-50 text-xs"
                 >
                   {portalLoading ? 'Opening portal...' : 'Manage Subscription'}
                 </button>
               )}
 
               <div className="border-t border-border pt-4 mt-4">
-                <p className="text-muted text-sm mb-3">
+                <p className="text-muted text-xs mb-3">
                   Need to cancel? You can cancel anytime from the Stripe billing portal. Your plan stays active until the end of the billing period.
                 </p>
                 {hasSubscription && (
                   <button
                     onClick={handleManageSubscription}
                     disabled={portalLoading}
-                    className="text-error hover:text-error-hover text-sm underline hover:no-underline transition-colors"
+                    className="text-error hover:text-error-hover text-xs underline hover:no-underline transition-colors"
                   >
                     Cancel Subscription
                   </button>
@@ -150,6 +143,6 @@ export default function BillingPage() {
           )}
         </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

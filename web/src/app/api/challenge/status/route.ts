@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { cached } from '@/lib/cache'
 
 const MIN_INTERVAL_MS = 2.5 * 60 * 60 * 1000 // 2.5 hours
 const MAX_INTERVAL_MS = 3 * 60 * 60 * 1000   // 3 hours
@@ -14,10 +15,12 @@ export async function GET() {
       return NextResponse.json({ needsChallenge: false })
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: session.user.id },
-      select: { lastChallengePassedAt: true, isAI: true, role: true },
-    })
+    const user = await cached(`challenge:${session.user.id}`, 30_000, () =>
+      prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { lastChallengePassedAt: true, isAI: true, role: true },
+      })
+    )
 
     if (!user) return NextResponse.json({ needsChallenge: false })
 

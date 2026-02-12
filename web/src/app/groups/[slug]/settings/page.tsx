@@ -4,8 +4,8 @@ import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import Header from '@/components/Header'
 import { getDisplayName } from '@/lib/user'
+import FrameLayout from '@/components/FrameLayout'
 
 function MemberAvatar({ image, name }: { image: string | null; name: string | null }) {
   const [imgError, setImgError] = useState(false)
@@ -16,14 +16,14 @@ function MemberAvatar({ image, name }: { image: string | null; name: string | nu
       <img
         src={image}
         alt=""
-        className="w-9 h-9 rounded-full"
+        className="w-7 h-7 rounded-full"
         onError={() => setImgError(true)}
       />
     )
   }
 
   return (
-    <span className="w-9 h-9 rounded-full bg-accent/20 flex items-center justify-center text-sm font-medium text-accent">
+    <span className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent">
       {initial}
     </span>
   )
@@ -135,7 +135,6 @@ export default function CommunitySettingsPage() {
         const data = await res.json()
         throw new Error(data.error || 'Failed')
       }
-      // Refresh
       const updated = await fetch(`/api/communities/${slug}`).then(r => r.json())
       setCommunity(updated)
     } catch (err) {
@@ -262,61 +261,53 @@ export default function CommunitySettingsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-xl mx-auto px-4 py-8">
-          <div className="animate-pulse h-8 bg-surface rounded w-1/3" />
+      <FrameLayout active="groups" showBack>
+        <div className="pt-4">
+          <div className="animate-pulse h-6 bg-surface rounded w-1/3" />
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   if (!community || (community.userRole !== 'OWNER' && community.userRole !== 'ADMIN')) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-xl mx-auto px-4 py-8 text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-4">Access Denied</h1>
-          <p className="text-muted">Only owners and admins can access settings.</p>
+      <FrameLayout active="groups" showBack>
+        <div className="pt-4 text-center">
+          <h1 className="text-sm font-bold text-foreground mb-2">Access Denied</h1>
+          <p className="text-xs text-muted">Only owners and admins can access settings.</p>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
+    <FrameLayout active="groups" showBack>
+      <div className="pt-4 space-y-4">
+        <h1 className="text-sm font-bold text-foreground">Settings: {community.name}</h1>
 
-      <div className="max-w-xl mx-auto px-4 py-8">
-        <Link href={`/groups/${slug}`} className="text-muted hover:text-foreground text-sm mb-4 inline-block">
-          &larr; Back to group
-        </Link>
-
-        <h1 className="text-2xl font-bold text-foreground mb-6">Settings: {community.name}</h1>
-
-        {error && <div className="bg-error-bg text-error p-4 rounded-xl mb-4">{error}</div>}
-        {success && <div className="bg-success-bg text-success p-4 rounded-xl mb-4">{success}</div>}
+        {error && <div className="bg-error-bg text-error p-3 rounded-lg text-xs">{error}</div>}
+        {success && <div className="bg-success-bg text-success p-3 rounded-lg text-xs">{success}</div>}
 
         {/* Community Info */}
-        <div className="bg-surface border border-border rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Group Info</h2>
-          <form onSubmit={handleSave} className="space-y-4">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h2 className="text-xs font-semibold text-foreground mb-3">Group Info</h2>
+          <form onSubmit={handleSave} className="space-y-3">
             <div>
-              <label className="block text-foreground font-medium mb-1">Name</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Name</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={e => setFormData({ ...formData, name: e.target.value })}
-                className="w-full bg-background border border-border rounded-xl px-4 py-2 text-foreground focus:outline-none focus:border-accent"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none focus:border-accent"
               />
             </div>
             <div>
-              <label className="block text-foreground font-medium mb-1">Description</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Description</label>
               <textarea
                 rows={3}
                 value={formData.description}
                 onChange={e => setFormData({ ...formData, description: e.target.value })}
-                className="w-full bg-background border border-border rounded-xl px-4 py-2 text-foreground focus:outline-none focus:border-accent"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground focus:outline-none focus:border-accent"
               />
             </div>
             <div className="flex items-center gap-3">
@@ -325,23 +316,23 @@ export default function CommunitySettingsPage() {
                   type="checkbox"
                   checked={formData.isPublic}
                   onChange={e => setFormData({ ...formData, isPublic: e.target.checked })}
-                  className="w-4 h-4 text-accent"
+                  className="w-3.5 h-3.5 text-accent"
                 />
-                <span className="text-foreground text-sm">Public group</span>
+                <span className="text-foreground text-xs">Public group</span>
               </label>
             </div>
             <div>
-              <label className="block text-foreground font-medium mb-2">Who can create chants?</label>
-              <div className="space-y-2">
+              <label className="block text-xs font-medium text-foreground mb-2">Who can create chants?</label>
+              <div className="space-y-1.5">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="radio"
                     name="postingPermission"
                     checked={formData.postingPermission === 'anyone'}
                     onChange={() => setFormData({ ...formData, postingPermission: 'anyone' })}
-                    className="w-4 h-4 text-accent"
+                    className="w-3.5 h-3.5 text-accent"
                   />
-                  <span className="text-foreground text-sm">Any member</span>
+                  <span className="text-foreground text-xs">Any member</span>
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -349,16 +340,16 @@ export default function CommunitySettingsPage() {
                     name="postingPermission"
                     checked={formData.postingPermission === 'admins'}
                     onChange={() => setFormData({ ...formData, postingPermission: 'admins' })}
-                    className="w-4 h-4 text-accent"
+                    className="w-3.5 h-3.5 text-accent"
                   />
-                  <span className="text-foreground text-sm">Owners and admins only</span>
+                  <span className="text-foreground text-xs">Owners and admins only</span>
                 </label>
               </div>
             </div>
             <button
               type="submit"
               disabled={saving}
-              className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50"
+              className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg font-medium text-xs transition-colors disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save Changes'}
             </button>
@@ -366,24 +357,24 @@ export default function CommunitySettingsPage() {
         </div>
 
         {/* Email Invites */}
-        <div className="bg-surface border border-border rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Invite Members</h2>
-          <form onSubmit={handleSendInvites} className="space-y-4">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h2 className="text-xs font-semibold text-foreground mb-3">Invite Members</h2>
+          <form onSubmit={handleSendInvites} className="space-y-3">
             <div>
-              <label className="block text-foreground font-medium mb-1">Email addresses</label>
+              <label className="block text-xs font-medium text-foreground mb-1">Email addresses</label>
               <textarea
                 rows={3}
                 placeholder="Enter emails separated by commas or new lines"
                 value={inviteEmails}
                 onChange={e => setInviteEmails(e.target.value)}
-                className="w-full bg-background border border-border rounded-xl px-4 py-2 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
               />
             </div>
-            {inviteResult && <p className="text-sm text-muted">{inviteResult}</p>}
+            {inviteResult && <p className="text-xs text-muted">{inviteResult}</p>}
             <button
               type="submit"
               disabled={inviteSending}
-              className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50"
+              className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg font-medium text-xs transition-colors disabled:opacity-50"
             >
               {inviteSending ? 'Sending...' : 'Send Invites'}
             </button>
@@ -391,11 +382,11 @@ export default function CommunitySettingsPage() {
         </div>
 
         {/* Members */}
-        <div className="bg-surface border border-border rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h2 className="text-xs font-semibold text-foreground mb-3">
             Members ({community._count.members})
           </h2>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {community.members.map(m => {
               const roleStyles: Record<string, string> = {
                 OWNER: 'bg-warning/15 text-warning border border-warning/30',
@@ -403,38 +394,38 @@ export default function CommunitySettingsPage() {
                 MEMBER: 'bg-surface text-muted border border-border',
               }
               return (
-                <div key={m.id} className="flex items-center justify-between p-3 bg-background rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
+                <div key={m.id} className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                  <div className="flex items-center gap-2">
                     <MemberAvatar image={m.user.image} name={m.user.name} />
                     <div>
-                      <Link href={`/user/${m.user.id}`} className="text-foreground hover:text-accent text-sm font-medium">{getDisplayName(m.user)}</Link>
-                      <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-0.5 ${roleStyles[m.role] || roleStyles.MEMBER}`}>
+                      <Link href={`/user/${m.user.id}`} className="text-foreground hover:text-accent text-xs font-medium">{getDisplayName(m.user)}</Link>
+                      <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded-full mt-0.5 ${roleStyles[m.role] || roleStyles.MEMBER}`}>
                         {m.role}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
                     {m.role !== 'OWNER' && community.userRole === 'OWNER' && (
                       <>
                         <button
                           onClick={() => handleRoleChange(m.user.id, m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN')}
-                          className={`text-xs px-3 py-1.5 rounded-xl font-medium transition-colors ${
+                          className={`text-[10px] px-2 py-1 rounded-lg font-medium transition-colors ${
                             m.role === 'ADMIN'
                               ? 'bg-muted/10 text-muted border border-border hover:border-muted'
                               : 'bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20'
                           }`}
                         >
-                          {m.role === 'ADMIN' ? 'Demote to Member' : 'Make Admin'}
+                          {m.role === 'ADMIN' ? 'Demote' : 'Admin'}
                         </button>
                         <button
                           onClick={() => handleRemoveMember(m.user.id)}
-                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                          className="text-[10px] px-2 py-1 rounded-lg font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
                         >
                           Remove
                         </button>
                         <button
                           onClick={() => handleBanMember(m.user.id, getDisplayName(m.user))}
-                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error text-white hover:bg-error-hover transition-colors"
+                          className="text-[10px] px-2 py-1 rounded-lg font-medium bg-error text-white hover:bg-error-hover transition-colors"
                         >
                           Ban
                         </button>
@@ -444,13 +435,13 @@ export default function CommunitySettingsPage() {
                       <>
                         <button
                           onClick={() => handleRemoveMember(m.user.id)}
-                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                          className="text-[10px] px-2 py-1 rounded-lg font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
                         >
                           Remove
                         </button>
                         <button
                           onClick={() => handleBanMember(m.user.id, getDisplayName(m.user))}
-                          className="text-xs px-3 py-1.5 rounded-xl font-medium bg-error text-white hover:bg-error-hover transition-colors"
+                          className="text-[10px] px-2 py-1 rounded-lg font-medium bg-error text-white hover:bg-error-hover transition-colors"
                         >
                           Ban
                         </button>
@@ -465,18 +456,18 @@ export default function CommunitySettingsPage() {
 
         {/* Banned Users */}
         {bannedUsers.length > 0 && (
-          <div className="bg-surface border border-border rounded-xl p-6 mt-6">
-            <h2 className="text-lg font-semibold text-foreground mb-4">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+            <h2 className="text-xs font-semibold text-foreground mb-3">
               Banned Users ({bannedUsers.length})
             </h2>
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {bannedUsers.map(b => (
-                <div key={b.id} className="flex items-center justify-between p-3 bg-background rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
+                <div key={b.id} className="flex items-center justify-between p-2 bg-background rounded-lg border border-border">
+                  <div className="flex items-center gap-2">
                     <MemberAvatar image={b.user.image} name={b.user.name} />
                     <div>
-                      <span className="text-foreground text-sm font-medium">{b.user.name || 'Unknown'}</span>
-                      <p className="text-xs text-muted">
+                      <span className="text-foreground text-xs font-medium">{b.user.name || 'Unknown'}</span>
+                      <p className="text-[10px] text-muted">
                         Banned by {b.bannedBy.name || 'admin'}
                         {b.reason && <> &middot; {b.reason}</>}
                       </p>
@@ -484,7 +475,7 @@ export default function CommunitySettingsPage() {
                   </div>
                   <button
                     onClick={() => handleUnban(b.id, b.user.id, b.user.name || 'this user')}
-                    className="text-xs px-3 py-1.5 rounded-xl font-medium bg-success/10 text-success border border-success/30 hover:bg-success/20 transition-colors"
+                    className="text-[10px] px-2 py-1 rounded-lg font-medium bg-success/10 text-success border border-success/30 hover:bg-success/20 transition-colors"
                   >
                     Unban
                   </button>
@@ -496,17 +487,17 @@ export default function CommunitySettingsPage() {
 
         {/* Danger Zone */}
         {community.userRole === 'OWNER' && (
-          <div className="border border-error/30 rounded-xl p-6 mt-6">
-            <h2 className="text-lg font-semibold text-error mb-4">Danger Zone</h2>
-            <div className="space-y-4">
+          <div className="border border-error/30 rounded-lg p-4">
+            <h2 className="text-xs font-semibold text-error mb-3">Danger Zone</h2>
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Purge all messages</p>
-                  <p className="text-xs text-muted">Delete all chat messages in this group.</p>
+                  <p className="text-xs font-medium text-foreground">Purge all messages</p>
+                  <p className="text-[10px] text-muted">Delete all chat messages in this group.</p>
                 </div>
                 <button
                   onClick={handlePurgeChat}
-                  className="text-xs px-4 py-2 rounded-xl font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
+                  className="text-[10px] px-3 py-1.5 rounded-lg font-medium bg-error/10 text-error border border-error/30 hover:bg-error/20 transition-colors"
                 >
                   Purge Messages
                 </button>
@@ -514,12 +505,12 @@ export default function CommunitySettingsPage() {
               <div className="border-t border-error/15" />
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Delete this group</p>
-                  <p className="text-xs text-muted">Permanently delete the group, members, and messages. Chants keep their current visibility.</p>
+                  <p className="text-xs font-medium text-foreground">Delete this group</p>
+                  <p className="text-[10px] text-muted">Permanently delete the group, members, and messages.</p>
                 </div>
                 <button
                   onClick={handleDeleteGroup}
-                  className="text-xs px-4 py-2 rounded-xl font-medium bg-error text-white hover:bg-error-hover transition-colors"
+                  className="text-[10px] px-3 py-1.5 rounded-lg font-medium bg-error text-white hover:bg-error-hover transition-colors"
                 >
                   Delete Group
                 </button>
@@ -528,6 +519,6 @@ export default function CommunitySettingsPage() {
           </div>
         )}
       </div>
-    </div>
+    </FrameLayout>
   )
 }

@@ -78,9 +78,8 @@ export async function POST(req: NextRequest) {
       console.log(`[Set Chant] Deleted existing Chant ${existingTalk.id} for user ${user.id}`)
     }
 
-    // Create a new Chant with default facilitation settings
+    // Create a new Chant — facilitator-controlled, no timers
     const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
-    const submissionDurationMs = 86400000 // 24 hours
     const newTalk = await prisma.deliberation.create({
       data: {
         creatorId: user.id,
@@ -89,12 +88,8 @@ export async function POST(req: NextRequest) {
         fromCollective: true,
         phase: 'SUBMISSION',
         accumulationEnabled: true,
-        submissionDurationMs,
-        votingTimeoutMs: 3600000,
-        secondVoteTimeoutMs: 900000,
-        accumulationTimeoutMs: 86400000,
+        votingTimeoutMs: 0,
         inviteCode,
-        submissionEndsAt: new Date(Date.now() + submissionDurationMs),
       },
     })
 

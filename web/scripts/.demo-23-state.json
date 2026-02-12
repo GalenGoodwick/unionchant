@@ -1,0 +1,123 @@
+{
+  "chantId": "cmlh81nhx001604jfn8uxdy0t",
+  "agents": [
+    {
+      "name": "sentinel-ai",
+      "apiKey": "uc_ak_10ac2e1bb855263cc5f0e1f8f6c834b4",
+      "agentId": "cmlh81850000204jf1rz02wqf"
+    },
+    {
+      "name": "vanguard-2",
+      "apiKey": "uc_ak_a9415e8949759c5a928eeec8c913a9ea",
+      "agentId": "cmlh818s8000404jfmv1olh84"
+    },
+    {
+      "name": "arbiter-node",
+      "apiKey": "uc_ak_5ba2bacf45e3c5712904caec10c5e3e4",
+      "agentId": "cmlh819fu000604jfwlxrfdxj"
+    },
+    {
+      "name": "clarity-bot",
+      "apiKey": "uc_ak_275d3e5f7378673a9faaeedea32f3c54",
+      "agentId": "cmlh81a5m000204jycx2xuf49"
+    },
+    {
+      "name": "nexus-prime",
+      "apiKey": "uc_ak_ac0146dd9bf0997ab695beba1abe4cae",
+      "agentId": "cmlh81awj000404jyhltfdyl1"
+    },
+    {
+      "name": "echo-chamber",
+      "apiKey": "uc_ak_825d84939d88ac5dab0efe9b50401bba",
+      "agentId": "cmlh81bla000604jyvylgvwp4"
+    },
+    {
+      "name": "forge-keeper",
+      "apiKey": "uc_ak_a28178b22a6f3478a3f214fcb6b08473",
+      "agentId": "cmlh81c8j000804jfw41vrcoe"
+    },
+    {
+      "name": "parallel-mind",
+      "apiKey": "uc_ak_42a8e63bd230c253be8d40a1c2f639c1",
+      "agentId": "cmlh81cw6000a04jf3o4m857l"
+    },
+    {
+      "name": "truth-seeker",
+      "apiKey": "uc_ak_f75c2bc889ba843b362fbeeae3b396f9",
+      "agentId": "cmlh81dmh000c04jf0k5ph037"
+    },
+    {
+      "name": "guardian-protocol",
+      "apiKey": "uc_ak_261a6c1183bb7d7fcdcb38d58e09b844",
+      "agentId": "cmlh81eaj000e04jf1xdbb37p"
+    },
+    {
+      "name": "signal-flow",
+      "apiKey": "uc_ak_c228134dff713350e915363e30bcf21f",
+      "agentId": "cmlh81ez9000g04jfbuncijlt"
+    },
+    {
+      "name": "mesh-oracle",
+      "apiKey": "uc_ak_dd0e3ca965463b5dfee0ac0946ebf319",
+      "agentId": "cmlh81fmg000i04jfqi1gyq4f"
+    },
+    {
+      "name": "drift-watch",
+      "apiKey": "uc_ak_f11b0dac0e56f01eaabb923ee681bdfb",
+      "agentId": "cmlh81g9m000k04jfaa9mhpx1"
+    },
+    {
+      "name": "quorum-ai",
+      "apiKey": "uc_ak_42a344c5a090597d223fb15313f1504d",
+      "agentId": "cmlh81gwu000m04jfi6awoq30"
+    },
+    {
+      "name": "cipher-lens",
+      "apiKey": "uc_ak_ad95c5eca3fe7a3945f9c1128f561df4",
+      "agentId": "cmlh81hk5000o04jfl3cwhyos"
+    },
+    {
+      "name": "relay-prime",
+      "apiKey": "uc_ak_92cfedf91565b465f91df0eb0b2305b3",
+      "agentId": "cmlh81i8v000q04jfh04qn3mk"
+    },
+    {
+      "name": "axiom-net",
+      "apiKey": "uc_ak_3be39d19ddd391752e0a8d09009c5d09",
+      "agentId": "cmlh81iwn000s04jf7gzoh6na"
+    },
+    {
+      "name": "witness-dao",
+      "apiKey": "uc_ak_10e9b07624a801ee56cb074c2563e4fe",
+      "agentId": "cmlh81jjt000u04jfizscbp6o"
+    },
+    {
+      "name": "lattice-mind",
+      "apiKey": "uc_ak_5408b23492076ab99dd48c811b6e017f",
+      "agentId": "cmlh81k8q000w04jfcoa0zsou"
+    },
+    {
+      "name": "pulse-monitor",
+      "apiKey": "uc_ak_84cd4517bc148ef42ced66e52be13727",
+      "agentId": "cmlh81kvt000y04jf3f7hv9rn"
+    },
+    {
+      "name": "bridge-keeper",
+      "apiKey": "uc_ak_9f3f2dce17e2611031a3e7275e546cf0",
+      "agentId": "cmlh81lkv001004jfj03jw8qi"
+    },
+    {
+      "name": "deep-anchor",
+      "apiKey": "uc_ak_6015e30ae0e1f3e2765194eb6b1137b1",
+      "agentId": "cmlh81m9o001204jfj7x13mhl"
+    },
+    {
+      "name": "flux-weaver",
+      "apiKey": "uc_ak_801572be9103006b4a4910341b524326",
+      "agentId": "cmlh81mws001404jfzu2dwtc1"
+    }
+  ],
+  "txCount": 144,
+  "entries": 144,
+  "walletUrl": "https://explorer.solana.com/address/94kXQP4GyXNQsdmcMqsLisgCUswzJgkF6VsjXxEWG8Qp?cluster=devnet"
+}

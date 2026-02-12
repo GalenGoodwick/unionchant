@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 
 type Notification = {
@@ -20,10 +21,8 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
   const [unreadCount, setUnreadCount] = useState(0)
   const [isOpen, setIsOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
   const autoReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Fetch notifications
   const fetchNotifications = async () => {
     try {
       const res = await fetch('/api/notifications?limit=10')
@@ -32,12 +31,11 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
         setNotifications(data.notifications)
         setUnreadCount(data.unreadCount)
       }
-    } catch (err) {
-      console.error('Failed to fetch notifications:', err)
+    } catch {
+      // silent
     }
   }
 
-  // Initial fetch and polling with visibility check
   useEffect(() => {
     fetchNotifications()
     const interval = setInterval(() => {
@@ -45,7 +43,6 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
       fetchNotifications()
     }, 30000)
 
-    // Re-fetch when tab becomes visible
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') fetchNotifications()
     }
@@ -57,30 +54,19 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
     }
   }, [])
 
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  // Click-outside is now handled by the portal overlay's onClick
 
-  // Auto-read when dropdown opens
   useEffect(() => {
     if (isOpen && unreadCount > 0) {
       autoReadTimerRef.current = setTimeout(() => {
         markAllRead()
-      }, 1000)
+      }, 2000)
     }
     return () => {
       if (autoReadTimerRef.current) clearTimeout(autoReadTimerRef.current)
     }
   }, [isOpen, unreadCount])
 
-  // Mark all as read
   const markAllRead = async () => {
     setLoading(true)
     try {
@@ -91,20 +77,19 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
       })
       setUnreadCount(0)
       setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-    } catch (err) {
-      console.error('Failed to mark as read:', err)
+    } catch {
+      // silent
     } finally {
       setLoading(false)
     }
   }
 
-  // Get icon for notification type
   const getIcon = (type: string) => {
     switch (type) {
       case 'COMMENT_REPLY': return '💬'
       case 'COMMENT_UPVOTE': return '👍'
       case 'COMMENT_UP_POLLINATE': return '🌸'
-      case 'IDEA_ADVANCING': return '⬆️'
+      case 'IDEA_ADVANCING': return '🚀'
       case 'IDEA_WON': return '🏆'
       case 'VOTE_NEEDED': return '🗳️'
       case 'DELIBERATION_UPDATE': return '📢'
@@ -113,130 +98,143 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
       case 'COMMUNITY_NEW_DELIB': return '🆕'
       case 'FOLLOWED_NEW_DELIB': return '📝'
       case 'FOLLOWED_VOTED': return '🗳️'
+      case 'PODIUM_NEWS': return '📰'
+      case 'CONTENT_REMOVED': return '⚠️'
       default: return '🔔'
     }
   }
 
-  // Get link for notification
   const getLink = (n: Notification) => {
     if (n.type === 'FOLLOW' && n.body) return `/user/${n.body}`
     if (n.deliberationId) return `/chants/${n.deliberationId}`
     return '/chants'
   }
 
-  // Format time ago
   const timeAgo = (dateStr: string) => {
-    const now = new Date()
-    const date = new Date(dateStr)
-    const seconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-
-    if (seconds < 60) return 'now'
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
-    return `${Math.floor(seconds / 86400)}d`
+    const diff = Date.now() - new Date(dateStr).getTime()
+    const secs = Math.floor(diff / 1000)
+    if (secs < 60) return 'now'
+    if (secs < 3600) return `${Math.floor(secs / 60)}m`
+    if (secs < 86400) return `${Math.floor(secs / 3600)}h`
+    return `${Math.floor(secs / 86400)}d`
   }
 
+  const bellRef = useRef<HTMLButtonElement>(null)
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 })
+
+  useEffect(() => {
+    if (isOpen && bellRef.current) {
+      const rect = bellRef.current.getBoundingClientRect()
+      setDropdownPos({
+        top: rect.bottom + 6,
+        right: window.innerWidth - rect.right,
+      })
+    }
+  }, [isOpen])
+
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div>
       {/* Bell button */}
       <button
+        ref={bellRef}
         onClick={() => {
           const next = !isOpen
           setIsOpen(next)
-          if (next) onOpen?.()
+          if (next) {
+            onOpen?.()
+            fetchNotifications()
+          }
         }}
-        className="relative p-2 text-muted-light hover:text-foreground transition-colors"
+        className={`relative p-1.5 rounded-lg transition-colors ${
+          unreadCount > 0
+            ? 'text-accent'
+            : 'text-muted hover:text-foreground'
+        }`}
         aria-label="Notifications"
       >
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-          />
+        <svg className="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
-        {/* Unread badge */}
+        {/* Alert signifier */}
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-error text-white text-xs font-bold rounded-full w-4 h-4 flex items-center justify-center">
-            {unreadCount > 9 ? '9+' : unreadCount}
+          <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center">
+            <span className="absolute w-4 h-4 rounded-full bg-error/30 animate-ping" />
+            <span className="relative bg-error text-white text-[9px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
           </span>
         )}
       </button>
 
-      {/* Dropdown */}
-      {isOpen && (
-        <div className="fixed inset-x-0 top-14 mx-4 sm:absolute sm:inset-auto sm:right-0 sm:top-auto sm:mx-0 sm:mt-2 sm:w-80 bg-surface border border-border rounded-lg shadow-xl z-50 overflow-hidden">
-          {/* Header */}
-          <div className="px-4 py-3 border-b border-border flex justify-between items-center">
-            <span className="font-semibold text-foreground">Notifications</span>
-            {unreadCount > 0 && (
-              <button
-                onClick={markAllRead}
-                disabled={loading}
-                className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
-              >
-                Mark all read
-              </button>
-            )}
-          </div>
-
-          {/* Notifications list */}
-          <div className="max-h-96 overflow-y-auto">
-            {notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-muted">
-                No notifications yet
-              </div>
-            ) : (
-              notifications.map(n => (
+      {/* Dropdown — portaled to body to escape overflow-hidden containers */}
+      {isOpen && createPortal(
+        <div className="fixed inset-0 z-[9999]" onClick={() => setIsOpen(false)}>
+          <div
+            className="fixed w-80 bg-surface border border-border rounded-lg shadow-xl overflow-hidden"
+            style={{ top: dropdownPos.top, right: dropdownPos.right }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-3 py-2.5 border-b border-border flex justify-between items-center">
+              <span className="text-sm font-semibold text-foreground">Notifications</span>
+              <div className="flex items-center gap-3">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={markAllRead}
+                    disabled={loading}
+                    className="text-[11px] text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
+                  >
+                    Mark all read
+                  </button>
+                )}
                 <Link
-                  key={n.id}
-                  href={getLink(n)}
-                  onClick={() => {
-                    setIsOpen(false)
-                  }}
-                  className={`block px-4 py-3 border-b border-border hover:bg-background transition-colors ${
-                    !n.read ? 'bg-accent/5' : ''
-                  }`}
+                  href="/notifications"
+                  onClick={() => setIsOpen(false)}
+                  className="text-[11px] text-muted hover:text-foreground transition-colors"
                 >
-                  <div className="flex gap-3">
-                    <span className="text-lg flex-shrink-0">{getIcon(n.type)}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm ${!n.read ? 'font-medium text-foreground' : 'text-muted'}`}>
-                        {n.title}
-                      </p>
-                      {n.body && n.type !== 'FOLLOW' && (
-                        <p className="text-xs text-muted truncate mt-0.5">{n.body}</p>
-                      )}
-                      <span className="text-xs text-subtle">{timeAgo(n.createdAt)}</span>
-                    </div>
-                    {!n.read && (
-                      <span className="w-2 h-2 bg-accent rounded-full flex-shrink-0 mt-1.5" />
-                    )}
-                  </div>
+                  View all
                 </Link>
-              ))
-            )}
-          </div>
-
-          {/* Footer */}
-          {notifications.length > 0 && (
-            <div className="px-4 py-2 border-t border-border">
-              <Link
-                href="/notifications"
-                onClick={() => setIsOpen(false)}
-                className="text-xs text-accent hover:text-accent-hover transition-colors"
-              >
-                View all notifications →
-              </Link>
+              </div>
             </div>
-          )}
-        </div>
+
+            {/* Notifications list */}
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.length === 0 ? (
+                <div className="px-4 py-8 text-center text-muted text-sm">
+                  No notifications yet
+                </div>
+              ) : (
+                notifications.map(n => (
+                  <Link
+                    key={n.id}
+                    href={getLink(n)}
+                    onClick={() => setIsOpen(false)}
+                    className={`block px-3 py-2.5 border-b border-border/50 hover:bg-background/80 transition-colors ${
+                      !n.read ? 'bg-accent/5' : ''
+                    }`}
+                  >
+                    <div className="flex gap-2.5">
+                      <span className="text-base shrink-0 mt-0.5">{getIcon(n.type)}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs leading-snug ${!n.read ? 'font-medium text-foreground' : 'text-muted'}`}>
+                          {n.title}
+                        </p>
+                        {n.body && n.type !== 'FOLLOW' && (
+                          <p className="text-[11px] text-muted truncate mt-0.5">{n.body}</p>
+                        )}
+                        <span className="text-[10px] text-muted/60">{timeAgo(n.createdAt)}</span>
+                      </div>
+                      {!n.read && (
+                        <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0 mt-1.5" />
+                      )}
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   )

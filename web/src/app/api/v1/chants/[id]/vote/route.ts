@@ -173,12 +173,62 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       allVoted: result.allVoted,
     })
 
+    // For continuous flow: find next available cell across all tiers
+    const deliberation = await prisma.deliberation.findUnique({
+      where: { id },
+      select: { continuousFlow: true, cellSize: true },
+    })
+
+    let nextCell: { id: string; tier: number; ideas: { id: string; text: string }[] } | null = null
+    if (deliberation?.continuousFlow) {
+      const fcfsSize = deliberation.cellSize || 5
+      const votedParticipations = await prisma.cellParticipation.findMany({
+        where: {
+          userId,
+          status: 'VOTED',
+          cell: { deliberationId: id },
+        },
+        select: { cell: { select: { tier: true } } },
+      })
+      const votedTiers = new Set(votedParticipations.map(p => p.cell.tier))
+
+      const openCells = await prisma.cell.findMany({
+        where: {
+          deliberationId: id,
+          status: 'VOTING',
+          ...(votedTiers.size > 0 ? { tier: { notIn: [...votedTiers] } } : {}),
+        },
+        include: {
+          _count: { select: { participants: true } },
+          ideas: {
+            include: {
+              idea: { select: { id: true, text: true } },
+            },
+          },
+        },
+        orderBy: [{ tier: 'asc' }, { createdAt: 'asc' }],
+      })
+
+      const available = openCells.find(c => c._count.participants < fcfsSize)
+      if (available) {
+        nextCell = {
+          id: available.id,
+          tier: available.tier,
+          ideas: available.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+          })),
+        }
+      }
+    }
+
     return NextResponse.json({
       voted: true,
       cellId,
       allocations: result.allocations,
       allVoted: result.allVoted,
       voterCount: result.voterCount,
+      ...(nextCell ? { nextCell } : {}),
     }, { status: 201 })
   } catch (error) {
     if (error instanceof Error) {

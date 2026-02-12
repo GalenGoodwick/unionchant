@@ -1,11 +1,10 @@
 'use client'
 
 import { useParams } from 'next/navigation'
-import Link from 'next/link'
-import Header from '@/components/Header'
 import { FullPageSpinner } from '@/components/Spinner'
 import { getDisplayName } from '@/lib/user'
 import { useDeliberation } from '@/hooks/useDeliberation'
+import FrameLayout from '@/components/FrameLayout'
 
 import FollowButton from '@/components/FollowButton'
 import ShareMenu from '@/components/ShareMenu'
@@ -38,9 +37,9 @@ export default function DetailsPageClient() {
 
   if (d.loading) {
     return (
-      <div className="min-h-screen bg-background">
+      <FrameLayout active="chants">
         <FullPageSpinner />
-      </div>
+      </FrameLayout>
     )
   }
 
@@ -86,15 +85,10 @@ export default function DetailsPageClient() {
   const banner = phaseBanner[d.effectivePhase] || phaseBanner.SUBMISSION
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-
-      <div className="max-w-2xl mx-auto px-4 py-4">
+    <FrameLayout active="chants">
+      <div className="py-3">
         {/* Top bar */}
-        <div className="flex items-center justify-between mb-3">
-          <Link href={`/chants/${id}`} className="text-muted hover:text-foreground text-sm">
-            &larr; Back to chant
-          </Link>
+        <div className="flex items-center justify-end mb-3">
           <div className="flex items-center gap-2">
             {d.session && d.session.user?.id !== delib.creatorId && (
               <FollowButton userId={delib.creatorId} initialFollowing={delib.followedUserIds?.includes(delib.creatorId) ?? false} followLabel="Follow Creator" followingLabel="Creator Followed" />
@@ -108,7 +102,7 @@ export default function DetailsPageClient() {
 
         {/* Question + meta */}
         <div className="mb-4">
-          <h1 className="text-xl font-bold text-foreground leading-tight mb-1.5">{delib.question}</h1>
+          <h1 className="text-sm font-bold text-foreground leading-tight mb-1.5">{delib.question}</h1>
           <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
             <span>by {delib.creator?.name || 'Anonymous'}</span>
             <span>&middot;</span>
@@ -124,8 +118,8 @@ export default function DetailsPageClient() {
 
         {/* Description */}
         {delib.description && (
-          <div className="bg-surface rounded-lg border border-border p-4 mb-4">
-            <p className="text-sm text-foreground">{delib.description}</p>
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-4">
+            <p className="text-xs text-foreground">{delib.description}</p>
           </div>
         )}
 
@@ -350,7 +344,7 @@ export default function DetailsPageClient() {
           renderContent={(data) => <MembersContent data={data as MemberData[]} />}
         />
       </div>
-    </div>
+    </FrameLayout>
   )
 }
 

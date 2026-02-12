@@ -6,6 +6,8 @@ export type TimelineEntry = {
   personalNote?: string
   status: 'done' | 'current' | 'upcoming' | 'skipped'
   color?: string
+  actionLabel?: string
+  onAction?: () => void
 }
 
 export default function JourneyTimeline({ entries }: { entries: TimelineEntry[] }) {
@@ -72,6 +74,14 @@ export default function JourneyTimeline({ entries }: { entries: TimelineEntry[] 
                 }`}>
                   {entry.personalNote}
                 </p>
+              )}
+              {entry.actionLabel && entry.onAction && (
+                <button
+                  onClick={entry.onAction}
+                  className="text-xs mt-1 text-accent hover:text-accent-hover font-semibold underline underline-offset-2"
+                >
+                  {entry.actionLabel}
+                </button>
               )}
             </div>
           </div>

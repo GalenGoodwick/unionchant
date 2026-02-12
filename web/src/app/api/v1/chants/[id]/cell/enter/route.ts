@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../../auth'
 import { prisma } from '@/lib/prisma'
+import { atomicJoinCell } from '@/lib/voting'
 
 // POST /api/v1/chants/:id/cell/enter — Join an FCFS voting cell
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -149,31 +150,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     if (cellToJoin) {
-      // Join existing cell
-      await prisma.deliberationMember.upsert({
-        where: { deliberationId_userId: { userId, deliberationId } },
-        create: { userId, deliberationId },
-        update: {},
-      })
+      // Atomically join existing cell (prevents race where two agents
+      // both see room and both enter, overflowing the cell)
+      const joined = await atomicJoinCell(cellToJoin.id, userId, FCFS_CELL_SIZE)
+      if (!joined) {
+        // Race lost — cell filled between read and lock. Fall through to create new cell.
+      } else {
+        await prisma.deliberationMember.upsert({
+          where: { deliberationId_userId: { userId, deliberationId } },
+          create: { userId, deliberationId },
+          update: {},
+        })
 
-      await prisma.cellParticipation.create({
-        data: { cellId: cellToJoin.id, userId, status: 'ACTIVE' },
-      })
-
-      return NextResponse.json({
-        entered: true,
-        cell: {
-          id: cellToJoin.id,
-          tier: cellToJoin.tier,
-          batch: cellToJoin.batch,
-          ideas: cellToJoin.ideas.map(ci => ({
-            id: ci.idea.id,
-            text: ci.idea.text,
-          })),
-          voterCount: cellToJoin._count.participants + 1,
-          votersNeeded: FCFS_CELL_SIZE,
-        },
-      })
+        return NextResponse.json({
+          entered: true,
+          cell: {
+            id: cellToJoin.id,
+            tier: cellToJoin.tier,
+            batch: cellToJoin.batch,
+            ideas: cellToJoin.ideas.map(ci => ({
+              id: ci.idea.id,
+              text: ci.idea.text,
+            })),
+            voterCount: cellToJoin._count.participants + 1,
+            votersNeeded: FCFS_CELL_SIZE,
+          },
+        })
+      }
     }
 
     // No open cell — create new cell in batch with fewest total participants

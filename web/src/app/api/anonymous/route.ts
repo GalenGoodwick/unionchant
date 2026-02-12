@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
         passwordHash,
         emailVerified: new Date(),
         isAnonymous: true,
+        lastChallengePassedAt: new Date(),
       },
     })
 

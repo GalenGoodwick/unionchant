@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import Header from '@/components/Header'
 import ShareMenu from '@/components/ShareMenu'
 import { FullPageSpinner } from '@/components/Spinner'
 import CountdownTimer from '@/components/CountdownTimer'
@@ -177,6 +176,87 @@ function buildJourneyEntries(
 
 // ─── Phase Bodies ───
 
+function JoinBody({ d, onSwitchTab }: { d: ReturnType<typeof useDeliberation>; onSwitchTab: (tab: string) => void }) {
+  const delib = d.deliberation!
+  const allIdeas = delib.ideas.filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER')
+  const phaseLabel = delib.phase === 'SUBMISSION' ? 'Accepting ideas'
+    : delib.phase === 'VOTING' ? `Voting — Tier ${delib.currentTier}`
+    : delib.phase === 'ACCUMULATING' ? 'Accepting new ideas'
+    : delib.phase === 'COMPLETED' ? 'Completed' : delib.phase
+
+  return (
+    <div className="space-y-4">
+      {/* Description */}
+      {delib.description && (
+        <p className="text-muted text-sm leading-relaxed">{delib.description}</p>
+      )}
+
+      {/* Phase + Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-surface rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold font-mono text-foreground">{delib._count.members}</div>
+          <div className="text-xs text-muted">Members</div>
+        </div>
+        <div className="bg-surface rounded-lg p-3 text-center">
+          <div className="text-2xl font-bold font-mono text-foreground">{allIdeas.length}</div>
+          <div className="text-xs text-muted">Ideas</div>
+        </div>
+        <div className="bg-surface rounded-lg p-3 text-center">
+          <div className="text-sm font-semibold text-accent">{phaseLabel}</div>
+          <div className="text-xs text-muted">Status</div>
+        </div>
+      </div>
+
+      {/* Ideas preview */}
+      {allIdeas.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-foreground mb-2">Ideas ({allIdeas.length})</h3>
+          <div className="space-y-2">
+            {allIdeas.slice(0, 5).map(idea => (
+              <IdeaCard key={idea.id} idea={idea} />
+            ))}
+            {allIdeas.length > 5 && (
+              <p className="text-xs text-muted text-center py-1">+{allIdeas.length - 5} more ideas</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Join action */}
+      {!d.session ? (
+        <Link href="/auth/signin" className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+          Sign in to join
+        </Link>
+      ) : !delib.isMember ? (
+        <button
+          onClick={d.handleJoin}
+          disabled={d.joining}
+          className="w-full bg-success hover:bg-success-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+        >
+          {d.joining ? 'Joining...' : 'Join This Chant'}
+        </button>
+      ) : (
+        <div className="bg-success-bg border border-success rounded-[10px] p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-success font-medium text-sm">You&apos;re a member</span>
+            </div>
+            <button
+              onClick={() => onSwitchTab(d.effectivePhase === 'SUBMISSION' ? 'submit' : 'vote')}
+              className="text-success text-xs font-semibold hover:underline"
+            >
+              Go to {d.effectivePhase === 'SUBMISSION' ? 'Submit' : 'Vote'} →
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SubmissionBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const delib = d.deliberation!
   const pendingIdeas = delib.ideas.filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING')
@@ -261,56 +341,94 @@ function VotingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const delib = d.deliberation!
   const journeyEntries = buildJourneyEntries(delib, d.effectivePhase, d.cells, d.winner, d.session?.user?.id)
 
-  // Use active cell (unvoted) OR the first voted cell in current tier — so ideas stay visible after voting
-  const activeCell = d.activeCells[0]
-  const votedCurrentTierCell = d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
-  const displayCell = activeCell || votedCurrentTierCell
-
-  // Continuous flow (Tier 1 only): show submission form if user hasn't submitted yet
-  if (delib.continuousFlow && delib.currentTier === 1 && d.session && !delib.userSubmittedIdea) {
-    return (
-      <div className="space-y-4">
-        <div className="bg-warning-bg border border-warning rounded-[10px] px-4 py-2.5 flex items-center gap-2">
-          <span className="text-warning text-sm">&#9679;</span>
-          <span className="text-warning text-sm font-medium">Voting is live</span>
-          <span className="text-muted text-xs ml-1">— submit your idea to join</span>
-        </div>
-        <form onSubmit={d.handleSubmitIdea} className="bg-surface border border-border rounded-[10px] p-4">
-          <label className="text-sm font-medium text-foreground mb-2 block">Submit your idea</label>
-          <textarea
-            placeholder="What's your answer to this question?"
-            value={d.newIdea}
-            onChange={(e) => d.setNewIdea(e.target.value)}
-            rows={3}
-            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent resize-none"
-          />
-          <button
-            type="submit"
-            disabled={d.submitting || !d.newIdea.trim()}
-            className="mt-2 w-full bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
-          >
-            {d.submitting ? 'Submitting...' : 'Submit Idea'}
-          </button>
-        </form>
-      </div>
-    )
+  // For continuous flow: add click actions to tier entries
+  if (delib.continuousFlow && d.session) {
+    for (const entry of journeyEntries) {
+      if (!entry.label.startsWith('Tier')) continue
+      if (entry.status === 'skipped') {
+        entry.actionLabel = 'Join & Vote'
+        entry.onAction = d.handleEnterVoting
+      } else if (entry.status === 'current') {
+        entry.actionLabel = 'Vote now'
+        entry.onAction = () => document.getElementById('voting-area')?.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
   }
+
+  // Use active cell (unvoted) OR most recently voted cell — so ideas stay visible after voting
+  const activeCell = d.activeCells[0]
+  // For continuous flow: look across all cells, not just current tier
+  const votedCell = delib.continuousFlow
+    ? d.cells.find(c => c.votes.length > 0 && c.status === 'VOTING')
+    : d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
+  const displayCell = activeCell || votedCell
+
+  // Continuous flow: show ALL active cells (one per tier) simultaneously
+  // Regular mode: show single cell at current tier
+  const activeCells = delib.continuousFlow ? d.activeCells : (displayCell ? [displayCell] : [])
+  const hasNoCells = d.cellsLoaded && d.cells.length === 0
 
   return (
     <div className="space-y-4">
-      {/* Cell members bar */}
-      {displayCell && (
-        <CellMembersBar
-          participants={displayCell.participants}
-          votes={displayCell.votes}
-          currentUserId={d.session?.user?.id}
-        />
+      {/* Continuous flow: Join + Submit UI when user has no cells */}
+      {delib.continuousFlow && hasNoCells && d.session && (
+        <>
+          <div className="bg-warning-bg border border-warning rounded-[10px] p-4 text-center">
+            <p className="text-warning text-sm font-medium mb-1">Voting is live across {delib.currentTier} tier{delib.currentTier > 1 ? 's' : ''}</p>
+            <p className="text-muted text-xs mb-3">Join to get assigned to cells at each tier</p>
+            <button
+              onClick={d.handleEnterVoting}
+              disabled={d.enteringVoting}
+              className="bg-warning hover:bg-warning-hover text-black px-6 py-2.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
+            >
+              {d.enteringVoting ? 'Joining...' : 'Join & Vote'}
+            </button>
+          </div>
+          {!delib.userSubmittedIdea && (
+            <form onSubmit={d.handleSubmitIdea} className="bg-surface border border-border rounded-[10px] p-4">
+              <label className="text-sm font-medium text-foreground mb-2 block">Or submit your own idea first</label>
+              <textarea
+                placeholder="What's your answer to this question?"
+                value={d.newIdea}
+                onChange={(e) => d.setNewIdea(e.target.value)}
+                rows={3}
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent resize-none"
+              />
+              <button
+                type="submit"
+                disabled={d.submitting || !d.newIdea.trim()}
+                className="mt-2 w-full bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+              >
+                {d.submitting ? 'Submitting...' : 'Submit Idea'}
+              </button>
+            </form>
+          )}
+        </>
       )}
 
-      {/* Voting cell — Vote Point allocation UI */}
-      {displayCell ? (
-        <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} currentTier={delib.currentTier} />
-      ) : d.cellsLoaded && !d.isInCurrentTier && d.session ? (
+      {/* Multi-cell voting stack */}
+      <div id="voting-area" />
+      {activeCells.length > 0 ? (
+        activeCells.map(cell => (
+          <div key={cell.id} className="space-y-3">
+            {/* Tier label for continuous flow */}
+            {delib.continuousFlow && activeCells.length > 1 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-warning bg-warning-bg px-2 py-0.5 rounded">
+                  Tier {cell.tier}
+                </span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            )}
+            <CellMembersBar
+              participants={cell.participants}
+              votes={cell.votes}
+              currentUserId={d.session?.user?.id}
+            />
+            <VotingCell cell={cell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} currentTier={cell.tier} />
+          </div>
+        ))
+      ) : !delib.continuousFlow && d.cellsLoaded && !d.isInCurrentTier && d.session ? (
         <div className="bg-warning-bg border border-warning rounded-[10px] p-4 text-center">
           <p className="text-muted text-sm mb-3">Voting in progress at Tier {delib.currentTier}</p>
           <button
@@ -502,8 +620,28 @@ function PhaseBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
 
 export default function DeliberationPageClient() {
   const params = useParams()
+  const router = useRouter()
   const id = params.id as string
   const d = useDeliberation(id)
+
+  // Tab state — Join tab lets users browse before joining
+  const [activeTab, setActiveTab] = useState('join')
+  const tabInitialized = useRef(false)
+
+  // Set initial tab when deliberation loads
+  useEffect(() => {
+    if (!d.deliberation || tabInitialized.current) return
+    tabInitialized.current = true
+    if (d.session && d.deliberation.isMember) {
+      setActiveTab(d.effectivePhase === 'SUBMISSION' ? 'submit' : 'vote')
+    }
+  }, [d.deliberation, d.session, d.effectivePhase])
+
+  // Auto-switch from join tab when user becomes a member
+  useEffect(() => {
+    if (!d.deliberation?.isMember) return
+    setActiveTab(prev => prev === 'join' ? (d.effectivePhase === 'SUBMISSION' ? 'submit' : 'vote') : prev)
+  }, [d.deliberation?.isMember, d.effectivePhase])
 
   // Linked podium posts
   const [linkedPodiums, setLinkedPodiums] = useState<Array<{
@@ -522,7 +660,6 @@ export default function DeliberationPageClient() {
   if (d.loading) {
     return (
       <div className="min-h-screen bg-background">
-        <Header />
         <FullPageSpinner />
       </div>
     )
@@ -553,7 +690,6 @@ export default function DeliberationPageClient() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <Header />
 
       <div className={`max-w-2xl mx-auto px-4 py-4 flex-1 flex flex-col w-full `}>
         <FirstVisitTooltip id="chant-detail">
@@ -561,9 +697,18 @@ export default function DeliberationPageClient() {
         </FirstVisitTooltip>
         {/* Top bar: Back + Manage + Share */}
         <div className="flex items-center justify-between mb-3">
-          <Link href="/chants" className="text-muted hover:text-foreground text-sm">
+          <button
+            onClick={() => {
+              if (window.history.length > 1) {
+                router.back()
+              } else {
+                router.push('/chants')
+              }
+            }}
+            className="text-muted hover:text-foreground text-sm"
+          >
             ← Back
-          </Link>
+          </button>
           <div className="flex items-center gap-2">
             {d.session && d.session.user?.id === delib.creatorId ? (
               <span className="text-xs text-muted px-3 py-1.5">(You are the creator)</span>
@@ -601,8 +746,48 @@ export default function DeliberationPageClient() {
         </div>
 
         {/* Progress Trail */}
-        <div className="mb-3">
+        <div className="mb-1">
           <ProgressTrail nodes={progressNodes} />
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex gap-1 mb-3 border-b border-border">
+          <button
+            onClick={() => setActiveTab('join')}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'join'
+                ? 'border-success text-success'
+                : 'border-transparent text-muted hover:text-foreground'
+            }`}
+          >
+            {delib.isMember ? 'Overview' : 'Join'}
+          </button>
+          <button
+            onClick={() => setActiveTab('submit')}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'submit'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-muted hover:text-foreground'
+            }`}
+          >
+            Submit
+          </button>
+          {d.effectivePhase !== 'SUBMISSION' && (
+            <button
+              onClick={() => setActiveTab('vote')}
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'vote'
+                  ? (d.effectivePhase === 'ACCUMULATING' ? 'border-purple text-purple' :
+                     d.effectivePhase === 'COMPLETED' ? 'border-success text-success' :
+                     'border-warning text-warning')
+                  : 'border-transparent text-muted hover:text-foreground'
+              }`}
+            >
+              {d.effectivePhase === 'ACCUMULATING' ? 'Priority' :
+               d.effectivePhase === 'COMPLETED' ? 'Results' :
+               'Vote'}
+            </button>
+          )}
         </div>
 
         {/* Badge + Timer row */}
@@ -663,25 +848,14 @@ export default function DeliberationPageClient() {
           </Link>
         )}
 
-        {/* Auth prompts */}
-        {!d.session && (
-          <Link href="/auth/signin" className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium mb-4">
-            Sign in to participate
-          </Link>
+        {/* Tab body */}
+        {activeTab === 'join' ? (
+          <JoinBody d={d} onSwitchTab={setActiveTab} />
+        ) : activeTab === 'submit' ? (
+          <SubmissionBody d={d} />
+        ) : (
+          <PhaseBody d={d} />
         )}
-
-        {d.session && !delib.isMember && (delib.phase === 'SUBMISSION' || delib.phase === 'ACCUMULATING' || (delib.continuousFlow && delib.phase === 'VOTING')) && (
-          <button
-            onClick={d.handleJoin}
-            disabled={d.joining}
-            className="w-full bg-success hover:bg-success-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium mb-4"
-          >
-            {d.joining ? '...' : 'Join This Chant'}
-          </button>
-        )}
-
-        {/* Phase body */}
-        <PhaseBody d={d} />
 
         {/* Additional Linked Podium Posts (if more than 1) */}
         {linkedPodiums.length > 1 && (

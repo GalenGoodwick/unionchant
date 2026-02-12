@@ -2,9 +2,8 @@
 
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { useState, useEffect } from 'react'
-import Header from '@/components/Header'
+import FrameLayout from '@/components/FrameLayout'
 
 
 export default function NewCommunityPage() {
@@ -51,9 +50,11 @@ export default function NewCommunityPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
-      </div>
+      <FrameLayout active="groups" showBack>
+        <div className="flex items-center justify-center py-16">
+          <div className="text-muted text-xs">Loading...</div>
+        </div>
+      </FrameLayout>
     )
   }
 
@@ -121,20 +122,14 @@ export default function NewCommunityPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
+    <FrameLayout active="groups" showBack>
+      <div className="pt-4">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h1 className="text-sm font-bold text-foreground mb-4">Create a Group</h1>
 
-      <div className="max-w-xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
-        <Link href="/groups" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
-          &larr; Back to Groups
-        </Link>
-
-        <div className="bg-background rounded-xl border border-border p-6">
-          <h1 className="text-xl sm:text-2xl font-bold text-foreground mb-6">Create a Group</h1>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="name" className="block text-foreground font-medium mb-2">
+              <label htmlFor="name" className="block text-xs font-semibold text-foreground mb-1">
                 Group Name *
               </label>
               <input
@@ -143,34 +138,34 @@ export default function NewCommunityPage() {
                 required
                 maxLength={100}
                 placeholder="Minneapolis Teachers Union"
-                className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
                 value={formData.name}
                 onChange={e => handleNameChange(e.target.value)}
               />
             </div>
 
             <div>
-              <label htmlFor="slug" className="block text-foreground font-medium mb-2">
+              <label htmlFor="slug" className="block text-xs font-semibold text-foreground mb-1">
                 URL Slug *
               </label>
               <div className="flex items-center gap-2">
-                <span className="text-muted text-sm">/groups/</span>
+                <span className="text-muted text-xs">/groups/</span>
                 <input
                   type="text"
                   id="slug"
                   required
                   maxLength={50}
                   placeholder="minneapolis-teachers"
-                  className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent font-mono text-sm"
+                  className="flex-1 bg-surface border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-light focus:outline-none focus:border-accent font-mono"
                   value={formData.slug}
                   onChange={e => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
                 />
               </div>
-              <p className="text-muted-light text-xs mt-1">Lowercase letters, numbers, and hyphens only. Min 3 characters.</p>
+              <p className="text-muted-light text-[10px] mt-1">Lowercase letters, numbers, and hyphens only. Min 3 characters.</p>
             </div>
 
             <div>
-              <label htmlFor="description" className="block text-foreground font-medium mb-2">
+              <label htmlFor="description" className="block text-xs font-semibold text-foreground mb-1">
                 Description (optional)
               </label>
               <textarea
@@ -178,17 +173,17 @@ export default function NewCommunityPage() {
                 rows={3}
                 maxLength={500}
                 placeholder="What is this group about?"
-                className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
+                className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-xs text-foreground placeholder-muted-light focus:outline-none focus:border-accent"
                 value={formData.description}
                 onChange={e => setFormData({ ...formData, description: e.target.value })}
               />
-              <p className="text-muted-light text-xs mt-1 text-right">{formData.description.length}/500</p>
+              <p className="text-muted-light text-[10px] mt-1 text-right">{formData.description.length}/500</p>
             </div>
 
-            <div className="border-t border-border pt-6">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Visibility</h2>
-              <div className="space-y-3">
-                <label className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${
+            <div className="border-t border-border pt-4">
+              <h2 className="text-xs font-semibold text-foreground mb-3">Visibility</h2>
+              <div className="space-y-2">
+                <label className={`flex items-start gap-3 p-2.5 border rounded-lg cursor-pointer transition-colors ${
                   formData.isPublic ? 'border-accent bg-accent/5' : 'border-border hover:border-accent'
                 }`}>
                   <input
@@ -196,15 +191,15 @@ export default function NewCommunityPage() {
                     name="visibility"
                     checked={formData.isPublic}
                     onChange={() => setFormData({ ...formData, isPublic: true })}
-                    className="mt-1 w-4 h-4 text-accent"
+                    className="mt-0.5 w-3.5 h-3.5 text-accent"
                   />
                   <div>
-                    <div className="text-foreground font-medium">Public</div>
-                    <div className="text-muted text-sm">Anyone can find and join this group</div>
+                    <div className="text-xs font-medium text-foreground">Public</div>
+                    <div className="text-muted text-[10px]">Anyone can find and join this group</div>
                   </div>
                 </label>
 
-                <label className={`flex items-start gap-3 p-3 border rounded-xl transition-colors ${
+                <label className={`flex items-start gap-3 p-2.5 border rounded-lg transition-colors ${
                   !canCreatePrivate
                     ? 'border-border opacity-60 cursor-not-allowed'
                     : !formData.isPublic ? 'border-accent bg-accent/5 cursor-pointer' : 'border-border hover:border-accent cursor-pointer'
@@ -215,18 +210,18 @@ export default function NewCommunityPage() {
                     checked={!formData.isPublic}
                     disabled={!canCreatePrivate}
                     onChange={() => setFormData({ ...formData, isPublic: false })}
-                    className="mt-1 w-4 h-4 text-accent"
+                    className="mt-0.5 w-3.5 h-3.5 text-accent"
                   />
                   <div>
-                    <div className="text-foreground font-medium">Private</div>
-                    <div className="text-muted text-sm">Only people with an invite link can join</div>
+                    <div className="text-xs font-medium text-foreground">Private</div>
+                    <div className="text-muted text-[10px]">Only people with an invite link can join</div>
                     {tierLoaded && userTier === 'free' && !isUserAdmin && (
-                      <div className="mt-1 text-xs text-accent">
+                      <div className="mt-1 text-[10px] text-accent">
                         <a href="/pricing" className="underline hover:no-underline">Upgrade to Pro</a> to create private groups
                       </div>
                     )}
                     {tierLoaded && maxPrivate > 0 && maxPrivate !== Infinity && (
-                      <div className="mt-1 text-xs text-muted">
+                      <div className="mt-1 text-[10px] text-muted">
                         {privateGroupCount} of {maxPrivate} private group{maxPrivate > 1 ? 's' : ''} used ({tierLabel})
                         {!canCreatePrivate && (
                           <span className="text-accent ml-1">
@@ -236,7 +231,7 @@ export default function NewCommunityPage() {
                       </div>
                     )}
                     {tierLoaded && memberCaps[userTier] && !formData.isPublic && (
-                      <div className="mt-1 text-xs text-muted">
+                      <div className="mt-1 text-[10px] text-muted">
                         Up to {memberCaps[userTier]} members per group
                       </div>
                     )}
@@ -246,7 +241,7 @@ export default function NewCommunityPage() {
             </div>
 
             {error && (
-              <div className="bg-error-bg border border-error-border text-error px-4 py-3 rounded-xl">
+              <div className="bg-error-bg border border-error-border text-error px-3 py-2 rounded-lg text-xs">
                 {error}
               </div>
             )}
@@ -254,13 +249,13 @@ export default function NewCommunityPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-3 px-4 rounded-xl transition-colors"
+              className="w-full bg-accent hover:bg-accent-hover disabled:bg-muted-light disabled:cursor-not-allowed text-white font-semibold py-2.5 px-4 rounded-lg text-xs transition-colors"
             >
               {loading ? 'Creating...' : 'Create Group'}
             </button>
           </form>
         </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

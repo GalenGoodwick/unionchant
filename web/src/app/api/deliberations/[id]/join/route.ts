@@ -99,9 +99,32 @@ export async function POST(
       }
     }
 
+    // Auto-start voting if member goal is met (event mode)
+    if (deliberation.phase === 'SUBMISSION' && deliberation.memberGoal) {
+      const memberCount = await prisma.deliberationMember.count({
+        where: { deliberationId: id },
+      })
+      if (memberCount >= deliberation.memberGoal) {
+        const ideaCount = await prisma.idea.count({
+          where: { deliberationId: id },
+        })
+        // Need at least 2 ideas to start voting
+        if (ideaCount >= 2) {
+          try {
+            await startVotingPhase(id)
+            console.log(`[JOIN] Member goal ${deliberation.memberGoal} reached — auto-started voting`)
+            return NextResponse.json({ ...membership, autoStarted: true }, { status: 201 })
+          } catch (err) {
+            console.error('[JOIN] Failed to auto-start voting on member goal:', err)
+          }
+        }
+      }
+    }
+
     // Handle based on deliberation phase
+    // For continuous flow FCFS, skip late-joiner assignment here — /enter handles multi-cell
     let roundFull = false
-    if (deliberation.phase === 'VOTING') {
+    if (deliberation.phase === 'VOTING' && !(deliberation.continuousFlow && deliberation.allocationMode === 'fcfs')) {
       // Late joiner - add them to an existing cell so they can participate
       try {
         const result = await addLateJoinerToCell(id, user.id)

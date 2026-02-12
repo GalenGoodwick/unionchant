@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { useToast } from '@/components/Toast'
+import FrameLayout from '@/components/FrameLayout'
 
 type PodiumPost = {
   id: string
@@ -104,20 +105,21 @@ export default function PodiumPageClient() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
-      </div>
+      <FrameLayout active="podiums">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-muted text-xs">Loading...</div>
+        </div>
+      </FrameLayout>
     )
   }
 
   if (!podium) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
-        <div className="text-2xl font-bold">Post not found</div>
-        <Link href="/chants" className="text-accent hover:text-accent-hover">
-          Back to feed
-        </Link>
-      </div>
+      <FrameLayout active="podiums">
+        <div className="flex flex-col items-center justify-center gap-4 py-12">
+          <div className="text-sm font-bold text-foreground">Post not found</div>
+        </div>
+      </FrameLayout>
     )
   }
 
@@ -127,20 +129,10 @@ export default function PodiumPageClient() {
   const bodyBlocks = parseMarkdown(podium.body)
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="max-w-xl mx-auto px-4 py-8">
-        {/* Back nav */}
-        <div className="mb-6">
-          <button
-            onClick={() => router.back()}
-            className="text-muted hover:text-foreground transition-colors text-sm"
-          >
-            &larr; Back
-          </button>
-        </div>
-
+    <FrameLayout active="podiums">
+      <div className="py-4">
         {/* Author */}
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center text-sm font-semibold text-muted">
             {podium.author.image ? (
               <img src={podium.author.image} alt="" className="w-10 h-10 rounded-full object-cover" />
@@ -168,7 +160,7 @@ export default function PodiumPageClient() {
         </div>
 
         {/* Title */}
-        <h1 className="text-3xl font-bold text-foreground leading-tight mb-6">
+        <h1 className="text-sm font-bold text-foreground leading-tight mb-4">
           {podium.title}
         </h1>
 
@@ -176,7 +168,7 @@ export default function PodiumPageClient() {
         {podium.deliberation && (
           <Link
             href={`/chants/${podium.deliberation.id}`}
-            className="block bg-accent/10 border border-accent/25 rounded-xl p-4 mb-8 hover:bg-accent/15 transition-colors"
+            className="block bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-4 hover:bg-accent/15 transition-colors"
           >
             <div className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">
               Linked Chant
@@ -193,7 +185,7 @@ export default function PodiumPageClient() {
         )}
 
         {/* Body */}
-        <article className="mb-8">
+        <article className="mb-6">
           {bodyBlocks.map((block, i) => {
             if (block.type === 'h2') return <h2 key={i} className="text-xl font-bold text-foreground mt-8 mb-3">{block.text}</h2>
             if (block.type === 'h3') return <h3 key={i} className="text-lg font-semibold text-foreground mt-6 mb-2">{block.text}</h3>
@@ -205,7 +197,7 @@ export default function PodiumPageClient() {
 
         {/* Join Chant CTA */}
         {podium.deliberation && (
-          <div className="mb-8 border border-accent/25 rounded-xl overflow-hidden">
+          <div className="mb-6 border border-border rounded-lg overflow-hidden">
             <div className="bg-accent/10 px-4 py-2 text-xs font-semibold text-accent uppercase tracking-wider">
               Linked Chant
             </div>
@@ -236,7 +228,7 @@ export default function PodiumPageClient() {
         )}
 
         {/* Footer actions */}
-        <div className="border-t border-border pt-4 flex justify-between items-center text-sm text-muted">
+        <div className="border-t border-border pt-3 flex justify-between items-center text-xs text-muted">
           <div className="flex gap-4">
             <button
               onClick={() => {
@@ -284,7 +276,7 @@ export default function PodiumPageClient() {
           )}
         </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }
 

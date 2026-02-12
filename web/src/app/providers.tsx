@@ -7,9 +7,11 @@ import { ToastProvider } from '@/components/Toast'
 import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
 import CollectiveChat from '@/components/CollectiveChat'
+
 import ChallengeProvider from '@/components/ChallengeProvider'
 import PasskeyPrompt from '@/components/PasskeyPrompt'
 import { useOnboarding } from '@/hooks/useOnboarding'
+import Header from '@/components/Header'
 import dynamic from 'next/dynamic'
 
 const WalletProvider = dynamic(() => import('@/components/crypto/WalletProvider'), { ssr: false })
@@ -251,6 +253,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
                 <CollectiveChatGate>
                   <ChallengeProvider>
                     <MaybeWalletProvider>
+                      <Header />
                       {children}
                     </MaybeWalletProvider>
                   </ChallengeProvider>
