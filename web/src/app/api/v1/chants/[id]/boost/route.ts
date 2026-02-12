@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../auth'
+import { v1RateLimit, getClientIp } from '../../../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { solToLamports, verifyTransaction } from '@/lib/solana'
 
@@ -16,6 +17,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_mint', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
     const body = await req.json()
@@ -72,6 +75,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
  */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const rateErr = v1RateLimit('v1_read', getClientIp(req))
+    if (rateErr) return rateErr
+
     const { id } = await params
 
     const boosts = await prisma.boost.aggregate({

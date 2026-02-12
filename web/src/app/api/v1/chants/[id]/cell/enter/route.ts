@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../../auth'
+import { v1RateLimit } from '../../../../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { atomicJoinCell } from '@/lib/voting'
+import { recordTaskCompletion } from '@/lib/rate-limit'
 
 // POST /api/v1/chants/:id/cell/enter — Join an FCFS voting cell
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -10,6 +12,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id: deliberationId } = await params
     const userId = auth.user.id
@@ -162,6 +166,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           update: {},
         })
 
+        recordTaskCompletion(userId)
         return NextResponse.json({
           entered: true,
           cell: {
@@ -226,6 +231,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       data: { cellId: newCell.id, userId, status: 'ACTIVE' },
     })
 
+    recordTaskCompletion(userId)
     return NextResponse.json({
       entered: true,
       cell: {

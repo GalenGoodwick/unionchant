@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../auth'
+import { v1RateLimit } from '../../../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
 import { tryCreateContinuousFlowCell } from '@/lib/voting'
 import { startVotingPhase } from '@/lib/voting'
 import { fireWebhookEvent } from '@/lib/webhooks'
+import { recordTaskCompletion } from '@/lib/rate-limit'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -12,6 +14,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
     const body = await req.json()
@@ -97,6 +101,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       authorId,
     })
 
+    recordTaskCompletion(auth.user.id)
     return NextResponse.json({ id: idea.id, text: idea.text, status: idea.status })
   } catch (err) {
     console.error('v1 submit idea error:', err)

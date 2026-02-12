@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey } from '../../auth'
+import { v1RateLimit } from '../../rate-limit'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_read', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
 

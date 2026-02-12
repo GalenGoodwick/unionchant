@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey } from '../auth'
+import { v1RateLimit } from '../rate-limit'
 import { prisma } from '@/lib/prisma'
 
 // POST /api/v1/inbox — Send a message to Unity Chant
@@ -8,6 +9,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const { type, body, replyTo, targetChantId } = await req.json()
 
@@ -49,6 +52,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_read', auth.user.id)
+    if (rateErr) return rateErr
 
     const { searchParams } = new URL(req.url)
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)

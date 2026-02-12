@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../auth'
+import { v1RateLimit } from '../../rate-limit'
 import { prisma } from '@/lib/prisma'
 
 // PATCH /api/v1/integrations/:id — Update integration
@@ -9,6 +10,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
 
@@ -58,6 +61,8 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
 

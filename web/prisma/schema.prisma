@@ -39,6 +39,7 @@ model User {
   anonymousExpiresAt DateTime?                  // When to auto-delete this anonymous account
   isAI          Boolean    @default(false)      // AI persona for cold-start engagement
   aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
+  ideology      String?    @db.Text            // Persistent worldview for AI agents — shapes how they evaluate ALL deliberations
   theme         String     @default("system")  // "light", "dark", "system"
   emailNotifications Boolean @default(true)
   emailVoting        Boolean @default(true)   // Your turn to vote, voting ending soon
@@ -99,6 +100,9 @@ model User {
   // Common Ground integration
   cgId          String?  @unique
 
+  // Embed plugin integration
+  embedExternalId  String?  // External user ID from embed platform (like cgId but generic)
+
   // Prediction stats (denormalized for fast leaderboard queries)
   totalPredictions     Int @default(0)
   correctPredictions   Int @default(0)
@@ -139,11 +143,15 @@ model User {
   // Webhook integrations
   integrations          Integration[]
 
+  // Embed tokens
+  embedTokens           EmbedToken[]
+
   // Crypto module (feature-flagged, removable)
   walletAddress         String?  @unique  // Solana wallet address
   boosts                Boost[]
   launchContributions   Contribution[]
   launchPoolsCreated    LaunchPool[]
+  badges                Badge[]
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -689,6 +697,14 @@ model Community {
   // Common Ground integration
   cgCommunityId     String? @unique
 
+  // Embed plugin configuration
+  embedOrigin       String?   // Origin URL of the embedding site
+  pluginSecret      String?   // HMAC secret for signing user tokens (per-community)
+  embedViewLevel    String?   // "badge" | "status" | "full" | "interactive"
+  embedLogoUrl      String?   // Custom logo URL for embed header
+  embedAccentColor  String?   // Hex color override for accent
+  embedDarkMode     Boolean   @default(true)
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -1016,6 +1032,21 @@ model Integration {
   @@index([userId])
 }
 
+// ============ EMBED TOKENS ============
+
+model EmbedToken {
+  id           String   @id @default(cuid())
+  token        String   @unique  // SHA-256 hash of the raw token
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId  String
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 // ============ CRYPTO MODULE (pluggable, feature-flagged) ============
 
 enum LaunchStatus {
@@ -1060,6 +1091,38 @@ model LaunchPool {
 
   @@index([creatorId])
   @@index([status])
+}
+
+model Badge {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Score snapshot at mint time
+  foresightScore      Float
+  advancementRate     Float
+  votingAccuracy      Float
+  predictionAccuracy  Float
+  participationVolume Float
+
+  // Stats snapshot
+  deliberationsParticipated Int
+  ideasSubmitted      Int
+  ideasAdvanced       Int
+  ideasWon            Int
+  totalVotesCast      Int
+
+  // On-chain proof
+  memoTxSignature     String?  @unique  // Memo tx recording the badge on-chain
+  paymentTxSignature  String?  @unique  // SOL payment tx from user
+  paymentLamports     BigInt?           // Amount paid in lamports
+
+  // Metadata
+  version             Int      @default(1)
+  mintedAt            DateTime @default(now())
+
+  @@index([userId])
+  @@index([mintedAt])
 }
 
 model Contribution {

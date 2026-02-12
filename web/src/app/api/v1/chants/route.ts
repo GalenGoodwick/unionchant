@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyApiKey, requireScope } from '../auth'
+import { verifyApiKey } from '../auth'
 import { prisma } from '@/lib/prisma'
-import crypto from 'crypto'
+import { v1RateLimit } from '../rate-limit'
 
 // GET /api/v1/chants — Browse active public chants
 export async function GET(req: NextRequest) {
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+
+    const rateErr = v1RateLimit('v1_read', auth.user.id)
+    if (rateErr) return rateErr
 
     const url = new URL(req.url)
     const phase = url.searchParams.get('phase') // SUBMISSION, VOTING, ACCUMULATING, COMPLETED
@@ -82,111 +85,5 @@ export async function GET(req: NextRequest) {
   }
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const auth = await verifyApiKey(req)
-    if (!auth.authenticated) return auth.response
-    const scopeErr = requireScope(auth.scopes, 'write')
-    if (scopeErr) return scopeErr
-
-    const body = await req.json()
-    const {
-      question, description, context, isPublic = true, tags = [],
-      continuousFlow = false, accumulationEnabled = false,
-      ideaGoal, discussionDurationMs, supermajorityEnabled, isPinned,
-      allocationMode, cellSize, allowAI, callbackUrl, fastCell,
-    } = body
-
-    if (!question?.trim()) {
-      return NextResponse.json({ error: 'question is required' }, { status: 400 })
-    }
-
-    // Validate cellSize if provided
-    if (cellSize !== undefined) {
-      const cs = Number(cellSize)
-      if (!Number.isInteger(cs) || cs < 3 || cs > 7) {
-        return NextResponse.json({ error: 'cellSize must be an integer between 3 and 7' }, { status: 400 })
-      }
-    }
-
-    // Validate ideaGoal for AI chants — must be a multiple of cellSize
-    // to ensure clean cell formation (no remainder cells)
-    if (allowAI && ideaGoal) {
-      const cs = Number(cellSize) || 5
-      if (ideaGoal % cs !== 0) {
-        return NextResponse.json({
-          error: `ideaGoal must be a multiple of cellSize (${cs}) for AI chants. Try ${Math.ceil(ideaGoal / cs) * cs}.`,
-        }, { status: 400 })
-      }
-    }
-
-    // Validate callbackUrl if provided
-    if (callbackUrl && typeof callbackUrl === 'string') {
-      try {
-        const url = new URL(callbackUrl)
-        if (!['http:', 'https:'].includes(url.protocol)) {
-          return NextResponse.json({ error: 'callbackUrl must be http or https' }, { status: 400 })
-        }
-      } catch {
-        return NextResponse.json({ error: 'callbackUrl must be a valid URL' }, { status: 400 })
-      }
-    }
-
-    const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
-
-    // All chants are facilitator-controlled — no timers
-    const deliberation = await prisma.deliberation.create({
-      data: {
-        question: question.trim(),
-        description: description?.trim() || null,
-        context: context?.trim() || null,
-        isPublic,
-        inviteCode,
-        tags: Array.isArray(tags) ? tags.slice(0, 5) : [],
-        creatorId: auth.user.id,
-        continuousFlow,
-        accumulationEnabled,
-        votingTimeoutMs: 0,
-        ...(ideaGoal && { ideaGoal }),
-        ...(discussionDurationMs !== undefined && { discussionDurationMs }),
-        ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
-        ...(isPinned !== undefined && { isPinned }),
-        allocationMode: allocationMode || 'fcfs',
-        ...(cellSize !== undefined && { cellSize: Number(cellSize) }),
-        ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
-        ...(fastCell !== undefined && { fastCell: Boolean(fastCell) }),
-        members: {
-          create: { userId: auth.user.id, role: 'CREATOR' },
-        },
-      },
-    })
-
-    // Auto-register callback webhook if callbackUrl provided
-    if (callbackUrl && typeof callbackUrl === 'string') {
-      const secret = crypto.randomBytes(16).toString('hex')
-      await prisma.integration.create({
-        data: {
-          name: `callback-${deliberation.id.slice(0, 8)}`,
-          webhookUrl: callbackUrl,
-          secret,
-          events: ['winner_declared', 'tier_complete'],
-          userId: auth.user.id,
-        },
-      })
-    }
-
-    return NextResponse.json({
-      id: deliberation.id,
-      inviteCode,
-      question: deliberation.question,
-      phase: deliberation.phase,
-      cellSize: deliberation.cellSize,
-      allowAI: deliberation.allowAI,
-      fastCell: deliberation.fastCell,
-      ...(deliberation.context && { context: deliberation.context }),
-    })
-  } catch (err) {
-    console.error('v1 create chant error:', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
-  }
-}
+// POST removed — chant creation is limited to humans (web UI) and collective chat.
+// Agents participate in deliberations, they don't create them.

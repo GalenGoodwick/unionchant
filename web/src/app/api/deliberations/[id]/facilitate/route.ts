@@ -232,6 +232,169 @@ export async function POST(
         })
       }
 
+      case 'advance': {
+        // Force-complete open cells, recalculate priority, advance to next tier
+        if (deliberation.phase !== 'VOTING') {
+          return NextResponse.json({ error: 'Chant is not in voting phase' }, { status: 400 })
+        }
+
+        // 1. Force-complete open cells
+        const advOpenCells = await prisma.cell.findMany({
+          where: { deliberationId: id, status: { in: ['VOTING', 'DELIBERATING'] } },
+          select: { id: true },
+        })
+        for (const cell of advOpenCells) {
+          await processCellResults(cell.id, true)
+        }
+
+        // 2. Close submissions
+        await prisma.deliberation.update({
+          where: { id },
+          data: { submissionsClosed: true },
+        })
+
+        // 3. Advance: try continuous flow first, then standard
+        if (deliberation.continuousFlow) {
+          for (let t = 1; t <= deliberation.currentTier; t++) {
+            await tryAdvanceContinuousFlowTier(id, t)
+          }
+
+          const cellSize = deliberation.cellSize || 5
+          const cfAdvancing = await prisma.idea.findMany({
+            where: { deliberationId: id, status: 'ADVANCING' },
+            select: { id: true, text: true, tier: true },
+          })
+          const cfOpen = await prisma.cell.count({
+            where: { deliberationId: id, status: { in: ['VOTING', 'DELIBERATING'] } },
+          })
+
+          if (cfAdvancing.length > 0 && cfAdvancing.length < cellSize && cfOpen === 0) {
+            const nextTier = Math.max(...cfAdvancing.map(i => i.tier)) + 1
+            await prisma.idea.updateMany({
+              where: { id: { in: cfAdvancing.map(i => i.id) } },
+              data: { status: 'IN_VOTING', tier: nextTier },
+            })
+            await prisma.deliberation.update({
+              where: { id },
+              data: { currentTier: nextTier, currentTierStartedAt: new Date() },
+            })
+          }
+        }
+
+        await checkTierCompletion(id, deliberation.currentTier)
+
+        // 4. Recalculate priority from highest completed tier
+        const advUpdated = await prisma.deliberation.findUnique({
+          where: { id },
+          select: { currentTier: true, phase: true },
+        })
+        const highestTier = advUpdated?.currentTier || deliberation.currentTier
+        const completedCells = await prisma.cell.findMany({
+          where: { deliberationId: id, tier: { lte: highestTier }, status: 'COMPLETED' },
+          select: { id: true, tier: true },
+        })
+        // Use highest tier completed cells for priority
+        const maxCompletedTier = completedCells.length > 0
+          ? Math.max(...completedCells.map(c => c.tier))
+          : highestTier
+        const topTierCellIds = completedCells.filter(c => c.tier === maxCompletedTier).map(c => c.id)
+        const xpVotes = await prisma.vote.findMany({
+          where: { cellId: { in: topTierCellIds } },
+          select: { ideaId: true, xpPoints: true },
+        })
+        const xpTally: Record<string, number> = {}
+        for (const v of xpVotes) xpTally[v.ideaId] = (xpTally[v.ideaId] || 0) + v.xpPoints
+        const xpSorted = Object.entries(xpTally).sort(([, a], [, b]) => b - a)
+        let priorityIdea: { id: string; text: string; xp: number } | null = null
+        if (xpSorted.length > 0) {
+          const [pId, pXp] = xpSorted[0]
+          const pIdea = await prisma.idea.findUnique({ where: { id: pId }, select: { id: true, text: true } })
+          if (pIdea) {
+            priorityIdea = { id: pIdea.id, text: pIdea.text, xp: pXp }
+            await prisma.idea.updateMany({ where: { deliberationId: id, isChampion: true }, data: { isChampion: false } })
+            await prisma.idea.update({ where: { id: pId }, data: { isChampion: true } })
+            await prisma.deliberation.update({ where: { id }, data: { championId: pId } })
+          }
+        }
+
+        const advFinalIdeas = await prisma.idea.findMany({
+          where: { deliberationId: id, status: { in: ['ADVANCING', 'IN_VOTING'] }, tier: { gt: deliberation.currentTier } },
+          select: { id: true, text: true },
+        })
+
+        return NextResponse.json({
+          success: true,
+          closedCells: advOpenCells.length,
+          currentTier: advUpdated?.currentTier,
+          phase: advUpdated?.phase,
+          priority: priorityIdea,
+          advancingIdeas: advFinalIdeas.length > 0 ? advFinalIdeas : undefined,
+          message: advUpdated?.phase === 'COMPLETED'
+            ? 'Deliberation complete. Priority declared.'
+            : `Tier ${deliberation.currentTier} closed. Now at tier ${advUpdated?.currentTier}.`,
+        })
+      }
+
+      case 'end': {
+        // Force-complete everything, declare final priority, close deliberation
+        if (deliberation.phase === 'COMPLETED') {
+          return NextResponse.json({ error: 'Chant is already completed' }, { status: 400 })
+        }
+
+        // 1. Force-complete all open cells
+        const endOpenCells = await prisma.cell.findMany({
+          where: { deliberationId: id, status: { in: ['VOTING', 'DELIBERATING'] } },
+          select: { id: true },
+        })
+        for (const cell of endOpenCells) {
+          await processCellResults(cell.id, true)
+        }
+
+        // 2. Recalculate priority from highest completed tier
+        const endCells = await prisma.cell.findMany({
+          where: { deliberationId: id, status: 'COMPLETED' },
+          select: { id: true, tier: true },
+        })
+        const endMaxTier = endCells.length > 0 ? Math.max(...endCells.map(c => c.tier)) : deliberation.currentTier
+        const endTopCellIds = endCells.filter(c => c.tier === endMaxTier).map(c => c.id)
+        const endVotes = await prisma.vote.findMany({
+          where: { cellId: { in: endTopCellIds } },
+          select: { ideaId: true, xpPoints: true },
+        })
+        const endTally: Record<string, number> = {}
+        for (const v of endVotes) endTally[v.ideaId] = (endTally[v.ideaId] || 0) + v.xpPoints
+        const endSorted = Object.entries(endTally).sort(([, a], [, b]) => b - a)
+
+        let finalPriority: { id: string; text: string; xp: number } | null = null
+        if (endSorted.length > 0) {
+          const [fId, fXp] = endSorted[0]
+          const fIdea = await prisma.idea.findUnique({ where: { id: fId }, select: { id: true, text: true } })
+          if (fIdea) {
+            finalPriority = { id: fIdea.id, text: fIdea.text, xp: fXp }
+            await prisma.idea.updateMany({ where: { deliberationId: id, isChampion: true }, data: { isChampion: false } })
+            await prisma.idea.update({ where: { id: fId }, data: { isChampion: true, status: 'WINNER' } })
+            await prisma.deliberation.update({
+              where: { id },
+              data: { championId: fId, phase: 'COMPLETED', completedAt: new Date() },
+            })
+          }
+        } else {
+          // No votes at all — just close
+          await prisma.deliberation.update({
+            where: { id },
+            data: { phase: 'COMPLETED', completedAt: new Date() },
+          })
+        }
+
+        return NextResponse.json({
+          success: true,
+          closedCells: endOpenCells.length,
+          phase: 'COMPLETED',
+          priority: finalPriority,
+          message: 'Deliberation ended. Final priority declared.',
+        })
+      }
+
       default:
         return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
     }

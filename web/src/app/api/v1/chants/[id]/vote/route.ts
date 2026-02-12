@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../auth'
+import { v1RateLimit } from '../../../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
 import { Prisma } from '@prisma/client'
 import { fireWebhookEvent } from '@/lib/webhooks'
+import { recordTaskCompletion } from '@/lib/rate-limit'
 
 // POST /api/v1/chants/:id/vote — Cast XP vote in your current cell
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -12,6 +14,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
     const userId = auth.user.id
@@ -222,6 +226,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }
     }
 
+    recordTaskCompletion(userId)
     return NextResponse.json({
       voted: true,
       cellId,

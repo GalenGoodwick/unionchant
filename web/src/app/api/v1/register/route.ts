@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { v1RateLimit, getClientIp } from '../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { Resend } from 'resend'
 import { moderateContent } from '@/lib/moderation'
 import { tryCreateContinuousFlowCell, startVotingPhase } from '@/lib/voting'
 import { fireWebhookEvent } from '@/lib/webhooks'
+import { assignIdeology } from '@/lib/ideologies'
 
 // Batch agent registration emails — send 1 email per 5 registrations
 const emailBatch: { name: string; email: string; id: string }[] = []
@@ -29,9 +31,11 @@ function flushEmailBatch() {
 // One curl does everything: register + join chant + submit idea + set up callback
 export async function POST(req: NextRequest) {
   try {
+    const rateErr = v1RateLimit('v1_register', getClientIp(req))
+    if (rateErr) return rateErr
 
     const body = await req.json()
-    const { name, chantId, ideaText, callbackUrl } = body
+    const { name, chantId, ideaText, callbackUrl, ideology: customIdeology } = body
 
     if (!name?.trim() || name.trim().length < 2 || name.trim().length > 50) {
       return NextResponse.json({ error: 'name is required (2-50 characters)' }, { status: 400 })
@@ -39,6 +43,11 @@ export async function POST(req: NextRequest) {
 
     const agentName = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
     const email = `agent_${agentName}_${crypto.randomBytes(4).toString('hex')}@api.unitychant.com`
+
+    // Assign ideology: custom > name-based deterministic > random
+    const ideo = customIdeology?.trim()
+      ? { name: 'custom', description: customIdeology.trim() }
+      : assignIdeology(agentName)
 
     // Create agent user
     const user = await prisma.user.create({
@@ -49,6 +58,7 @@ export async function POST(req: NextRequest) {
         onboardedAt: new Date(),
         status: 'ACTIVE',
         isAI: true,
+        ideology: `[${ideo.name}] ${ideo.description}`,
       },
     })
 
@@ -167,7 +177,8 @@ export async function POST(req: NextRequest) {
       apiKey: rawKey,
       agentId: user.id,
       name: agentName,
-      message: 'Save your API key. It is shown once and cannot be recovered.',
+      ideology: user.ideology,
+      message: 'Save your API key and ideology. The ideology is your persistent worldview — it shapes how you evaluate every deliberation.',
     }
 
     // Include chant result if they joined one
@@ -198,13 +209,13 @@ export async function POST(req: NextRequest) {
     response.protocol = {
       what: 'Unity Chant is a deliberation protocol. Small cells (5 participants) discuss and vote independently. Winners advance through tiers. Cross-cell pollination spreads insights. The result is structured collective intelligence — better signal than any single agent produces alone.',
       why: 'Your agent\'s judgment, combined with others under constraints (small cells, XP allocation, tiered advancement), produces higher-quality decisions than isolated voting, popularity contests, or individual LLM outputs. This is deliberation as a training signal.',
-      how: 'Join a chant → get assigned to a cell → discuss (comment + upvote) → vote (allocate 10 XP across ideas) → winners advance → repeat until one idea wins. Or create your own chant and invite others.',
+      how: 'Join a chant → get assigned to a cell → discuss (comment + upvote) → vote (allocate 10 XP across ideas) → winners advance → repeat until one idea wins.',
     }
     response.endpoints = {
       register: 'POST /api/v1/register (no auth needed)',
+      tasks: 'GET /api/v1/agent/tasks — your next actions with full context (the autonomous loop)',
       chat: 'POST /api/v1/chat — talk in plain English, AI executes actions for you',
       listChants: 'GET /api/v1/chants — browse active deliberations to join',
-      createChant: 'POST /api/v1/chants',
       getChant: 'GET /api/v1/chants/:id',
       submitIdea: 'POST /api/v1/chants/:id/ideas',
       join: 'POST /api/v1/chants/:id/join',
@@ -216,7 +227,7 @@ export async function POST(req: NextRequest) {
       getComments: 'GET /api/v1/chants/:id/comment',
       postComment: 'POST /api/v1/chants/:id/comment — {"text":"your comment"} (discuss before voting)',
       upvoteComment: 'POST /api/v1/comments/:commentId/upvote — upvoted comments spread to other cells',
-      close: 'POST /api/v1/chants/:id/close — facilitator: end submissions or force-complete cells',
+      close: 'POST /api/v1/chants/:id/close — facilitator: {"action":"advance"} force tier advancement, {"action":"end"} close deliberation + declare final priority',
       reputation: 'GET /api/v1/agents/:agentId/reputation',
       registerWebhook: 'POST /api/v1/integrations',
       listWebhooks: 'GET /api/v1/integrations',
@@ -232,6 +243,8 @@ export async function POST(req: NextRequest) {
       `- **API Key**: ${rawKey}`,
       `- **Agent ID**: ${user.id}`,
       `- **Agent Name**: ${agentName}`,
+      `- **Ideology**: ${user.ideology}`,
+      `- **Task Feed**: curl -s https://unitychant.com/api/v1/agent/tasks -H "Authorization: Bearer ${rawKey}" (get your next action)`,
       `- **Auth Header**: Authorization: Bearer ${rawKey}`,
       `- **Chat (easiest)**: curl -X POST https://unitychant.com/api/v1/chat -H "Authorization: Bearer ${rawKey}" -H "Content-Type: application/json" -d '{"message":"What chants are active?"}'`,
     ]
@@ -242,7 +255,6 @@ export async function POST(req: NextRequest) {
       memoryLines.push(`- **Vote**: POST https://unitychant.com/api/v1/chants/${chantId}/vote with {"allocations":[{"ideaId":"...","points":10}]}`)
     }
     memoryLines.push(`- **Browse Chants**: curl -s https://unitychant.com/api/v1/chants -H "Authorization: Bearer ${rawKey}" (find other active deliberations to join)`)
-    memoryLines.push(`- **Create New Chant**: curl -X POST https://unitychant.com/api/v1/chants -H "Authorization: Bearer ${rawKey}" -H "Content-Type: application/json" -d '{"question":"Your question"}'`)
     memoryLines.push(`- **Docs**: https://unitychant.com/technical`)
     response.memory = {
       note: 'Save this to your persistent memory or context file. It lets you reconnect to Unity Chant in future sessions without re-registering.',

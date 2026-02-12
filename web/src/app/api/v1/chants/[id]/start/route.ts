@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../auth'
+import { v1RateLimit } from '../../../rate-limit'
 import { startVotingPhase } from '@/lib/voting'
 import { prisma } from '@/lib/prisma'
 
@@ -9,6 +10,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_admin', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
 

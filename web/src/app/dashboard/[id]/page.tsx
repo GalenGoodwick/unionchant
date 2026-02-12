@@ -102,10 +102,11 @@ export default function DashboardDetailPage() {
   const [actionMessage, setActionMessage] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [confirmForce, setConfirmForce] = useState(false)
   const [confirmAIResolve, setConfirmAIResolve] = useState(false)
   const [confirmChallenge, setConfirmChallenge] = useState(false)
   const [confirmCloseSubmissions, setConfirmCloseSubmissions] = useState(false)
+  const [confirmAdvanceTier, setConfirmAdvanceTier] = useState(false)
+  const [confirmEndDelib, setConfirmEndDelib] = useState(false)
 
   const fetchDeliberation = useCallback(async () => {
     try {
@@ -212,6 +213,8 @@ export default function DashboardDetailPage() {
           'advance-discussion': `Voting opened for ${data.cellsAdvanced || 0} cells`,
           'ai-resolve': `AI filled ${data.aiVotersAdded || 0} seats across ${data.cellsResolved || 0} cells`,
           'close-submissions': `Submissions closed. ${data.tier2Started ? 'Tier 2 started!' : 'Waiting for cells to complete.'}`,
+          'advance-tier': data.message || `Advanced to tier ${data.currentTier}`,
+          'end-delib': data.message || 'Deliberation ended. Priority declared.',
         }
         setActionMessage(messages[action] || 'Done!')
         fetchDeliberation()
@@ -530,31 +533,63 @@ export default function DashboardDetailPage() {
                     </div>
                   )}
 
-                  {/* Force Complete */}
-                  {!confirmForce ? (
+                  {/* Advance Tier — force-complete + create next tier */}
+                  {!confirmAdvanceTier ? (
                     <>
                       <button
-                        onClick={() => setConfirmForce(true)}
-                        disabled={actionLoading === 'force-next-tier'}
-                        className="w-full bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-3 py-2 rounded-lg text-xs transition-colors"
+                        onClick={() => setConfirmAdvanceTier(true)}
+                        disabled={actionLoading === 'advance-tier'}
+                        className="w-full bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-3 py-2 rounded-lg text-xs transition-colors"
                       >
-                        Force Complete Round
+                        Advance Tier
                       </button>
-                      <p className="text-xs text-muted mt-0.5">Ends all open cells immediately. Votes cast so far are tallied, non-voters are skipped. Top ideas advance to the next tier.</p>
+                      <p className="text-xs text-muted mt-0.5">Force-complete open cells, recalculate priority, and create next tier. Advancing ideas compete again.</p>
                     </>
                   ) : (
-                    <div className="border border-orange rounded-lg p-2 space-y-1.5">
-                      <p className="text-xs text-orange font-medium">End voting now?</p>
-                      <p className="text-xs text-foreground">Tallies votes cast so far. Non-voters are skipped. Top ideas advance to the next tier.</p>
+                    <div className="border border-warning rounded-lg p-2 space-y-1.5">
+                      <p className="text-xs text-warning font-medium">Advance to next tier?</p>
+                      <p className="text-xs text-foreground">Open cells will be force-completed. Winners advance. A new tier is created for agents to enter.</p>
                       <div className="flex gap-1.5">
                         <button
-                          onClick={() => { setConfirmForce(false); handleAction('force-next-tier', `/api/deliberations/${deliberationId}/force-next-tier`) }}
-                          disabled={actionLoading === 'force-next-tier'}
-                          className="flex-1 bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
+                          onClick={() => { setConfirmAdvanceTier(false); handleAction('advance-tier', `/api/deliberations/${deliberationId}/facilitate`, { action: 'advance' }) }}
+                          disabled={actionLoading === 'advance-tier'}
+                          className="flex-1 bg-warning hover:bg-warning-hover disabled:opacity-40 text-black font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
                         >
-                          {actionLoading === 'force-next-tier' ? 'Processing...' : 'Confirm'}
+                          {actionLoading === 'advance-tier' ? 'Advancing...' : 'Confirm'}
                         </button>
-                        <button onClick={() => setConfirmForce(false)}
+                        <button onClick={() => setConfirmAdvanceTier(false)}
+                          className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* End Deliberation — declare final priority + close */}
+                  {!confirmEndDelib ? (
+                    <>
+                      <button
+                        onClick={() => setConfirmEndDelib(true)}
+                        disabled={actionLoading === 'end-delib'}
+                        className="w-full border border-success text-success hover:bg-success-bg disabled:opacity-40 font-medium px-3 py-2 rounded-lg text-xs transition-colors"
+                      >
+                        End Deliberation
+                      </button>
+                      <p className="text-xs text-muted mt-0.5">Declare the current highest-XP idea as the final priority and permanently close the chant.</p>
+                    </>
+                  ) : (
+                    <div className="border border-success rounded-lg p-2 space-y-1.5">
+                      <p className="text-xs text-success font-medium">End deliberation?</p>
+                      <p className="text-xs text-foreground">All open cells will be force-completed. The highest XP idea becomes the final priority. No more voting or ideas accepted.</p>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => { setConfirmEndDelib(false); handleAction('end-delib', `/api/deliberations/${deliberationId}/facilitate`, { action: 'end' }) }}
+                          disabled={actionLoading === 'end-delib'}
+                          className="flex-1 bg-success hover:bg-success-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
+                        >
+                          {actionLoading === 'end-delib' ? 'Ending...' : 'Confirm'}
+                        </button>
+                        <button onClick={() => setConfirmEndDelib(false)}
                           className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">
                           Cancel
                         </button>

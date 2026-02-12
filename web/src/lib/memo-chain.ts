@@ -434,6 +434,30 @@ export async function recordChampion(
   return { signature, explorer: explorerUrl(signature), memo }
 }
 
+// ── Foresight Badge ──
+
+/**
+ * Record a Foresight Badge mint on-chain.
+ * This is the paid attestation — permanent, verifiable proof of reputation.
+ *
+ * Format: UC|BADGE|{userId}|score:{score}|idea:{pct}|vote:{pct}|comment:{pct}|delibs:{n}|ideas:{n}|wins:{n}|ts:{unix}
+ */
+export async function recordBadgeMint(
+  userId: string,
+  foresightScore: number,
+  ideaViability: number,
+  votingAccuracy: number,
+  commentStrength: number,
+  deliberationsParticipated: number,
+  ideasSubmitted: number,
+  ideasWon: number,
+): Promise<MemoResult> {
+  const ts = Math.floor(Date.now() / 1000)
+  const memo = `UC|BADGE|${userId}|score:${foresightScore}|idea:${ideaViability}|vote:${votingAccuracy}|comment:${commentStrength}|delibs:${deliberationsParticipated}|ideas:${ideasSubmitted}|wins:${ideasWon}|ts:${ts}`
+  const signature = await sendMemo(memo)
+  return { signature, explorer: explorerUrl(signature), memo }
+}
+
 // ── Read: reconstruct chant from memo history ──
 
 export interface MemoEntry {
@@ -587,6 +611,14 @@ export function reassembleIdea(entries: MemoEntry[]): { text: string; verified: 
  */
 export function getWalletAddress(): string {
   return getKeypair().publicKey.toBase58()
+}
+
+/**
+ * Get the keypair for SOL forwarding (memo chain wallet → treasury).
+ * Only used by the payment forwarding system after badge/proof mints.
+ */
+export function getKeypairForForwarding(): Keypair {
+  return getKeypair()
 }
 
 /**

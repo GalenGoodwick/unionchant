@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { v1RateLimit, getClientIp } from '../../rate-limit'
 import * as fs from 'fs'
 import * as path from 'path'
 
 // GET /api/v1/proof/:id — Serve deliberation proof JSON for on-chain verification
-export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const rateErr = v1RateLimit('v1_read', getClientIp(req))
+  if (rateErr) return rateErr
+
   const { id } = await params
 
   // Sanitize ID to prevent path traversal

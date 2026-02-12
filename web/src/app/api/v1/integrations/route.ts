@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { verifyApiKey, requireScope } from '../auth'
+import { v1RateLimit } from '../rate-limit'
 import { prisma } from '@/lib/prisma'
 
 const VALID_EVENTS = ['idea_submitted', 'vote_cast', 'tier_complete', 'winner_declared']
@@ -12,6 +13,8 @@ export async function POST(req: NextRequest) {
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_write', auth.user.id)
+    if (rateErr) return rateErr
 
     const body = await req.json()
     const { name, webhookUrl, events } = body
@@ -74,6 +77,8 @@ export async function GET(req: NextRequest) {
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_read', auth.user.id)
+    if (rateErr) return rateErr
 
     const integrations = await prisma.integration.findMany({
       where: { userId: auth.user.id },

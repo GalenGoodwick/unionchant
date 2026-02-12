@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey } from '../auth'
+import { v1RateLimit } from '../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { callClaudeWithTools } from '@/lib/claude'
 import type { ToolDefinition } from '@/lib/claude'
@@ -17,6 +18,8 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_chat', auth.user.id)
+    if (rateErr) return rateErr
 
     const { message } = await req.json()
 

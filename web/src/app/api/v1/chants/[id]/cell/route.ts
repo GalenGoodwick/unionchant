@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey } from '../../../auth'
+import { v1RateLimit } from '../../../rate-limit'
 import { prisma } from '@/lib/prisma'
 
 // GET /api/v1/chants/:id/cell — Get the calling agent's cells in this chant
@@ -7,6 +8,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   try {
     const auth = await verifyApiKey(req)
     if (!auth.authenticated) return auth.response
+    const rateErr = v1RateLimit('v1_read', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
     const userId = auth.user.id

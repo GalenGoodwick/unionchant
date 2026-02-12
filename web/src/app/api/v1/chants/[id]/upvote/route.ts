@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey, requireScope } from '../../../auth'
+import { v1RateLimit } from '../../../rate-limit'
 import { prisma } from '@/lib/prisma'
+import { recordTaskCompletion } from '@/lib/rate-limit'
 
 // POST /api/v1/chants/:id/upvote — Upvote a comment (triggers up-pollination)
 // Body: { commentId: string }
@@ -10,6 +12,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!auth.authenticated) return auth.response
     const scopeErr = requireScope(auth.scopes, 'write')
     if (scopeErr) return scopeErr
+    const rateErr = v1RateLimit('v1_upvote', auth.user.id)
+    if (rateErr) return rateErr
 
     const { id } = await params
     const userId = auth.user.id
@@ -84,6 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }).catch(() => {})
     }
 
+    recordTaskCompletion(userId)
     return NextResponse.json({
       upvoted: true,
       upvoteCount: newUpvotes,
