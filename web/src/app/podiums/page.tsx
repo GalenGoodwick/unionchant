@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
-import Header from '@/components/Header'
-import FirstVisitTooltip from '@/components/FirstVisitTooltip'
+import FrameLayout from '@/components/FrameLayout'
 
 type PodiumItem = {
   id: string
@@ -54,109 +53,80 @@ export default function PodiumsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="max-w-xl mx-auto px-4 py-6">
-        <FirstVisitTooltip id="podiums-page">
-          Podiums are long-form posts where you can explain your thinking, make an argument, or provide context for a chant. Link a podium to a chant to drive informed participation.
-        </FirstVisitTooltip>
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">Podiums</h1>
+    <FrameLayout
+      active="podiums"
+      footerRight={
+        session ? (
+          <Link
+            href="/podium/new"
+            className="h-10 px-4 rounded-full bg-accent hover:bg-accent-hover text-white text-sm font-medium shadow-sm flex items-center gap-2 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+            <span>Write</span>
+          </Link>
+        ) : undefined
+      }
+    >
+      {loading ? (
+        <div className="text-center text-muted py-12 animate-pulse text-sm">Loading podiums...</div>
+      ) : posts.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-muted mb-2 text-sm">No posts yet.</p>
           {session && (
-            <Link
-              href="/podium/new"
-              className="text-sm bg-accent text-white px-4 py-1.5 rounded-lg hover:bg-accent-hover transition-colors font-medium flex items-center gap-1.5"
-            >
-              <span className="text-base">&#9998;</span> Write
+            <Link href="/podium/new" className="text-accent text-sm hover:underline">
+              Write the first post
             </Link>
           )}
         </div>
-
-        {/* AI Contributors notice */}
-        <div className="bg-surface border border-purple/20 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-sm">&#9889;</span>
-            <span className="text-sm font-semibold text-purple">AI Contributors</span>
-          </div>
-          <p className="text-sm text-subtle leading-relaxed">
-            AI personas write alongside humans to kickstart conversations. Each has a unique perspective.
-            As more people join, AI participants step back.
-          </p>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-16 text-muted">Loading...</div>
-        ) : posts.length === 0 ? (
-          <div className="text-center py-16">
-            <p className="text-muted mb-4">No posts yet. Be the first to write something.</p>
-            {session && (
-              <Link href="/podium/new" className="text-accent hover:text-accent-hover font-medium text-sm">
-                Write a post &rarr;
+      ) : (
+        <div className="space-y-2.5">
+          {posts.map((post) => {
+            const isRead = readIds.has(post.id)
+            return (
+              <Link
+                key={post.id}
+                href={`/podium/${post.id}`}
+                onClick={() => markRead(post.id)}
+                className={`block p-3.5 bg-surface/90 hover:bg-surface-hover/90 border border-border rounded-lg transition-all shadow-sm hover:shadow-md backdrop-blur-sm ${isRead ? 'opacity-70' : ''} ${post.pinned ? 'ring-1 ring-accent/20' : ''}`}
+              >
+                {post.pinned && (
+                  <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1.5">Pinned</div>
+                )}
+                <div className="flex items-center gap-2 mb-1.5">
+                  {!isRead && <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
+                  {post.author.image ? (
+                    <img src={post.author.image} alt="" className="w-5 h-5 rounded-full" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-accent/20 text-accent text-[10px] font-semibold flex items-center justify-center">
+                      {(post.author.name || 'A')[0].toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-xs font-medium text-foreground">{post.author.name || 'Anonymous'}</span>
+                  {post.author.isAI && (
+                    <span className="text-[10px] font-semibold text-purple border border-purple/30 px-1 py-0.5 rounded leading-none">AI</span>
+                  )}
+                  <span className="text-xs text-muted ml-auto">{timeAgo(post.createdAt)}</span>
+                </div>
+                <h3 className="text-sm font-medium text-foreground leading-tight">{post.title}</h3>
+                <p className="text-xs text-muted mt-1 line-clamp-2 leading-relaxed">
+                  {post.body.slice(0, 180).replace(/\n/g, ' ')}
+                </p>
+                {post.deliberation && (
+                  <div className="mt-2 p-2 bg-accent/8 border border-accent/15 rounded-md">
+                    <p className="text-xs text-foreground/80 truncate">&ldquo;{post.deliberation.question}&rdquo;</p>
+                  </div>
+                )}
+                <div className="flex items-center gap-3 mt-2 text-xs text-muted">
+                  {post.views > 0 && <span>{post.views} views</span>}
+                </div>
               </Link>
-            )}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {posts.map((post) => {
-              const isRead = readIds.has(post.id)
-              return (
-                <Link
-                  key={post.id}
-                  href={`/podium/${post.id}`}
-                  onClick={() => markRead(post.id)}
-                  className="block"
-                >
-                  <article className={`bg-surface border border-border rounded-xl p-4 transition-colors hover:bg-surface-hover ${isRead ? 'opacity-70' : ''} ${post.pinned ? 'ring-2 ring-accent/20' : ''}`}>
-                    {post.pinned && (
-                      <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-2">Pinned</div>
-                    )}
-                    {/* Author row */}
-                    <div className="flex items-center gap-2 mb-2">
-                      {!isRead && (
-                        <div className="w-2 h-2 rounded-full bg-accent flex-shrink-0" />
-                      )}
-                      {post.author.image ? (
-                        <img src={post.author.image} alt="" className="w-6 h-6 rounded-full" />
-                      ) : (
-                        <div className="w-6 h-6 rounded-full bg-accent-light text-accent text-xs font-semibold flex items-center justify-center">
-                          {(post.author.name || 'A')[0].toUpperCase()}
-                        </div>
-                      )}
-                      <span className="text-sm font-medium text-foreground">{post.author.name || 'Anonymous'}</span>
-                      {post.author.isAI && (
-                        <span className="text-xs font-semibold text-purple border border-purple/30 px-1.5 py-0.5 rounded">AI</span>
-                      )}
-                      <span className="text-sm text-muted ml-auto">{timeAgo(post.createdAt)}</span>
-                    </div>
-
-                    {/* Title */}
-                    <h2 className="text-lg font-bold text-foreground leading-snug">{post.title}</h2>
-
-                    {/* Preview */}
-                    <p className="text-sm text-muted mt-1 line-clamp-2">
-                      {post.body.slice(0, 180).replace(/\n/g, ' ')}
-                    </p>
-
-                    {/* Linked Chant */}
-                    {post.deliberation && (
-                      <div className="mt-3 bg-accent/10 border border-accent/25 rounded-lg p-3">
-                        <div className="text-xs uppercase tracking-wider text-accent font-semibold mb-1">Linked Chant</div>
-                        <div className="text-sm text-foreground font-medium leading-snug">&ldquo;{post.deliberation.question}&rdquo;</div>
-                      </div>
-                    )}
-
-                    {/* Stats */}
-                    <div className="mt-3 flex items-center gap-3 text-sm text-muted">
-                      {post.views > 0 && <span>{post.views} views</span>}
-                    </div>
-                  </article>
-                </Link>
-              )
-            })}
-          </div>
-        )}
-      </main>
-    </div>
+            )
+          })}
+        </div>
+      )}
+    </FrameLayout>
   )
 }
 

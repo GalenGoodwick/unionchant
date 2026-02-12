@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
-import Header from '@/components/Header'
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
+import FrameLayout from '@/components/FrameLayout'
 
 function UserAvatar({ image, name }: { image: string | null; name: string | null }) {
   const [imgError, setImgError] = useState(false)
@@ -559,24 +559,28 @@ export default function AdminPage() {
   // Loading state
   if (status === 'loading' || isAdmin === null) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
-      </div>
+      <FrameLayout active="chants" showBack>
+        <div className="flex items-center justify-center py-20">
+          <div className="text-muted text-xs">Loading...</div>
+        </div>
+      </FrameLayout>
     )
   }
 
   // Block non-admin users
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-4">Access Denied</h1>
-          <p className="text-muted mb-6">You don&apos;t have permission to access this page.</p>
-          <Link href="/" className="text-accent hover:text-accent-hover">
-            Go to homepage
-          </Link>
+      <FrameLayout active="chants" showBack>
+        <div className="flex items-center justify-center py-20">
+          <div className="text-center">
+            <h1 className="text-sm font-bold text-foreground mb-2">Access Denied</h1>
+            <p className="text-muted text-xs mb-4">You don&apos;t have permission to access this page.</p>
+            <Link href="/chants" className="text-accent hover:text-accent-hover text-xs">
+              Go to chants
+            </Link>
+          </div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
@@ -632,54 +636,51 @@ export default function AdminPage() {
 
   if (hasPasskeys && !isAdminVerified) {
     return (
-      <div className="min-h-screen bg-surface">
-        <Header />
-        <div className="flex items-center justify-center" style={{ minHeight: 'calc(100vh - 64px)' }}>
-          <div className="bg-background rounded-xl p-8 border border-border max-w-sm w-full text-center">
-            <div className="text-4xl mb-4">🔐</div>
-            <h1 className="text-xl font-bold text-foreground mb-2">Admin Verification</h1>
-            <p className="text-muted text-sm mb-6">
-              Verify your identity with your passkey to access the admin panel.
+      <FrameLayout active="chants" showBack>
+        <div className="flex items-center justify-center py-20">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-6 max-w-sm w-full text-center">
+            <h1 className="text-sm font-bold text-foreground mb-1">Admin Verification</h1>
+            <p className="text-muted text-xs mb-4">
+              Verify your identity with your passkey.
             </p>
             <button
               onClick={handleVerify}
               disabled={verifying}
-              className="w-full px-4 py-3 bg-accent text-white rounded-xl hover:bg-accent-hover disabled:opacity-50 font-medium"
+              className="w-full px-3 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover disabled:opacity-50 text-xs font-medium"
             >
               {verifying ? 'Verifying...' : 'Verify with Passkey'}
             </button>
             {verifyError && (
-              <p className="text-error text-sm mt-3">{verifyError}</p>
+              <p className="text-error text-xs mt-2">{verifyError}</p>
             )}
           </div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <Header />
+    <FrameLayout active="chants" showBack>
+      <div className="py-4 space-y-3">
 
       {/* ── FINGERPRINT SECURITY ── */}
-      <div className={`border-b-2 ${hasPasskeys ? 'bg-success/10 border-success' : 'bg-warning/10 border-warning'}`}>
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-xl">{hasPasskeys ? '🔒' : '🔓'}</span>
+      <div className={`rounded-lg p-2.5 ${hasPasskeys ? 'bg-success/10 border border-success' : 'bg-warning/10 border border-warning'}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
             <div>
-              <span className="text-foreground font-semibold text-sm">
-                {hasPasskeys ? 'Passkey Active' : 'No Passkey Set'}
+              <span className="text-foreground font-semibold text-xs">
+                {hasPasskeys ? 'Passkey Active' : 'No Passkey'}
               </span>
-              <span className="text-muted text-xs ml-2">
+              <span className="text-muted text-[10px] ml-1">
                 {hasPasskeys
-                  ? isAdminVerified ? '— Verified (4h session)' : '— Needs verification'
-                  : '— Admin is unprotected'}
+                  ? isAdminVerified ? '(4h)' : '(needs verify)'
+                  : '(unprotected)'}
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
             {registerMsg && (
-              <span className={`text-xs ${registerMsg.includes('failed') ? 'text-error' : 'text-success'}`}>
+              <span className={`text-[10px] ${registerMsg.includes('failed') ? 'text-error' : 'text-success'}`}>
                 {registerMsg}
               </span>
             )}
@@ -687,88 +688,80 @@ export default function AdminPage() {
               <button
                 onClick={handleRegisterPasskey}
                 disabled={registering}
-                className="bg-warning hover:bg-warning/80 text-background font-semibold text-sm px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                className="bg-warning hover:bg-warning/80 text-background font-semibold text-xs px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
               >
-                {registering ? 'Registering...' : 'Register Fingerprint'}
+                {registering ? '...' : 'Register'}
               </button>
             ) : (
               <Link
                 href="/settings#security"
-                className="text-muted hover:text-foreground text-xs underline"
+                className="text-muted hover:text-foreground text-[10px] underline"
               >
-                Manage passkeys
+                Manage
               </Link>
             )}
           </div>
         </div>
       </div>
 
-      {/* ── CHALLENGE CONTROL — big red button ── */}
-      <div className="bg-error/10 border-b-2 border-error">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-            <button
-              onClick={triggerChallenge}
-              disabled={challengeTriggering}
-              className="bg-error hover:bg-error-hover text-white font-bold text-lg px-8 py-4 rounded-lg transition-colors disabled:opacity-50 shadow-lg shrink-0"
-            >
-              {challengeTriggering ? 'Triggering...' : 'TRIGGER CHALLENGE — ALL USERS'}
-            </button>
-            <div className="flex-1 min-w-0">
-              {challengeResult && (
-                <p className="text-success font-semibold text-sm mb-1">{challengeResult}</p>
-              )}
-              {challengeStatsLoading ? (
-                <p className="text-muted text-sm">Loading stats...</p>
-              ) : challengeStats && (
-                <div className="flex flex-wrap gap-3 text-xs">
-                  <span className="text-muted">Total challenges: <span className="text-foreground font-mono">{challengeStats.totalLogs}</span></span>
-                  {challengeStats.resultCounts.map(r => (
-                    <span key={r.result} className={r.result === 'passed' ? 'text-success' : 'text-error'}>
-                      {r.result}: <span className="font-mono">{r.count}</span>
-                    </span>
+      {/* ── CHALLENGE CONTROL ── */}
+      <div className="bg-error/10 border border-error rounded-lg p-2.5">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={triggerChallenge}
+            disabled={challengeTriggering}
+            className="bg-error hover:bg-error-hover text-white font-bold text-xs px-3 py-2 rounded-lg transition-colors disabled:opacity-50 shrink-0"
+          >
+            {challengeTriggering ? '...' : 'TRIGGER CHALLENGE'}
+          </button>
+          <div className="flex-1 min-w-0">
+            {challengeResult && (
+              <p className="text-success font-semibold text-[10px]">{challengeResult}</p>
+            )}
+            {challengeStatsLoading ? (
+              <p className="text-muted text-[10px]">Loading...</p>
+            ) : challengeStats && (
+              <div className="flex flex-wrap gap-1.5 text-[10px]">
+                <span className="text-muted">Total: <span className="text-foreground font-mono">{challengeStats.totalLogs}</span></span>
+                {challengeStats.resultCounts.map(r => (
+                  <span key={r.result} className={r.result === 'passed' ? 'text-success' : 'text-error'}>
+                    {r.result}: <span className="font-mono">{r.count}</span>
+                  </span>
+                ))}
+                {challengeStats.flaggedUsers.length > 0 && (
+                  <span className="text-warning">Flagged: <span className="font-mono">{challengeStats.flaggedUsers.length}</span></span>
+                )}
+              </div>
+            )}
+            {challengeStats && challengeStats.recentFails.length > 0 && (
+              <details className="mt-1">
+                <summary className="text-[10px] text-muted cursor-pointer hover:text-foreground">
+                  Failures ({challengeStats.recentFails.length})
+                </summary>
+                <div className="mt-0.5 max-h-24 overflow-y-auto space-y-0.5">
+                  {challengeStats.recentFails.slice(0, 5).map(f => (
+                    <div key={f.id} className="text-[10px] text-muted bg-background rounded px-1.5 py-0.5 flex gap-2">
+                      <span className="text-error font-mono">{f.result}</span>
+                      <span className="truncate">{f.user.email}</span>
+                    </div>
                   ))}
-                  {challengeStats.flaggedUsers.length > 0 && (
-                    <span className="text-warning">Flagged users: <span className="font-mono">{challengeStats.flaggedUsers.length}</span></span>
-                  )}
                 </div>
-              )}
-              {challengeStats && challengeStats.recentFails.length > 0 && (
-                <details className="mt-2">
-                  <summary className="text-xs text-muted cursor-pointer hover:text-foreground">
-                    Recent failures ({challengeStats.recentFails.length})
-                  </summary>
-                  <div className="mt-1 max-h-40 overflow-y-auto space-y-1">
-                    {challengeStats.recentFails.slice(0, 10).map(f => (
-                      <div key={f.id} className="text-xs text-muted bg-background rounded px-2 py-1 flex gap-3">
-                        <span className="text-error font-mono">{f.result}</span>
-                        <span>{f.user.email}</span>
-                        <span>ptr:{f.pointerEvents} dur:{f.chaseDurationMs}ms evd:{f.evadeCount}</span>
-                        <span className="text-subtle">{new Date(f.createdAt).toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </div>
+              </details>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex justify-between items-start">
           <div>
-            <Link href="/" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
-              &larr; Back to home
-            </Link>
-            <h1 className="text-2xl font-bold text-foreground">Admin Panel</h1>
-            <p className="text-muted text-sm mt-1">Manage deliberations, run tests, and monitor activity</p>
+            <h1 className="text-sm font-bold text-foreground">Admin Panel</h1>
+            <p className="text-muted text-xs mt-0.5">Manage deliberations, tests, activity</p>
           </div>
           <Link
             href="/admin/test"
-            className="bg-surface hover:bg-header hover:text-white text-muted border border-border px-4 py-2 rounded transition-colors text-sm"
+            className="bg-surface hover:bg-header hover:text-white text-muted border border-border px-2.5 py-1 rounded transition-colors text-xs shrink-0"
           >
-            Advanced Test Page →
+            Tests &rarr;
           </Link>
         </div>
 
@@ -2090,6 +2083,6 @@ export default function AdminPage() {
 
         </>)}
       </div>
-    </div>
+    </FrameLayout>
   )
 }

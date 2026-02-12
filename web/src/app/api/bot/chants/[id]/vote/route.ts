@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { verifyBotAuth } from '../../../auth'
 import { resolveDiscordUser } from '@/lib/bot-user'
 import { prisma } from '@/lib/prisma'
-import { processCellResults } from '@/lib/voting'
+import { processCellResults, atomicJoinCell } from '@/lib/voting'
 import { Prisma } from '@prisma/client'
 
 const FCFS_CELL_SIZE = 5
@@ -92,15 +92,17 @@ export async function POST(
         return NextResponse.json({ error: 'All cells are full. Waiting for next round.' }, { status: 400 })
       }
 
+      // Atomically join cell (prevents race where two users both see room)
+      const joined = await atomicJoinCell(cellToJoin.id, user.id, FCFS_CELL_SIZE)
+      if (!joined) {
+        return NextResponse.json({ error: 'All cells are full. Waiting for next round.' }, { status: 400 })
+      }
+
       // Ensure membership
       await prisma.deliberationMember.upsert({
         where: { deliberationId_userId: { userId: user.id, deliberationId: id } },
         create: { userId: user.id, deliberationId: id },
         update: {},
-      })
-
-      await prisma.cellParticipation.create({
-        data: { cellId: cellToJoin.id, userId: user.id, status: 'ACTIVE' },
       })
 
       cellId = cellToJoin.id

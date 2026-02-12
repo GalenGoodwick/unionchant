@@ -304,6 +304,57 @@ export async function POST(
       }
     }).catch(() => {})
 
+    // For continuous flow: find next cell at a different tier (1 vote per tier)
+    let nextCell: { id: string; tier: number; ideas: { id: string; text: string; author: string }[]; voterCount: number; votersNeeded: number } | null = null
+    const cellForDelib = await prisma.cell.findUnique({
+      where: { id: cellId },
+      select: { deliberationId: true, deliberation: { select: { continuousFlow: true, cellSize: true } } },
+    })
+    if (cellForDelib?.deliberation.continuousFlow) {
+      const fcfsSize = cellForDelib.deliberation.cellSize || 5
+      const votedParticipations = await prisma.cellParticipation.findMany({
+        where: {
+          userId: user.id,
+          status: 'VOTED',
+          cell: { deliberationId: cellForDelib.deliberationId },
+        },
+        select: { cell: { select: { tier: true } } },
+      })
+      const votedTiers = new Set(votedParticipations.map(p => p.cell.tier))
+
+      const openCells = await prisma.cell.findMany({
+        where: {
+          deliberationId: cellForDelib.deliberationId,
+          status: 'VOTING',
+          ...(votedTiers.size > 0 ? { tier: { notIn: [...votedTiers] } } : {}),
+        },
+        include: {
+          _count: { select: { participants: true } },
+          ideas: {
+            include: {
+              idea: { select: { id: true, text: true, author: { select: { name: true } } } },
+            },
+          },
+        },
+        orderBy: [{ tier: 'asc' }, { createdAt: 'asc' }],
+      })
+
+      const available = openCells.find(c => c._count.participants < fcfsSize)
+      if (available) {
+        nextCell = {
+          id: available.id,
+          tier: available.tier,
+          ideas: available.ideas.map(ci => ({
+            id: ci.idea.id,
+            text: ci.idea.text,
+            author: ci.idea.author?.name || 'Anonymous',
+          })),
+          voterCount: available._count.participants,
+          votersNeeded: fcfsSize,
+        }
+      }
+    }
+
     return NextResponse.json({
       allocations: result.allocations,
       allVoted: result.allVoted,
@@ -312,6 +363,7 @@ export async function POST(
         votersNeeded: result.votersNeeded,
         cellCompleted: result.allVoted,
       } : {}),
+      ...(nextCell ? { nextCell } : {}),
     }, { status: 201 })
   } catch (error) {
     // Handle known errors

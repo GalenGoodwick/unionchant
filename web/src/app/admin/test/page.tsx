@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-import Header from '@/components/Header'
+import FrameLayout from '@/components/FrameLayout'
 
 interface TestResult {
   success: boolean
@@ -165,37 +165,35 @@ export default function AdminTestPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-      <Header />
-
-      <div className="max-w-4xl mx-auto px-6 py-8">
-        <Link href="/admin" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
+    <FrameLayout active="chants" showBack>
+      <div className="py-4 space-y-4">
+        <Link href="/admin" className="text-muted hover:text-foreground text-xs inline-block">
           &larr; Back to admin
         </Link>
 
-        <h1 className="text-3xl font-bold text-foreground mb-2">Admin Test Page</h1>
-        <p className="text-muted mb-4">Automated testing for deliberation flows. Not for public use.</p>
+        <h1 className="text-sm font-bold text-foreground">Admin Test Page</h1>
+        <p className="text-muted text-xs">Automated testing for deliberation flows.</p>
 
         {/* Auth Status */}
-        <div className="bg-background rounded-lg p-4 mb-6 flex items-center justify-between border border-border">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 flex items-center justify-between">
           {status === 'loading' ? (
-            <span className="text-muted">Loading...</span>
+            <span className="text-muted text-xs">Loading...</span>
           ) : session ? (
             <>
-              <span className="text-success">Signed in as {session.user?.email}</span>
+              <span className="text-success text-xs">Signed in as {session.user?.email}</span>
               <button
                 onClick={() => signOut()}
-                className="px-4 py-1 bg-muted hover:bg-subtle text-white rounded-lg text-sm"
+                className="px-3 py-1 bg-muted hover:bg-subtle text-white rounded-lg text-xs"
               >
                 Sign Out
               </button>
             </>
           ) : (
             <>
-              <span className="text-warning">Not signed in - tests require authentication</span>
+              <span className="text-warning text-xs">Not signed in</span>
               <button
                 onClick={() => signIn('google')}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg"
+                className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs"
               >
                 Sign in with Google
               </button>
@@ -204,90 +202,90 @@ export default function AdminTestPage() {
         </div>
 
         {!session && status !== 'loading' && (
-          <div className="bg-warning-bg border border-warning rounded-lg p-4 mb-6">
-            <p className="text-warning-hover">Please sign in to run tests. The test automation requires authentication to create deliberations and simulate voting.</p>
+          <div className="bg-warning-bg border border-warning rounded-lg p-3">
+            <p className="text-warning-hover text-xs">Please sign in to run tests.</p>
           </div>
         )}
 
         {/* Configuration */}
-        <div className="bg-background rounded-lg p-6 mb-6 border border-border">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Test Configuration</h2>
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h2 className="text-sm font-semibold text-foreground mb-3">Test Configuration</h2>
 
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-2 gap-3 mb-3">
             <div>
-              <label className="block text-sm text-muted mb-1">Number of Users</label>
+              <label className="block text-xs text-muted mb-1">Number of Users</label>
               <input
                 type="number"
                 value={testConfig.userCount}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, userCount: parseInt(e.target.value) || 10 }))}
-                className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+                className="w-full bg-surface border border-border text-foreground rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent"
                 min={5}
                 max={200}
               />
             </div>
             <div>
-              <label className="block text-sm text-muted mb-1">Question</label>
+              <label className="block text-xs text-muted mb-1">Question</label>
               <input
                 type="text"
                 value={testConfig.question}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, question: e.target.value }))}
-                className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+                className="w-full bg-surface border border-border text-foreground rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent"
               />
             </div>
           </div>
 
-          <div className="flex gap-4 mb-4 flex-wrap">
-            <label className="flex items-center gap-2 text-subtle">
+          <div className="flex gap-3 mb-3 flex-wrap">
+            <label className="flex items-center gap-1.5 text-xs text-subtle">
               <input
                 type="checkbox"
                 checked={testConfig.simulateVoting}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, simulateVoting: e.target.checked }))}
                 className="rounded"
               />
-              Simulate voting through tiers
+              Simulate voting
             </label>
-            <label className="flex items-center gap-2 text-subtle">
+            <label className="flex items-center gap-1.5 text-xs text-subtle">
               <input
                 type="checkbox"
                 checked={testConfig.leaveFinaVote}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, leaveFinaVote: e.target.checked }))}
                 className="rounded"
               />
-              Leave final vote for manual testing
+              Leave final vote
             </label>
-            <label className="flex items-center gap-2 text-subtle">
+            <label className="flex items-center gap-1.5 text-xs text-subtle">
               <input
                 type="checkbox"
                 checked={testConfig.accumulationEnabled}
                 onChange={(e) => setTestConfig(prev => ({ ...prev, accumulationEnabled: e.target.checked }))}
                 className="rounded"
               />
-              Enable accumulation (rolling mode)
+              Rolling mode
             </label>
           </div>
 
-          <div className="mb-4">
-            <label className="block text-sm text-muted mb-1">Additional User Emails (comma-separated, for multi-account testing)</label>
+          <div className="mb-3">
+            <label className="block text-xs text-muted mb-1">Additional Emails (comma-separated)</label>
             <input
               type="text"
               value={testConfig.additionalUserEmails}
               onChange={(e) => setTestConfig(prev => ({ ...prev, additionalUserEmails: e.target.value }))}
               placeholder="user2@gmail.com, user3@gmail.com"
-              className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+              className="w-full bg-surface border border-border text-foreground rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-accent"
             />
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={runTest}
               disabled={isRunning}
-              className={`px-6 py-2 rounded-lg font-semibold ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${
                 isRunning
                   ? 'bg-muted-light text-muted cursor-not-allowed'
                   : 'bg-accent hover:bg-accent-hover text-white'
               }`}
             >
-              {isRunning ? 'Running...' : 'Run Automated Test'}
+              {isRunning ? 'Running...' : 'Run Test'}
             </button>
 
             <button
@@ -318,9 +316,9 @@ export default function AdminTestPage() {
                 }
               }}
               disabled={isRunning}
-              className="px-6 py-2 rounded-lg font-semibold bg-purple hover:bg-purple-hover text-white"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple hover:bg-purple-hover text-white"
             >
-              Seed Feed Demo Cards
+              Seed Feed
             </button>
 
             <button
@@ -349,9 +347,9 @@ export default function AdminTestPage() {
                 }
               }}
               disabled={isRunning}
-              className="px-6 py-2 rounded-lg font-semibold bg-orange hover:bg-orange-hover text-white"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange hover:bg-orange-hover text-white"
             >
-              Create Tier 3 Up-Pollination Test
+              Tier 3 Test
             </button>
 
             <button
@@ -385,9 +383,9 @@ export default function AdminTestPage() {
                 }
               }}
               disabled={isRunning}
-              className="px-6 py-2 rounded-lg font-semibold bg-warning hover:bg-warning-hover text-white"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-warning hover:bg-warning-hover text-white"
             >
-              Seed Discord Tier 2 Test
+              Discord T2
             </button>
 
             <button
@@ -418,27 +416,27 @@ export default function AdminTestPage() {
                 }
               }}
               disabled={isRunning}
-              className="px-6 py-2 rounded-lg font-semibold bg-purple hover:bg-purple-hover text-white"
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple hover:bg-purple-hover text-white"
             >
-              Viral Spread Demo
+              Viral Spread
             </button>
           </div>
         </div>
 
         {/* Created Deliberation Link */}
         {createdDeliberation && (
-          <div className="bg-success-bg border border-success rounded-lg p-4 mb-6">
-            <p className="text-success font-medium mb-2">Test Deliberation Created</p>
-            <div className="flex gap-4">
+          <div className="bg-success-bg border border-success rounded-lg p-3">
+            <p className="text-success text-xs font-medium mb-1.5">Test Deliberation Created</p>
+            <div className="flex gap-3">
               <Link
                 href={`/chants/${createdDeliberation.id}`}
-                className="text-accent hover:text-accent-hover underline"
+                className="text-accent hover:text-accent-hover underline text-xs"
               >
                 View Deliberation
               </Link>
               <Link
                 href={`/invite/${createdDeliberation.inviteCode}`}
-                className="text-accent hover:text-accent-hover underline"
+                className="text-accent hover:text-accent-hover underline text-xs"
               >
                 Invite Link
               </Link>
@@ -447,23 +445,23 @@ export default function AdminTestPage() {
         )}
 
         {/* Logs */}
-        <div className="bg-background rounded-lg p-6 border border-border">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-foreground">Logs</h2>
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-sm font-semibold text-foreground">Logs</h2>
             <button
               onClick={clearLogs}
-              className="text-sm text-muted hover:text-foreground"
+              className="text-xs text-muted hover:text-foreground"
             >
               Clear
             </button>
           </div>
 
-          <div className="bg-surface rounded-lg p-4 font-mono text-sm h-80 overflow-y-auto border border-border">
+          <div className="bg-surface rounded-lg p-3 font-mono text-xs h-48 overflow-y-auto border border-border">
             {logs.length === 0 ? (
               <p className="text-muted-light">No logs yet. Run a test to see output.</p>
             ) : (
               logs.map((log, i) => (
-                <div key={i} className={`mb-1 ${
+                <div key={i} className={`mb-0.5 ${
                   log.type === 'error' ? 'text-error' :
                   log.type === 'success' ? 'text-success' :
                   'text-subtle'
@@ -476,20 +474,20 @@ export default function AdminTestPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="mt-6 bg-background rounded-lg p-6 border border-border">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h2>
-          <div className="flex gap-4 flex-wrap">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h2 className="text-sm font-semibold text-foreground mb-3">Quick Actions</h2>
+          <div className="flex gap-2 flex-wrap">
             <Link
               href="/chants"
-              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium"
+              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-medium"
             >
               View Feed
             </Link>
             <Link
               href="/chants"
-              className="px-4 py-2 bg-surface hover:bg-border text-foreground rounded-lg border border-border"
+              className="px-3 py-1.5 bg-surface hover:bg-border text-foreground rounded-lg border border-border text-xs"
             >
-              Browse Deliberations
+              Browse
             </Link>
             <button
               onClick={async () => {
@@ -508,9 +506,9 @@ export default function AdminTestPage() {
                   addLog('error', 'Failed to create test')
                 }
               }}
-              className="px-4 py-2 bg-success hover:bg-success-hover text-white rounded-lg"
+              className="px-3 py-1.5 bg-success hover:bg-success-hover text-white rounded-lg text-xs"
             >
-              Create Completed Cell Test
+              Completed Cell
             </button>
             <button
               onClick={async () => {
@@ -522,9 +520,9 @@ export default function AdminTestPage() {
                   addLog('error', 'Cleanup failed')
                 }
               }}
-              className="px-4 py-2 bg-error hover:bg-error-hover text-white rounded-lg"
+              className="px-3 py-1.5 bg-error hover:bg-error-hover text-white rounded-lg text-xs"
             >
-              Cleanup Test Data
+              Cleanup
             </button>
           </div>
         </div>
@@ -537,7 +535,7 @@ export default function AdminTestPage() {
           <AIAgentTestSection addLog={addLog} />
         </Suspense>
       </div>
-    </div>
+    </FrameLayout>
   )
 }
 

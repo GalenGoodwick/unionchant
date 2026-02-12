@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/Toast'
@@ -37,6 +37,9 @@ export function useDeliberation(id: string) {
   // History for JourneyTimeline
   const [history, setHistory] = useState<Record<string, unknown> | null>(null)
 
+  // Track if user has active seats (for release on exit)
+  const hasActiveSeats = useRef(false)
+
   // Fetch functions
   const fetchDeliberation = useCallback(async () => {
     try {
@@ -62,8 +65,11 @@ export function useDeliberation(id: string) {
     try {
       const res = await fetch(`/api/deliberations/${id}/cells`)
       if (res.ok) {
-        setCells(await res.json())
+        const data = await res.json()
+        setCells(data)
         setCellsLoaded(true)
+        // Track if user has unvoted active seats
+        hasActiveSeats.current = data.some((c: Cell) => c.status === 'VOTING' && c.votes.length === 0)
       }
     } catch (err) {
       console.error('Failed to fetch cells:', err)
@@ -105,17 +111,16 @@ export function useDeliberation(id: string) {
     }
   }, [deliberation?.phase, session, fetchCells])
 
-  // Auto-join + auto-enter when landing on a VOTING chant with no cell
+  // Auto-enter existing members into cells (don't auto-join non-members — they use Join tab)
   const [autoEntered, setAutoEntered] = useState(false)
   useEffect(() => {
     if (!session || !deliberation || !cellsLoaded || autoEntered || enteringVoting) return
     if (deliberation.phase !== 'VOTING') return
+    if (!deliberation.isMember) return // Don't auto-join — user must join explicitly
     if (cells.length > 0) return // already in a cell
     setAutoEntered(true)
-    // Silently join + enter
     ;(async () => {
       try {
-        await fetch(`/api/deliberations/${id}/join`, { method: 'POST' })
         const res = await fetch(`/api/deliberations/${id}/enter`, { method: 'POST' })
         if (res.ok) {
           fetchCells()
@@ -124,6 +129,20 @@ export function useDeliberation(id: string) {
       } catch { /* silent */ }
     })()
   }, [session, deliberation, cellsLoaded, cells.length, autoEntered, enteringVoting, id, fetchCells, fetchDeliberation])
+
+  // Release unvoted seats when user leaves the page
+  useEffect(() => {
+    const releaseSeats = () => {
+      if (hasActiveSeats.current) {
+        navigator.sendBeacon(`/api/deliberations/${id}/release-seats`, '')
+      }
+    }
+    window.addEventListener('beforeunload', releaseSeats)
+    return () => {
+      window.removeEventListener('beforeunload', releaseSeats)
+      releaseSeats() // also release on unmount (navigation away)
+    }
+  }, [id])
 
   // Fetch history on mount + phase changes
   useEffect(() => {
@@ -282,8 +301,11 @@ export function useDeliberation(id: string) {
 
   const defender = deliberation?.ideas.find(i => i.status === 'DEFENDING')
 
+  // For continuous flow: active cell can be at ANY tier (voting stack)
+  // For regular: only current tier
   const activeCells = cells.filter(
-    c => c.status === 'VOTING' && c.votes.length === 0 && deliberation && c.tier === deliberation.currentTier
+    c => c.status === 'VOTING' && c.votes.length === 0 && deliberation &&
+      (deliberation.continuousFlow || c.tier === deliberation.currentTier)
   )
 
   const votedCells = cells.filter(c => c.status !== 'VOTING' || c.votes.length > 0)
@@ -293,7 +315,10 @@ export function useDeliberation(id: string) {
     : []
 
   const hasVotedInCurrentTier = currentTierCells.some(c => c.votes.length > 0)
-  const isInCurrentTier = currentTierCells.length > 0
+  // For continuous flow: user is "in" if they have ANY active cell across tiers
+  const isInCurrentTier = deliberation?.continuousFlow
+    ? cells.some(c => c.status === 'VOTING' || c.votes.length > 0)
+    : currentTierCells.length > 0
   const isCreator = deliberation?.isCreator || false
 
   const effectivePhase = deliberation

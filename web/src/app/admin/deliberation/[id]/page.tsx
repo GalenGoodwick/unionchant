@@ -4,7 +4,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter, useParams } from 'next/navigation'
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import Header from '@/components/Header'
+import FrameLayout from '@/components/FrameLayout'
 
 interface Deliberation {
   id: string
@@ -296,25 +296,23 @@ export default function AdminDeliberationPage() {
 
   if (status === 'loading' || loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <div className="animate-pulse h-8 bg-surface rounded w-1/3" />
+      <FrameLayout active="chants" showBack>
+        <div className="py-8">
+          <div className="animate-pulse h-6 bg-surface rounded w-1/3" />
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   if (error || !deliberation) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-6xl mx-auto px-4 py-8">
-          <div className="bg-error-bg text-error p-4 rounded-lg">
+      <FrameLayout active="chants" showBack>
+        <div className="py-8">
+          <div className="bg-error-bg text-error p-3 rounded-lg text-xs">
             {error || 'Deliberation not found'}
           </div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
@@ -331,49 +329,45 @@ export default function AdminDeliberationPage() {
     .sort((a, b) => b.reachTier - a.reachTier)
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <Link href="/admin" className="text-muted hover:text-foreground text-sm mb-4 inline-block">
+    <FrameLayout active="chants" showBack>
+      <div className="py-4 space-y-4">
+        <Link href="/admin" className="text-muted hover:text-foreground text-xs inline-block">
           &larr; Back to Admin
         </Link>
 
         {/* Header */}
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{deliberation.question}</h1>
-            {deliberation.organization && (
-              <div className="text-sm text-muted mt-1">{deliberation.organization}</div>
-            )}
-            <div className="flex items-center gap-3 mt-2">
-              <span className={`px-2 py-1 rounded text-white text-sm ${phaseColors[deliberation.phase] || 'bg-muted'}`}>
-                {deliberation.phase}
-              </span>
-              <span className={`px-2 py-1 rounded text-sm ${deliberation.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-error-bg text-error border border-error'}`}>
-                {deliberation.isPublic ? 'Public' : 'Private'}
-              </span>
-              <span className="text-muted">Tier {deliberation.currentTier}</span>
-              <span className="text-muted">{deliberation._count.members} members</span>
-              <span className="text-muted">{deliberation._count.ideas} ideas</span>
-            </div>
-            {/* Voting Trigger */}
-            <div className="mt-2 text-sm">
-              <span className="text-muted">Voting starts: </span>
-              <span className="text-foreground">
-                {deliberation.ideaGoal ? (
-                  `At ${deliberation.ideaGoal} ideas (${deliberation._count.ideas}/${deliberation.ideaGoal})`
-                ) : deliberation.submissionEndsAt ? (
-                  `Timer: ${new Date(deliberation.submissionEndsAt).toLocaleString()}`
-                ) : (
-                  'Facilitator-controlled (manual)'
-                )}
-              </span>
-            </div>
+        <div>
+          <h1 className="text-sm font-bold text-foreground">{deliberation.question}</h1>
+          {deliberation.organization && (
+            <div className="text-xs text-muted mt-0.5">{deliberation.organization}</div>
+          )}
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <span className={`px-1.5 py-0.5 rounded text-white text-xs ${phaseColors[deliberation.phase] || 'bg-muted'}`}>
+              {deliberation.phase}
+            </span>
+            <span className={`px-1.5 py-0.5 rounded text-xs ${deliberation.isPublic ? 'bg-success-bg text-success border border-success' : 'bg-error-bg text-error border border-error'}`}>
+              {deliberation.isPublic ? 'Public' : 'Private'}
+            </span>
+            <span className="text-muted text-xs">T{deliberation.currentTier}</span>
+            <span className="text-muted text-xs">{deliberation._count.members} members</span>
+            <span className="text-muted text-xs">{deliberation._count.ideas} ideas</span>
+          </div>
+          {/* Voting Trigger */}
+          <div className="mt-1 text-xs">
+            <span className="text-muted">Voting: </span>
+            <span className="text-foreground">
+              {deliberation.ideaGoal ? (
+                `At ${deliberation.ideaGoal} ideas (${deliberation._count.ideas}/${deliberation.ideaGoal})`
+              ) : deliberation.submissionEndsAt ? (
+                `Timer: ${new Date(deliberation.submissionEndsAt).toLocaleString()}`
+              ) : (
+                'Manual'
+              )}
+            </span>
           </div>
           <Link
             href={`/chants/${deliberation.id}`}
-            className="text-accent hover:underline"
+            className="text-accent hover:underline text-xs mt-1 inline-block"
           >
             View Public Page &rarr;
           </Link>
@@ -384,32 +378,30 @@ export default function AdminDeliberationPage() {
           const champion = deliberation.ideas.find(i => i.isChampion || i.status === 'WINNER')
           if (!champion) return null
           return (
-            <div className={`mb-6 p-4 rounded-lg border ${
+            <div className={`p-3 rounded-lg border ${
               deliberation.phase === 'ACCUMULATING'
                 ? 'bg-purple-bg border-purple'
                 : 'bg-success-bg border-success'
             }`}>
-              <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
+              <div className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${
                 deliberation.phase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
               }`}>
                 {deliberation.phase === 'ACCUMULATING' ? 'Champion (Accepting Challengers)' : 'Winner'}
               </div>
-              <p className="text-foreground font-medium text-lg">{champion.text}</p>
-              <p className="text-muted text-sm mt-1">{champion.totalXP || champion.totalVotes} total VP</p>
+              <p className="text-foreground font-medium text-xs">{champion.text}</p>
+              <p className="text-muted text-xs mt-0.5">{champion.totalXP || champion.totalVotes} total VP</p>
             </div>
           )
         })()}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left Column - AI Testing */}
-          <div className="space-y-4">
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">AI Agent Testing</h2>
+          {/* AI Testing */}
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-3">AI Agent Testing</h2>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-sm text-muted mb-1">Agents</label>
+                    <label className="block text-xs text-muted mb-0.5">Agents</label>
                     <input
                       type="number"
                       min={5}
@@ -417,18 +409,18 @@ export default function AdminDeliberationPage() {
                       value={agentCount || ''}
                       onChange={(e) => setAgentCount(parseInt(e.target.value) || 0)}
                       disabled={testRunning}
-                      className="w-full bg-background border border-border rounded px-3 py-2 font-mono text-sm"
+                      className="w-full bg-background border border-border rounded px-2 py-1.5 font-mono text-xs"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-muted mb-1">Comment Rate</label>
-                    <div className="flex items-center gap-2">
+                    <label className="block text-xs text-muted mb-0.5">Comment Rate</label>
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="checkbox"
                         checked={commentRate > 0}
                         onChange={(e) => setCommentRate(e.target.checked ? 0.4 : 0)}
                         disabled={testRunning}
-                        className="w-4 h-4 accent-accent"
+                        className="w-3 h-3 accent-accent"
                       />
                       <input
                         type="number"
@@ -438,19 +430,19 @@ export default function AdminDeliberationPage() {
                         value={commentRate}
                         onChange={(e) => setCommentRate(parseFloat(e.target.value) || 0)}
                         disabled={testRunning || commentRate === 0}
-                        className={`flex-1 border border-border rounded px-3 py-2 font-mono text-sm ${commentRate === 0 ? 'bg-surface text-muted' : 'bg-background'}`}
+                        className={`flex-1 border border-border rounded px-2 py-1.5 font-mono text-xs ${commentRate === 0 ? 'bg-surface text-muted' : 'bg-background'}`}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm text-muted mb-1">Upvote Rate</label>
-                    <div className="flex items-center gap-2">
+                    <label className="block text-xs text-muted mb-0.5">Upvote Rate</label>
+                    <div className="flex items-center gap-1.5">
                       <input
                         type="checkbox"
                         checked={upvoteRate > 0}
                         onChange={(e) => setUpvoteRate(e.target.checked ? 0.6 : 0)}
                         disabled={testRunning}
-                        className="w-4 h-4 accent-accent"
+                        className="w-3 h-3 accent-accent"
                       />
                       <input
                         type="number"
@@ -460,12 +452,12 @@ export default function AdminDeliberationPage() {
                         value={upvoteRate}
                         onChange={(e) => setUpvoteRate(parseFloat(e.target.value) || 0)}
                         disabled={testRunning || upvoteRate === 0}
-                        className={`flex-1 border border-border rounded px-3 py-2 font-mono text-sm ${upvoteRate === 0 ? 'bg-surface text-muted' : 'bg-background'}`}
+                        className={`flex-1 border border-border rounded px-2 py-1.5 font-mono text-xs ${upvoteRate === 0 ? 'bg-surface text-muted' : 'bg-background'}`}
                       />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm text-muted mb-1">Voting Time (ms)</label>
+                    <label className="block text-xs text-muted mb-0.5">Voting Time (ms)</label>
                     <input
                       type="number"
                       min={1000}
@@ -474,37 +466,37 @@ export default function AdminDeliberationPage() {
                       value={votingTime || ''}
                       onChange={(e) => setVotingTime(parseInt(e.target.value) || 0)}
                       disabled={testRunning}
-                      className="w-full bg-background border border-border rounded px-3 py-2 font-mono text-sm"
+                      className="w-full bg-background border border-border rounded px-2 py-1.5 font-mono text-xs"
                     />
                   </div>
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-muted cursor-pointer">
+                <label className="flex items-center gap-1.5 text-xs text-muted cursor-pointer">
                   <input
                     type="checkbox"
                     checked={excludeAdmin}
                     onChange={(e) => setExcludeAdmin(e.target.checked)}
                     disabled={testRunning}
-                    className="w-4 h-4 accent-accent"
+                    className="w-3 h-3 accent-accent"
                   />
-                  Remove me from deliberation (skip voting)
+                  Remove me from deliberation
                 </label>
 
                 {(deliberation.phase === 'COMPLETED' || deliberation.phase === 'ACCUMULATING') && (
-                  <div className={`p-3 rounded text-sm mb-2 ${
+                  <div className={`p-2 rounded text-xs ${
                     deliberation.phase === 'COMPLETED'
                       ? 'bg-success-bg border border-success text-success'
                       : 'bg-purple-bg border border-purple text-purple'
                   }`}>
-                    Deliberation is {deliberation.phase.toLowerCase()} — reset to submission to re-test.
+                    {deliberation.phase.toLowerCase()} -- reset to re-test.
                   </div>
                 )}
 
-                <div className="flex gap-2">
+                <div className="flex gap-1.5 flex-wrap">
                   <button
                     onClick={startAITest}
                     disabled={testRunning || deliberation.phase === 'COMPLETED' || deliberation.phase === 'ACCUMULATING'}
-                    className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-4 py-2 rounded transition-colors"
+                    className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-xs transition-colors"
                   >
                     {testRunning ? 'Running...' : 'Start AI Test'}
                   </button>
@@ -514,39 +506,39 @@ export default function AdminDeliberationPage() {
                       await fetch('/api/admin/test/ai-agents', { method: 'PUT' })
                     }}
                     disabled={!testRunning}
-                    className="bg-warning hover:bg-warning-hover disabled:bg-muted text-black px-4 py-2 rounded transition-colors"
+                    className="bg-warning hover:bg-warning-hover disabled:bg-muted text-black px-3 py-1.5 rounded text-xs transition-colors"
                   >
-                    Stop Test
+                    Stop
                   </button>
                   <button
                     onClick={cleanupAgents}
                     disabled={testRunning}
-                    className="bg-error hover:bg-error-hover disabled:bg-muted text-white px-4 py-2 rounded transition-colors"
+                    className="bg-error hover:bg-error-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-xs transition-colors"
                   >
-                    Cleanup Agents
+                    Cleanup
                   </button>
                 </div>
 
                 {/* Progress */}
                 {testProgress && (
-                  <div className="bg-background rounded p-3 space-y-2">
-                    <div className="flex justify-between text-sm">
+                  <div className="bg-background rounded p-2 space-y-1">
+                    <div className="flex justify-between text-xs">
                       <span className="text-muted">Phase:</span>
                       <span className="text-foreground font-medium">{testProgress.phase}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs">
                       <span className="text-muted">Tier:</span>
                       <span className="text-foreground font-mono">{testProgress.currentTier}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs">
                       <span className="text-muted">Agents:</span>
                       <span className="text-foreground font-mono">{testProgress.agentsCreated}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs">
                       <span className="text-muted">Ideas:</span>
                       <span className="text-foreground font-mono">{testProgress.ideasSubmitted}</span>
                     </div>
-                    <div className="flex justify-between text-sm">
+                    <div className="flex justify-between text-xs">
                       <span className="text-muted">Votes:</span>
                       <span className="text-foreground font-mono">{testProgress.votescast}</span>
                     </div>
@@ -554,7 +546,7 @@ export default function AdminDeliberationPage() {
                 )}
 
                 {/* Logs - combine client and server logs */}
-                <div className="bg-black rounded p-3 h-48 overflow-y-auto font-mono text-xs">
+                <div className="bg-black rounded p-2 h-36 overflow-y-auto font-mono text-[10px]">
                   {logs.length === 0 && (!testProgress?.logs || testProgress.logs.length === 0) ? (
                     <span className="text-muted">Logs will appear here...</span>
                   ) : (
@@ -572,15 +564,15 @@ export default function AdminDeliberationPage() {
             </div>
 
             {/* Manual Controls */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-2">Manual Controls</h2>
-              <p className="text-sm text-muted mb-4">Current phase: <span className="font-medium text-foreground">{deliberation.phase}</span></p>
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-1">Manual Controls</h2>
+              <p className="text-xs text-muted mb-3">Phase: <span className="font-medium text-foreground">{deliberation.phase}</span></p>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 <button
                   onClick={startVoting}
                   disabled={deliberation.phase !== 'SUBMISSION'}
-                  className="w-full bg-warning hover:bg-warning/80 disabled:bg-muted disabled:text-muted-light text-black font-medium px-4 py-2 rounded transition-colors"
+                  className="w-full bg-warning hover:bg-warning/80 disabled:bg-muted disabled:text-muted-light text-black font-medium px-3 py-1.5 rounded text-xs transition-colors"
                 >
                   Start Voting Now
                 </button>
@@ -588,58 +580,49 @@ export default function AdminDeliberationPage() {
                 <button
                   onClick={forceProcessTier}
                   disabled={deliberation.phase !== 'VOTING'}
-                  className="w-full bg-orange hover:bg-orange/80 disabled:bg-muted disabled:text-muted-light text-white font-medium px-4 py-2 rounded transition-colors"
+                  className="w-full bg-orange hover:bg-orange/80 disabled:bg-muted disabled:text-muted-light text-white font-medium px-3 py-1.5 rounded text-xs transition-colors"
                 >
-                  Force Process Current Tier
+                  Force Process Tier
                 </button>
-                <p className="text-xs text-muted">
-                  Processes all active voting cells as if timer expired.
-                </p>
 
                 <button
                   onClick={forceEndVoting}
                   disabled={deliberation.phase !== 'VOTING'}
-                  className="w-full bg-error hover:bg-error-hover disabled:bg-muted disabled:text-muted-light text-white font-medium px-4 py-2 rounded transition-colors"
+                  className="w-full bg-error hover:bg-error-hover disabled:bg-muted disabled:text-muted-light text-white font-medium px-3 py-1.5 rounded text-xs transition-colors"
                 >
-                  Force End All Voting
+                  Force End Voting
                 </button>
-                <p className="text-xs text-muted">
-                  Immediately ends voting and picks winner with most votes.
-                </p>
 
                 <button
                   onClick={resetDeliberation}
-                  className="w-full bg-error hover:bg-error-hover text-white font-medium px-4 py-2 rounded transition-colors mt-4"
+                  className="w-full bg-error hover:bg-error-hover text-white font-medium px-3 py-1.5 rounded text-xs transition-colors mt-2"
                 >
                   Reset to Submission
                 </button>
-                <p className="text-xs text-muted">
-                  Deletes all cells, votes, and resets ideas. Use for re-testing.
-                </p>
               </div>
             </div>
 
             {/* Up-Pollination Status */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">
-                Up-Pollinated Comments ({upPollinatedComments.length})
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-2">
+                Up-Pollinated ({upPollinatedComments.length})
               </h2>
 
               {upPollinatedComments.length === 0 ? (
-                <p className="text-muted text-sm">
-                  No comments have up-pollinated yet. Comments need 60% of cell participants to upvote them to advance to the next tier.
+                <p className="text-muted text-xs">
+                  No comments have up-pollinated yet.
                 </p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {upPollinatedComments.slice(0, 10).map(comment => (
                     <div key={comment.id} className="bg-purple/10 border border-purple/30 rounded p-2">
-                      <div className="flex items-center gap-2 text-xs text-purple mb-1">
-                        <span>Reached Tier {comment.reachTier}</span>
+                      <div className="flex items-center gap-1.5 text-[10px] text-purple mb-0.5">
+                        <span>T{comment.reachTier}</span>
                         <span>•</span>
                         <span>{comment.upvoteCount} upvotes</span>
                       </div>
-                      <p className="text-sm text-foreground">{comment.text}</p>
-                      <p className="text-xs text-muted mt-1">— {comment.user.name || 'Anonymous'}</p>
+                      <p className="text-xs text-foreground">{comment.text}</p>
+                      <p className="text-[10px] text-muted mt-0.5">-- {comment.user.name || 'Anonymous'}</p>
                     </div>
                   ))}
                 </div>
@@ -647,19 +630,19 @@ export default function AdminDeliberationPage() {
             </div>
 
             {/* Email Invites */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Invite Members</h2>
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-2">Invite Members</h2>
 
               {/* Invite link */}
               {deliberation.inviteCode && (
-                <div className="mb-4">
-                  <label className="text-xs text-muted block mb-1">Invite link</label>
-                  <div className="flex gap-2">
+                <div className="mb-3">
+                  <label className="text-[10px] text-muted block mb-0.5">Invite link</label>
+                  <div className="flex gap-1.5">
                     <input
                       type="text"
                       readOnly
                       value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${deliberation.inviteCode}`}
-                      className="flex-1 bg-background border border-border text-foreground rounded px-3 py-2 text-sm font-mono"
+                      className="flex-1 bg-background border border-border text-foreground rounded px-2 py-1.5 text-xs font-mono min-w-0"
                     />
                     <button
                       onClick={() => {
@@ -667,7 +650,7 @@ export default function AdminDeliberationPage() {
                         setCopiedInviteLink(true)
                         setTimeout(() => setCopiedInviteLink(false), 2000)
                       }}
-                      className="bg-accent hover:bg-accent-hover text-white px-3 py-2 rounded text-sm transition-colors"
+                      className="bg-accent hover:bg-accent-hover text-white px-2 py-1.5 rounded text-xs transition-colors shrink-0"
                     >
                       {copiedInviteLink ? 'Copied!' : 'Copy'}
                     </button>
@@ -701,37 +684,34 @@ export default function AdminDeliberationPage() {
                   setSendingInvites(false)
                 }
               }}>
-                <label className="text-xs text-muted block mb-1">Send email invites</label>
+                <label className="text-[10px] text-muted block mb-0.5">Send email invites</label>
                 <textarea
-                  placeholder="Enter emails, separated by commas or newlines"
+                  placeholder="Emails, commas or newlines"
                   value={inviteEmails}
                   onChange={(e) => setInviteEmails(e.target.value)}
-                  rows={3}
-                  className="w-full bg-background border border-border text-foreground rounded px-3 py-2 text-sm mb-2 resize-none"
+                  rows={2}
+                  className="w-full bg-background border border-border text-foreground rounded px-2 py-1.5 text-xs mb-1.5 resize-none"
                 />
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <button
                     type="submit"
                     disabled={sendingInvites || !inviteEmails.trim()}
-                    className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-4 py-2 rounded text-sm transition-colors"
+                    className="bg-accent hover:bg-accent-hover disabled:bg-muted text-white px-3 py-1.5 rounded text-xs transition-colors"
                   >
-                    {sendingInvites ? 'Sending...' : 'Send Invites'}
+                    {sendingInvites ? 'Sending...' : 'Send'}
                   </button>
                   {inviteResult && (
-                    <span className="text-sm text-success">
+                    <span className="text-xs text-success">
                       {inviteResult.sent} sent{inviteResult.failed > 0 ? `, ${inviteResult.failed} failed` : ''}
                     </span>
                   )}
                 </div>
               </form>
             </div>
-          </div>
 
-          {/* Right Column - Deliberation State */}
-          <div className="space-y-4">
             {/* Active Cells - Grouped by Tier and Batch */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-2">
                 Active Cells ({deliberation.cells.filter(c => c.status === 'VOTING').length})
               </h2>
 
@@ -832,8 +812,8 @@ export default function AdminDeliberationPage() {
             </div>
 
             {/* Ideas by Status */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">Ideas by Status ({deliberation.ideas.length} total)</h2>
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-2">Ideas ({deliberation.ideas.length})</h2>
 
               <div className="grid grid-cols-2 gap-4">
                 {/* Status breakdown */}
@@ -928,39 +908,37 @@ export default function AdminDeliberationPage() {
             </div>
 
             {/* All Comments */}
-            <div className="bg-surface border border-border rounded-lg p-4">
-              <h2 className="text-lg font-semibold text-foreground mb-4">
-                Recent Comments ({deliberation.cells.reduce((sum, c) => sum + c.comments.length, 0)})
+            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-2">
+                Comments ({deliberation.cells.reduce((sum, c) => sum + c.comments.length, 0)})
               </h2>
 
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {deliberation.cells
                   .flatMap(c => c.comments.map(comment => ({ ...comment, tier: c.tier })))
                   .slice(0, 20)
                   .map(comment => (
                     <div key={comment.id} className="bg-background rounded p-2">
-                      <div className="flex items-center gap-2 text-xs text-muted mb-1">
-                        <span>Tier {comment.tier}</span>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted mb-0.5">
+                        <span>T{comment.tier}</span>
                         <span>•</span>
                         <span>{comment.upvoteCount} upvotes</span>
                         {comment.reachTier > 1 && (
-                          <span className="text-purple">• Reached T{comment.reachTier}</span>
+                          <span className="text-purple">• T{comment.reachTier}</span>
                         )}
                       </div>
                       {comment.idea && (
-                        <p className="text-xs text-accent mb-1 truncate">Re: {comment.idea.text}</p>
+                        <p className="text-[10px] text-accent mb-0.5 truncate">Re: {comment.idea.text}</p>
                       )}
-                      <p className="text-sm text-foreground">{comment.text}</p>
+                      <p className="text-xs text-foreground">{comment.text}</p>
                     </div>
                   ))}
                 {deliberation.cells.reduce((sum, c) => sum + c.comments.length, 0) === 0 && (
-                  <p className="text-muted text-sm">No comments yet</p>
+                  <p className="text-muted text-xs">No comments yet</p>
                 )}
               </div>
             </div>
-          </div>
-        </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

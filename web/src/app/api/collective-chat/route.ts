@@ -464,14 +464,10 @@ BEHAVIOR:
             const question = (input.question as string)?.trim()
             if (!question || question.length > 2000) return 'Invalid question (must be 1-2000 chars).'
             const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
-            const submissionDurationMs = 86400000
             const newTalk = await prisma.deliberation.create({
               data: {
                 creatorId: user.id, question, isPublic: true, phase: 'SUBMISSION',
-                accumulationEnabled: true, submissionDurationMs,
-                votingTimeoutMs: 3600000, secondVoteTimeoutMs: 900000,
-                accumulationTimeoutMs: 86400000, inviteCode,
-                submissionEndsAt: new Date(Date.now() + submissionDurationMs),
+                accumulationEnabled: true, votingTimeoutMs: 0, inviteCode,
               },
             })
             await prisma.deliberationMember.create({

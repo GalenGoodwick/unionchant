@@ -9,6 +9,34 @@ const IDEAS_PER_CELL = 5
 const MAX_CELL_SIZE = 7  // Allow cells up to 7 for flexible sizing
 
 /**
+ * Atomically join a cell using SELECT FOR UPDATE to prevent race conditions.
+ * Two agents entering simultaneously could both see `participants < cellSize`,
+ * causing one cell to overflow and the last cell in the batch to never fill.
+ *
+ * Returns true if joined successfully, false if cell was full (race lost).
+ */
+export async function atomicJoinCell(cellId: string, userId: string, maxSize: number): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    // Lock the cell row — other concurrent joins will block here
+    await tx.$queryRaw`SELECT id FROM "Cell" WHERE id = ${cellId} FOR UPDATE`
+
+    const count = await tx.cellParticipation.count({
+      where: { cellId },
+    })
+
+    if (count >= maxSize) {
+      return false // Cell filled by another concurrent request
+    }
+
+    await tx.cellParticipation.create({
+      data: { cellId, userId, status: 'ACTIVE' },
+    })
+
+    return true
+  })
+}
+
+/**
  * Flexible cell sizing algorithm (3-7 participants per cell)
  * Avoids creating tiny cells (1-2 people) that can't have meaningful deliberation
  * Ported from union-chant-engine.js
@@ -1472,9 +1500,11 @@ export async function addLateJoinerToCell(deliberationId: string, userId: string
     return { success: false, reason: 'ROUND_FULL' }
   }
 
-  await prisma.cellParticipation.create({
-    data: { cellId: targetCell.id, userId },
-  })
+  const joined = await atomicJoinCell(targetCell.id, userId, MAX_CELL_SIZE)
+  if (!joined) {
+    // Race condition: cell filled between read and write. Caller can retry.
+    return { success: false, reason: 'ROUND_FULL' }
+  }
 
   return { success: true, cellId: targetCell.id }
 }

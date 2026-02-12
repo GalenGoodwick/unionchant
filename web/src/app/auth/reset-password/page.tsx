@@ -3,6 +3,7 @@
 import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import FrameLayout from '@/components/FrameLayout'
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams()
@@ -111,12 +112,12 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center">
-      <div className="bg-background rounded-lg p-8 max-w-md w-full mx-4 border border-border">
+    <FrameLayout hideFooter contentClassName="flex items-center justify-center">
+      <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-8 w-full">
         <Suspense fallback={<div className="text-center text-muted">Loading...</div>}>
           <ResetPasswordForm />
         </Suspense>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

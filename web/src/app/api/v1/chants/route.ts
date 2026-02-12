@@ -93,8 +93,7 @@ export async function POST(req: NextRequest) {
     const {
       question, description, context, isPublic = true, tags = [],
       continuousFlow = false, accumulationEnabled = false,
-      ideaGoal, votingTimeoutMs, submissionDurationMs,
-      discussionDurationMs, supermajorityEnabled, isPinned,
+      ideaGoal, discussionDurationMs, supermajorityEnabled, isPinned,
       allocationMode, cellSize, allowAI, callbackUrl, fastCell,
     } = body
 
@@ -134,10 +133,8 @@ export async function POST(req: NextRequest) {
     }
 
     const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
-    const submissionEndsAt = submissionDurationMs
-      ? new Date(Date.now() + submissionDurationMs)
-      : null
 
+    // All chants are facilitator-controlled — no timers
     const deliberation = await prisma.deliberation.create({
       data: {
         question: question.trim(),
@@ -149,11 +146,8 @@ export async function POST(req: NextRequest) {
         creatorId: auth.user.id,
         continuousFlow,
         accumulationEnabled,
+        votingTimeoutMs: 0,
         ...(ideaGoal && { ideaGoal }),
-        ...(votingTimeoutMs !== undefined
-          ? { votingTimeoutMs }
-          : continuousFlow ? { votingTimeoutMs: 0 } : {}),
-        ...(submissionDurationMs && { submissionDurationMs, submissionEndsAt }),
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
         ...(isPinned !== undefined && { isPinned }),

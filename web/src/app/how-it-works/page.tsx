@@ -1,22 +1,12 @@
-import Link from 'next/link'
-import { Metadata } from 'next'
-import Header from '@/components/Header'
+'use client'
 
-export const metadata: Metadata = {
-  title: 'How It Works',
-  description: 'Learn how Unity Chant works — submit ideas, discuss in small groups, vote with points, and surface the best answers together.',
-}
+import Link from 'next/link'
+import FrameLayout from '@/components/FrameLayout'
 
 export default function HowItWorksPage() {
   return (
-    <div className="min-h-screen bg-surface">
-      <Header />
-
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        <Link href="/" className="text-muted hover:text-foreground text-sm mb-8 inline-block">
-          &larr; Back to Home
-        </Link>
-
+    <FrameLayout hideFooter showBack>
+      <div className="mt-4">
         <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-2">How Unity Chant Works</h1>
         <p className="text-lg text-muted mb-10">
           A quick guide to participating in chants
@@ -62,7 +52,7 @@ export default function HowItWorksPage() {
         {/* Vote Points */}
         <section className="mb-10">
           <h2 className="text-xl font-semibold text-foreground mb-3">Vote Points</h2>
-          <div className="bg-background rounded-lg border border-border p-4">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
             <p className="text-subtle text-sm leading-relaxed mb-3">
               Every voter gets <strong className="text-foreground">10 Vote Points</strong> per cell.
               This lets you express how strongly you feel, not just which idea you prefer.
@@ -81,10 +71,10 @@ export default function HowItWorksPage() {
         {/* Comments */}
         <section className="mb-10">
           <h2 className="text-xl font-semibold text-foreground mb-3">Comments and Up-Pollination</h2>
-          <div className="bg-background rounded-lg border border-border p-4">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
             <p className="text-subtle text-sm leading-relaxed mb-3">
               Tap the chat icon on any idea to comment on it. Your comment is visible to your cell.
-              If others upvote it, it starts spreading to other cells that share the same idea.
+              If others upvote it, it starts spreading to other cells discussing the same idea.
             </p>
             <div className="space-y-2 text-sm">
               <div className="flex items-start gap-2">
@@ -125,7 +115,7 @@ export default function HowItWorksPage() {
         {/* Tiers */}
         <section className="mb-10">
           <h2 className="text-xl font-semibold text-foreground mb-3">How Tiers Work</h2>
-          <div className="bg-background rounded-lg border border-border p-4">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
             <div className="flex items-center gap-3 text-sm mb-3">
               <span className="bg-warning-bg text-warning px-2 py-0.5 rounded text-xs font-medium">Tier 1</span>
               <span className="text-muted">&rarr;</span>
@@ -174,7 +164,7 @@ export default function HowItWorksPage() {
         {/* Scale */}
         <section className="mb-10">
           <h2 className="text-xl font-semibold text-foreground mb-3">Built to Scale</h2>
-          <div className="bg-background rounded-lg border border-border overflow-x-auto">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-surface">
                 <tr>
@@ -221,14 +211,14 @@ export default function HowItWorksPage() {
             </Link>
             <Link
               href="/chants/new"
-              className="bg-background border border-border-strong hover:border-muted text-foreground px-6 py-3 rounded-lg font-medium transition-colors"
+              className="bg-surface/90 backdrop-blur-sm border border-border-strong hover:border-muted text-foreground px-6 py-3 rounded-lg font-medium transition-colors"
             >
               Start a Chant
             </Link>
           </div>
         </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }
 
@@ -238,7 +228,7 @@ function Step({ number, color, title, children }: { number: number; color: strin
       <div className={`w-8 h-8 rounded-full ${color} flex items-center justify-center text-white text-sm font-bold shrink-0`}>
         {number}
       </div>
-      <div className="bg-background rounded-lg border border-border p-3 flex-1">
+      <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 flex-1">
         <h3 className="font-semibold text-foreground text-sm">{title}</h3>
         <p className="text-subtle text-sm mt-1 leading-relaxed">{children}</p>
       </div>
@@ -248,7 +238,7 @@ function Step({ number, color, title, children }: { number: number; color: strin
 
 function FeedTab({ color, label, children }: { color: string; label: string; children: React.ReactNode }) {
   return (
-    <div className="bg-background rounded-lg border border-border p-3 flex items-start gap-3">
+    <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 flex items-start gap-3">
       <span className={`text-sm font-semibold ${color} shrink-0 w-16`}>{label}</span>
       <span className="text-subtle text-sm">{children}</span>
     </div>

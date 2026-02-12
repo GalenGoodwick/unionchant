@@ -76,7 +76,7 @@ then vote in small 5-person cells. Winners advance tier by tier until one idea w
 | /donate | Support the project |
 | /pepperphone | Discord bot landing page |
 | /demo | Interactive demo (coming soon) |
-| /pitch | Executive pitch |
+
 | /contact | Contact form |
 
 ## API ROUTES OVERVIEW

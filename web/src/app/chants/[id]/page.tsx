@@ -1,7 +1,7 @@
 import { Metadata } from 'next'
 import { prisma } from '@/lib/prisma'
 import { cache } from 'react'
-import DeliberationPageClient from './DeliberationPageClientNew'
+import ChantSimulator from './ChantSimulator'
 
 // Deduplicate the metadata query within a single request
 const getDeliberationMeta = cache(async (id: string) => {
@@ -61,6 +61,11 @@ export async function generateMetadata({
   }
 }
 
-export default function DeliberationPage() {
-  return <DeliberationPageClient />
+export default async function DeliberationPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  return <ChantSimulator id={id} />
 }

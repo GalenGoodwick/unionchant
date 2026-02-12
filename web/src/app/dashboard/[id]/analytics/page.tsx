@@ -3,9 +3,8 @@
 import { useSession } from 'next-auth/react'
 import { useRouter, useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import Header from '@/components/Header'
 import { phaseLabel } from '@/lib/labels'
+import FrameLayout from '@/components/FrameLayout'
 
 interface Analytics {
   question: string
@@ -88,26 +87,21 @@ export default function AnalyticsPage() {
 
   if (status === 'loading' || loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-2xl mx-auto px-4 py-8">
-          <div className="animate-pulse h-8 bg-surface rounded w-1/3" />
+      <FrameLayout active="chants" showBack>
+        <div className="py-6">
+          <div className="animate-pulse h-5 bg-surface rounded w-1/3" />
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   if (error || !data) {
     return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <div className="max-w-2xl mx-auto px-4 py-8">
-          <Link href={`/dashboard/${id}`} className="text-muted hover:text-foreground text-sm mb-4 inline-block">
-            &larr; Back to Manage
-          </Link>
-          <div className="bg-error-bg text-error p-4 rounded-xl">{error || 'Not found'}</div>
+      <FrameLayout active="chants" showBack>
+        <div className="py-6">
+          <div className="bg-error-bg text-error p-3 rounded-lg text-xs">{error || 'Not found'}</div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
@@ -138,27 +132,21 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-
-      <div className="max-w-2xl mx-auto px-4 py-6">
-        <Link href={`/dashboard/${id}`} className="text-muted hover:text-foreground text-sm mb-4 inline-block">
-          &larr; Back to Manage
-        </Link>
-
+    <FrameLayout active="chants" showBack>
+      <div className="py-3">
         {/* Header */}
-        <div className="mb-6">
+        <div className="mb-4">
           <div className="flex items-center gap-2 mb-1">
-            <h1 className="text-xl font-bold text-foreground">Analytics</h1>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${phaseColors[data.phase] || 'bg-surface text-muted'}`}>
+            <h1 className="text-sm font-bold text-foreground">Analytics</h1>
+            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${phaseColors[data.phase] || 'bg-surface text-muted'}`}>
               {phaseLabel(data.phase)}
             </span>
           </div>
-          <p className="text-muted text-sm">{data.question}</p>
+          <p className="text-muted text-xs">{data.question}</p>
         </div>
 
         {/* Funnel */}
-        <div className="bg-surface border border-border rounded-xl p-4 mb-4">
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-3">
           <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Funnel</h2>
           <div className="flex items-end gap-1">
             {funnelSteps.map((step, i) => {
@@ -184,27 +172,27 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Participation Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-          <div className="bg-surface border border-border rounded-xl p-3">
-            <div className="text-lg font-bold text-foreground font-mono">
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-2.5">
+            <div className="text-sm font-bold text-foreground font-mono">
               {data.participation.medianVoteTimeMs ? formatDuration(data.participation.medianVoteTimeMs) : '—'}
             </div>
             <div className="text-[10px] text-muted">Median vote time</div>
           </div>
-          <div className="bg-surface border border-border rounded-xl p-3">
-            <div className="text-lg font-bold text-foreground font-mono">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-2.5">
+            <div className="text-sm font-bold text-foreground font-mono">
               {formatPct(data.participation.dropoutRate)}
             </div>
             <div className="text-[10px] text-muted">Dropout rate</div>
           </div>
-          <div className="bg-surface border border-border rounded-xl p-3">
-            <div className="text-lg font-bold text-foreground font-mono">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-2.5">
+            <div className="text-sm font-bold text-foreground font-mono">
               {formatPct(data.participation.timeoutRate)}
             </div>
             <div className="text-[10px] text-muted">Timeout rate</div>
           </div>
-          <div className="bg-surface border border-border rounded-xl p-3">
-            <div className="text-lg font-bold text-foreground font-mono">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-2.5">
+            <div className="text-sm font-bold text-foreground font-mono">
               {Math.round(data.participation.avgCommentsPerCell * 10) / 10}
             </div>
             <div className="text-[10px] text-muted">Avg comments/cell</div>
@@ -213,10 +201,10 @@ export default function AnalyticsPage() {
 
         {/* Tier Progression */}
         {data.tiers.length > 0 && (
-          <div className="bg-surface border border-border rounded-xl p-4 mb-4">
-            <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Tier Progression</h2>
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-3">
+            <h2 className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Tier Progression</h2>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-border">
                     <th className="text-left py-2 text-muted font-medium">Tier</th>
@@ -252,13 +240,13 @@ export default function AnalyticsPage() {
 
         {/* Idea Leaderboard */}
         {data.ideas.length > 0 && (
-          <div className="bg-surface border border-border rounded-xl p-4 mb-4">
-            <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Idea Leaderboard</h2>
-            <div className="space-y-1.5">
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-3">
+            <h2 className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Idea Leaderboard</h2>
+            <div className="space-y-1">
               {data.ideas.slice(0, 10).map((idea, i) => (
                 <div
                   key={idea.id}
-                  className={`flex items-center gap-2 text-sm p-2 rounded ${
+                  className={`flex items-center gap-2 text-xs p-1.5 rounded ${
                     idea.isChampion ? 'bg-success-bg border border-success' : 'bg-background'
                   }`}
                 >
@@ -279,8 +267,8 @@ export default function AnalyticsPage() {
 
         {/* Timeline */}
         {data.timeline.length > 0 && (
-          <div className="bg-surface border border-border rounded-xl p-4 mb-4">
-            <h2 className="text-sm font-semibold text-muted uppercase tracking-wide mb-3">Timeline</h2>
+          <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-3">
+            <h2 className="text-xs font-semibold text-muted uppercase tracking-wide mb-2">Timeline</h2>
             <div className="space-y-0">
               {data.timeline.map((entry, i) => (
                 <div key={i} className="flex gap-3 py-2 border-b border-border last:border-0">
@@ -295,7 +283,7 @@ export default function AnalyticsPage() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm text-foreground font-medium">{entry.event}</div>
+                    <div className="text-xs text-foreground font-medium">{entry.event}</div>
                     {entry.detail && (
                       <div className="text-xs text-muted truncate">{entry.detail}</div>
                     )}
@@ -309,6 +297,6 @@ export default function AnalyticsPage() {
           </div>
         )}
       </div>
-    </div>
+    </FrameLayout>
   )
 }

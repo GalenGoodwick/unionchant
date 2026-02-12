@@ -13,6 +13,12 @@ const CSRF_EXEMPT_PATHS = [
   '/api/v1/',
 ]
 
+// Patterns that match via regex (for dynamic segments)
+const CSRF_EXEMPT_PATTERNS = [
+  /^\/api\/deliberations\/[^/]+\/leave$/, // sendBeacon from page unload
+  /^\/api\/deliberations\/[^/]+\/release-seats$/, // sendBeacon from page unload
+]
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
@@ -28,32 +34,10 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL(newPath, req.url), 308)
   }
 
-  // ── Redirect returning users to /chants ──
-  if (req.method === 'GET' && pathname === '/') {
-    const hasVisited = req.cookies.get('visited_feed')
-    const wantsHome = req.nextUrl.searchParams.has('home')
-    if (hasVisited && !wantsHome) {
-      return NextResponse.redirect(new URL('/chants', req.url), 307)
-    }
-  }
-
-  // ── Set cookie when visiting /chants ──
-  if (req.method === 'GET' && pathname === '/chants') {
-    const res = NextResponse.next()
-    if (!req.cookies.get('visited_feed')) {
-      res.cookies.set('visited_feed', '1', {
-        path: '/',
-        maxAge: 365 * 24 * 60 * 60, // 1 year
-        sameSite: 'lax',
-        httpOnly: true,
-      })
-    }
-    return res
-  }
-
   // ── CSRF protection for API mutations ──
   if (MUTATION_METHODS.includes(req.method) && pathname.startsWith('/api/')) {
-    if (CSRF_EXEMPT_PATHS.some(p => pathname.startsWith(p))) {
+    if (CSRF_EXEMPT_PATHS.some(p => pathname.startsWith(p)) ||
+        CSRF_EXEMPT_PATTERNS.some(p => p.test(pathname))) {
       return NextResponse.next()
     }
 
@@ -72,5 +56,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/feed', '/chants', '/talks/:path*', '/api/:path*'],
+  matcher: ['/talks/:path*', '/api/:path*'],
 }

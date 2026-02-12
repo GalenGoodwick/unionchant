@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { verifyCGAuth } from '../../../auth'
 import { resolveCGUser } from '@/lib/cg-user'
 import { prisma } from '@/lib/prisma'
-import { processCellResults } from '@/lib/voting'
+import { processCellResults, atomicJoinCell } from '@/lib/voting'
 import { Prisma } from '@prisma/client'
 
 const FCFS_CELL_SIZE = 5
@@ -139,11 +139,14 @@ export async function POST(
       })
 
       if (cellToJoin) {
-        await prisma.cellParticipation.create({
-          data: { cellId: cellToJoin.id, userId: user.id, status: 'ACTIVE' },
-        })
-        cellId = cellToJoin.id
-      } else {
+        // Atomically join cell (prevents race where two users both see room)
+        const joined = await atomicJoinCell(cellToJoin.id, user.id, FCFS_CELL_SIZE)
+        if (joined) {
+          cellId = cellToJoin.id
+        }
+        // If race lost, fall through to create new cell
+      }
+      if (!cellId) {
         // No open cell — create new cell in batch with fewest total participants
         let createBatch = 0
         let minTotal = Infinity

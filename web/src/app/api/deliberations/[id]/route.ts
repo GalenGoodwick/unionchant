@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
+import { isAdmin } from '@/lib/admin'
 import { checkDeliberationAccess } from '@/lib/privacy'
 
 // GET /api/deliberations/[id] - Get a single deliberation
@@ -71,7 +72,7 @@ export async function GET(
         select: { id: true },
       })
       if (user) {
-        isCreator = user.id === deliberation.creatorId
+        isCreator = user.id === deliberation.creatorId || await isAdmin(session.user.email)
 
         // Collect all relevant user IDs (creator + idea authors)
         const relevantUserIds = new Set<string>()

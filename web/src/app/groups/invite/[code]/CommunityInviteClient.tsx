@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { getDisplayName } from '@/lib/user'
+import FrameLayout from '@/components/FrameLayout'
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
 
@@ -67,68 +68,74 @@ export default function CommunityInviteClient() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-muted">Loading...</div>
-      </div>
+      <FrameLayout active="groups">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-muted text-xs">Loading...</div>
+        </div>
+      </FrameLayout>
     )
   }
 
   if (error || !community) {
     return (
-      <div className="min-h-screen bg-surface flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-4">Invalid Invite</h1>
-          <p className="text-muted mb-6">{error || 'This invite link is invalid or has expired.'}</p>
-          <Link href="/groups" className="text-accent hover:text-accent-hover">
-            Browse Groups
-          </Link>
+      <FrameLayout active="groups">
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <h1 className="text-sm font-bold text-foreground mb-2">Invalid Invite</h1>
+            <p className="text-xs text-muted mb-4">{error || 'This invite link is invalid or has expired.'}</p>
+            <Link href="/groups" className="text-accent hover:text-accent-hover text-xs">
+              Browse Groups
+            </Link>
+          </div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center p-4">
-      <div className="max-w-md w-full">
-        <div className="bg-background rounded-xl p-8 border border-border text-center">
-          <div className="text-accent text-sm font-medium mb-2">
-            You&apos;ve been invited to join
+    <FrameLayout active="groups">
+      <div className="flex items-center justify-center py-12">
+        <div className="w-full">
+          <div className="bg-surface/90 backdrop-blur-sm rounded-lg p-6 border border-border text-center">
+            <div className="text-accent text-xs font-medium mb-1.5">
+              You&apos;ve been invited to join
+            </div>
+
+            <h1 className="text-sm font-bold text-foreground mb-3">
+              {community.name}
+            </h1>
+
+            {community.description && (
+              <p className="text-xs text-muted mb-4">{community.description}</p>
+            )}
+
+            <div className="flex justify-center gap-4 text-xs text-muted mb-4">
+              <span className="font-mono">{community._count.members} members</span>
+              <span className="font-mono">{community._count.deliberations} chants</span>
+            </div>
+
+            <div className="text-muted-light text-[10px] mb-4">
+              Created by {getDisplayName(community.creator)}
+            </div>
+
+            {status === 'loading' ? (
+              <div className="text-muted text-xs">Loading...</div>
+            ) : (
+              <button
+                onClick={handleJoin}
+                disabled={joining}
+                className="w-full bg-accent hover:bg-accent-hover text-white py-2.5 px-4 rounded-lg font-semibold text-xs transition-colors disabled:opacity-50"
+              >
+                {joining ? 'Joining...' : session ? 'Join Group' : 'Sign in to Join'}
+              </button>
+            )}
+
+            <p className="text-muted-light text-[10px] mt-3">
+              By joining, you&apos;ll be part of this group and its chants
+            </p>
           </div>
-
-          <h1 className="text-2xl font-bold text-foreground mb-4">
-            {community.name}
-          </h1>
-
-          {community.description && (
-            <p className="text-muted mb-6">{community.description}</p>
-          )}
-
-          <div className="flex justify-center gap-4 text-sm text-muted mb-6">
-            <span className="font-mono">{community._count.members} members</span>
-            <span className="font-mono">{community._count.deliberations} chants</span>
-          </div>
-
-          <div className="text-muted-light text-sm mb-6">
-            Created by {getDisplayName(community.creator)}
-          </div>
-
-          {status === 'loading' ? (
-            <div className="text-muted">Loading...</div>
-          ) : (
-            <button
-              onClick={handleJoin}
-              disabled={joining}
-              className="w-full bg-accent hover:bg-accent-hover text-white py-3 px-6 rounded-xl font-semibold transition-colors disabled:opacity-50"
-            >
-              {joining ? 'Joining...' : session ? 'Join Group' : 'Sign in to Join'}
-            </button>
-          )}
-
-          <p className="text-muted-light text-xs mt-4">
-            By joining, you&apos;ll be part of this group and its chants
-          </p>
         </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

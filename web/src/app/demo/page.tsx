@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useEffect, useRef } from 'react'
-import Header from '@/components/Header'
+import FrameLayout from '@/components/FrameLayout'
 
 type Idea = {
   id: string
@@ -580,25 +580,20 @@ export default function DemoPage() {
   const getParticipantName = (pId: string) => participants.find(p => p.id === pId)?.name || ''
 
   return (
-    <div className="min-h-screen bg-surface">
-      <Header />
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+    <FrameLayout hideFooter showBack contentClassName="!px-0">
+      <div className="px-4 py-4">
         {/* Title */}
-        <div className="mb-6">
-          <Link href="/how-it-works" className="text-muted hover:text-foreground text-sm mb-2 inline-block">
-            &larr; How It Works
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">See Unity Chant in Action</h1>
-          <p className="text-muted mt-1 text-sm sm:text-base">Watch how {participantCount} people reach consensus through structured small-group deliberation</p>
+        <div className="mb-4">
+          <h1 className="text-xl font-bold text-foreground">See Unity Chant in Action</h1>
+          <p className="text-muted mt-1 text-xs">Watch how {participantCount} people reach consensus through structured small-group deliberation</p>
         </div>
 
-        <div className="space-y-6">
-          {/* Explanation banner — always visible */}
-          <div className="bg-accent-light border-2 border-accent rounded-lg p-5">
+        <div className="space-y-4">
+          {/* Explanation banner -- always visible */}
+          <div className="bg-accent-light border-2 border-accent rounded-lg p-4">
             {phase === 'setup' ? (
               <>
-                <div className="text-sm text-foreground space-y-1.5 mb-4">
+                <div className="text-xs text-foreground space-y-1 mb-3">
                   <p><strong>1.</strong> {participantCount} participants each submit one idea</p>
                   <p><strong>2.</strong> Ideas are grouped into cells of 5 ideas, 5 people each</p>
                   <p><strong>3.</strong> Each cell deliberates (discusses trade-offs) then votes</p>
@@ -607,21 +602,20 @@ export default function DemoPage() {
                 </div>
                 <button
                   onClick={startDemo}
-                  className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition-colors"
+                  className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-2.5 rounded-lg transition-colors text-sm"
                 >
                   Start Demo
                 </button>
               </>
             ) : (
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="text-accent text-2xl shrink-0">💡</div>
-                  <p className="text-foreground font-medium">{explanation}</p>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <p className="text-foreground font-medium text-sm">{explanation}</p>
                 </div>
                 {paused && (
                   <button
                     onClick={() => continueRef.current?.()}
-                    className="shrink-0 px-5 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors"
+                    className="shrink-0 px-4 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg font-medium transition-colors text-sm"
                   >
                     Continue
                   </button>
@@ -630,361 +624,339 @@ export default function DemoPage() {
             )}
           </div>
 
-            <div className="grid lg:grid-cols-5 gap-6">
-            {/* Left: Tier Progress */}
-            <div className="lg:col-span-2 space-y-4">
-              {/* Status */}
-              <div className={`rounded-lg p-4 border ${champion ? 'bg-success-bg border-success' : 'bg-background border-border'}`}>
-                <div className="text-sm text-muted mb-1">Status</div>
-                <div className="text-foreground font-medium">{statusMessage}</div>
-                {champion && (
-                  <div className="mt-3 pt-3 border-t border-success/30">
-                    <div className="text-success text-xs font-semibold uppercase tracking-wide mb-1">Priority</div>
-                    <div className="text-foreground font-bold">{champion.text}</div>
-                    <div className="text-muted text-xs mt-1">From {ideas.length} ideas → 1 winner through {currentTier} tiers</div>
-                  </div>
-                )}
+          {/* Status */}
+          <div className={`rounded-lg p-3 border ${champion ? 'bg-success-bg border-success' : 'bg-surface/90 backdrop-blur-sm border-border'}`}>
+            <div className="text-xs text-muted mb-1">Status</div>
+            <div className="text-foreground font-medium text-sm">{statusMessage}</div>
+            {champion && (
+              <div className="mt-2 pt-2 border-t border-success/30">
+                <div className="text-success text-xs font-semibold uppercase tracking-wide mb-1">Priority</div>
+                <div className="text-foreground font-bold text-sm">{champion.text}</div>
+                <div className="text-muted text-xs mt-1">From {ideas.length} ideas to 1 winner through {currentTier} tiers</div>
               </div>
+            )}
+          </div>
 
-
-              {/* Tier Funnel - only show active or completed tiers */}
-              <div className="bg-background rounded-lg p-4 border border-border">
-                <h3 className="text-sm font-medium text-muted mb-4">Tournament Progress</h3>
-                <div className="space-y-2">
-                  {tierSummaries.filter(t => t.status !== 'pending').map((t, i, arr) => (
-                    <div key={t.tier} className="relative">
-                      <div className={`flex items-center gap-3 p-3 rounded-lg transition-all ${
-                        t.status === 'active' ? 'bg-warning-bg border border-warning' :
-                        t.status === 'completed' ? 'bg-success-bg border border-success' :
-                        'bg-surface border border-border'
-                      }`}>
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                          t.status === 'active' ? 'bg-warning text-white' :
-                          t.status === 'completed' ? 'bg-success text-white' :
-                          'bg-border text-muted'
-                        }`}>
-                          {t.tier}
-                        </div>
-                        <div className="flex-1">
-                          <div className="text-sm text-foreground font-medium">
-                            Tier {t.tier}: {t.cells} cells
-                          </div>
-                          <div className="text-xs text-muted">
-                            {t.ideasStart} ideas → {t.status === 'completed' ? t.ideasEnd : '?'} advancing
-                          </div>
-                        </div>
-                        {t.status === 'completed' && (
-                          <svg className="w-5 h-5 text-success" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                        {t.status === 'active' && (
-                          <div className="w-5 h-5 border-2 border-warning border-t-transparent rounded-full animate-spin" />
-                        )}
+          {/* Tier Funnel */}
+          <div className="bg-surface/90 backdrop-blur-sm rounded-lg p-3 border border-border">
+            <h3 className="text-xs font-medium text-muted mb-3">Tournament Progress</h3>
+            <div className="space-y-1.5">
+              {tierSummaries.filter(t => t.status !== 'pending').map((t, i, arr) => (
+                <div key={t.tier} className="relative">
+                  <div className={`flex items-center gap-2 p-2 rounded-lg transition-all ${
+                    t.status === 'active' ? 'bg-warning-bg border border-warning' :
+                    t.status === 'completed' ? 'bg-success-bg border border-success' :
+                    'bg-surface border border-border'
+                  }`}>
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                      t.status === 'active' ? 'bg-warning text-white' :
+                      t.status === 'completed' ? 'bg-success text-white' :
+                      'bg-border text-muted'
+                    }`}>
+                      {t.tier}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-xs text-foreground font-medium">
+                        Tier {t.tier}: {t.cells} cells
                       </div>
-                      {i < arr.length - 1 && (
-                        <div className="absolute left-6 top-full w-0.5 h-2 bg-border" />
-                      )}
+                      <div className="text-[10px] text-muted">
+                        {t.ideasStart} ideas to {t.status === 'completed' ? t.ideasEnd : '?'} advancing
+                      </div>
                     </div>
-                  ))}
-                  {tierSummaries.filter(t => t.status === 'pending').length > 0 && (
-                    <div className="text-xs text-muted text-center py-2">
-                      {tierSummaries.filter(t => t.status === 'pending').length} more tier{tierSummaries.filter(t => t.status === 'pending').length > 1 ? 's' : ''} to go...
-                    </div>
+                    {t.status === 'completed' && (
+                      <svg className="w-4 h-4 text-success" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                    {t.status === 'active' && (
+                      <div className="w-4 h-4 border-2 border-warning border-t-transparent rounded-full animate-spin" />
+                    )}
+                  </div>
+                  {i < arr.length - 1 && (
+                    <div className="absolute left-5 top-full w-0.5 h-1.5 bg-border" />
                   )}
                 </div>
-              </div>
-
-              {/* Ideas Summary */}
-              <div className="bg-background rounded-lg p-4 border border-border">
-                <h3 className="text-sm font-medium text-muted mb-3">Ideas by Status</h3>
-                <div className="grid grid-cols-3 gap-2 text-sm">
-                  <div className="bg-surface rounded p-2">
-                    <div className="text-2xl font-bold text-foreground font-mono">{ideas.length}</div>
-                    <div className="text-muted text-xs">Total</div>
-                  </div>
-                  <div className="bg-surface rounded p-2">
-                    <div className="text-2xl font-bold text-muted font-mono">
-                      {ideas.filter(i => i.status === 'eliminated').length}
-                    </div>
-                    <div className="text-muted text-xs">Eliminated</div>
-                  </div>
-                  <div className="bg-success-bg rounded p-2">
-                    <div className="text-2xl font-bold text-success font-mono">
-                      {ideas.filter(i => i.status === 'winner').length}
-                    </div>
-                    <div className="text-success text-xs">Winner</div>
-                  </div>
+              ))}
+              {tierSummaries.filter(t => t.status === 'pending').length > 0 && (
+                <div className="text-[10px] text-muted text-center py-1">
+                  {tierSummaries.filter(t => t.status === 'pending').length} more tier{tierSummaries.filter(t => t.status === 'pending').length > 1 ? 's' : ''} to go...
                 </div>
-              </div>
-
-              {/* Controls */}
-              <button
-                onClick={reset}
-                className="w-full bg-muted hover:bg-subtle text-white px-4 py-2 rounded-lg transition-colors"
-              >
-                {running ? 'Stop & Reset' : 'Reset Demo'}
-              </button>
+              )}
             </div>
+          </div>
 
-            {/* Middle/Right: Panels */}
-            <div className="lg:col-span-3 space-y-4">
-              {/* Cells Grid - Always visible */}
-              <div className="bg-background rounded-lg border border-border p-4">
-                <h3 className="text-sm font-semibold text-foreground mb-3">
-                  {phase === 'completed' ? 'Final Voting Summary' : phase === 'voting' ? `Tier ${currentTier} Cells` : 'Voting Cells'}
-                </h3>
-
-                {cells.length > 0 ? (
-                  /* Show all tiers */
-                  <div className="space-y-4">
-                    {Array.from(new Set(cells.map(c => c.tier))).sort((a, b) => a - b).map(tier => {
-                      const tierCells = cells.filter(c => c.tier === tier)
-                      const batches = [...new Set(tierCells.map(c => c.batch))].sort((a, b) => a - b)
-                      const isCurrentTier = tier === currentTier && phase !== 'completed'
-
-                      // Check if this is real batching (multiple cells per batch voting on same ideas)
-                      const cellsPerBatch = tierCells.filter(c => c.batch === 0).length
-                      const hasRealBatching = cellsPerBatch > 1
-                      const isFinalShowdown = batches.length === 1 && tierCells.length > 1 && hasRealBatching
-
-                      // Get ideas per batch (from first cell of first batch)
-                      const ideasPerBatch = tierCells[0]?.ideaIds.length || 0
-
-                      return (
-                        <div key={tier} className={`${isCurrentTier ? '' : 'opacity-60'}`}>
-                          <div className="text-xs text-muted mb-2 flex items-center gap-2">
-                            <span className={`font-medium ${isCurrentTier ? 'text-warning' : 'text-success'}`}>
-                              Tier {tier}
-                            </span>
-                            <span>
-                              {isFinalShowdown
-                                ? `(Final Showdown - all ${tierCells.length} cells vote on same ${ideasPerBatch} ideas)`
-                                : hasRealBatching
-                                  ? `(${batches.length} batches with ${ideasPerBatch} ideas each, ${cellsPerBatch} cells per batch)`
-                                  : `(${tierCells.length} cells, each with ${ideasPerBatch} unique ideas)`
-                              }
-                            </span>
-                          </div>
-
-                          {/* Cells layout - horizontal for no batching, grouped for batching */}
-                          {hasRealBatching ? (
-                            /* Group cells by batch when real batching */
-                            <div className="space-y-3">
-                              {batches.map(batch => {
-                                const batchCells = tierCells.filter(c => c.batch === batch)
-                                return (
-                                  <div key={batch} className="flex items-center gap-2 pb-2 border-b border-border/50 last:border-0 last:pb-0">
-                                    <span className="text-[10px] text-muted w-8 font-medium">B{batch + 1}:</span>
-                                    <div className="flex gap-1.5 flex-wrap">
-                                      {batchCells.map(cell => (
-                                        <div
-                                          key={cell.id}
-                                          onClick={() => setActiveCell(cell)}
-                                          className={`w-8 h-8 rounded flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all ${
-                                            activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
-                                          } ${
-                                            cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
-                                            cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
-                                            cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
-                                            'bg-surface border border-border text-muted'
-                                          }`}
-                                          title={`${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
-                                        >
-                                          {Object.keys(cell.votes).length}/{cell.participantIds.length}
-                                        </div>
-                                      ))}
-                                    </div>
-                                    {/* Show batch winner */}
-                                    {batchCells.every(c => c.status === 'completed') && (
-                                      <span className="text-[10px] text-success ml-2 truncate max-w-[150px]">
-                                        → {getIdeaText(batchCells[0]?.winner || '').slice(0, 25)}...
-                                      </span>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          ) : (
-                            /* Horizontal layout when no batching (each cell has unique ideas) */
-                            <div className="flex gap-1.5 flex-wrap">
-                              {tierCells.map(cell => (
-                                <div
-                                  key={cell.id}
-                                  onClick={() => setActiveCell(cell)}
-                                  className={`w-8 h-8 rounded flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all ${
-                                    activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
-                                  } ${
-                                    cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
-                                    cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
-                                    cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
-                                    'bg-surface border border-border text-muted'
-                                  }`}
-                                  title={`${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
-                                >
-                                  {Object.keys(cell.votes).length}/{cell.participantIds.length}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  /* Placeholder when no cells yet */
-                  <div className="text-center py-8 text-muted">
-                    <div className="text-2xl mb-2">📦</div>
-                    <p className="text-sm">Cells will appear here once voting begins</p>
-                  </div>
-                )}
-
-                {/* Legend - always show */}
-                <div className="flex gap-4 mt-4 pt-3 border-t border-border text-xs text-muted">
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded bg-accent-light border border-accent"></div>
-                    <span>Deliberating</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded bg-warning-bg border border-warning"></div>
-                    <span>Voting</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded bg-success-bg border border-success"></div>
-                    <span>Complete</span>
-                  </div>
-                </div>
+          {/* Ideas Summary */}
+          <div className="bg-surface/90 backdrop-blur-sm rounded-lg p-3 border border-border">
+            <h3 className="text-xs font-medium text-muted mb-2">Ideas by Status</h3>
+            <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="bg-background rounded p-2">
+                <div className="text-xl font-bold text-foreground font-mono">{ideas.length}</div>
+                <div className="text-muted text-[10px]">Total</div>
               </div>
+              <div className="bg-background rounded p-2">
+                <div className="text-xl font-bold text-muted font-mono">
+                  {ideas.filter(i => i.status === 'eliminated').length}
+                </div>
+                <div className="text-muted text-[10px]">Eliminated</div>
+              </div>
+              <div className="bg-success-bg rounded p-2">
+                <div className="text-xl font-bold text-success font-mono">
+                  {ideas.filter(i => i.status === 'winner').length}
+                </div>
+                <div className="text-success text-[10px]">Winner</div>
+              </div>
+            </div>
+          </div>
 
+          {/* Cells Grid */}
+          <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-3">
+            <h3 className="text-xs font-semibold text-foreground mb-2">
+              {phase === 'completed' ? 'Final Voting Summary' : phase === 'voting' ? `Tier ${currentTier} Cells` : 'Voting Cells'}
+            </h3>
 
-              {/* Active Cell Detail - Always visible */}
-              <div className="bg-background rounded-lg border border-border overflow-hidden">
-                {activeCell ? (
-                  <>
-                    <div className={`p-3 ${
-                      activeCell.status === 'deliberating' ? 'bg-accent-light' :
-                      activeCell.status === 'voting' ? 'bg-warning-bg' :
-                      'bg-success-bg'
-                    }`}>
-                      <div className="flex justify-between items-center">
-                        <h3 className="font-semibold text-foreground text-sm">
-                          Cell Detail - Tier {activeCell.tier}
-                        </h3>
-                        <span className={`text-xs px-2 py-1 rounded ${
-                          activeCell.status === 'deliberating' ? 'bg-accent text-white' :
-                          activeCell.status === 'voting' ? 'bg-warning text-white' :
-                          'bg-success text-white'
-                        }`}>
-                          {activeCell.status === 'deliberating' ? 'Discussing' :
-                           activeCell.status === 'voting' ? 'Voting' : 'Complete'}
+            {cells.length > 0 ? (
+              <div className="space-y-3">
+                {Array.from(new Set(cells.map(c => c.tier))).sort((a, b) => a - b).map(tier => {
+                  const tierCells = cells.filter(c => c.tier === tier)
+                  const batches = [...new Set(tierCells.map(c => c.batch))].sort((a, b) => a - b)
+                  const isCurrentTier = tier === currentTier && phase !== 'completed'
+
+                  const cellsPerBatch = tierCells.filter(c => c.batch === 0).length
+                  const hasRealBatching = cellsPerBatch > 1
+                  const isFinalShowdown = batches.length === 1 && tierCells.length > 1 && hasRealBatching
+
+                  const ideasPerBatch = tierCells[0]?.ideaIds.length || 0
+
+                  return (
+                    <div key={tier} className={`${isCurrentTier ? '' : 'opacity-60'}`}>
+                      <div className="text-[10px] text-muted mb-1 flex items-center gap-1">
+                        <span className={`font-medium ${isCurrentTier ? 'text-warning' : 'text-success'}`}>
+                          Tier {tier}
+                        </span>
+                        <span>
+                          {isFinalShowdown
+                            ? `(Final - ${tierCells.length} cells, ${ideasPerBatch} ideas)`
+                            : hasRealBatching
+                              ? `(${batches.length} batches, ${ideasPerBatch} ideas each)`
+                              : `(${tierCells.length} cells, ${ideasPerBatch} unique ideas each)`
+                          }
                         </span>
                       </div>
-                    </div>
 
-                    <div className="p-4 grid md:grid-cols-2 gap-4">
-                      {/* Ideas being voted on */}
-                      <div>
-                        <h4 className="text-sm font-medium text-muted mb-2">Ideas in this cell:</h4>
-                        <div className="space-y-1.5">
-                          {activeCell.ideaIds.map(ideaId => {
-                            const voteCount = Object.values(activeCell.votes).filter(v => v === ideaId).length
-                            const isWinner = activeCell.winner === ideaId
+                      {hasRealBatching ? (
+                        <div className="space-y-2">
+                          {batches.map(batch => {
+                            const batchCells = tierCells.filter(c => c.batch === batch)
                             return (
-                              <div key={ideaId} className={`p-2 rounded text-sm flex justify-between items-center ${
-                                isWinner ? 'bg-success-bg border border-success' : 'bg-surface'
-                              }`}>
-                                <span className={`${isWinner ? 'text-success font-medium' : 'text-foreground'} text-xs`}>
-                                  {getIdeaText(ideaId)}
-                                </span>
-                                {voteCount > 0 && (
-                                  <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
-                                    isWinner ? 'bg-success text-white' : 'bg-border text-muted'
-                                  }`}>
-                                    {voteCount}
+                              <div key={batch} className="flex items-center gap-1.5 pb-1.5 border-b border-border/50 last:border-0 last:pb-0">
+                                <span className="text-[10px] text-muted w-6 font-medium">B{batch + 1}:</span>
+                                <div className="flex gap-1 flex-wrap">
+                                  {batchCells.map(cell => (
+                                    <div
+                                      key={cell.id}
+                                      onClick={() => setActiveCell(cell)}
+                                      className={`w-7 h-7 rounded flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all ${
+                                        activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
+                                      } ${
+                                        cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
+                                        cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
+                                        cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
+                                        'bg-surface border border-border text-muted'
+                                      }`}
+                                      title={`${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
+                                    >
+                                      {Object.keys(cell.votes).length}/{cell.participantIds.length}
+                                    </div>
+                                  ))}
+                                </div>
+                                {batchCells.every(c => c.status === 'completed') && (
+                                  <span className="text-[10px] text-success ml-1 truncate max-w-[120px]">
+                                    {getIdeaText(batchCells[0]?.winner || '').slice(0, 20)}...
                                   </span>
                                 )}
                               </div>
                             )
                           })}
                         </div>
-                      </div>
-
-                      {/* Conversation */}
-                      <div>
-                        <h4 className="text-sm font-medium text-muted mb-2">Discussion:</h4>
-                        <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                          {activeCell.conversations.map((conv, i) => (
-                            <div key={i} className="bg-surface rounded p-2 text-xs">
-                              <span className="font-medium text-accent">{conv.participantName}:</span>
-                              <span className="text-subtle ml-1">{conv.message}</span>
+                      ) : (
+                        <div className="flex gap-1 flex-wrap">
+                          {tierCells.map(cell => (
+                            <div
+                              key={cell.id}
+                              onClick={() => setActiveCell(cell)}
+                              className={`w-7 h-7 rounded flex items-center justify-center text-[10px] font-mono cursor-pointer transition-all ${
+                                activeCell?.id === cell.id ? 'ring-2 ring-foreground' : ''
+                              } ${
+                                cell.status === 'completed' ? 'bg-success-bg border border-success text-success' :
+                                cell.status === 'voting' ? 'bg-warning-bg border border-warning text-warning' :
+                                cell.status === 'deliberating' ? 'bg-accent-light border border-accent text-accent' :
+                                'bg-surface border border-border text-muted'
+                              }`}
+                              title={`${Object.keys(cell.votes).length}/${cell.participantIds.length} voted`}
+                            >
+                              {Object.keys(cell.votes).length}/{cell.participantIds.length}
                             </div>
                           ))}
                         </div>
-                      </div>
+                      )}
                     </div>
-
-                    {/* Participants */}
-                    <div className="px-4 pb-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {activeCell.participantIds.map(pId => {
-                          const hasVoted = activeCell.votes[pId]
-                          return (
-                            <span key={pId} className={`text-xs px-2 py-0.5 rounded ${
-                              hasVoted ? 'bg-success text-white' : 'bg-surface text-muted border border-border'
-                            }`}>
-                              {getParticipantName(pId)} {hasVoted ? '✓' : ''}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  /* Placeholder when no cell selected */
-                  <div className="p-3 bg-surface/50">
-                    <h3 className="font-semibold text-muted text-sm">Cell Detail</h3>
-                  </div>
-                )}
-                {!activeCell && (
-                  <div className="p-8 text-center text-muted text-sm">
-                    <div className="text-2xl mb-2">💬</div>
-                    <p>{phase === 'submission' ? 'Cell discussions will appear here' : 'Click a cell to see its discussion'}</p>
-                  </div>
-                )}
+                  )
+                })}
               </div>
+            ) : (
+              <div className="text-center py-6 text-muted">
+                <p className="text-xs">Cells will appear here once voting begins</p>
+              </div>
+            )}
 
-              {/* Key Insight Box */}
-              {!champion && (
-                <div className="bg-purple-bg border border-purple rounded-lg p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="text-purple text-xl">💡</div>
-                    <div>
-                      <div className="text-purple font-medium text-sm">Why Small Groups Matter</div>
-                      <div className="text-subtle text-sm mt-1">
-                        In a traditional poll, the loudest voices dominate. In Unity Chant, every participant
-                        deliberates in a small group where their voice is heard. Ideas win by surviving
-                        scrutiny across multiple independent groups—not by popularity or timing.
-                      </div>
+            {/* Legend */}
+            <div className="flex gap-3 mt-3 pt-2 border-t border-border text-[10px] text-muted">
+              <div className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded bg-accent-light border border-accent"></div>
+                <span>Deliberating</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded bg-warning-bg border border-warning"></div>
+                <span>Voting</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded bg-success-bg border border-success"></div>
+                <span>Complete</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Active Cell Detail */}
+          <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border overflow-hidden">
+            {activeCell ? (
+              <>
+                <div className={`p-2.5 ${
+                  activeCell.status === 'deliberating' ? 'bg-accent-light' :
+                  activeCell.status === 'voting' ? 'bg-warning-bg' :
+                  'bg-success-bg'
+                }`}>
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-semibold text-foreground text-xs">
+                      Cell Detail - Tier {activeCell.tier}
+                    </h3>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                      activeCell.status === 'deliberating' ? 'bg-accent text-white' :
+                      activeCell.status === 'voting' ? 'bg-warning text-white' :
+                      'bg-success text-white'
+                    }`}>
+                      {activeCell.status === 'deliberating' ? 'Discussing' :
+                       activeCell.status === 'voting' ? 'Voting' : 'Complete'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-3 space-y-3">
+                  {/* Ideas being voted on */}
+                  <div>
+                    <h4 className="text-xs font-medium text-muted mb-1.5">Ideas in this cell:</h4>
+                    <div className="space-y-1">
+                      {activeCell.ideaIds.map(ideaId => {
+                        const voteCount = Object.values(activeCell.votes).filter(v => v === ideaId).length
+                        const isWinner = activeCell.winner === ideaId
+                        return (
+                          <div key={ideaId} className={`p-1.5 rounded text-xs flex justify-between items-center ${
+                            isWinner ? 'bg-success-bg border border-success' : 'bg-background'
+                          }`}>
+                            <span className={`${isWinner ? 'text-success font-medium' : 'text-foreground'} text-[11px]`}>
+                              {getIdeaText(ideaId)}
+                            </span>
+                            {voteCount > 0 && (
+                              <span className={`text-[10px] font-mono px-1 py-0.5 rounded ${
+                                isWinner ? 'bg-success text-white' : 'bg-border text-muted'
+                              }`}>
+                                {voteCount}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Conversation */}
+                  <div>
+                    <h4 className="text-xs font-medium text-muted mb-1.5">Discussion:</h4>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {activeCell.conversations.map((conv, i) => (
+                        <div key={i} className="bg-background rounded p-1.5 text-[11px]">
+                          <span className="font-medium text-accent">{conv.participantName}:</span>
+                          <span className="text-subtle ml-1">{conv.message}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
+
+                {/* Participants */}
+                <div className="px-3 pb-2.5">
+                  <div className="flex flex-wrap gap-1">
+                    {activeCell.participantIds.map(pId => {
+                      const hasVoted = activeCell.votes[pId]
+                      return (
+                        <span key={pId} className={`text-[10px] px-1.5 py-0.5 rounded ${
+                          hasVoted ? 'bg-success text-white' : 'bg-surface text-muted border border-border'
+                        }`}>
+                          {getParticipantName(pId)} {hasVoted ? '' : ''}
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-2.5 bg-surface/50">
+                <h3 className="font-semibold text-muted text-xs">Cell Detail</h3>
+              </div>
+            )}
+            {!activeCell && (
+              <div className="p-6 text-center text-muted text-xs">
+                <p>{phase === 'submission' ? 'Cell discussions will appear here' : 'Click a cell to see its discussion'}</p>
+              </div>
+            )}
           </div>
 
-        {/* Bottom CTA */}
-        {phase === 'completed' && (
-          <div className="mt-8 text-center">
-            <Link
-              href="/talks/new"
-              className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
-            >
-              Start a Talk
-            </Link>
-          </div>
-        )}
+          {/* Key Insight Box */}
+          {!champion && (
+            <div className="bg-purple-bg border border-purple rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <div>
+                  <div className="text-purple font-medium text-xs">Why Small Groups Matter</div>
+                  <div className="text-subtle text-xs mt-1">
+                    In a traditional poll, the loudest voices dominate. In Unity Chant, every participant
+                    deliberates in a small group where their voice is heard. Ideas win by surviving
+                    scrutiny across multiple independent groups -- not by popularity or timing.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Controls */}
+          <button
+            onClick={reset}
+            className="w-full bg-muted hover:bg-subtle text-white px-4 py-2 rounded-lg transition-colors text-sm"
+          >
+            {running ? 'Stop & Reset' : 'Reset Demo'}
+          </button>
+
+          {/* Bottom CTA */}
+          {phase === 'completed' && (
+            <div className="text-center py-4">
+              <Link
+                href="/talks/new"
+                className="inline-block bg-accent hover:bg-accent-hover text-white px-6 py-2.5 rounded-lg font-semibold transition-colors text-sm"
+              >
+                Start a Talk
+              </Link>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

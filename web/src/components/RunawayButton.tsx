@@ -145,6 +145,7 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   const [chasing, setChasing] = useState(false)
   const [chaseTime, setChaseTime] = useState(0)
   const [passed, setPassed] = useState(false)
+  const [misclickHint, setMisclickHint] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
 
   // Detect mobile on mount — desktop auto-starts
@@ -289,9 +290,14 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
       setTimeout(() => onCaught(getBehavioralData()), 200)
       return
     }
-    // Guard ON — clicking a moving button = hacking
-    // Also catches pre-chase insta-clicks
-    if (!surrendered) {
+    // During active chase — human misclick, show hint (don't flag as bot)
+    if (chasing && !surrendered) {
+      setMisclickHint(true)
+      setTimeout(() => setMisclickHint(false), 1500)
+      return
+    }
+    // Pre-chase insta-click with zero chase activity = bot
+    if (!surrendered && !chasing) {
       onBotDetected?.(getBehavioralData())
       return
     }
@@ -316,6 +322,11 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         {chasing && !surrendered && !passed && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-muted font-mono">
             {chaseTime.toFixed(1)}s / 3.0s
+          </div>
+        )}
+        {misclickHint && !surrendered && !passed && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-warning font-semibold animate-pulse">
+            Wait for it to stop!
           </div>
         )}
         {surrendered && !passed && (

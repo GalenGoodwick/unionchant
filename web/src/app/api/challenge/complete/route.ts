@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { invalidate } from '@/lib/cache'
 import { createHash } from 'crypto'
 
 const MIN_ELAPSED_MS = 1500   // minimum 1.5s (surrender can happen at 1.5s)
@@ -153,10 +154,14 @@ export async function POST(req: NextRequest) {
         }),
       ])
 
+      // Invalidate cached user data so /api/challenge/status sees fresh lastChallengePassedAt
+      invalidate(`challenge:${userId}`)
+
       return NextResponse.json({ verified: true })
     }
 
     if (result === 'failed_insta_click' || result === 'failed_no_chase') {
+      // Log the failure but do NOT mark token as used — user can still retry
       await Promise.all([
         prisma.user.update({
           where: { id: userId },
@@ -168,8 +173,7 @@ export async function POST(req: NextRequest) {
         prisma.challengeLog.update({
           where: { id: pendingLog.id },
           data: {
-            result,
-            used: true,
+            result: 'failed_attempt',
             pointerEvents: pointerEvents ?? 0,
             chaseDurationMs: chaseDurationMs ?? 0,
             evadeCount: evadeCount ?? 0,

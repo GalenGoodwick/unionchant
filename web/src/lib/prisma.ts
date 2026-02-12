@@ -28,4 +28,18 @@ export const prisma = globalForPrisma.prisma ?? createPrismaClient()
 // Cache in all environments to reuse across warm invocations
 globalForPrisma.prisma = prisma
 
+// Connection warmer: ping every 20s to prevent Neon cold starts
+const WARM_INTERVAL = 20_000
+const warmKey = '__prisma_warm_interval'
+const g = globalThis as unknown as { [key: string]: ReturnType<typeof setInterval> | undefined }
+if (!g[warmKey]) {
+  g[warmKey] = setInterval(async () => {
+    try {
+      await prisma.$queryRaw`SELECT 1`
+    } catch {
+      // silent — connection will reconnect on next real query
+    }
+  }, WARM_INTERVAL)
+}
+
 export default prisma

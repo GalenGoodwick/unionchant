@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { cached } from '@/lib/cache'
 
 import { isAdmin } from '@/lib/admin'
 import { sendEmail } from '@/lib/email'
@@ -23,64 +24,67 @@ export async function GET(req: NextRequest) {
       userId = user?.id ?? null
     }
 
-    // Get community IDs user is a member of (for private chant access)
-    let memberCommunityIds: string[] = []
-    if (userId) {
-      const memberships = await prisma.communityMember.findMany({
-        where: { userId },
-        select: { communityId: true },
-      })
-      memberCommunityIds = memberships.map(m => m.communityId)
-    }
+    const cacheKey = `deliberations:${userId || 'anon'}:${tag || ''}`
+    const result = await cached(cacheKey, 10_000, async () => {
+      // Get community IDs user is a member of (for private chant access)
+      let memberCommunityIds: string[] = []
+      if (userId) {
+        const memberships = await prisma.communityMember.findMany({
+          where: { userId },
+          select: { communityId: true },
+        })
+        memberCommunityIds = memberships.map(m => m.communityId)
+      }
 
-    const deliberations = await prisma.deliberation.findMany({
-      where: {
-        ...(tag ? { tags: { has: tag } } : {}),
-        OR: [
-          { isPublic: true },
-          ...(memberCommunityIds.length > 0
-            ? [{ isPublic: false, communityId: { in: memberCommunityIds } }]
-            : []),
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        creator: {
-          select: { name: true, status: true },
-        },
-        ideas: {
-          where: { status: 'WINNER' },
-          select: { text: true },
-          take: 1,
-        },
-        _count: {
-          select: { members: true, ideas: true },
-        },
-        podiums: {
-          select: { id: true, title: true },
-          take: 1,
-          orderBy: { createdAt: 'desc' as const },
-        },
-      },
-    })
-
-    // Check which deliberations the user has upvoted
-    let upvotedIds = new Set<string>()
-    if (userId) {
-      const userUpvotes = await prisma.deliberationUpvote.findMany({
+      const deliberations = await prisma.deliberation.findMany({
         where: {
-          userId,
-          deliberationId: { in: deliberations.map(d => d.id) },
+          ...(tag ? { tags: { has: tag } } : {}),
+          OR: [
+            { isPublic: true },
+            ...(memberCommunityIds.length > 0
+              ? [{ isPublic: false, communityId: { in: memberCommunityIds } }]
+              : []),
+          ],
         },
-        select: { deliberationId: true },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          creator: {
+            select: { name: true, status: true },
+          },
+          ideas: {
+            where: { status: 'WINNER' },
+            select: { text: true },
+            take: 1,
+          },
+          _count: {
+            select: { members: true, ideas: true },
+          },
+          podiums: {
+            select: { id: true, title: true },
+            take: 1,
+            orderBy: { createdAt: 'desc' as const },
+          },
+        },
       })
-      upvotedIds = new Set(userUpvotes.map(u => u.deliberationId))
-    }
 
-    const result = deliberations.map(d => ({
-      ...d,
-      userHasUpvoted: upvotedIds.has(d.id),
-    }))
+      // Check which deliberations the user has upvoted
+      let upvotedIds = new Set<string>()
+      if (userId) {
+        const userUpvotes = await prisma.deliberationUpvote.findMany({
+          where: {
+            userId,
+            deliberationId: { in: deliberations.map(d => d.id) },
+          },
+          select: { deliberationId: true },
+        })
+        upvotedIds = new Set(userUpvotes.map(u => u.deliberationId))
+      }
+
+      return deliberations.map(d => ({
+        ...d,
+        userHasUpvoted: upvotedIds.has(d.id),
+      }))
+    })
 
     return NextResponse.json(result)
   } catch (error) {
@@ -114,14 +118,12 @@ export async function POST(req: NextRequest) {
       organization,
       isPublic = true,
       tags = [],
-      submissionDurationMs,
-      votingTimeoutMs,
       discussionDurationMs,
       accumulationEnabled,
-      accumulationTimeoutMs,
       continuousFlow,
       supermajorityEnabled,
       ideaGoal,
+      memberGoal,
       allowAI,
       // Community integration
       communityId,
@@ -195,16 +197,7 @@ export async function POST(req: NextRequest) {
     // Generate a short, readable invite code
     const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
-    // Anonymous users must use a submission timer (default 24h)
-    const DEFAULT_ANON_SUBMISSION_MS = 86400000 // 24 hours
-    const effectiveSubmissionMs = submissionDurationMs
-      || (user.isAnonymous ? DEFAULT_ANON_SUBMISSION_MS : null)
-
-    // Calculate submission end time if duration provided
-    const submissionEndsAt = effectiveSubmissionMs
-      ? new Date(Date.now() + effectiveSubmissionMs)
-      : null
-
+    // All chants are facilitator-controlled — no timers
     const deliberation = await prisma.deliberation.create({
       data: {
         question: question.trim(),
@@ -215,18 +208,14 @@ export async function POST(req: NextRequest) {
         inviteCode,
         tags: cleanTags,
         creatorId: user.id,
-        submissionEndsAt,
-        ...(effectiveSubmissionMs && { submissionDurationMs: effectiveSubmissionMs }),
-        ...(votingTimeoutMs !== undefined
-          ? { votingTimeoutMs }
-          : continuousFlow ? { votingTimeoutMs: 0 } : {}),
+        votingTimeoutMs: 0,
         ...(discussionDurationMs !== undefined && { discussionDurationMs }),
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
-        ...(accumulationTimeoutMs && { accumulationTimeoutMs }),
         ...(continuousFlow !== undefined && { continuousFlow }),
         ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
+        ...(memberGoal && { memberGoal }),
         ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
         // Community integration
         ...(communityId && { communityId }),
