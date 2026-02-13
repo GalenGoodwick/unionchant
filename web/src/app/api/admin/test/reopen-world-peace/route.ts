@@ -39,7 +39,6 @@ export async function POST() {
         isChampion: false,
         tier: 0,
         totalXP: 0,
-        tier1Losses: 0,
       },
     })
 

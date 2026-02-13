@@ -775,7 +775,7 @@ export default function DeliberationPageClient() {
             {delib.phase === 'SUBMISSION' && delib.submissionEndsAt && (
               <CountdownTimer deadline={delib.submissionEndsAt} onExpire={d.handleRefresh} compact />
             )}
-            {activeCell?.votingDeadline && (d.effectivePhase === 'VOTING' || isChallenge) && (
+            {activeCell?.votingDeadline && d.effectivePhase === 'VOTING' && (
               <CountdownTimer deadline={activeCell.votingDeadline} onExpire={d.handleRefresh} compact />
             )}
             <span className={`text-xs font-semibold px-2 py-1 rounded ${delib.isPublic ? 'text-success bg-success-bg' : 'text-error bg-error-bg'}`}>
