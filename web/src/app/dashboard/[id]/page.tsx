@@ -1243,7 +1243,7 @@ export default function DashboardDetailPage() {
               <div className="text-xs text-muted uppercase tracking-wide mb-1.5">All Ideas</div>
               <div className="space-y-0.5 max-h-48 overflow-y-auto">
                 {deliberation.ideas
-                  .sort((a, b) => b.tier - a.tier || b.totalVotes - a.totalVotes)
+                  .sort((a, b) => (b.totalVotes || 0) - (a.totalVotes || 0))
                   .map(idea => (
                     <div key={idea.id} className="flex items-center gap-1.5 text-xs p-1 bg-background rounded">
                       <span className={`px-1 py-0.5 rounded text-white ${
