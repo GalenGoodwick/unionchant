@@ -1157,7 +1157,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             ) : (
               <div className="space-y-2">
                 {status.ideas
-                  .sort((a, b) => b.totalXP - a.totalXP)
+                  .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0))
                   .map((idea, i) => {
                     const ideaComments = commentsByIdea[idea.id] || []
                     const isExpanded = expandedIdea === idea.id
