@@ -32,12 +32,25 @@ type AgentsResponse = {
   tier: string
 }
 
+type AgentActivity = {
+  id: string
+  type: string
+  title: string
+  body: string
+  deliberationId: string | null
+  ideaId: string | null
+  timestamp: string
+}
+
 export default function AgentsPage() {
   const { data: session, status: authStatus } = useSession()
   const router = useRouter()
   const [data, setData] = useState<AgentsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [tab, setTab] = useState<'agents' | 'activity'>('agents')
+  const [activity, setActivity] = useState<AgentActivity[]>([])
+  const [activityLoading, setActivityLoading] = useState(false)
 
   useEffect(() => {
     if (authStatus === 'loading') return
@@ -54,6 +67,16 @@ export default function AgentsPage() {
       .catch(() => setData({ agents: [], limit: 5, tier: 'free' }))
       .finally(() => setLoading(false))
   }, [session, authStatus])
+
+  useEffect(() => {
+    if (tab !== 'activity' || !session) return
+    setActivityLoading(true)
+    fetch('/api/my-agents/activity')
+      .then(r => r.json())
+      .then(d => { if (d.activity) setActivity(d.activity) })
+      .catch(() => {})
+      .finally(() => setActivityLoading(false))
+  }, [tab, session])
 
   const handleDelete = async (id: string, name: string) => {
     if (!confirm(`Delete agent "${name}"? Their reputation history will be preserved but they will stop participating.`)) return
@@ -118,8 +141,22 @@ export default function AgentsPage() {
       active="agents"
       header={
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">My Agents</h2>
-          {data && (
+          <div className="flex gap-1.5">
+            {(['agents', 'activity'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
+                  tab === t
+                    ? 'bg-accent/15 text-accent font-medium'
+                    : 'text-muted hover:text-foreground hover:bg-surface/80'
+                }`}
+              >
+                {t === 'agents' ? 'My Agents' : 'Activity'}
+              </button>
+            ))}
+          </div>
+          {data && tab === 'agents' && (
             <span className="text-[10px] text-muted font-mono">
               {data.agents.length}/{data.limit}
             </span>
@@ -129,7 +166,7 @@ export default function AgentsPage() {
       footerRight={session ? (
         <button
           onClick={() => router.push('/agents/new')}
-          className="w-10 h-10 rounded-full bg-[rgba(252,252,252,0.08)] hover:bg-[rgba(252,252,252,0.15)] text-[rgba(252,252,252,0.6)] hover:text-[rgba(252,252,252,0.9)] shadow-sm flex items-center justify-center transition-all"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[rgba(252,252,252,0.08)] hover:bg-[rgba(252,252,252,0.15)] text-[rgba(252,252,252,0.6)] hover:text-[rgba(252,252,252,0.9)] shadow-sm flex items-center justify-center transition-all shrink-0"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" d="M12 5v14M5 12h14" />
@@ -137,7 +174,9 @@ export default function AgentsPage() {
         </button>
       ) : undefined}
     >
-      {authStatus === 'loading' || loading ? (
+      {tab === 'activity' ? (
+        <ActivityFeed activity={activity} loading={activityLoading} />
+      ) : authStatus === 'loading' || loading ? (
         <div className="text-center py-12">
           <div className="text-muted animate-pulse text-sm">Loading...</div>
         </div>
@@ -306,6 +345,61 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${c.bg} ${c.text} ${c.pulse ? 'animate-pulse' : ''}`}>
       {c.label}
     </span>
+  )
+}
+
+function ActivityFeed({ activity, loading }: { activity: AgentActivity[]; loading: boolean }) {
+  if (loading) {
+    return <div className="text-center py-12 text-muted animate-pulse text-sm">Loading activity...</div>
+  }
+  if (activity.length === 0) {
+    return (
+      <div className="text-center py-12 space-y-2">
+        <p className="text-muted text-sm">No activity yet</p>
+        <p className="text-muted/60 text-xs">Deploy an agent to see their actions here.</p>
+      </div>
+    )
+  }
+
+  const dotColor = (type: string) => {
+    if (type === 'IDEA_WON') return 'bg-gold'
+    if (type === 'IDEA_ADVANCING') return 'bg-success'
+    if (type === 'COMMENT_UP_POLLINATE') return 'bg-purple'
+    if (type === 'CORRECT_VOTE') return 'bg-warning'
+    if (type === 'JOINED') return 'bg-accent'
+    return 'bg-muted'
+  }
+
+  const timeAgo = (ts: string) => {
+    const diff = Date.now() - new Date(ts).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'just now'
+    if (mins < 60) return `${mins}m ago`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ago`
+    const days = Math.floor(hrs / 24)
+    return `${days}d ago`
+  }
+
+  return (
+    <div className="space-y-1 py-2">
+      {activity.map((item, i) => (
+        <Link
+          key={item.id || `activity-${i}`}
+          href={item.deliberationId ? `/chants/${item.deliberationId}` : '#'}
+          className="flex items-start gap-2.5 p-2.5 rounded-lg hover:bg-surface/80 transition-colors"
+        >
+          <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColor(item.type)}`} />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-foreground leading-snug font-medium">{item.title || 'Agent activity'}</p>
+            {item.body && (
+              <p className="text-[11px] text-muted truncate mt-0.5">{item.body}</p>
+            )}
+            <p className="text-[10px] text-muted/50 mt-0.5">{timeAgo(item.timestamp)}</p>
+          </div>
+        </Link>
+      ))}
+    </div>
   )
 }
 

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { notifyAgentOwner } from '@/lib/agent-notifications'
 
 // POST /api/comments/[commentId]/upvote - Upvote a comment
 export async function POST(
@@ -104,6 +105,12 @@ export async function POST(
           cellId: comment.cellId,
         },
       }).catch(err => console.error('Failed to create notification:', err))
+
+      // Notify agent owner if comment author is an AI agent
+      const cell = await prisma.cell.findUnique({ where: { id: comment.cellId }, select: { deliberationId: true } })
+      if (cell) {
+        notifyAgentOwner({ type: 'comment_spread', commentId, agentId: comment.userId, deliberationId: cell.deliberationId })
+      }
 
       return NextResponse.json({ upvoted: true, upPollinated: true, spreadCount: newSpreadCount })
     }

@@ -252,58 +252,6 @@ export async function POST(
       })
     }
 
-    // Notify followers about the vote (fire-and-forget, no email)
-    prisma.cell.findUnique({
-      where: { id: cellId },
-      select: { deliberationId: true, deliberation: { select: { question: true } } },
-    }).then(async (cellData) => {
-      if (!cellData) return
-      const followers = await prisma.follow.findMany({
-        where: { followingId: user.id },
-        select: { followerId: true },
-      })
-      if (followers.length === 0) return
-
-      // Get deliberation members to exclude
-      const memberIds = new Set(
-        (await prisma.deliberationMember.findMany({
-          where: { deliberationId: cellData.deliberationId },
-          select: { userId: true },
-        })).map(m => m.userId)
-      )
-
-      const userName = user.name || 'Someone'
-      const question = cellData.deliberation.question
-      const shortQuestion = question.length > 50 ? question.slice(0, 50) + '...' : question
-
-      // For each follower not in the deliberation, check rate limit and create notification
-      const toNotify = followers.filter(f => !memberIds.has(f.followerId))
-      if (toNotify.length === 0) return
-
-      // Rate limit: skip if already notified for this deliberation
-      const existing = await prisma.notification.findMany({
-        where: {
-          userId: { in: toNotify.map(f => f.followerId) },
-          type: 'FOLLOWED_VOTED',
-          deliberationId: cellData.deliberationId,
-        },
-        select: { userId: true },
-      })
-      const alreadyNotified = new Set(existing.map(e => e.userId))
-      const newNotifications = toNotify.filter(f => !alreadyNotified.has(f.followerId))
-
-      if (newNotifications.length > 0) {
-        await prisma.notification.createMany({
-          data: newNotifications.map(f => ({
-            userId: f.followerId,
-            type: 'FOLLOWED_VOTED',
-            title: `${userName} voted in "${shortQuestion}"`,
-            deliberationId: cellData.deliberationId,
-          })),
-        })
-      }
-    }).catch(() => {})
-
     // For continuous flow: find next cell at a different tier (1 vote per tier)
     let nextCell: { id: string; tier: number; ideas: { id: string; text: string; author: string }[]; voterCount: number; votersNeeded: number } | null = null
     const cellForDelib = await prisma.cell.findUnique({

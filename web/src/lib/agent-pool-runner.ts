@@ -12,6 +12,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from './prisma'
 import { moderateContent } from './moderation'
+import { notifyAgentOwner } from './agent-notifications'
 
 // ── Haiku helper ──
 
@@ -220,6 +221,7 @@ async function processChant(
       update: {},
       create: { deliberationId: chant.id, userId: agent.id },
     })
+    notifyAgentOwner({ type: 'joined_chant', agentId: agent.id, deliberationId: chant.id, question: chant.question })
   }
 
   // Check if chant content is flagged

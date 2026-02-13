@@ -3,6 +3,7 @@ import { fireWebhookEvent } from './webhooks'
 import { sendPushToDeliberation, notifications } from './push'
 import { sendEmailToDeliberation } from './email'
 import { resolveChampionPredictions } from './voting'
+import { notifyAgentOwner, notifyVotedForWinner } from './agent-notifications'
 
 /**
  * Continuous Flow Fractal Tier Advancement
@@ -346,6 +347,11 @@ async function declareContinuousFlowChampion(
     winnerText: winnerIdea?.text || '',
     totalTiers: finalTier,
   })
+
+  // Agent notifications (fire-and-forget)
+  notifyAgentOwner({ type: 'idea_won', ideaId: winnerId, deliberationId })
+  notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: winnerIdea?.text || '' })
+  notifyVotedForWinner(deliberationId, winnerId)
 
   console.log(`continuousFlow: champion declared! Idea ${winnerId} won after ${finalTier} tiers`)
 }

@@ -4,6 +4,8 @@ import { sendEmailToDeliberation } from './email'
 import { updateAgreementScores } from './agreement'
 import { fireWebhookEvent } from './webhooks'
 
+import { notifyAgentOwner, notifyVotedForWinner } from './agent-notifications'
+
 const DEFAULT_CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
 const MAX_CELL_SIZE = 7  // Allow cells up to 7 for flexible sizing
@@ -249,6 +251,8 @@ export async function startVotingPhase(deliberationId: string) {
     fireWebhookEvent('winner_declared', {
       deliberationId, winnerId: winningIdea.id, winnerText: winningIdea.text, totalTiers: 0,
     })
+    notifyAgentOwner({ type: 'idea_won', ideaId: winningIdea.id, deliberationId })
+    notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: winningIdea.text })
 
     return {
       success: true,
@@ -455,30 +459,6 @@ export async function startVotingPhase(deliberationId: string) {
     },
   })
 
-  // In-app notifications for all members
-  const memberIds = deliberation.members.map(m => m.userId)
-  if (memberIds.length > 0) {
-    prisma.notification.createMany({
-      data: memberIds.map(userId => ({
-        userId,
-        type: 'VOTE_NEEDED' as const,
-        title: 'Voting is open',
-        body: deliberation.question.length > 80 ? deliberation.question.slice(0, 80) + '...' : deliberation.question,
-        deliberationId,
-      })),
-    }).catch(err => console.error('Failed to create voting notifications:', err))
-  }
-
-  // Send push notifications to all members
-  sendPushToDeliberation(
-    deliberationId,
-    notifications.votingStarted(deliberation.question, deliberationId)
-  ).catch(err => console.error('Failed to send push notifications:', err))
-
-  // Send email notifications to all members
-  sendEmailToDeliberation(deliberationId, 'cell_ready', { tier: 1 })
-    .catch(err => console.error('Failed to send email notifications:', err))
-
   return {
     success: true,
     reason: isResume ? 'VOTING_RESUMED' : 'VOTING_STARTED',
@@ -561,28 +541,6 @@ async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
       currentTierStartedAt: new Date(),
     },
   })
-
-  // Notifications
-  const memberIds = deliberation.members.map((m: { userId: string }) => m.userId)
-  if (memberIds.length > 0) {
-    prisma.notification.createMany({
-      data: memberIds.map((userId: string) => ({
-        userId,
-        type: 'VOTE_NEEDED' as const,
-        title: 'Voting is open — join a cell to vote',
-        body: deliberation.question.length > 80 ? deliberation.question.slice(0, 80) + '...' : deliberation.question,
-        deliberationId,
-      })),
-    }).catch(err => console.error('Failed to create FCFS voting notifications:', err))
-  }
-
-  sendPushToDeliberation(
-    deliberationId,
-    notifications.votingStarted(deliberation.question, deliberationId)
-  ).catch(err => console.error('Failed to send push notifications:', err))
-
-  sendEmailToDeliberation(deliberationId, 'cell_ready', { tier: 1 })
-    .catch(err => console.error('Failed to send email notifications:', err))
 
   return {
     success: true,
@@ -823,6 +781,9 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         fastCell: true,
       })
       await resolveChampionPredictions(cell.deliberationId, fastWinnerId)
+      notifyAgentOwner({ type: 'idea_won', ideaId: fastWinnerId, deliberationId: cell.deliberationId })
+      notifyAgentOwner({ type: 'chant_concluded', deliberationId: cell.deliberationId, question: cell.deliberation.question, winnerText: winnerIdea?.text || '' })
+      notifyVotedForWinner(cell.deliberationId, fastWinnerId)
       console.log(`fastCell: winner declared! Idea ${fastWinnerId} in deliberation ${cell.deliberationId}`)
     }
     return { winnerIds, loserIds }
@@ -1096,6 +1057,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     fireWebhookEvent('winner_declared', {
       deliberationId, winnerId, winnerText: winnerForHook?.text || '', totalTiers: tier,
     })
+    notifyAgentOwner({ type: 'idea_won', ideaId: winnerId, deliberationId })
+    notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: winnerForHook?.text || '' })
+    notifyVotedForWinner(deliberationId, winnerId)
 
     return // Final showdown complete — champion declared
   }
@@ -1155,6 +1119,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     fireWebhookEvent('winner_declared', {
       deliberationId, winnerId, winnerText: advancingIdeas[0]?.text || '', totalTiers: tier,
     })
+    notifyAgentOwner({ type: 'idea_won', ideaId: winnerId, deliberationId })
+    notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: advancingIdeas[0]?.text || '' })
+    notifyVotedForWinner(deliberationId, winnerId)
   } else {
     // Need another tier - create new cells with advancing ideas
     const nextTier = tier + 1
@@ -1195,6 +1162,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       advancingIdeas: advancingIdeas.map(i => ({ id: i.id, text: i.text })),
       advancingCount: advancingIdeas.length,
     })
+
+    // Notify agent owners of advancing ideas
+    notifyAgentOwner({ type: 'idea_advanced', ideaIds: advancingIdeas.map(i => i.id), deliberationId, tier: nextTier })
 
     // Backfill to 5 ideas for final showdown if we have 2-4 advancing
     if (advancingIdeas.length >= 2 && advancingIdeas.length < 5) {

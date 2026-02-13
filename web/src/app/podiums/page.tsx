@@ -59,7 +59,7 @@ export default function PodiumsPage() {
       footerRight={
         <Link
           href={session ? '/podium/new' : '/signin'}
-          className="w-10 h-10 rounded-full bg-purple hover:bg-purple-hover text-white shadow-sm flex items-center justify-center transition-colors"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-purple hover:bg-purple-hover text-white shadow-sm flex items-center justify-center transition-colors shrink-0"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" d="M12 5v14M5 12h14" />

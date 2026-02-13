@@ -24,6 +24,9 @@ type Chant = {
   upvoteCount: number
   userHasUpvoted: boolean
   continuousFlow: boolean
+  allowAI: boolean
+  tags: string[]
+  voteCount: number
   createdAt: string
   creator: { name: string | null }
   champion?: { text: string } | null
@@ -415,16 +418,16 @@ export default function ChantsPage() {
               }
             }}
             disabled={askRunning}
-            className={`h-9 px-3 rounded-full text-xs font-medium shadow-sm flex items-center gap-1.5 transition-all ${
+            className={`h-9 rounded-full text-xs font-medium shadow-sm flex items-center transition-all ${
               showAskAI
-                ? 'bg-warning text-white'
-                : 'bg-warning/15 text-warning hover:bg-warning/25 border border-warning/30'
+                ? 'bg-warning text-white px-2.5'
+                : 'bg-warning/15 text-warning hover:bg-warning/25 border border-warning/30 px-2.5 sm:px-3'
             }`}
           >
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
             </svg>
-            Ask AI
+            <span className="hidden sm:inline ml-1.5">Ask AI</span>
           </button>
           <button
             onClick={() => {
@@ -435,7 +438,7 @@ export default function ChantsPage() {
               }
             }}
             disabled={askRunning}
-            className="w-10 h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
           >
             <svg className={`w-5 h-5 transition-transform ${showCreate ? 'rotate-45' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" d="M12 5v14M5 12h14" />
@@ -822,9 +825,13 @@ export default function ChantsPage() {
                   href={`/chants/${chant.id}`}
                   className="block p-3.5 bg-surface/90 hover:bg-surface-hover/90 border border-border rounded-lg transition-all shadow-sm hover:shadow-md backdrop-blur-sm"
                 >
-                  {chant.isPinned && (
-                    <div className="text-[10px] uppercase tracking-wider text-accent font-semibold mb-1.5">Pinned</div>
-                  )}
+                  <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                    {chant.isPinned && (
+                      <span className="text-[10px] uppercase tracking-wider text-accent font-semibold">Pinned</span>
+                    )}
+                    <ChantTypeBadge chant={chant} />
+                    <ParticipantBadge chant={chant} />
+                  </div>
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="text-sm font-medium text-foreground leading-tight flex-1">{chant.question}</h3>
                     <PhaseBadge phase={chant.phase} />
@@ -851,7 +858,7 @@ export default function ChantsPage() {
                     </button>
                     <span>{chant._count.ideas} ideas</span>
                     <span className="text-border-strong">&middot;</span>
-                    <span>{chant._count.members} members</span>
+                    <span>{chant.voteCount} votes</span>
                     <span className="text-border-strong">&middot;</span>
                     <span>by {chant.creator.name || 'Anonymous'}</span>
                   </div>
@@ -879,4 +886,18 @@ function PhaseBadge({ phase }: { phase: string }) {
   }
   const { label, color } = config[phase] || { label: phase, color: 'bg-muted/15 text-muted' }
   return <span className={`px-2 py-0.5 text-[11px] rounded-full font-medium shrink-0 ${color}`}>{label}</span>
+}
+
+function ChantTypeBadge({ chant }: { chant: Chant }) {
+  const isAskAI = chant.tags?.includes('ask-ai')
+  if (isAskAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium">Ask AI</span>
+  if (chant.continuousFlow) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple/10 text-purple font-medium">Endless</span>
+  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue/10 text-blue font-medium">Event</span>
+}
+
+function ParticipantBadge({ chant }: { chant: Chant }) {
+  const isAskAI = chant.tags?.includes('ask-ai')
+  if (isAskAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted">AI</span>
+  if (!chant.allowAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted">Human</span>
+  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted">AI + Human</span>
 }

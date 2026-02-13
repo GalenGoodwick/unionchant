@@ -180,7 +180,7 @@ export default function ForesightPage() {
       footerRight={session ? (
         <Link
           href="/mint"
-          className="w-10 h-10 rounded-full bg-success/15 hover:bg-success/25 text-success shadow-sm flex items-center justify-center transition-all border border-success/30"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-success/15 hover:bg-success/25 text-success shadow-sm flex items-center justify-center transition-all border border-success/30 shrink-0"
         >
           <span className="text-lg font-bold font-mono">$</span>
         </Link>

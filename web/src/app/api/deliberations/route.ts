@@ -47,7 +47,18 @@ export async function GET(req: NextRequest) {
           ],
         },
         orderBy: { createdAt: 'desc' },
-        include: {
+        select: {
+          id: true,
+          question: true,
+          description: true,
+          phase: true,
+          isPublic: true,
+          isPinned: true,
+          upvoteCount: true,
+          continuousFlow: true,
+          allowAI: true,
+          tags: true,
+          createdAt: true,
           creator: {
             select: { name: true, status: true },
           },
@@ -57,12 +68,20 @@ export async function GET(req: NextRequest) {
             take: 1,
           },
           _count: {
-            select: { members: true, ideas: true },
+            select: { members: true, ideas: true, cells: true },
           },
           podiums: {
             select: { id: true, title: true },
             take: 1,
             orderBy: { createdAt: 'desc' as const },
+          },
+          cells: {
+            select: {
+              votes: {
+                select: { userId: true },
+                distinct: ['userId'],
+              },
+            },
           },
         },
       })
@@ -80,10 +99,16 @@ export async function GET(req: NextRequest) {
         upvotedIds = new Set(userUpvotes.map(u => u.deliberationId))
       }
 
-      return deliberations.map(d => ({
-        ...d,
-        userHasUpvoted: upvotedIds.has(d.id),
-      }))
+      return deliberations.map(d => {
+        const voteCount = d.cells.reduce((sum, c) => sum + c.votes.length, 0)
+        const { cells: _cells, ...rest } = d
+        return {
+          ...rest,
+          voteCount,
+          champion: d.ideas[0] || null,
+          userHasUpvoted: upvotedIds.has(d.id),
+        }
+      })
     })
 
     return NextResponse.json(result)
