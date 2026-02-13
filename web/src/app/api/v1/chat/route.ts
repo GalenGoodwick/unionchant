@@ -253,7 +253,7 @@ RULES:
             const newTalk = await prisma.deliberation.create({
               data: {
                 creatorId: userId, question, isPublic: true, phase: 'SUBMISSION',
-                accumulationEnabled: true, votingTimeoutMs: 0, inviteCode,
+                accumulationEnabled: false, votingTimeoutMs: 0, inviteCode,
               },
             })
             await prisma.deliberationMember.create({

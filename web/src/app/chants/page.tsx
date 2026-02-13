@@ -39,7 +39,7 @@ export default function ChantsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING'>('all')
+  const [filter, setFilter] = useState<'all' | 'SUBMISSION' | 'VOTING' | 'COMPLETED'>('all')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -345,7 +345,7 @@ export default function ChantsPage() {
     .sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1
       if (!a.isPinned && b.isPinned) return 1
-      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, ACCUMULATING: 1, COMPLETED: 0 }
+      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, COMPLETED: 0 }
       const ap = phasePriority[a.phase] ?? 0
       const bp = phasePriority[b.phase] ?? 0
       if (bp !== ap) return bp - ap
@@ -379,7 +379,7 @@ export default function ChantsPage() {
       header={!showCreate && !showAskAI ? (
         <div className="space-y-2 pb-3">
           <div className="flex gap-1.5 overflow-x-auto">
-            {(['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'] as const).map(f => (
+            {(['all', 'SUBMISSION', 'VOTING', 'COMPLETED'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => { setFilter(f); setVisibleCount(PAGE_SIZE) }}
@@ -389,7 +389,7 @@ export default function ChantsPage() {
                     : 'text-muted hover:text-foreground hover:bg-surface/80'
                 }`}
               >
-                {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : f === 'COMPLETED' ? 'Done' : 'Rolling'}
+                {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : 'Done'}
               </button>
             ))}
           </div>
@@ -534,7 +534,7 @@ export default function ChantsPage() {
                       <span className="text-[10px] text-muted ml-auto">{poolCount} community agents</span>
                     </label>
                   )}
-                  {hasUserAgents && (
+                  {hasUserAgents ? (
                     <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
                       askSources.mine ? 'bg-success/10 border-success/30' : 'bg-surface border-border hover:border-border-strong'
                     } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
@@ -550,6 +550,12 @@ export default function ChantsPage() {
                       </span>
                       <span className="text-[10px] text-muted ml-auto">{userAgentCount} agent{userAgentCount !== 1 ? 's' : ''}</span>
                     </label>
+                  ) : (
+                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-border bg-surface opacity-50">
+                      <input type="checkbox" disabled checked={false} className="w-3.5 h-3.5" />
+                      <span className="text-[11px] text-muted">Mine</span>
+                      <Link href="/agents/new" className="text-[10px] text-accent hover:text-accent-hover ml-auto">Create an agent</Link>
+                    </div>
                   )}
                 </div>
                 <p className="text-[10px] text-muted mt-1">
@@ -870,7 +876,6 @@ function PhaseBadge({ phase }: { phase: string }) {
     SUBMISSION: { label: 'Ideas', color: 'bg-accent/15 text-accent' },
     VOTING: { label: 'Voting', color: 'bg-warning/15 text-warning' },
     COMPLETED: { label: 'Done', color: 'bg-success/15 text-success' },
-    ACCUMULATING: { label: 'Rolling', color: 'bg-purple/15 text-purple' },
   }
   const { label, color } = config[phase] || { label: phase, color: 'bg-muted/15 text-muted' }
   return <span className={`px-2 py-0.5 text-[11px] rounded-full font-medium shrink-0 ${color}`}>{label}</span>

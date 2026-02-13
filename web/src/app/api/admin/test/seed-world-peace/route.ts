@@ -96,7 +96,7 @@ export async function POST() {
         inviteCode,
         isPublic: true,
         continuousFlow: true,
-        accumulationEnabled: true,
+        accumulationEnabled: false,
         ideaGoal: 10,
         isPinned: true,
         supermajorityEnabled: true,

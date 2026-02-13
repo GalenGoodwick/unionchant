@@ -251,7 +251,6 @@ export default function DashboardDetailPage() {
   const phaseColors: Record<string, string> = {
     SUBMISSION: 'bg-accent',
     VOTING: 'bg-warning',
-    ACCUMULATING: 'bg-purple',
     COMPLETED: 'bg-success',
   }
 
@@ -337,15 +336,9 @@ export default function DashboardDetailPage() {
         const champion = deliberation.ideas.find(i => i.isChampion || i.status === 'WINNER')
         if (!champion) return null
         return (
-          <div className={`mb-4 p-3 rounded-lg border ${
-            deliberation.phase === 'ACCUMULATING'
-              ? 'bg-purple-bg border-purple'
-              : 'bg-success-bg border-success'
-          }`}>
-            <div className={`text-xs font-semibold uppercase tracking-wide mb-0.5 ${
-              deliberation.phase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
-            }`}>
-              {deliberation.phase === 'ACCUMULATING' ? 'Priority (Accepting Challengers)' : 'Winner'}
+          <div className="mb-4 p-3 rounded-lg border bg-success-bg border-success">
+            <div className="text-xs font-semibold uppercase tracking-wide mb-0.5 text-success">
+              Winner
             </div>
             <p className="text-foreground font-medium text-xs">{champion.text}</p>
             <p className="text-muted text-xs mt-0.5">{champion.totalVotes} VP</p>
@@ -375,7 +368,6 @@ export default function DashboardDetailPage() {
                 { key: 'SUBMISSION', label: 'Ideas', color: 'accent' },
                 { key: 'VOTING', label: 'Voting', color: 'warning' },
                 { key: 'COMPLETED', label: 'Priority', color: 'success' },
-                ...(deliberation.accumulationEnabled ? [{ key: 'ACCUMULATING', label: 'Rolling', color: 'purple' }] : []),
               ].map((step, i, arr) => {
                 const phases = arr.map(s => s.key)
                 const currentIndex = phases.indexOf(deliberation.phase)
@@ -495,9 +487,6 @@ export default function DashboardDetailPage() {
                           ? 'Opening...'
                           : `Open Voting (${deliberation.cells.filter(c => c.status === 'DELIBERATING').length} cells discussing)`}
                       </button>
-                      {deliberation.currentTier > 1 && deliberation.accumulationEnabled && (
-                        <p className="text-xs text-muted mt-0.5">After a priority is chosen, the chant will accept new challenger ideas for Round 2.</p>
-                      )}
                     </>
                   )}
 
@@ -599,104 +588,12 @@ export default function DashboardDetailPage() {
                 </>
               )}
 
-              {/* PHASE: ACCUMULATING */}
-              {deliberation.phase === 'ACCUMULATING' && (
-                <>
-                  <p className="text-xs text-purple">
-                    Accepting challenger ideas. Start Round 2 when enough challengers are in.
-                  </p>
-
-                  {/* Idea Submission: Open / Close */}
-                  {deliberation.continuousFlow ? (
-                    <>
-                      <button
-                        onClick={async () => { await patchSettings({ continuousFlow: false }) }}
-                        disabled={saving}
-                        className="w-full border border-accent text-accent hover:bg-accent-light font-medium px-3 py-2 rounded-lg text-xs transition-colors"
-                      >
-                        {saving ? 'Saving...' : 'Close Idea Submission'}
-                      </button>
-                      <p className="text-xs text-muted mt-0.5">New ideas pool for the next round.</p>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        onClick={async () => { await patchSettings({ continuousFlow: true }) }}
-                        disabled={saving}
-                        className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-3 py-2 rounded-lg text-xs transition-colors"
-                      >
-                        {saving ? 'Saving...' : 'Open Idea Submission'}
-                      </button>
-                      <p className="text-xs text-muted mt-0.5">Opens idea submission -- new ideas pool for the next round.</p>
-                    </>
-                  )}
-
-                  {/* Start Round 2 */}
-                  {!confirmChallenge ? (
-                    <button
-                      onClick={() => setConfirmChallenge(true)}
-                      disabled={actionLoading === 'start-challenge'}
-                      className="w-full bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-2 rounded-lg text-xs transition-colors"
-                    >
-                      Start Round 2
-                    </button>
-                  ) : (
-                    <div className="border border-purple rounded-lg p-2 space-y-1.5">
-                      <p className="text-xs text-purple font-medium">Start challenge round?</p>
-                      <p className="text-xs text-foreground">Challenger ideas compete against the current priority through tiered voting.</p>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => { setConfirmChallenge(false); handleAction('start-challenge', `/api/deliberations/${deliberationId}/start-challenge`) }}
-                          disabled={actionLoading === 'start-challenge'}
-                          className="flex-1 bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
-                        >
-                          {actionLoading === 'start-challenge' ? 'Starting...' : 'Confirm'}
-                        </button>
-                        <button onClick={() => setConfirmChallenge(false)}
-                          className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Close Chant */}
-                  <button
-                    onClick={async () => {
-                      if (confirm('Declare the current priority as final and close this chant?')) {
-                        await patchSettings({ phase: 'COMPLETED' })
-                      }
-                    }}
-                    disabled={saving}
-                    className="w-full border border-success text-success hover:bg-success-bg font-medium px-3 py-1.5 rounded-lg transition-colors text-xs"
-                  >
-                    Close Chant
-                  </button>
-                </>
-              )}
-
               {/* PHASE: COMPLETED */}
               {deliberation.phase === 'COMPLETED' && (
-                <>
-                  <div className="bg-success-bg border border-success rounded-lg p-2">
-                    <p className="text-xs text-success font-medium">Chant Complete</p>
-                    <p className="text-xs text-foreground mt-0.5">The priority has been declared.</p>
-                  </div>
-
-                  {deliberation.accumulationEnabled && (
-                    <button
-                      onClick={async () => {
-                        if (confirm('Reopen this chant to accept new challenger ideas?')) {
-                          await patchSettings({ phase: 'ACCUMULATING' })
-                        }
-                      }}
-                      disabled={saving}
-                      className="w-full bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-2 rounded-lg text-xs transition-colors"
-                    >
-                      {saving ? 'Reopening...' : 'Reopen for Challengers'}
-                    </button>
-                  )}
-                </>
+                <div className="bg-success-bg border border-success rounded-lg p-2">
+                  <p className="text-xs text-success font-medium">Chant Complete</p>
+                  <p className="text-xs text-foreground mt-0.5">The priority has been declared.</p>
+                </div>
               )}
             </div>
           </div>

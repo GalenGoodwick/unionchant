@@ -70,26 +70,12 @@ function buildProgressNodes(delib: Deliberation, effectivePhase: string): Progre
     if (t < tier) {
       nodes.push({ label: `T${t}`, status: 'done' })
     } else if (phase === 'VOTING') {
-      nodes.push({ label: `T${t}`, status: 'current', color: delib.challengeRound > 0 ? 'orange' : 'warning' })
-    } else if (phase === 'ACCUMULATING') {
-      nodes.push({ label: `T${t}`, status: 'done' })
+      nodes.push({ label: `T${t}`, status: 'current', color: 'warning' })
     } else if (phase === 'COMPLETED') {
       nodes.push({ label: `T${t}`, status: 'done' })
     } else {
       nodes.push({ label: `T${t}`, status: 'current' })
     }
-  }
-
-  // Accumulating node (if applicable)
-  if (delib.accumulationEnabled && phase === 'ACCUMULATING') {
-    nodes.push({ label: 'Priority', status: 'current', color: 'purple' })
-  } else if (delib.accumulationEnabled && delib.challengeRound > 0) {
-    nodes.push({ label: 'Priority', status: 'done' })
-  }
-
-  // Challenge node
-  if (delib.challengeRound > 0 && phase === 'VOTING') {
-    nodes.push({ label: `R${delib.challengeRound + 1}`, status: 'current', color: 'orange' })
   }
 
   return nodes
@@ -148,28 +134,7 @@ function buildJourneyEntries(
       description: tierCells.length > 0 ? `${tierCells.length} cell${tierCells.length > 1 ? 's' : ''}` : undefined,
       personalNote,
       status,
-      color: delib.challengeRound > 0 && isCurrentTier ? 'orange' : 'warning',
-    })
-  }
-
-  // Accumulating
-  if (delib.accumulationEnabled && (effectivePhase === 'ACCUMULATING' || delib.challengeRound > 0)) {
-    entries.push({
-      label: 'Accepting New Ideas',
-      description: winner ? `Priority: "${winner.text.slice(0, 40)}..."` : 'Waiting for priority',
-      status: effectivePhase === 'ACCUMULATING' ? 'current' : 'done',
-      color: 'purple',
-      personalNote: effectivePhase === 'ACCUMULATING' ? 'Now accepting challenger ideas' : undefined,
-    })
-  }
-
-  // Challenge
-  if (delib.challengeRound > 0 && effectivePhase === 'VOTING') {
-    entries.push({
-      label: `Round ${delib.challengeRound + 1}`,
-      description: 'Challenge vote in progress',
-      status: 'current',
-      color: 'orange',
+      color: 'warning',
     })
   }
 
@@ -183,7 +148,6 @@ function JoinBody({ d, onSwitchTab }: { d: ReturnType<typeof useDeliberation>; o
   const allIdeas = delib.ideas.filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER')
   const phaseLabel = delib.phase === 'SUBMISSION' ? 'Accepting ideas'
     : delib.phase === 'VOTING' ? `Voting — Tier ${delib.currentTier}`
-    : delib.phase === 'ACCUMULATING' ? 'Accepting new ideas'
     : delib.phase === 'COMPLETED' ? 'Completed' : delib.phase
 
   return (
@@ -598,12 +562,9 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
 
 function PhaseBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const phase = d.effectivePhase
-  const isChallenge = d.deliberation!.challengeRound > 0 && phase === 'VOTING'
 
   if (phase === 'SUBMISSION') return <SubmissionBody d={d} />
-  if (isChallenge) return <ChallengeBody d={d} />
   if (phase === 'VOTING') return <VotingBody d={d} />
-  if (phase === 'ACCUMULATING') return <AccumulatingBody d={d} />
 
   // COMPLETED fallback
   const delib = d.deliberation!
@@ -693,7 +654,6 @@ export default function DeliberationPageClient() {
 
   const delib = d.deliberation
   const progressNodes = buildProgressNodes(delib, d.effectivePhase)
-  const isChallenge = delib.challengeRound > 0 && d.effectivePhase === 'VOTING'
   const activeCell = d.activeCells[0]
   const votedCurrentTierCell = d.currentTierCells.find(c => c.votes.length > 0 && c.status === 'VOTING')
   const displayCell = activeCell || votedCurrentTierCell
@@ -701,16 +661,11 @@ export default function DeliberationPageClient() {
   // Phase badge color
   const badgeColor = {
     SUBMISSION: 'text-accent bg-accent-light',
-    VOTING: isChallenge ? 'text-orange bg-orange-bg' : 'text-warning bg-warning-bg',
-    ACCUMULATING: 'text-purple bg-purple-bg',
+    VOTING: 'text-warning bg-warning-bg',
     COMPLETED: 'text-success bg-success-bg',
   }[d.effectivePhase] || 'text-muted bg-surface'
 
-  const badgeLabel = isChallenge
-    ? `Round ${delib.challengeRound + 1}`
-    : d.effectivePhase === 'ACCUMULATING'
-      ? 'Accepting Ideas'
-      : d.effectivePhase
+  const badgeLabel = d.effectivePhase
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -801,15 +756,12 @@ export default function DeliberationPageClient() {
               onClick={() => setActiveTab('vote')}
               className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'vote'
-                  ? (d.effectivePhase === 'ACCUMULATING' ? 'border-purple text-purple' :
-                     d.effectivePhase === 'COMPLETED' ? 'border-success text-success' :
+                  ? (d.effectivePhase === 'COMPLETED' ? 'border-success text-success' :
                      'border-warning text-warning')
                   : 'border-transparent text-muted hover:text-foreground'
               }`}
             >
-              {d.effectivePhase === 'ACCUMULATING' ? 'Priority' :
-               d.effectivePhase === 'COMPLETED' ? 'Results' :
-               'Vote'}
+              {d.effectivePhase === 'COMPLETED' ? 'Results' : 'Vote'}
             </button>
           )}
         </div>
@@ -822,9 +774,6 @@ export default function DeliberationPageClient() {
           <div className="flex items-center gap-2">
             {delib.phase === 'SUBMISSION' && delib.submissionEndsAt && (
               <CountdownTimer deadline={delib.submissionEndsAt} onExpire={d.handleRefresh} compact />
-            )}
-            {delib.accumulationEndsAt && d.effectivePhase === 'ACCUMULATING' && (
-              <CountdownTimer deadline={delib.accumulationEndsAt} onExpire={d.handleRefresh} compact />
             )}
             {activeCell?.votingDeadline && (d.effectivePhase === 'VOTING' || isChallenge) && (
               <CountdownTimer deadline={activeCell.votingDeadline} onExpire={d.handleRefresh} compact />

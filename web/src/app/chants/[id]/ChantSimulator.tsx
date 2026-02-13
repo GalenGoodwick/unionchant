@@ -561,7 +561,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const userIdeas = userId ? status.ideas.filter(i => i.author.id === session?.user?.id) : []
 
   const submissionsOpen = !status.submissionsClosed && (
-    status.phase === 'SUBMISSION' || status.phase === 'ACCUMULATING' || (status.phase === 'VOTING' && status.continuousFlow)
+    status.phase === 'SUBMISSION' || (status.phase === 'VOTING' && status.continuousFlow)
   )
 
   const tabs: { key: Tab; label: string; badge?: number; show: boolean }[] = [
@@ -1356,7 +1356,6 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 { key: 'SUBMISSION', label: 'Ideas', color: 'accent' },
                 { key: 'VOTING', label: 'Voting', color: 'warning' },
                 { key: 'COMPLETED', label: 'Priority', color: 'success' },
-                ...(status.accumulationEnabled ? [{ key: 'ACCUMULATING', label: 'Rolling', color: 'purple' }] : []),
               ].map((step, i, arr) => {
                 const phases = arr.map(s => s.key)
                 const currentIndex = phases.indexOf(status.phase)
@@ -1601,86 +1600,12 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
               </>
             )}
 
-            {/* ── ACCUMULATING PHASE ── */}
-            {status.phase === 'ACCUMULATING' && (
-              <>
-                <p className="text-xs text-purple">Accepting challenger ideas. Start Round 2 when enough challengers are in.</p>
-                {!confirmChallenge ? (
-                  <ManageAction
-                    label="Start Round 2"
-                    description="Challenger ideas compete against the current priority through tiered voting."
-                    color="bg-purple hover:bg-purple-hover"
-                    disabled={actionLoading === 'start-challenge'}
-                    loading={actionLoading === 'start-challenge'}
-                    onClick={() => setConfirmChallenge(true)}
-                  />
-                ) : (
-                  <div className="border border-purple rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-xs text-purple font-medium">Start challenge round?</p>
-                    <p className="text-xs text-foreground/80">Challenger ideas compete against the current priority through tiered voting.</p>
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => {
-                          setConfirmChallenge(false)
-                          setActionLoading('start-challenge')
-                          setActionError('')
-                          setActionSuccess('')
-                          authFetch(`/api/deliberations/${id}/start-challenge`, { method: 'POST' })
-                            .then(res => res.json().then(data => {
-                              if (!res.ok) throw new Error(data.error || 'Failed')
-                              setActionSuccess('Challenge round started!')
-                              fetchStatus()
-                              setTimeout(() => setActionSuccess(''), 3000)
-                            }))
-                            .catch(err => setActionError(err.message))
-                            .finally(() => setActionLoading(''))
-                        }}
-                        disabled={actionLoading === 'start-challenge'}
-                        className="flex-1 bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
-                      >
-                        {actionLoading === 'start-challenge' ? 'Starting...' : 'Confirm'}
-                      </button>
-                      <button onClick={() => setConfirmChallenge(false)} className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">Cancel</button>
-                    </div>
-                  </div>
-                )}
-                <ManageAction
-                  label="Close Chant"
-                  description="Declare the current priority as final and close this chant."
-                  color="border border-success text-success hover:bg-success-bg"
-                  disabled={actionLoading === 'close-chant'}
-                  loading={actionLoading === 'close-chant'}
-                  onClick={() => handleFacilitatorAction('declare', 'Close chant')}
-                />
-                <ManageAction
-                  label="Reopen for Ideas"
-                  description="Reopen idea submissions."
-                  color="bg-accent hover:bg-accent-hover"
-                  disabled={actionLoading === 'reopen'}
-                  loading={actionLoading === 'reopen'}
-                  onClick={() => handleFacilitatorAction('reopen', 'Reopen')}
-                />
-              </>
-            )}
-
             {/* ── COMPLETED PHASE ── */}
             {status.phase === 'COMPLETED' && (
-              <>
-                <div className="p-3 bg-success/8 border border-success/20 rounded-lg">
-                  <p className="text-xs text-success font-medium">Chant Complete</p>
-                  <p className="text-xs text-foreground/80 mt-0.5">The priority has been declared.</p>
-                </div>
-                {status.accumulationEnabled && (
-                  <ManageAction
-                    label="Reopen for Challengers"
-                    description="Accept new challenger ideas and allow Round 2."
-                    color="bg-purple hover:bg-purple-hover"
-                    disabled={actionLoading === 'reopen'}
-                    loading={actionLoading === 'reopen'}
-                    onClick={() => handleFacilitatorAction('reopen', 'Reopen for challengers')}
-                  />
-                )}
-              </>
+              <div className="p-3 bg-success/8 border border-success/20 rounded-lg">
+                <p className="text-xs text-success font-medium">Chant Complete</p>
+                <p className="text-xs text-foreground/80 mt-0.5">The priority has been declared.</p>
+              </div>
             )}
 
             {/* ── Invite Link ── */}
@@ -1831,7 +1756,6 @@ function PhaseBadge({ phase }: { phase: string }) {
     SUBMISSION: { label: 'Accepting Ideas', color: 'bg-accent/15 text-accent' },
     VOTING: { label: 'Voting', color: 'bg-warning/15 text-warning' },
     COMPLETED: { label: 'Complete', color: 'bg-success/15 text-success' },
-    ACCUMULATING: { label: 'Rolling', color: 'bg-purple/15 text-purple' },
   }
   const { label, color } = config[phase] || { label: phase, color: 'bg-muted/15 text-muted' }
   return <span className={`px-2 py-0.5 text-[11px] rounded-full font-medium shrink-0 ${color}`}>{label}</span>

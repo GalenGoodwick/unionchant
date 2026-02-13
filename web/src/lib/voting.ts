@@ -236,12 +236,9 @@ export async function startVotingPhase(deliberationId: string) {
       prisma.deliberation.update({
         where: { id: deliberationId },
         data: {
-          phase: deliberation.accumulationEnabled ? 'ACCUMULATING' : 'COMPLETED',
+          phase: 'COMPLETED',
           championId: winningIdea.id,
-          completedAt: deliberation.accumulationEnabled ? null : new Date(),
-          accumulationEndsAt: deliberation.accumulationEnabled && deliberation.accumulationTimeoutMs
-            ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
-            : null,
+          completedAt: new Date(),
         },
       }),
     ])
@@ -1068,26 +1065,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       data: { status: 'WINNER', isChampion: true },
     })
 
-    if (deliberation.accumulationEnabled) {
-      const accumulationEndsAt = deliberation.accumulationTimeoutMs
-        ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
-        : null
-      const updated = await prisma.deliberation.updateMany({
-        where: { id: deliberationId, phase: 'VOTING' },
-        data: {
-          phase: 'ACCUMULATING',
-          championId: winnerId,
-          accumulationEndsAt,
-          championEnteredTier: Math.max(2, tier),
-        },
-      })
-      if (updated.count > 0) {
-        sendPushToDeliberation(
-          deliberationId,
-          notifications.accumulationStarted(deliberation.question, deliberationId)
-        ).catch(err => console.error('Failed to send push notifications:', err))
-      }
-    } else {
+    {
       const updated = await prisma.deliberation.updateMany({
         where: { id: deliberationId, phase: 'VOTING' },
         data: {
@@ -1147,30 +1125,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       data: { status: 'WINNER', isChampion: true },
     })
 
-    // Check if accumulation is enabled
-    if (deliberation.accumulationEnabled) {
-      // Atomic: only transition if still in VOTING phase
-      const accumulationEndsAt = deliberation.accumulationTimeoutMs
-        ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
-        : null
-
-      const updated = await prisma.deliberation.updateMany({
-        where: { id: deliberationId, phase: 'VOTING' },
-        data: {
-          phase: 'ACCUMULATING',
-          championId: winnerId,
-          accumulationEndsAt,
-          championEnteredTier: Math.max(2, tier),
-        },
-      })
-
-      if (updated.count > 0) {
-        sendPushToDeliberation(
-          deliberationId,
-          notifications.accumulationStarted(deliberation.question, deliberationId)
-        ).catch(err => console.error('Failed to send push notifications:', err))
-      }
-    } else {
+    {
       // Atomic: only complete if still in VOTING phase
       const updated = await prisma.deliberation.updateMany({
         where: { id: deliberationId, phase: 'VOTING' },
@@ -1191,7 +1146,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         sendEmailToDeliberation(deliberationId, 'champion_declared', {
           championText: advancingIdeas[0]?.text || 'Unknown',
         }).catch(err => console.error('Failed to send champion email:', err))
-
       }
     }
 

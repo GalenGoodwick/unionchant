@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { moderateContent } from '@/lib/moderation'
 import { runAskAI } from '@/lib/ask-ai'
+import { isAdmin } from '@/lib/admin'
 
 export const maxDuration = 60
 
@@ -29,28 +30,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Daily quota based on subscription tier
-    const dailyLimit = ASK_AI_DAILY_LIMITS[user.subscriptionTier] || 2
-    const todayStart = new Date()
-    todayStart.setHours(0, 0, 0, 0)
-    const todayCount = await prisma.deliberation.count({
-      where: {
-        creatorId: user.id,
-        tags: { has: 'ask-ai' },
-        createdAt: { gte: todayStart },
-      },
-    })
-    if (todayCount >= dailyLimit) {
-      return NextResponse.json({
-        error: `Daily limit reached (${dailyLimit}/day on ${user.subscriptionTier}). Upgrade for more.`,
-        code: 'ASK_AI_LIMIT',
-      }, { status: 429 })
-    }
+    // Admin bypass all limits
+    const userIsAdmin = await isAdmin(session.user.email)
 
-    // Rate limit: 1 per 5 minutes (burst protection)
-    const limited = await checkRateLimit('ask_ai', user.id)
-    if (limited) {
-      return NextResponse.json({ error: 'Try again in a few minutes' }, { status: 429 })
+    if (!userIsAdmin) {
+      // Daily quota based on subscription tier
+      const dailyLimit = ASK_AI_DAILY_LIMITS[user.subscriptionTier] || 2
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      const todayCount = await prisma.deliberation.count({
+        where: {
+          creatorId: user.id,
+          tags: { has: 'ask-ai' },
+          createdAt: { gte: todayStart },
+        },
+      })
+      if (todayCount >= dailyLimit) {
+        return NextResponse.json({
+          error: `Daily limit reached (${dailyLimit}/day on ${user.subscriptionTier}). Upgrade for more.`,
+          code: 'ASK_AI_LIMIT',
+        }, { status: 429 })
+      }
+
+      // Rate limit: 1 per 5 minutes (burst protection)
+      const limited = await checkRateLimit('ask_ai', user.id)
+      if (limited) {
+        return NextResponse.json({ error: 'Try again in a few minutes' }, { status: 429 })
+      }
     }
 
     const body = await req.json()

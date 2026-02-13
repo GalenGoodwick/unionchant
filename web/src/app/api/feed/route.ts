@@ -155,7 +155,7 @@ async function getDiscovery() {
   const deliberations = await prisma.deliberation.findMany({
     where: {
       isPublic: true,
-      phase: { in: ['VOTING', 'SUBMISSION', 'ACCUMULATING', 'COMPLETED'] },
+      phase: { in: ['VOTING', 'SUBMISSION', 'COMPLETED'] },
     },
     select: {
       id: true,
@@ -466,9 +466,6 @@ async function buildYourTurnFeed(
     // Submit ideas — member or not, they'll join on click-through
     else if (d.phase === 'SUBMISSION') {
       entries.push({ kind: 'submit', id: `submit-${d.id}`, priority: isMember ? 70 : 50, ...base })
-    }
-    else if (d.phase === 'ACCUMULATING') {
-      entries.push({ kind: 'champion', id: `champ-${d.id}`, priority: 40, ...base })
     }
     else if (d.phase === 'COMPLETED') {
       entries.push({ kind: 'completed', id: `done-${d.id}`, priority: 10, ...base })

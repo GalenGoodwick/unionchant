@@ -67,13 +67,6 @@ export default function DetailsPageClient() {
           : `Tier ${delib.currentTier} voting — ideas pool for next round`
         : `Tier ${delib.currentTier} voting in progress`,
     },
-    ACCUMULATING: {
-      icon: '👑',
-      bg: 'bg-purple-bg',
-      border: 'border-purple',
-      text: 'text-purple',
-      label: 'Priority declared — accepting challengers',
-    },
     COMPLETED: {
       icon: '🏆',
       bg: 'bg-success-bg',
@@ -138,30 +131,14 @@ export default function DetailsPageClient() {
 
         {/* Champion / Priority */}
         {d.winner && (
-          <div className={`rounded-lg p-4 mb-4 border ${
-            d.effectivePhase === 'ACCUMULATING'
-              ? 'bg-purple-bg border-purple'
-              : 'bg-success-bg border-success'
-          }`}>
-            <div className={`text-xs font-semibold uppercase tracking-wide mb-1 ${
-              d.effectivePhase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
-            }`}>
-              {d.effectivePhase === 'ACCUMULATING' ? 'Current Priority' : 'Priority'}
+          <div className="rounded-lg p-4 mb-4 border bg-success-bg border-success">
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1 text-success">
+              Priority
             </div>
             <p className="text-foreground font-medium">{d.winner.text}</p>
             <p className="text-xs text-muted mt-1">
               {d.winner.totalXP} XP &middot; by {getDisplayName(d.winner.author)}
             </p>
-          </div>
-        )}
-
-        {/* Defender in challenge */}
-        {d.defender && delib.challengeRound > 0 && (
-          <div className="bg-orange-bg border border-orange rounded-lg p-3 mb-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-orange mb-1">
-              Defending Priority (Round {delib.challengeRound + 1})
-            </div>
-            <p className="text-foreground text-sm">{d.defender.text}</p>
           </div>
         )}
 
@@ -212,7 +189,7 @@ export default function DetailsPageClient() {
         <CommentsPanel deliberationId={id} key={`comments-${delib.phase}-${delib.challengeRound}`} />
 
         {/* Ideas Breakdown */}
-        {delib.ideas.length > 0 && (delib.phase === 'VOTING' || delib.phase === 'COMPLETED' || delib.phase === 'ACCUMULATING') && (
+        {delib.ideas.length > 0 && (delib.phase === 'VOTING' || delib.phase === 'COMPLETED') && (
           <Section
             title="Ideas Breakdown"
             badge={<span className="text-xs text-muted font-mono">{delib.ideas.length} total</span>}
@@ -311,7 +288,7 @@ export default function DetailsPageClient() {
         </Section>
 
         {/* Audit: Cell Details per Tier (lazy-loaded) */}
-        {delib.currentTier >= 1 && (delib.phase === 'VOTING' || delib.phase === 'COMPLETED' || delib.phase === 'ACCUMULATING') && (
+        {delib.currentTier >= 1 && (delib.phase === 'VOTING' || delib.phase === 'COMPLETED') && (
           <>
             <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-2 mt-6">
               Audit — Cell Details by Tier

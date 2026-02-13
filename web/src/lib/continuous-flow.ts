@@ -315,28 +315,7 @@ async function declareContinuousFlowChampion(
     select: { text: true },
   })
 
-  if (deliberation.accumulationEnabled) {
-    const accumulationEndsAt = deliberation.accumulationTimeoutMs
-      ? new Date(Date.now() + deliberation.accumulationTimeoutMs)
-      : null
-
-    const updated = await prisma.deliberation.updateMany({
-      where: { id: deliberationId, phase: 'VOTING' },
-      data: {
-        phase: 'ACCUMULATING',
-        championId: winnerId,
-        accumulationEndsAt,
-        championEnteredTier: Math.max(2, finalTier),
-      },
-    })
-
-    if (updated.count > 0) {
-      sendPushToDeliberation(
-        deliberationId,
-        notifications.accumulationStarted(deliberation.question, deliberationId)
-      ).catch(err => console.error('Failed to send push notifications:', err))
-    }
-  } else {
+  {
     const updated = await prisma.deliberation.updateMany({
       where: { id: deliberationId, phase: 'VOTING' },
       data: {

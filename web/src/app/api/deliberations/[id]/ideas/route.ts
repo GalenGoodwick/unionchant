@@ -71,7 +71,6 @@ export async function POST(
     }
 
     // Check if deliberation is accepting submissions
-    // Allow during SUBMISSION, VOTING (for accumulation), or ACCUMULATING phase
     if (deliberation.phase === 'COMPLETED') {
       return NextResponse.json({ error: 'Deliberation has ended' }, { status: 400 })
     }
@@ -120,19 +119,6 @@ export async function POST(
       if (existingChallenger) {
         return NextResponse.json({ error: 'You have already submitted an idea for the next round' }, { status: 400 })
       }
-    } else if (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') {
-      // Non-continuous-flow: challenger submission pools for next round
-      const existingChallenger = await prisma.idea.findFirst({
-        where: {
-          deliberationId: id,
-          authorId: user.id,
-          isNew: true,
-          status: 'PENDING',
-        },
-      })
-      if (existingChallenger) {
-        return NextResponse.json({ error: 'You have already submitted a challenger' }, { status: 400 })
-      }
     }
 
     const body = await req.json()
@@ -164,8 +150,8 @@ export async function POST(
       return NextResponse.json({ error: 'This idea has already been submitted' }, { status: 400 })
     }
 
-    // Continuous flow tier 1: regular idea (SUBMITTED). Tier 2+ or non-CF: challenger (PENDING).
-    const isAccumulated = (deliberation.phase === 'VOTING' || deliberation.phase === 'ACCUMULATING') && !isContinuousFlowTier1
+    // Continuous flow tier 1: regular idea (SUBMITTED). Tier 2+ or non-CF: pooled (PENDING).
+    const isAccumulated = deliberation.phase === 'VOTING' && !isContinuousFlowTier1
 
     const idea = await prisma.idea.create({
       data: {

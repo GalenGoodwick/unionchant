@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
         isPublic: true,
         fromCollective: true,
         phase: 'SUBMISSION',
-        accumulationEnabled: true,
+        accumulationEnabled: false,
         votingTimeoutMs: 0,
         allowAI: false, // Collective chants are human-only
         inviteCode,

@@ -77,14 +77,13 @@ export default function DashboardPage() {
   const phaseColors: Record<string, string> = {
     SUBMISSION: 'bg-accent',
     VOTING: 'bg-warning',
-    ACCUMULATING: 'bg-purple',
     COMPLETED: 'bg-success',
   }
 
   return (
     <FrameLayout active="chants" showBack>
       <FirstVisitTooltip id="manage-page">
-        This is your facilitator dashboard. Select a chant to start voting, open challenge rounds, set timers, and control the flow.
+        This is your facilitator dashboard. Select a chant to start voting, set timers, and control the flow.
       </FirstVisitTooltip>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-sm font-bold text-foreground">My Chants</h1>

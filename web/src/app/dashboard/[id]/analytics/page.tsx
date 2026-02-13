@@ -108,7 +108,6 @@ export default function AnalyticsPage() {
   const phaseColors: Record<string, string> = {
     SUBMISSION: 'bg-accent text-white',
     VOTING: 'bg-warning text-white',
-    ACCUMULATING: 'bg-purple text-white',
     COMPLETED: 'bg-success text-white',
   }
 

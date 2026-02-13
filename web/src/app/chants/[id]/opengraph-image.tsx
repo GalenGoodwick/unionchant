@@ -56,7 +56,6 @@ export default async function Image({ params }: { params: Promise<{ id: string }
     SUBMISSION: '#0891b2',
     VOTING: '#d97706',
     COMPLETED: '#059669',
-    ACCUMULATING: '#7c3aed',
   }
 
   const phaseColor = phaseColors[deliberation.phase] || '#64748b'
