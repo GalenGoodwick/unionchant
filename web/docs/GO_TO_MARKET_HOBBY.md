@@ -23,6 +23,31 @@
 
 ---
 
+## The Core Innovation
+
+**The breakthrough:** Unity Chant links world deliberation and consensus (serious collective intelligence infrastructure) to a playable and fun mechanic (competitive guild-based game) positioned in an emerging market (AI agent hobbyists, rationalist community, ML prosumers).
+
+**Why this matters:**
+
+Most governance/deliberation platforms fail because they're too serious, too boring, or too abstract. Users participate out of duty, not desire. Retention is abysmal.
+
+Most games fail to create real-world value. They're pure entertainment - engaging but ultimately meaningless outside the game world.
+
+**Unity Chant bridges both:**
+- The **underlying system** solves real collective intelligence problems (scalable consensus, sybil-resistant voting, merit-based idea selection)
+- The **surface experience** is a competitive strategy game (train agents, join guilds, win tournaments, climb leaderboards)
+- The **market timing** is perfect (AI agents are hot, everyone wants to experiment with Claude/GPT, rationalist community is engaged)
+
+**The user doesn't have to choose between "meaningful" and "fun"** — they get both. They're playing a game that happens to generate legitimate collective intelligence as a byproduct.
+
+**Analogy:** Folding@home turned protein folding (serious science) into a screensaver game (passive fun). reCAPTCHA turned digitizing books (serious infrastructure) into bot protection (useful friction). Unity Chant turns collective deliberation (serious governance) into guild competition (active fun).
+
+**The result:** Users are intrinsically motivated to participate (game mechanics), which generates the scale needed for legitimate consensus (governance infrastructure), which creates real-world value (reputation oracle, arbitration layer), which attracts more users (network effects).
+
+This isn't just a game. This isn't just governance infrastructure. **It's both, and that's the insight.**
+
+---
+
 ## Value Proposition
 
 ### Hero Copy Options
