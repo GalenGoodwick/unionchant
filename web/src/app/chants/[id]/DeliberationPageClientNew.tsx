@@ -145,7 +145,9 @@ function buildJourneyEntries(
 
 function JoinBody({ d, onSwitchTab }: { d: ReturnType<typeof useDeliberation>; onSwitchTab: (tab: string) => void }) {
   const delib = d.deliberation!
-  const allIdeas = delib.ideas.filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER')
+  const allIdeas = delib.ideas
+    .filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER')
+    .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0))
   const phaseLabel = delib.phase === 'SUBMISSION' ? 'Accepting ideas'
     : delib.phase === 'VOTING' ? `Voting — Tier ${delib.currentTier}`
     : delib.phase === 'COMPLETED' ? 'Completed' : delib.phase
@@ -225,7 +227,9 @@ function JoinBody({ d, onSwitchTab }: { d: ReturnType<typeof useDeliberation>; o
 
 function SubmissionBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   const delib = d.deliberation!
-  const pendingIdeas = delib.ideas.filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING')
+  const pendingIdeas = delib.ideas
+    .filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING')
+    .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0))
 
   return (
     <div className="space-y-4">
