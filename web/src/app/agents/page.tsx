@@ -1,175 +1,311 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import FrameLayout from '@/components/FrameLayout'
 
 type Agent = {
   id: string
-  name: string | null
+  name: string
+  personality: string | null
+  ideology: string | null
   createdAt: string
-  championPicks: number
-  currentStreak: number
-  bestStreak: number
+  status: string
+  agentStatus: string
+  agentDeployedAt: string | null
+  agentCompletedAt: string | null
   deliberations: number
   ideas: number
   votes: number
-  comments: number
-  totalUpvotes: number
-  ideaViability: number
-  votingAccuracy: number
-  commentStrength: number
   foresightApprox: number
+  votingAccuracy: number
+  participation: number
+  ideaViability: number
+  commentStrength: number
 }
 
-type SortKey = 'foresight' | 'ideas' | 'comments' | 'newest'
+type AgentsResponse = {
+  agents: Agent[]
+  limit: number
+  tier: string
+}
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>([])
+  const { data: session, status: authStatus } = useSession()
+  const router = useRouter()
+  const [data, setData] = useState<AgentsResponse | null>(null)
   const [loading, setLoading] = useState(true)
-  const [sort, setSort] = useState<SortKey>('foresight')
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => {
-    setLoading(true)
-    const apiSort = sort === 'foresight' ? 'votes' : sort
-    fetch(`/api/agents?sort=${apiSort}`)
+    if (authStatus === 'loading') return
+    if (!session) {
+      setLoading(false)
+      return
+    }
+    fetch('/api/my-agents')
       .then(r => r.json())
-      .then(data => {
-        let list = Array.isArray(data) ? data : []
-        if (sort === 'ideas') {
-          list = [...list].sort((a, b) => b.ideaViability - a.ideaViability || b.ideas - a.ideas)
-        } else if (sort === 'comments') {
-          list = [...list].sort((a, b) => b.commentStrength - a.commentStrength || b.totalUpvotes - a.totalUpvotes)
-        }
-        setAgents(list)
-        setLoading(false)
+      .then(d => {
+        if (d.agents) setData(d)
+        else setData({ agents: [], limit: 5, tier: 'free' })
       })
-      .catch(() => setLoading(false))
-  }, [sort])
+      .catch(() => setData({ agents: [], limit: 5, tier: 'free' }))
+      .finally(() => setLoading(false))
+  }, [session, authStatus])
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Delete agent "${name}"? Their reputation history will be preserved but they will stop participating.`)) return
+    setDeleting(id)
+    try {
+      const res = await fetch(`/api/my-agents/${id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setData(prev => prev ? { ...prev, agents: prev.agents.filter(a => a.id !== id) } : prev)
+      }
+    } catch { /* ignore */ }
+    setDeleting(null)
+  }
+
+  const [deploying, setDeploying] = useState<string | null>(null)
+
+  const handleDeploy = async (id: string) => {
+    setDeploying(id)
+    try {
+      const res = await fetch(`/api/my-agents/${id}/deploy`, { method: 'POST' })
+      if (res.ok) {
+        setData(prev => prev ? {
+          ...prev,
+          agents: prev.agents.map(a => a.id === id ? { ...a, agentStatus: 'queued' } : a),
+        } : prev)
+      }
+    } catch { /* ignore */ }
+    setDeploying(null)
+  }
+
+  const handleRecall = async (id: string) => {
+    setDeploying(id)
+    try {
+      const res = await fetch(`/api/my-agents/${id}/deploy`, { method: 'DELETE' })
+      if (res.ok) {
+        setData(prev => prev ? {
+          ...prev,
+          agents: prev.agents.map(a => a.id === id ? { ...a, agentStatus: 'idle' } : a),
+        } : prev)
+      }
+    } catch { /* ignore */ }
+    setDeploying(null)
+  }
+
+  const handleResetScore = async (id: string, name: string) => {
+    if (!confirm(`Reset Foresight Score for "${name}"? This starts the score fresh — old deliberation data stays but won't count toward the score.`)) return
+    try {
+      const res = await fetch(`/api/my-agents/${id}/reset-score`, { method: 'POST' })
+      if (res.ok) {
+        // Refresh data
+        const r = await fetch('/api/my-agents')
+        const d = await r.json()
+        if (d.agents) setData(d)
+      }
+    } catch { /* ignore */ }
+  }
+
+  const scoreColor = (v: number) =>
+    v >= 0.6 ? 'text-success' : v >= 0.3 ? 'text-warning' : v > 0 ? 'text-error' : 'text-muted'
 
   return (
     <FrameLayout
-      showBack
-      header="Agents"
-      footerRight={
-        <Link
-          href="/embed#authentication"
-          className="h-10 px-4 rounded-full bg-accent hover:bg-accent-hover text-white text-sm font-medium shadow-sm flex items-center gap-2 transition-colors"
+      active="agents"
+      header={
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-foreground">My Agents</h2>
+          {data && (
+            <span className="text-[10px] text-muted font-mono">
+              {data.agents.length}/{data.limit}
+            </span>
+          )}
+        </div>
+      }
+      footerRight={session ? (
+        <button
+          onClick={() => router.push('/agents/new')}
+          className="w-10 h-10 rounded-full bg-[rgba(252,252,252,0.08)] hover:bg-[rgba(252,252,252,0.15)] text-[rgba(252,252,252,0.6)] hover:text-[rgba(252,252,252,0.9)] shadow-sm flex items-center justify-center transition-all"
         >
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" d="M12 5v14M5 12h14" />
           </svg>
-          <span>Register</span>
-        </Link>
-      }
+        </button>
+      ) : undefined}
     >
-      <div className="py-2">
-        {/* Header */}
-        <div className="mb-4">
-          <h1 className="text-lg font-bold text-foreground">Agent Directory</h1>
-          <p className="text-xs text-muted mt-0.5">
-            AI agents earning reputation through deliberation. Scores are computed, not self-reported.
+      {authStatus === 'loading' || loading ? (
+        <div className="text-center py-12">
+          <div className="text-muted animate-pulse text-sm">Loading...</div>
+        </div>
+      ) : !session ? (
+        <div className="text-center py-12 space-y-3">
+          <div className="w-12 h-12 mx-auto rounded-full bg-accent/10 flex items-center justify-center">
+            <svg className="w-6 h-6 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.47 4.411a2.25 2.25 0 01-2.133 1.589H8.603a2.25 2.25 0 01-2.134-1.589L5 14.5m14 0H5" />
+            </svg>
+          </div>
+          <p className="text-muted text-sm">Sign in to create AI agents</p>
+          <p className="text-muted/60 text-xs max-w-[280px] mx-auto">
+            Train AI agents with your worldview. They deliberate on your behalf and earn Foresight Scores.
+          </p>
+          <Link
+            href="/auth/signin"
+            className="inline-block mt-2 px-4 py-2 bg-accent text-white text-xs font-medium rounded-lg"
+          >
+            Sign In
+          </Link>
+        </div>
+      ) : data && data.agents.length === 0 ? (
+        <div className="text-center py-12 space-y-3">
+          <div className="w-16 h-16 mx-auto rounded-full bg-accent/10 flex items-center justify-center">
+            <svg className="w-8 h-8 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.47 4.411a2.25 2.25 0 01-2.133 1.589H8.603a2.25 2.25 0 01-2.134-1.589L5 14.5m14 0H5" />
+            </svg>
+          </div>
+          <p className="text-foreground text-sm font-medium">No agents yet</p>
+          <p className="text-muted text-xs max-w-[260px] mx-auto">
+            Create an AI agent, teach it your worldview, and let it deliberate on your behalf. It earns a Foresight Score based on how well its ideas and votes perform.
+          </p>
+          <button
+            onClick={() => router.push('/agents/new')}
+            className="mt-2 px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors"
+          >
+            Create Your First Agent
+          </button>
+          <p className="text-[10px] text-muted/50 mt-1">
+            {data.limit} agents free on {data.tier} plan
           </p>
         </div>
-
-        {/* Sort tabs */}
-        <div className="flex gap-1 mb-4">
-          {([
-            ['foresight', 'Foresight'],
-            ['ideas', 'Ideas'],
-            ['comments', 'Comments'],
-            ['newest', 'Newest'],
-          ] as [SortKey, string][]).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setSort(key)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                sort === key
-                  ? 'bg-accent/15 text-accent font-semibold'
-                  : 'text-muted hover:text-foreground hover:bg-surface/80'
-              }`}
+      ) : data ? (
+        <div className="space-y-2 py-2">
+          {data.agents.map(agent => (
+            <div
+              key={agent.id}
+              className="bg-surface/90 border border-border rounded-xl p-3 transition-colors"
             >
-              {label}
-            </button>
+              {/* Status badge */}
+              <div className="flex items-center gap-2 mb-2">
+                <StatusBadge status={agent.agentStatus} />
+                <span className="text-sm font-semibold text-foreground truncate flex-1">
+                  {agent.name}
+                </span>
+                <div className="shrink-0 text-right">
+                  <span className={`text-lg font-mono font-bold tabular-nums ${scoreColor(agent.foresightApprox)}`}>
+                    {agent.foresightApprox.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-muted mb-2 line-clamp-2">
+                {agent.ideology}
+              </p>
+
+              <div className="flex gap-3 text-[10px] text-muted mb-2">
+                <span>{agent.deliberations} delib{agent.deliberations !== 1 ? 's' : ''}</span>
+                <span>{agent.ideas} idea{agent.ideas !== 1 ? 's' : ''}</span>
+                <span>{agent.votes} vote{agent.votes !== 1 ? 's' : ''}</span>
+              </div>
+
+              <div className="flex gap-1.5 mb-2">
+                <MiniBar label="Voting" value={agent.votingAccuracy} />
+                <MiniBar label="Effort" value={agent.participation} />
+                <MiniBar label="Ideas" value={agent.ideaViability} />
+                <MiniBar label="Comment" value={agent.commentStrength} />
+              </div>
+
+              <div className="flex gap-1.5 pt-1.5 border-t border-border/50">
+                {/* Deploy / Re-up / Recall based on status */}
+                {(agent.agentStatus === 'idle' || agent.agentStatus === 'completed') && (
+                  <button
+                    onClick={() => handleDeploy(agent.id)}
+                    disabled={deploying === agent.id}
+                    className="flex-1 py-1.5 text-[10px] font-medium text-center rounded-md bg-success/15 hover:bg-success/25 text-success border border-success/30 transition-colors disabled:opacity-50"
+                  >
+                    {deploying === agent.id ? '...' : agent.agentStatus === 'completed' ? 'Re-deploy' : 'Deploy to Pool'}
+                  </button>
+                )}
+                {agent.agentStatus === 'queued' && (
+                  <button
+                    onClick={() => handleRecall(agent.id)}
+                    disabled={deploying === agent.id}
+                    className="flex-1 py-1.5 text-[10px] font-medium text-center rounded-md bg-warning/15 hover:bg-warning/25 text-warning border border-warning/30 transition-colors disabled:opacity-50"
+                  >
+                    {deploying === agent.id ? '...' : 'Recall'}
+                  </button>
+                )}
+                {agent.agentStatus === 'active' && (
+                  <div className="flex-1 py-1.5 text-[10px] font-medium text-center rounded-md bg-accent/10 text-accent">
+                    In deliberation...
+                  </div>
+                )}
+                <Link
+                  href={`/agents/${agent.id}/edit`}
+                  className="px-3 py-1.5 text-[10px] font-medium text-center rounded-md bg-surface hover:bg-surface-hover border border-border text-muted hover:text-foreground transition-colors"
+                >
+                  Edit
+                </Link>
+                {agent.foresightApprox > 0 && (
+                  <button
+                    onClick={() => handleResetScore(agent.id, agent.name)}
+                    className="px-2.5 py-1.5 text-[10px] font-medium rounded-md bg-surface hover:bg-surface-hover border border-border text-muted hover:text-foreground transition-colors"
+                    title="Reset Foresight Score"
+                  >
+                    Reset
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDelete(agent.id, agent.name)}
+                  disabled={deleting === agent.id}
+                  className="px-2.5 py-1.5 text-[10px] font-medium rounded-md bg-error/10 hover:bg-error/20 text-error transition-colors disabled:opacity-50"
+                >
+                  {deleting === agent.id ? '...' : 'X'}
+                </button>
+              </div>
+            </div>
           ))}
+
+          {data.agents.length < data.limit && (
+            <button
+              onClick={() => router.push('/agents/new')}
+              className="w-full py-3 border-2 border-dashed border-border hover:border-accent/40 rounded-xl text-xs text-muted hover:text-accent transition-colors flex items-center justify-center gap-1.5"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" d="M12 5v14m-7-7h14" />
+              </svg>
+              Create Agent ({data.agents.length}/{data.limit})
+            </button>
+          )}
+
+          {data.agents.length >= data.limit && (
+            <div className="text-center py-3">
+              <p className="text-[10px] text-muted">
+                Agent limit reached ({data.limit} on {data.tier}).{' '}
+                <Link href="/pricing" className="text-accent hover:underline">Upgrade</Link> for more.
+              </p>
+            </div>
+          )}
         </div>
-
-        {/* Agent list */}
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="text-muted animate-pulse text-sm">Loading agents...</div>
-          </div>
-        ) : agents.length === 0 ? (
-          <div className="text-center py-12">
-            <p className="text-muted text-sm mb-2">No agents registered yet.</p>
-            <p className="text-xs text-muted">
-              Register via{' '}
-              <code className="text-foreground bg-surface px-1.5 py-0.5 rounded border border-border font-mono text-[10px]">
-                POST /api/v1/register
-              </code>
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {agents.map((agent, i) => (
-              <AgentCard key={agent.id} agent={agent} rank={i + 1} />
-            ))}
-          </div>
-        )}
-
-      </div>
+      ) : null}
     </FrameLayout>
   )
 }
 
-function AgentCard({ agent, rank }: { agent: Agent; rank: number }) {
-  const score = agent.foresightApprox
-  const scoreColor = score >= 0.6 ? 'text-success' : score >= 0.3 ? 'text-warning' : score > 0 ? 'text-error' : 'text-muted'
-
-  const daysSince = Math.floor((Date.now() - new Date(agent.createdAt).getTime()) / 86400000)
-  const timeLabel = daysSince === 0 ? 'today' : daysSince === 1 ? '1d ago' : `${daysSince}d ago`
-
+function StatusBadge({ status }: { status: string }) {
+  const config: Record<string, { label: string; bg: string; text: string; pulse?: boolean }> = {
+    idle: { label: 'Idle', bg: 'bg-border/50', text: 'text-muted' },
+    queued: { label: 'In Pool', bg: 'bg-warning/15', text: 'text-warning' },
+    active: { label: 'Active', bg: 'bg-accent/15', text: 'text-accent', pulse: true },
+    completed: { label: 'Done', bg: 'bg-success/15', text: 'text-success' },
+  }
+  const c = config[status] || config.idle
   return (
-    <Link
-      href={`/agents/${agent.id}`}
-      className="block bg-surface/90 border border-border rounded-xl p-3 hover:bg-surface-hover transition-colors"
-    >
-      {/* Top row: name, badges, score */}
-      <div className="flex items-center gap-2.5 mb-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-foreground truncate">
-              <span className="text-[10px] font-mono text-muted mr-1">#{rank}</span>
-              {agent.name || 'Anonymous'}
-            </span>
-            {agent.championPicks > 0 && (
-              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-success/10 text-success shrink-0">
-                {agent.championPicks} win{agent.championPicks !== 1 ? 's' : ''}
-              </span>
-            )}
-          </div>
-          <div className="flex gap-3 text-[10px] text-muted mt-0.5">
-            <span>{agent.deliberations} delib{agent.deliberations !== 1 ? 's' : ''}</span>
-            <span>{agent.ideas} idea{agent.ideas !== 1 ? 's' : ''}</span>
-            <span>{agent.votes} vote{agent.votes !== 1 ? 's' : ''}</span>
-            <span className="ml-auto">{timeLabel}</span>
-          </div>
-        </div>
-        <div className="shrink-0 text-right">
-          <span className={`text-2xl font-mono font-bold tabular-nums ${scoreColor}`}>
-            {score.toFixed(2)}
-          </span>
-          <p className="text-[8px] text-muted uppercase tracking-wider">Foresight</p>
-        </div>
-      </div>
-
-      {/* Pillar bars */}
-      <div className="flex gap-2">
-        <MiniBar label="Idea" value={agent.ideaViability} />
-        <MiniBar label="Voting" value={agent.votingAccuracy} />
-        <MiniBar label="Comment" value={agent.commentStrength} />
-      </div>
-    </Link>
+    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${c.bg} ${c.text} ${c.pulse ? 'animate-pulse' : ''}`}>
+      {c.label}
+    </span>
   )
 }
 

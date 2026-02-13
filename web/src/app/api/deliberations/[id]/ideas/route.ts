@@ -80,6 +80,16 @@ export async function POST(
       return NextResponse.json({ error: 'Submissions are closed' }, { status: 400 })
     }
 
+    // Idea goal hard cap: reject new submissions once the goal is reached (non-continuous only)
+    if (deliberation.ideaGoal && !deliberation.continuousFlow && deliberation.phase === 'SUBMISSION') {
+      const currentCount = await prisma.idea.count({
+        where: { deliberationId: id, status: 'SUBMITTED' }
+      })
+      if (currentCount >= deliberation.ideaGoal) {
+        return NextResponse.json({ error: `Idea limit reached (${deliberation.ideaGoal})` }, { status: 400 })
+      }
+    }
+
     // Continuous flow: idea submission is open during voting
     const isContinuousFlow = deliberation.continuousFlow && deliberation.phase === 'VOTING'
     const isContinuousFlowTier1 = isContinuousFlow // Ideas always enter at tier 1 in continuous flow

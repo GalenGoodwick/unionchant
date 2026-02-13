@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { computeReputationLite } from '@/lib/reputation'
 
-// GET /api/humans — List human users with reputation summary
+// GET /api/humans — List human users with reputation summary (paginated)
 export async function GET(req: NextRequest) {
   try {
     const sort = req.nextUrl.searchParams.get('sort') || 'votes'
+    const limit = Math.min(Number(req.nextUrl.searchParams.get('limit')) || 10, 50)
+    const offset = Math.max(Number(req.nextUrl.searchParams.get('offset')) || 0, 0)
 
     const humans = await prisma.user.findMany({
       where: {
@@ -39,65 +42,13 @@ export async function GET(req: NextRequest) {
         : sort === 'ideas'
           ? { ideas: { _count: 'desc' } }
           : { votes: { _count: 'desc' } },
-      take: 100,
+      skip: offset,
+      take: limit,
     })
 
     const result = await Promise.all(
       humans.map(async (user) => {
-        // Idea viability
-        const ideas = await prisma.idea.findMany({
-          where: { authorId: user.id },
-          select: { status: true, tier: true, isChampion: true },
-        })
-
-        let ideaPoints = 0
-        let maxPoints = 0
-        for (const idea of ideas) {
-          if (idea.status === 'WINNER' || idea.isChampion) ideaPoints += 25
-          else if (idea.tier >= 3) ideaPoints += 9
-          else if (idea.tier >= 2) ideaPoints += 3
-          else if (['ADVANCING', 'DEFENDING'].includes(idea.status)) ideaPoints += 1
-          maxPoints += 25
-        }
-        const ideaViability = maxPoints > 0 ? Math.min(ideaPoints / maxPoints, 1) : 0
-
-        // Voting accuracy
-        const userCells = await prisma.cell.findMany({
-          where: { status: 'COMPLETED', participants: { some: { userId: user.id } } },
-          select: { id: true },
-          take: 30,
-        })
-        let accSum = 0, accCount = 0
-        for (const cell of userCells) {
-          const myVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
-            SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cell.id} AND "userId" = ${user.id}
-          `
-          if (myVotes.length === 0) continue
-          const cellTotals = await prisma.$queryRaw<{ ideaId: string; total: bigint }[]>`
-            SELECT "ideaId", SUM("xpPoints") as total FROM "Vote" WHERE "cellId" = ${cell.id}
-            GROUP BY "ideaId" ORDER BY total DESC LIMIT 1
-          `
-          if (cellTotals.length === 0) continue
-          const totalXP = myVotes.reduce((s, v) => s + v.xpPoints, 0)
-          const winnerXP = myVotes.find(v => v.ideaId === cellTotals[0].ideaId)?.xpPoints || 0
-          accSum += winnerXP / totalXP
-          accCount++
-        }
-        const votingAccuracy = accCount > 0 ? accSum / accCount : 0
-
-        // Comment strength
-        const comments = await prisma.comment.findMany({
-          where: { userId: user.id, ideaId: { not: null } },
-          select: { spreadCount: true, upvoteCount: true },
-        })
-        const spreadComments = comments.filter(c => c.spreadCount >= 1).length
-        const commentStrength = comments.length > 0 ? spreadComments / comments.length : 0
-        const totalUpvotes = comments.reduce((s, c) => s + c.upvoteCount, 0)
-
-        const foresightApprox = Math.round((
-          ideaViability * 0.40 + votingAccuracy * 0.35 + commentStrength * 0.25
-        ) * 100) / 100
-
+        const rep = await computeReputationLite(user.id)
         return {
           id: user.id,
           name: user.name,
@@ -110,11 +61,7 @@ export async function GET(req: NextRequest) {
           ideas: user._count.ideas,
           votes: user._count.votes,
           comments: user._count.comments,
-          totalUpvotes,
-          ideaViability: Math.round(ideaViability * 100) / 100,
-          votingAccuracy: Math.round(votingAccuracy * 100) / 100,
-          commentStrength: Math.round(commentStrength * 100) / 100,
-          foresightApprox,
+          ...rep,
         }
       })
     )

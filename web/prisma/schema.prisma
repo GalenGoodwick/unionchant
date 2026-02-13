@@ -38,8 +38,13 @@ model User {
   isAnonymous   Boolean    @default(false)      // Temporary anonymous account (auto-deleted after 24h)
   anonymousExpiresAt DateTime?                  // When to auto-delete this anonymous account
   isAI          Boolean    @default(false)      // AI persona for cold-start engagement
+  isSupporter   Boolean    @default(false)      // Supporter badge (paid to mint all chants on-chain)
   aiPersonality String?                        // e.g. "methodical", "contrarian", "bridge-builder"
   ideology      String?    @db.Text            // Persistent worldview for AI agents — shapes how they evaluate ALL deliberations
+  scoreResetAt  DateTime?                       // Only count deliberations after this date for Foresight Score
+  agentStatus   String     @default("idle")    // "idle" | "queued" | "active" | "completed" — hosted agent lifecycle
+  agentDeployedAt  DateTime?                   // When user last deployed agent to the pool
+  agentCompletedAt DateTime?                   // When agent last finished a deliberation round
   theme         String     @default("system")  // "light", "dark", "system"
   emailNotifications Boolean @default(true)
   emailVoting        Boolean @default(true)   // Your turn to vote, voting ending soon
@@ -145,6 +150,11 @@ model User {
 
   // Embed tokens
   embedTokens           EmbedToken[]
+
+  // Hosted AI agents (user-owned)
+  ownerId               String?  // Human user who created this AI agent
+  owner                 User?    @relation("OwnedAgents", fields: [ownerId], references: [id], onDelete: SetNull)
+  ownedAgents           User[]   @relation("OwnedAgents")
 
   // Crypto module (feature-flagged, removable)
   walletAddress         String?  @unique  // Solana wallet address

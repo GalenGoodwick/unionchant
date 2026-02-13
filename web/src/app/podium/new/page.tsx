@@ -245,7 +245,7 @@ function NewPodiumPageInner() {
 
           <div className="text-xs text-muted mt-3">
             Linking a chant adds a &ldquo;Join the Chant&rdquo; button to your post.{' '}
-            <Link href="/chants/new" className="text-accent hover:text-accent-hover">
+            <Link href="/chants" className="text-accent hover:text-accent-hover">
               Create a new chant
             </Link>
           </div>

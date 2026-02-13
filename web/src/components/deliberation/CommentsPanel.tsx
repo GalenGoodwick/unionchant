@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Section from './Section'
 import ReportButton from '@/components/ReportButton'
+import FlaggedBadge from '@/components/FlaggedBadge'
 import type { CommentsData } from './types'
 
 export default function CommentsPanel({ deliberationId }: { deliberationId: string }) {
@@ -56,6 +57,7 @@ export default function CommentsPanel({ deliberationId }: { deliberationId: stri
                       <span>from Tier {comment.sourceTier}</span>
                       <span className="text-purple">reached Tier {comment.reachTier}</span>
                       <span>{comment.upvoteCount} upvotes</span>
+                      <FlaggedBadge text={comment.text} />
                       <ReportButton targetType="COMMENT" targetId={comment.id} />
                     </div>
                   </div>
@@ -89,6 +91,7 @@ export default function CommentsPanel({ deliberationId }: { deliberationId: stri
                         {comment.isUpPollinated && (
                           <span className="text-purple">reached Tier {comment.reachTier}</span>
                         )}
+                        <FlaggedBadge text={comment.text} />
                         <ReportButton targetType="COMMENT" targetId={comment.id} />
                       </div>
                     </div>

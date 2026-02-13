@@ -24,6 +24,8 @@ import DefenderCard from '@/components/deliberation/DefenderCard'
 import StatsRow from '@/components/deliberation/StatsRow'
 import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 import DiscordClaimBanner from '@/components/DiscordClaimBanner'
+import FlaggedBadge from '@/components/FlaggedBadge'
+import CommentsPanel from '@/components/deliberation/CommentsPanel'
 import type { Deliberation, Cell, Idea } from '@/components/deliberation/types'
 
 // ─── Collective Chat Link ───
@@ -604,14 +606,36 @@ function PhaseBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   if (phase === 'ACCUMULATING') return <AccumulatingBody d={d} />
 
   // COMPLETED fallback
+  const delib = d.deliberation!
+  const rankedIdeas = [...delib.ideas]
+    .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0))
+    .filter(i => i.id !== d.winner?.id)
+
   return (
     <div className="space-y-4">
       {d.winner && (
         <WinnerCard winner={d.winner} voteStats={`${d.winner.totalXP} VP · Final`} />
       )}
-      <div className="bg-success-bg border border-success rounded-[10px] p-4 text-center">
-        <p className="text-success font-medium">This chant has concluded</p>
-      </div>
+
+      {/* Ranked ideas */}
+      {rankedIdeas.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-foreground mb-2">All Ideas ({rankedIdeas.length + 1})</h3>
+          <div className="space-y-1.5">
+            {rankedIdeas.map((idea, i) => (
+              <IdeaCard
+                key={idea.id}
+                idea={idea}
+                rank={i + 2}
+                meta={idea.totalXP > 0 ? `${idea.totalXP} XP` : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Discussion / Comments */}
+      <CommentsPanel deliberationId={delib.id} />
     </div>
   )
 }
@@ -812,7 +836,10 @@ export default function DeliberationPageClient() {
         </div>
 
         {/* Question */}
-        <h1 className="text-xl font-bold text-foreground leading-tight mb-2">{delib.question}</h1>
+        <div className="flex items-start gap-2 mb-2">
+          <h1 className="text-xl font-bold text-foreground leading-tight">{delib.question}</h1>
+          <FlaggedBadge text={delib.question} />
+        </div>
 
         {/* Collective Chat origin */}
         {delib.fromCollective && (

@@ -25,12 +25,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cannot delete a pinned deliberation' }, { status: 403 })
     }
 
-    // Block deletion if other users have submitted 5+ ideas
-    const otherUserIdeas = await prisma.idea.count({
-      where: { deliberationId: id, authorId: { not: deliberation.creator.id } },
+    // Warn (but don't block) if other real users have submitted ideas
+    // Admin can always delete — the guard is informational only
+    const otherHumanIdeas = await prisma.idea.count({
+      where: { deliberationId: id, authorId: { not: deliberation.creator.id }, author: { isAI: false } },
     })
-    if (otherUserIdeas >= 5) {
-      return NextResponse.json({ error: `Cannot delete — ${otherUserIdeas} ideas submitted by other users` }, { status: 403 })
+    if (otherHumanIdeas >= 5) {
+      console.log(`[DELETE] Warning: ${otherHumanIdeas} human-submitted ideas will be deleted`)
     }
 
     // Delete in order due to foreign key constraints

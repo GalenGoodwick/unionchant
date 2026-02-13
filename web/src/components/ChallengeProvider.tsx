@@ -1,9 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
 import RunawayButton, { type ChallengeData } from './RunawayButton'
+
+const ChallengeContext = createContext<{ triggerChallenge: () => void }>({ triggerChallenge: () => {} })
+export function useChallenge() { return useContext(ChallengeContext) }
 
 /**
  * Server-authoritative challenge system.
@@ -117,8 +120,25 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
     } catch { /* silent */ }
   }, [challengeToken])
 
+  const triggerChallenge = useCallback(async () => {
+    if (showRef.current) return
+    try {
+      const res = await fetch(`/api/challenge/status?t=${Date.now()}&force=1`, { cache: 'no-store' })
+      const data = await res.json()
+      if (data.challengeToken) {
+        setChallengeToken(data.challengeToken)
+        setShowChallenge(true)
+        showRef.current = true
+      } else {
+        // No token from server (already passed recently) — show anyway with existing token
+        setShowChallenge(true)
+        showRef.current = true
+      }
+    } catch { /* silent */ }
+  }, [])
+
   return (
-    <>
+    <ChallengeContext.Provider value={{ triggerChallenge }}>
       {children}
       {showChallenge && (
         <div className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4">
@@ -138,6 +158,6 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
           </div>
         </div>
       )}
-    </>
+    </ChallengeContext.Provider>
   )
 }

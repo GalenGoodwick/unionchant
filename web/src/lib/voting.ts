@@ -302,17 +302,19 @@ export async function startVotingPhase(deliberationId: string) {
   const shuffledIdeas = [...ideas].sort(() => Math.random() - 0.5)
   const shuffledMembers = [...members].sort(() => Math.random() - 0.5)
 
-  // Use flexible cell sizing algorithm to determine cell structure
-  const cellSizes = calculateCellSizes(shuffledMembers.length, deliberation.cellSize || DEFAULT_CELL_SIZE)
-  const numCells = cellSizes.length
+  // Number of cells is determined by IDEAS (each cell gets ~cellSize ideas).
+  // Members distribute evenly across those cells.
+  const targetCellSize = deliberation.cellSize || DEFAULT_CELL_SIZE
+  const numCells = Math.max(1, Math.ceil(shuffledIdeas.length / targetCellSize))
+  const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, numCells)
 
-  // Number of cells is determined by PARTICIPANTS (never create unstaffed cells).
-  // Ideas flex to fit — some cells may get 6-7 ideas if there are more ideas than
-  // ideal, but every idea gets into a cell.
+  // Distribute members evenly across the idea-determined number of cells
+  const baseMembersPerCell = Math.floor(shuffledMembers.length / numCells)
+  const extraMembers = shuffledMembers.length % numCells
+  const actualCellSizes = Array.from({ length: numCells }, (_, i) =>
+    baseMembersPerCell + (i < extraMembers ? 1 : 0)
+  )
   const actualNumCells = numCells
-  const actualCellSizes = cellSizes
-
-  const ideaSizes = calculateIdeaSizes(shuffledIdeas.length, actualNumCells)
 
   // Build a map of which ideas go into which cell (by index)
   const cellIdeaGroups: typeof shuffledIdeas[] = []

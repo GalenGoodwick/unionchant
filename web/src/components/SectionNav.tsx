@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import NotificationBell from '@/components/NotificationBell'
 import { useAdmin } from '@/hooks/useAdmin'
+import { useChallenge } from '@/components/ChallengeProvider'
 
 const sections = [
   { href: '/chants', label: 'Chants' },
@@ -30,6 +31,7 @@ export default function SectionNav({ active }: { active: 'chants' | 'podiums' | 
   const pathname = usePathname()
   const { data: session } = useSession()
   const { isAdmin } = useAdmin()
+  const { triggerChallenge } = useChallenge()
   const [menuOpen, setMenuOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
@@ -75,7 +77,7 @@ export default function SectionNav({ active }: { active: 'chants' | 'podiums' | 
               {link.label}
             </Link>
           ))}
-          <Link href="/chants" className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors">Beta</Link>
+          <span onClick={triggerChallenge} className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
           {topBarLinksRight.map(link => (
             <Link
               key={link.href}

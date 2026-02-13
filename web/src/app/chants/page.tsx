@@ -52,18 +52,30 @@ export default function ChantsPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [showSettings, setShowSettings] = useState(true)
-  const [mode, setMode] = useState<'fcfs' | 'event'>('fcfs')
-  const [continuous, setContinuous] = useState(true)
-  const [multipleIdeas, setMultipleIdeas] = useState(false)
-  const [ideaGoal, setIdeaGoal] = useState(5)
+  const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('event')
+  const [ideaGoal, setIdeaGoal] = useState(15)
   const [memberGoal, setMemberGoal] = useState(10)
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
   const [allowAI, setAllowAI] = useState(true)
   const [tags, setTags] = useState('')
   const [communities, setCommunities] = useState<{ id: string; name: string }[]>([])
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
+  const [communityOnly, setCommunityOnly] = useState(false)
   const [ideaStatus, setIdeaStatus] = useState<Record<number, { ok: boolean; msg: string }>>({})
   const [createProgress, setCreateProgress] = useState('')
+
+  // Ask AI state
+  const [showAskAI, setShowAskAI] = useState(false)
+  const [askQuestion, setAskQuestion] = useState('')
+  const [askDescription, setAskDescription] = useState('')
+  const [askAgentCount, setAskAgentCount] = useState(15)
+  const [askSources, setAskSources] = useState({ standard: true, pool: false, mine: false })
+  const [hasUserAgents, setHasUserAgents] = useState(false)
+  const [userAgentCount, setUserAgentCount] = useState(0)
+  const [poolCount, setPoolCount] = useState(0)
+  const [askRunning, setAskRunning] = useState(false)
+  const [askProgress, setAskProgress] = useState({ step: '', detail: '', progress: 0 })
+  const [askError, setAskError] = useState('')
 
   const updateIdeaGoal = (goal: number) => {
     setIdeaGoal(goal)
@@ -82,13 +94,11 @@ export default function ChantsPage() {
     setCreateProgress('')
     setIdeaStatus({})
     setIdeas(['', '', '', '', ''])
-    setMode('fcfs')
-    setContinuous(true)
-    setMultipleIdeas(false)
+    setMode('event')
     setAllowAI(true)
     setTags('')
     setSelectedCommunityId(null)
-    setIdeaGoal(5)
+    setIdeaGoal(15)
     setMemberGoal(10)
   }
 
@@ -118,6 +128,24 @@ export default function ChantsPage() {
     fetch('/api/communities/mine')
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setCommunities(data) })
+      .catch(() => {})
+  }, [session])
+
+  // Check if user has AI agents + pool count (for Ask AI source options)
+  useEffect(() => {
+    if (!session) return
+    fetch('/api/my-agents')
+      .then(res => res.json())
+      .then(data => {
+        if (data.agents?.length > 0) {
+          setHasUserAgents(true)
+          setUserAgentCount(data.agents.length)
+        }
+      })
+      .catch(() => {})
+    fetch('/api/agent-pool/count')
+      .then(res => res.json())
+      .then(data => { if (data.count > 0) setPoolCount(data.count) })
       .catch(() => {})
   }, [session])
 
@@ -161,15 +189,15 @@ export default function ChantsPage() {
           question: question.trim(),
           description: description.trim() || undefined,
           isPublic: true,
-          allocationMode: mode === 'event' ? 'balanced' : mode,
-          continuousFlow: continuous,
-          multipleIdeasAllowed: multipleIdeas,
+          allocationMode: mode === 'endless' ? 'fcfs' : 'balanced',
+          continuousFlow: mode === 'endless',
           allowAI,
-          ideaGoal: continuous ? ideaGoal : null,
+          ideaGoal: (mode === 'idea_goal' || mode === 'endless') ? ideaGoal : null,
           memberGoal: mode === 'event' ? memberGoal : null,
           votingTimeoutMs: 0,
           tags: tags.split(',').map(t => t.trim()).filter(t => t.length > 0),
           communityId: selectedCommunityId || undefined,
+          communityOnly: selectedCommunityId ? communityOnly : undefined,
         }),
       })
 
@@ -227,6 +255,87 @@ export default function ChantsPage() {
     }
   }
 
+  const handleAskAI = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!askQuestion.trim() || askQuestion.trim().length < 5) {
+      setAskError('Question must be at least 5 characters')
+      return
+    }
+    setAskRunning(true)
+    setAskError('')
+    setAskProgress({ step: 'starting', detail: 'Connecting...', progress: 0 })
+
+    try {
+      const response = await fetch('/api/ask-ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: askQuestion.trim(),
+          description: askDescription.trim() || undefined,
+          agentCount: askAgentCount,
+          sources: askSources,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
+        throw new Error(data.error || `Failed (${response.status})`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('No response stream')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      const processLine = (line: string) => {
+        if (!line.startsWith('data: ')) return
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (data.step === 'error') {
+            throw new Error(data.detail || 'Ask AI failed')
+          }
+          if (data.step === 'complete' && data.deliberationId) {
+            setAskProgress({ step: 'complete', detail: 'Done', progress: 100 })
+            setAskRunning(false)
+            setShowAskAI(false)
+            router.push(`/chants/${data.deliberationId}`)
+            return 'done'
+          }
+          if (data.step && data.detail) {
+            setAskProgress({ step: data.step, detail: data.detail, progress: data.progress || 0 })
+          }
+        } catch (parseErr) {
+          if (parseErr instanceof Error && parseErr.message !== 'Ask AI failed') return
+          throw parseErr
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (processLine(line) === 'done') return
+        }
+      }
+
+      // Process any remaining buffer after stream ends
+      if (buffer.trim()) {
+        for (const line of buffer.split('\n')) {
+          if (processLine(line) === 'done') return
+        }
+      }
+    } catch (err) {
+      setAskError(err instanceof Error ? err.message : 'Unknown error')
+      setAskRunning(false)
+    }
+  }
+
   const filtered = chants
     .filter(c => {
       if (filter !== 'all' && c.phase !== filter) return false
@@ -265,9 +374,9 @@ export default function ChantsPage() {
   return (
     <FrameLayout
       active="chants"
-      scrollRef={!showCreate ? scrollRef : undefined}
-      contentClassName={!showCreate ? "border-t-2 border-b-2 border-accent/30" : ""}
-      header={!showCreate ? (
+      scrollRef={!showCreate && !showAskAI ? scrollRef : undefined}
+      contentClassName=""
+      header={!showCreate && !showAskAI ? (
         <div className="space-y-2 pb-3">
           <div className="flex gap-1.5 overflow-x-auto">
             {(['all', 'SUBMISSION', 'VOTING', 'COMPLETED', 'ACCUMULATING'] as const).map(f => (
@@ -296,23 +405,187 @@ export default function ChantsPage() {
         </div>
       ) : undefined}
       footerRight={session ? (
-        <button
-          onClick={() => {
-            if (showCreate) resetCreateForm()
-            setShowCreate(!showCreate)
-          }}
-          className="h-10 px-4 rounded-full bg-accent hover:bg-accent-hover text-white text-sm font-medium shadow-sm flex items-center gap-2 transition-colors"
-        >
-          <svg className={`w-4 h-4 transition-transform ${showCreate ? 'rotate-45' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-          </svg>
-          <span>{showCreate ? 'Cancel' : 'New'}</span>
-        </button>
+        <>
+          <button
+            onClick={() => {
+              if (showAskAI) {
+                setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 })
+              } else {
+                setShowCreate(false); setShowAskAI(true)
+              }
+            }}
+            disabled={askRunning}
+            className={`h-9 px-3 rounded-full text-xs font-medium shadow-sm flex items-center gap-1.5 transition-all ${
+              showAskAI
+                ? 'bg-warning text-white'
+                : 'bg-warning/15 text-warning hover:bg-warning/25 border border-warning/30'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+            </svg>
+            Ask AI
+          </button>
+          <button
+            onClick={() => {
+              if (showCreate) {
+                resetCreateForm(); setShowCreate(false)
+              } else {
+                setShowAskAI(false); setShowCreate(true)
+              }
+            }}
+            disabled={askRunning}
+            className="w-10 h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all"
+          >
+            <svg className={`w-5 h-5 transition-transform ${showCreate ? 'rotate-45' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        </>
       ) : undefined}
     >
-      {showCreate ? (
-        <form onSubmit={handleCreate} className="p-4 bg-surface rounded-lg border border-border shadow-md">
-          <h2 className="text-sm font-semibold mb-1 text-foreground">Start a New Chant</h2>
+      {showCreate || showAskAI ? (
+        <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
+          {showAskAI ? (
+            <form onSubmit={handleAskAI}>
+              <p className="text-[11px] text-muted mb-3 leading-relaxed">
+                AI agents brainstorm ideas, vote in cells, and return ranked results.
+              </p>
+
+              <input
+                type="text"
+                placeholder="What should we decide?"
+                value={askQuestion}
+                onChange={(e) => setAskQuestion(e.target.value)}
+                maxLength={300}
+                disabled={askRunning}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-warning transition-colors"
+              />
+              <textarea
+                placeholder="Add context (optional)"
+                value={askDescription}
+                onChange={(e) => setAskDescription(e.target.value)}
+                maxLength={500}
+                rows={2}
+                disabled={askRunning}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-3 focus:outline-none focus:border-warning resize-none transition-colors"
+              />
+
+              <div className="mb-3">
+                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agents</label>
+                <div className="flex gap-2">
+                  {([5, 10, 15, 20, 25] as const).map(n => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setAskAgentCount(n)}
+                      disabled={askRunning}
+                      className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
+                        askAgentCount === n
+                          ? 'bg-warning/15 border-warning/40 text-warning'
+                          : 'bg-surface border-border text-muted hover:border-border-strong'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted mt-1.5">
+                  {askAgentCount === 5 && '1 cell, no tiers. Fast (~5s).'}
+                  {askAgentCount === 10 && '2 cells + final showdown (~10s).'}
+                  {askAgentCount === 15 && '3 cells + final showdown (~15s).'}
+                  {askAgentCount === 20 && '4 cells + final showdown (~15s).'}
+                  {askAgentCount === 25 && '5 cells + final showdown (~20s).'}
+                </p>
+              </div>
+
+              <div className="mb-3">
+                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agent Sources</label>
+                <div className="space-y-1.5">
+                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
+                    askSources.standard ? 'bg-warning/10 border-warning/30' : 'bg-surface border-border hover:border-border-strong'
+                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={askSources.standard}
+                      onChange={() => setAskSources(s => ({ ...s, standard: !s.standard }))}
+                      disabled={askRunning}
+                      className="accent-warning w-3.5 h-3.5"
+                    />
+                    <span className={`text-[11px] font-medium ${askSources.standard ? 'text-warning' : 'text-muted'}`}>
+                      Standard
+                    </span>
+                    <span className="text-[10px] text-muted ml-auto">25 built-in personas</span>
+                  </label>
+                  {poolCount > 0 && (
+                    <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
+                      askSources.pool ? 'bg-accent/10 border-accent/30' : 'bg-surface border-border hover:border-border-strong'
+                    } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={askSources.pool}
+                        onChange={() => setAskSources(s => ({ ...s, pool: !s.pool }))}
+                        disabled={askRunning}
+                        className="accent-accent w-3.5 h-3.5"
+                      />
+                      <span className={`text-[11px] font-medium ${askSources.pool ? 'text-accent' : 'text-muted'}`}>
+                        Pool
+                      </span>
+                      <span className="text-[10px] text-muted ml-auto">{poolCount} community agents</span>
+                    </label>
+                  )}
+                  {hasUserAgents && (
+                    <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
+                      askSources.mine ? 'bg-success/10 border-success/30' : 'bg-surface border-border hover:border-border-strong'
+                    } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={askSources.mine}
+                        onChange={() => setAskSources(s => ({ ...s, mine: !s.mine }))}
+                        disabled={askRunning}
+                        className="accent-success w-3.5 h-3.5"
+                      />
+                      <span className={`text-[11px] font-medium ${askSources.mine ? 'text-success' : 'text-muted'}`}>
+                        Mine
+                      </span>
+                      <span className="text-[10px] text-muted ml-auto">{userAgentCount} agent{userAgentCount !== 1 ? 's' : ''}</span>
+                    </label>
+                  )}
+                </div>
+                <p className="text-[10px] text-muted mt-1">
+                  {!askSources.standard && !askSources.pool && !askSources.mine
+                    ? 'Check at least one source. Standard will be used by default.'
+                    : 'Checked sources are blended. Standard fills remaining slots.'}
+                </p>
+              </div>
+
+              {askRunning && (
+                <div className="mb-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <div className="w-2 h-2 bg-warning rounded-full animate-pulse" />
+                    <span className="text-xs text-warning font-medium">{askProgress.detail || 'Starting...'}</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-warning rounded-full transition-all duration-500"
+                      style={{ width: `${askProgress.progress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {askError && <p className="text-error text-xs mb-2">{askError}</p>}
+
+              <button
+                type="submit"
+                disabled={askRunning || !askQuestion.trim() || askQuestion.trim().length < 5}
+                className="w-full py-2 bg-warning hover:bg-warning-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+              >
+                {askRunning ? 'Running...' : 'Run'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleCreate}>
           <p className="text-[11px] text-muted mb-3 leading-relaxed">Tip: Open-ended questions work best. Let ideas explore the space.</p>
           <input
             type="text"
@@ -338,16 +611,33 @@ export default function ChantsPage() {
             className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-accent transition-colors"
           />
           {communities.length > 0 && (
-            <select
-              value={selectedCommunityId || ''}
-              onChange={(e) => setSelectedCommunityId(e.target.value || null)}
-              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground mb-2 focus:outline-none focus:border-accent transition-colors"
-            >
-              <option value="">No community</option>
-              {communities.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            <div className="mb-2">
+              <select
+                value={selectedCommunityId || ''}
+                onChange={(e) => {
+                  const id = e.target.value || null
+                  setSelectedCommunityId(id)
+                  if (!id) setCommunityOnly(false)
+                }}
+                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-accent transition-colors"
+              >
+                <option value="">No group</option>
+                {communities.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              {selectedCommunityId && (
+                <label className="flex items-center gap-2 mt-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={communityOnly}
+                    onChange={(e) => setCommunityOnly(e.target.checked)}
+                    className="accent-accent"
+                  />
+                  <span className="text-xs text-muted">Private post (only appears in group feed)</span>
+                </label>
+              )}
+            </div>
           )}
 
           <button
@@ -362,115 +652,39 @@ export default function ChantsPage() {
           {showSettings && (
             <div className="mb-3 p-3 bg-background rounded-lg border border-border space-y-3">
               <div>
-                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Voting Mode</label>
+                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
                 <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMode('fcfs')}
-                    className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                      mode === 'fcfs'
-                        ? 'bg-accent/15 border-accent/40 text-accent'
-                        : 'bg-surface border-border text-muted hover:border-border-strong'
-                    }`}
-                  >
-                    First Come First Serve
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setMode('event'); setContinuous(false) }}
-                    className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                      mode === 'event'
-                        ? 'bg-accent/15 border-accent/40 text-accent'
-                        : 'bg-surface border-border text-muted hover:border-border-strong'
-                    }`}
-                  >
-                    Event Mode
-                  </button>
+                  {([
+                    { value: 'event' as const, label: 'Event' },
+                    { value: 'idea_goal' as const, label: 'Idea Goal' },
+                    { value: 'endless' as const, label: 'Endless' },
+                  ]).map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setMode(opt.value)}
+                      className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
+                        mode === opt.value
+                          ? 'bg-accent/15 border-accent/40 text-accent'
+                          : 'bg-surface border-border text-muted hover:border-border-strong'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
                 </div>
                 <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                  {mode === 'fcfs'
-                    ? 'Anyone can vote as soon as they arrive. Cells fill one at a time.'
-                    : 'For live events. Collect participants and ideas first, then launch voting for everyone at once.'}
+                  {mode === 'event' && 'Facilitator controls phases. Collect ideas first, then start voting.'}
+                  {mode === 'idea_goal' && 'Voting auto-starts when the idea goal is reached. Submissions capped.'}
+                  {mode === 'endless' && 'Cells form as ideas arrive. Runs forever.'}
                 </p>
               </div>
 
               {mode === 'event' && (
-                <div>
-                  <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Member Goal</label>
-                  <div className="flex gap-2">
-                    {[
-                      { value: 0, label: 'Manual' },
-                      { value: 10, label: '10' },
-                      { value: 25, label: '25' },
-                      { value: 50, label: '50' },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setMemberGoal(opt.value)}
-                        className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                          memberGoal === opt.value
-                            ? 'bg-accent/15 border-accent/40 text-accent'
-                            : 'bg-surface border-border text-muted hover:border-border-strong'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                    {memberGoal === 0
-                      ? 'You start voting manually when the room is full.'
-                      : `Voting starts automatically when ${memberGoal} members have joined.`}
-                  </p>
-                </div>
-              )}
-
-              {mode === 'fcfs' && (
-                <div>
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs text-foreground/80 font-medium">Continuous Flow</label>
-                    <button
-                      type="button"
-                      onClick={() => setContinuous(!continuous)}
-                      className={`w-10 h-5 rounded-full transition-colors relative ${
-                        continuous ? 'bg-accent' : 'bg-border'
-                      }`}
-                    >
-                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                        continuous ? 'left-5' : 'left-0.5'
-                      }`} />
-                    </button>
-                  </div>
-                  <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                    {continuous
-                      ? 'Voting begins automatically once enough ideas are submitted.'
-                      : 'All ideas are collected first. Start voting manually.'}
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs text-foreground/80 font-medium">Unlimited Mode <span className="text-warning text-[10px]">experimental</span></label>
-                  <button
-                    type="button"
-                    onClick={() => setMultipleIdeas(!multipleIdeas)}
-                    className={`w-10 h-5 rounded-full transition-colors relative ${
-                      multipleIdeas ? 'bg-warning' : 'bg-border'
-                    }`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                      multipleIdeas ? 'left-5' : 'left-0.5'
-                    }`} />
-                  </button>
-                </div>
-                <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                  {multipleIdeas
-                    ? 'Multiple ideas and votes per person.'
-                    : 'One idea and one vote per person per tier (default).'}
+                <p className="text-xs text-muted leading-relaxed">
+                  Start voting from the facilitator panel when your group is ready.
                 </p>
-              </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between">
@@ -494,14 +708,17 @@ export default function ChantsPage() {
                 </p>
               </div>
 
-              {continuous && mode === 'fcfs' && (
+              {mode === 'idea_goal' && (
                 <div>
-                  <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Ideas to start voting</label>
+                  <label className="text-xs text-foreground/80 block mb-1.5 font-medium">
+                    {mode === 'idea_goal' ? 'Idea Goal (hard cap)' : 'Ideas per batch'}
+                  </label>
                   <div className="flex gap-2">
                     {[
-                      { value: 0, label: 'Manual' },
-                      { value: 5, label: '5 Ideas' },
-                      { value: 10, label: '10 Ideas' },
+                      { value: 5, label: '5' },
+                      { value: 10, label: '10' },
+                      { value: 15, label: '15' },
+                      { value: 25, label: '25' },
                     ].map(opt => (
                       <button
                         key={opt.value}
@@ -518,9 +735,9 @@ export default function ChantsPage() {
                     ))}
                   </div>
                   <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                    {ideaGoal === 0
-                      ? 'You start voting manually from the facilitator panel.'
-                      : `Voting starts automatically after ${ideaGoal} ideas.`}
+                    {mode === 'idea_goal'
+                      ? `Voting starts at ${ideaGoal} ideas. No more submissions after that.`
+                      : `Cells form every ${ideaGoal} ideas.`}
                   </p>
                 </div>
               )}
@@ -573,7 +790,9 @@ export default function ChantsPage() {
           >
             {creating ? 'Creating...' : 'Create Chant'}
           </button>
-        </form>
+            </form>
+          )}
+        </div>
       ) : (
         <>
           {loading && chants.length === 0 ? (

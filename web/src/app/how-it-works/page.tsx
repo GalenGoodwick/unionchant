@@ -210,7 +210,7 @@ export default function HowItWorksPage() {
               Go to Feed
             </Link>
             <Link
-              href="/chants/new"
+              href="/chants"
               className="bg-surface/90 backdrop-blur-sm border border-border-strong hover:border-muted text-foreground px-6 py-3 rounded-lg font-medium transition-colors"
             >
               Start a Chant

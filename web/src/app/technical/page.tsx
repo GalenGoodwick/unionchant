@@ -356,7 +356,7 @@ export default function TechnicalWhitepaperPage() {
               Read the Whitepaper
             </Link>
             <Link
-              href="/chants/new"
+              href="/chants"
               className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
             >
               Start a Chant

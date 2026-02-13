@@ -330,7 +330,7 @@ ${codebaseContext}
 ACTION FORMAT:
 The ONLY action tag format is: [action:navigate:/path]Button Label[/action]
 This creates a clickable navigation button. The path MUST start with / and be a valid page route.
-Examples: [action:navigate:/chants/abc123]View Chant[/action] or [action:navigate:/chants/new]Create Chant[/action]
+Examples: [action:navigate:/chants/abc123]View Chant[/action] or [action:navigate:/chants]Create Chant[/action]
 NEVER use any other action format like [action:create_chant] — that does NOT work and will show as broken text.
 
 BEHAVIOR:

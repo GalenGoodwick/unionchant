@@ -9,7 +9,7 @@ const pages = [
     { href: '/feed', label: 'Feed' },
 
     { href: '/chants', label: 'Chants' },
-    { href: '/chants/new', label: 'Chants / New' },
+    { href: '/chants', label: 'Chants' },
     { href: '/podiums', label: 'Podiums' },
     { href: '/podium/new', label: 'Podium / New' },
     { href: '/groups', label: 'Groups' },

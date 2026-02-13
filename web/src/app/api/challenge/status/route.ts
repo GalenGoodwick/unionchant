@@ -4,11 +4,11 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { cached } from '@/lib/cache'
 
-const MIN_INTERVAL_MS = 2.5 * 60 * 60 * 1000 // 2.5 hours
-const MAX_INTERVAL_MS = 3 * 60 * 60 * 1000   // 3 hours
+const MIN_INTERVAL_MS = 22 * 60 * 60 * 1000 // 22 hours
+const MAX_INTERVAL_MS = 26 * 60 * 60 * 1000 // 26 hours
 
 // GET /api/challenge/status — check if user needs a challenge
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
@@ -29,10 +29,16 @@ export async function GET() {
       return NextResponse.json({ needsChallenge: false })
     }
 
+    // Easter egg: force=1 always issues a challenge (Beta button)
+    const url = new URL(req.url)
+    const force = url.searchParams.get('force') === '1'
+
     let needsChallenge = false
 
-    // Never passed = needs challenge
-    if (!user.lastChallengePassedAt) {
+    if (force) {
+      needsChallenge = true
+    } else if (!user.lastChallengePassedAt) {
+      // Never passed = needs challenge
       needsChallenge = true
     } else {
       const elapsed = Date.now() - user.lastChallengePassedAt.getTime()

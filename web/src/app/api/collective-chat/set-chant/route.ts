@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
         phase: 'SUBMISSION',
         accumulationEnabled: true,
         votingTimeoutMs: 0,
+        allowAI: false, // Collective chants are human-only
         inviteCode,
       },
     })

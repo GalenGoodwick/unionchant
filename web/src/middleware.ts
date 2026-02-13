@@ -12,6 +12,7 @@ const CSRF_EXEMPT_PATHS = [
   '/api/cg/',
   '/api/v1/',
   '/api/embed/',
+  '/api/ask-ai',
 ]
 
 // Patterns that match via regex (for dynamic segments)

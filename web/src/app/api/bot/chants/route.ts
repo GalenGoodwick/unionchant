@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
         continuousFlow: continuousFlow !== false, // default ON
         votingTimeoutMs: 0, // continuous flow: no tier timer unless explicitly set
         ideaGoal: ideaGoal ?? 5,
+        allowAI: false, // Discord chants are human-only
         members: {
           create: {
             userId: user.id,

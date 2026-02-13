@@ -81,7 +81,7 @@ export default function CommunityFeedPage() {
             <p className="text-[10px] text-muted mt-0.5">{items.length} chant{items.length !== 1 ? 's' : ''}</p>
           </div>
           <Link
-            href={`/chants/new`}
+            href="/chants"
             className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg font-medium text-xs transition-colors"
           >
             + New Chant
@@ -108,7 +108,7 @@ export default function CommunityFeedPage() {
         <div className="text-center py-12 bg-surface/90 backdrop-blur-sm border border-border rounded-lg mt-2">
           <p className="text-muted text-xs mb-3">No chants in this group yet.</p>
           <Link
-            href="/chants/new"
+            href="/chants"
             className="text-accent hover:text-accent-hover font-medium text-xs"
           >
             Create the first chant

@@ -54,7 +54,7 @@ then vote in small 5-person cells. Winners advance tier by tier until one idea w
 | /feed | Your personalized feed (Your Turn, Activity, Results tabs) |
 | /stream | Live FCFS voting stream |
 | /chants | Browse all public chants |
-| /chants/new | Create a new chant |
+| /chants | Browse + create chants |
 | /chants/[id] | Chant detail — submit ideas, discuss, vote |
 | /groups | Browse communities |
 | /groups/new | Create a community |

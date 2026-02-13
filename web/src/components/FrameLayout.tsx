@@ -10,9 +10,10 @@ import { useAdmin } from '@/hooks/useAdmin'
 import { AmbientConstellation } from '@/components/ConstellationCanvas'
 import { useCollectiveChat } from '@/app/providers'
 import CollectiveChat from '@/components/CollectiveChat'
+import { useChallenge } from '@/components/ChallengeProvider'
 
 interface FrameLayoutProps {
-  active?: 'chants' | 'podiums' | 'groups'
+  active?: 'chants' | 'podiums' | 'groups' | 'agents' | 'foresight'
   header?: React.ReactNode
   children: React.ReactNode
   footerRight?: React.ReactNode
@@ -24,12 +25,11 @@ interface FrameLayoutProps {
 }
 
 const menuLinks = [
-  { href: '/chants', label: 'Chants' },
   { href: '/tools', label: 'Tools' },
   { href: '/resources', label: 'Resources' },
   { href: '/dashboard', label: 'Manage' },
   { href: '/settings', label: 'Settings' },
-  { href: '/pricing', label: 'Sustain Us' },
+  { href: '/pricing', label: 'Pricing' },
   { href: '/contact', label: 'Contact' },
 ]
 
@@ -60,6 +60,7 @@ export default function FrameLayout({
   const { data: session } = useSession()
   const { isAdmin } = useAdmin()
   const { chatOpen, toggleChat } = useCollectiveChat()
+  const { triggerChallenge } = useChallenge()
   const router = useRouter()
 
   const [menuOpen, setMenuOpen] = useState(false)
@@ -106,6 +107,17 @@ export default function FrameLayout({
         <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     )},
+    { key: 'agents', href: '/agents', label: 'Agents', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.47 4.411a2.25 2.25 0 01-2.133 1.589H8.603a2.25 2.25 0 01-2.134-1.589L5 14.5m14 0H5" />
+      </svg>
+    )},
+    { key: 'foresight', href: '/foresight', label: 'Foresight', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+      </svg>
+    )},
   ]
 
   return (
@@ -130,7 +142,7 @@ export default function FrameLayout({
                   {link.label}
                 </Link>
               ))}
-              <Link href="/chants" className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors">Beta</Link>
+              <span onClick={triggerChallenge} className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
               {topBarLinksRight.map(link => (
                 <Link
                   key={link.href}
@@ -213,6 +225,12 @@ export default function FrameLayout({
                         style={{ top: menuPos.top, right: menuPos.right }}
                         onClick={e => e.stopPropagation()}
                       >
+                        <button
+                          onClick={() => { setMenuOpen(false); toggleChat() }}
+                          className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
+                        >
+                          Collective
+                        </button>
                         {[
                           ...menuLinks,
                           ...(isAdmin ? [{ href: '/admin', label: 'Admin' }] : []),
@@ -221,7 +239,7 @@ export default function FrameLayout({
                             key={link.href}
                             href={link.href}
                             onClick={() => setMenuOpen(false)}
-                            className="block px-3 py-2 text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors first:rounded-t-lg last:rounded-b-lg"
+                            className="block px-3 py-2 text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors last:rounded-b-lg"
                           >
                             {link.label}
                           </Link>
@@ -273,23 +291,11 @@ export default function FrameLayout({
             )}
             {hideFooter && <div className="flex-1" />}
 
-            <div className="flex items-center gap-1.5 shrink-0 ml-1">
-              <button
-                onClick={toggleChat}
-                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-                  chatOpen ? 'bg-gold/20 text-gold' : 'bg-gold text-header hover:bg-gold/80'
-                }`}
-                aria-label="Collective"
-                title="Collective"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                  <circle cx="12" cy="12" r="3" />
-                  <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
-                  <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
-                </svg>
-              </button>
-              {footerRight}
-            </div>
+            {footerRight && (
+              <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                {footerRight}
+              </div>
+            )}
           </div>
         </div>
 

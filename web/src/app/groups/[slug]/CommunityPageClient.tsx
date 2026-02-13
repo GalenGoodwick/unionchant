@@ -530,7 +530,7 @@ export default function CommunityPageClient() {
           {/* New Chant CTA */}
           {isMember && (community.isPublic || isOwnerOrAdmin) && (
             <Link
-              href={`/chants/new?community=${slug}`}
+              href="/chants"
               className="block text-center bg-surface/90 backdrop-blur-sm border border-border hover:border-accent rounded-lg p-2.5 text-xs text-accent font-medium transition-colors mb-4"
             >
               + New Chant in this Group

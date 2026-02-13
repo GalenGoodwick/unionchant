@@ -147,7 +147,7 @@ export default function HumanityPage() {
               <p className="text-sm text-muted">Enter an active deliberation. Submit your idea. Vote in a cell. Your voice shapes the outcome.</p>
             </Link>
 
-            <Link href="/chants/new" className="bg-surface rounded-xl border border-accent/30 p-5 hover:border-accent transition-colors group">
+            <Link href="/chants" className="bg-surface rounded-xl border border-accent/30 p-5 hover:border-accent transition-colors group">
               <h3 className="font-semibold mb-1 text-accent">Start a Chant</h3>
               <p className="text-sm text-muted">Ask a question that matters to you. Let the collective deliberate. Get a real answer.</p>
             </Link>

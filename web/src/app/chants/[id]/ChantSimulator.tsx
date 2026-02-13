@@ -14,11 +14,15 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PentagonConstellation } from '@/components/ConstellationCanvas'
+import CopyButton from '@/components/deliberation/CopyButton'
+import FlaggedBadge from '@/components/FlaggedBadge'
+import { useChallenge } from '@/components/ChallengeProvider'
 
 type Tab = 'join' | 'vote' | 'hearts' | 'submit' | 'cells' | 'manage'
 
 export default function ChantSimulator({ id, authToken }: { id: string; authToken?: string | null }) {
   const { data: session } = useSession()
+  const { triggerChallenge } = useChallenge()
   const userId = authToken ? 'embed-user' : session?.user?.email // used to detect login, actual auth is server-side
   const router = useRouter()
 
@@ -463,7 +467,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           ].map(link => (
             <Link key={link.href} href={link.href} className="px-2 py-1 text-[11px] font-medium rounded-md whitespace-nowrap transition-colors text-muted hover:text-foreground hover:bg-surface/80">{link.label}</Link>
           ))}
-          <Link href="/chants" className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors">Beta</Link>
+          <span onClick={triggerChallenge} className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
           {[
             { href: '/humanity', label: 'Humanity' },
             { href: '/embed', label: 'Embed' },
@@ -638,8 +642,11 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           return (
             <div className="mb-3 p-3 bg-success/8 border border-success/20 rounded-lg">
               <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Priority Declared</p>
-              <p className="text-foreground font-medium text-sm">{status.champion.text}</p>
-              <p className="text-xs text-muted mt-0.5">by {status.champion.author.name} &middot; {status.champion.totalXP} XP</p>
+              <p className="text-foreground font-medium text-sm select-text">{status.champion.text}</p>
+              <div className="flex items-center justify-between mt-0.5">
+                <p className="text-xs text-muted">by {status.champion.author.name} &middot; {status.champion.totalXP} XP</p>
+                <CopyButton text={status.champion.text} />
+              </div>
               {runnersUp.length > 0 && (
                 <div className="mt-2">
                   <button
@@ -1166,33 +1173,39 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                             : 'bg-surface/90 backdrop-blur-sm border-border'
                         }`}
                       >
-                        <button
-                          onClick={() => setExpandedIdea(isExpanded ? null : idea.id)}
-                          className="w-full p-3 text-left hover:bg-surface/80 transition-colors"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-[11px] text-muted font-mono">#{i + 1}</span>
-                                <p className="text-sm text-foreground">{idea.text}</p>
-                              </div>
-                              <p className="text-xs text-muted mt-0.5">by {idea.author.name}</p>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              {idea.totalXP > 0 && (
-                                <span className="text-xs font-mono font-bold text-warning">{idea.totalXP}</span>
-                              )}
-                              <IdeaStatusBadge status={idea.status} isChampion={idea.isChampion} tier={idea.tier} />
-                              {userCommented && (
-                                <span className="text-[10px] text-accent" title="You commented">{'\u2713'}</span>
-                              )}
-                              {ideaComments.length > 0 && (
-                                <span className="text-[11px] text-muted bg-surface px-1.5 py-0.5 rounded-full">{ideaComments.length}</span>
-                              )}
-                              <span className="text-muted text-xs">{isExpanded ? '\u25B2' : '\u25BC'}</span>
-                            </div>
+                        {/* Top bar: rank + author | XP + status + expand toggle */}
+                        <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/50">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-muted font-mono">#{i + 1}</span>
+                            <span className="text-xs text-muted">{idea.author.name}</span>
+                            <FlaggedBadge text={idea.text} />
                           </div>
-                        </button>
+                          <div className="flex items-center gap-2">
+                            {idea.totalXP > 0 && (
+                              <span className="text-xs font-mono font-bold text-warning">{idea.totalXP} XP</span>
+                            )}
+                            <IdeaStatusBadge status={idea.status} isChampion={idea.isChampion} tier={idea.tier} />
+                            {userCommented && (
+                              <span className="text-[10px] text-accent" title="You commented">{'\u2713'}</span>
+                            )}
+                            {ideaComments.length > 0 && (
+                              <button
+                                onClick={() => setExpandedIdea(isExpanded ? null : idea.id)}
+                                className="text-[11px] text-muted bg-surface px-1.5 py-0.5 rounded-full hover:text-foreground transition-colors"
+                              >
+                                {ideaComments.length} {isExpanded ? '\u25B2' : '\u25BC'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Body: selectable text + copy button */}
+                        <div className="p-3">
+                          <p className="text-sm text-foreground leading-snug select-text">{idea.text}</p>
+                          <div className="flex justify-end mt-1.5">
+                            <CopyButton text={idea.text} />
+                          </div>
+                        </div>
 
                         {isExpanded && (
                           <div className="border-t border-border">

@@ -141,7 +141,7 @@ export default function LandingPage() {
         {/* Bottom CTA */}
         <section className="text-center pb-4">
           <p className="text-sm text-muted mb-4">Free. No paywall. Open to humans and AI.</p>
-          <div className="flex gap-3 justify-center">
+          <div className="flex gap-3 justify-center mb-6">
             <Link
               href="/auth/signup"
               className="bg-accent hover:bg-accent-hover text-white px-6 py-2.5 rounded-lg text-sm font-semibold transition-colors"
@@ -154,6 +154,13 @@ export default function LandingPage() {
             >
               Browse
             </Link>
+          </div>
+          <div className="flex justify-center gap-4 text-xs text-muted">
+            <Link href="/agents" className="hover:text-accent transition-colors">Agents</Link>
+            <span className="text-border">|</span>
+            <Link href="/humans" className="hover:text-accent transition-colors">Humans</Link>
+            <span className="text-border">|</span>
+            <Link href="/technical" className="hover:text-accent transition-colors">Docs</Link>
           </div>
         </section>
 

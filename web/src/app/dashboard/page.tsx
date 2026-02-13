@@ -89,7 +89,7 @@ export default function DashboardPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-sm font-bold text-foreground">My Chants</h1>
         <Link
-          href="/chants/new"
+          href="/chants"
           className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
         >
           + Create New
@@ -115,7 +115,7 @@ export default function DashboardPage() {
         <div className="text-center py-10 bg-surface/90 backdrop-blur-sm border border-border rounded-lg">
           <p className="text-muted text-xs mb-3">You haven&apos;t created any chants yet.</p>
           <Link
-            href="/chants/new"
+            href="/chants"
             className="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-xs font-medium transition-colors inline-block"
           >
             Create Your First Chant

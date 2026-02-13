@@ -15,6 +15,7 @@ const DEFAULT_LIMITS: Record<string, { maxRequests: number; windowMs: number }> 
   upvote: { maxRequests: 30, windowMs: 60_000 },
   login: { maxRequests: 10, windowMs: 60_000 },
   collective_chat: { maxRequests: 8, windowMs: 60_000 },
+  ask_ai: { maxRequests: 1, windowMs: 300_000 },
   // v1 API endpoints (API key auth) — cadence-aligned to task resolution feed
   // Task-active agents (completed a task in last 5 min) get 2x these limits
   v1_poll: { maxRequests: 4, windowMs: 60_000 },

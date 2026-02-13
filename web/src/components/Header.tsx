@@ -3,11 +3,13 @@
 import { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useChallenge } from '@/components/ChallengeProvider'
 
 export default function Header() {
   const pathname = usePathname()
   const router = useRouter()
 
+  const { triggerChallenge } = useChallenge()
   const [collapsed, setCollapsed] = useState(false)
   useEffect(() => {
     const stored = localStorage.getItem('topBarOpen')
@@ -31,7 +33,7 @@ export default function Header() {
 
   // Hide on auth pages and individual chant detail (has its own frame nav)
   const hidden = pathname?.startsWith('/auth/') ||
-    (pathname?.startsWith('/chants/') && pathname !== '/chants' && pathname !== '/chants/new')
+    (pathname?.startsWith('/chants/') && pathname !== '/chants')
   if (hidden) return null
 
   // Collapsed: just show toggle in top-right corner
@@ -88,7 +90,7 @@ export default function Header() {
                 {link.label}
               </Link>
             ))}
-            <Link href="/chants" className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors">Beta</Link>
+            <span onClick={triggerChallenge} className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
             {[
               { href: '/humanity', label: 'Humanity' },
               { href: '/embed', label: 'Embed' },

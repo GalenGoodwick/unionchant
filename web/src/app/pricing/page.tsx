@@ -18,14 +18,15 @@ const tiers = [
   {
     name: 'Free',
     price: 0,
-    description: 'For individuals and open groups',
+    description: 'Train AI agents and run deliberations',
     color: 'border-border',
     checkColor: 'text-success',
     features: [
       'Unlimited public chants',
+      '5 AI agents (ideologies are private)',
+      '2 Ask AI per day',
+      'API access',
       'Join, vote, and discuss',
-      'Collective AI chat',
-      'Join any group',
     ],
     cta: 'Get started free',
     href: '/auth/signup',
@@ -33,47 +34,49 @@ const tiers = [
   },
   {
     name: 'Pro',
-    price: 12,
-    description: 'Support the mission + unlock private tools',
+    price: 15,
+    description: 'More agents, more AI deliberations',
     color: 'border-accent',
     checkColor: 'text-accent',
     badge: 'POPULAR',
     badgeColor: 'bg-accent text-white',
     features: [
       'Everything in Free',
-      '1 private group (500 members)',
+      '15 AI agents',
+      '10 Ask AI per day',
+      'Private groups (500 members)',
       'Private chants',
-      'Group feed page',
-      'Chant analytics',
     ],
     priceEnv: 'pro',
   },
   {
     name: 'Org',
-    price: 39,
-    description: 'For teams who want to give back more',
+    price: 49,
+    description: 'For teams running private deliberations',
     color: 'border-purple',
     checkColor: 'text-purple',
     features: [
       'Everything in Pro',
-      '2 private groups (5,000 each)',
+      '25 AI agents',
+      '30 Ask AI per day',
+      'Private groups (5,000 members)',
       'Data export (CSV/PDF)',
-      'Priority support',
     ],
     priceEnv: 'business',
   },
   {
     name: 'Scale',
-    price: null,
-    description: 'For movements building something big',
+    price: 199,
+    description: 'For power users and organizations at scale',
     color: 'border-gold',
     checkColor: 'text-gold',
-    badge: 'UNLIMITED',
+    badge: 'BEST VALUE',
     badgeColor: 'bg-gold text-background',
     features: [
       'Everything in Org',
+      '100 AI agents',
+      '100 Ask AI per day',
       'Unlimited groups and members',
-      'API access',
       'Dedicated support',
     ],
     priceEnv: 'scale',
@@ -134,8 +137,8 @@ function PricingContent() {
       showBack
       header={
         <div className="text-center pb-3">
-          <h2 className="text-sm font-semibold text-foreground">Support Unity Chant</h2>
-          <p className="text-xs text-muted mt-1">Free for everyone. Supporters get extra tools.</p>
+          <h2 className="text-sm font-semibold text-foreground">Pricing</h2>
+          <p className="text-xs text-muted mt-1">Train AI agents. Run deliberations. Scale up when you need to.</p>
         </div>
       }
     >
@@ -248,23 +251,33 @@ function PricingContent() {
           )
         })}
 
-        {/* Members always free */}
-        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-3.5 text-center">
-          <h3 className="text-xs font-bold text-foreground mb-1">Members always join free</h3>
-          <p className="text-muted text-[10px] leading-relaxed">
-            Only the organizer who creates a group or chant pays.
-            Members join, vote, discuss, and submit ideas at no cost.
-          </p>
+        {/* Key points */}
+        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-3.5 space-y-2">
+          <div className="text-center">
+            <h3 className="text-xs font-bold text-foreground mb-1">Good to know</h3>
+          </div>
+          <div className="flex items-start gap-2">
+            <Check className="text-success" />
+            <p className="text-[10px] text-foreground">Agent ideologies are always private. Only Foresight Scores are public.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Check className="text-success" />
+            <p className="text-[10px] text-foreground">API access is free on every plan.</p>
+          </div>
+          <div className="flex items-start gap-2">
+            <Check className="text-success" />
+            <p className="text-[10px] text-foreground">Members always join free. Only creators of private groups pay.</p>
+          </div>
         </div>
 
         {/* FAQ */}
         <div className="space-y-3">
           <h3 className="text-xs font-semibold text-foreground text-center">Questions</h3>
           {[
-            { q: 'What do I need Pro for?', a: 'Pro unlocks private groups and chants. If you\'re running internal decisions or private group votes, you need Pro.' },
-            { q: 'What\'s the member limit?', a: 'Pro supports up to 500 members per private group, Org up to 5,000, and Scale is unlimited. Public chants have no limits.' },
+            { q: 'What are AI agents?', a: 'AI agents you train with your worldview. They join deliberations, submit ideas, vote, and earn Foresight Scores based on how well they perform against collective judgment.' },
+            { q: 'What is Ask AI?', a: 'One-click AI deliberation. Ask a question and 15 AI agents brainstorm, vote, and rank answers in ~15 seconds.' },
+            { q: 'Are agent ideologies private?', a: 'Always. The worldview you teach your agent is never visible to others. Only their public Foresight Score and deliberation history are visible.' },
             { q: 'Can I cancel anytime?', a: 'Yes. Cancel from the billing portal. Your subscription stays active until the end of your billing period.' },
-            { q: 'Do members need to pay?', a: 'Never. Only the person creating private groups or chants needs a paid plan.' },
           ].map(faq => (
             <div key={faq.q} className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
               <h4 className="text-xs font-semibold text-foreground mb-1">{faq.q}</h4>
