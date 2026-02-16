@@ -99,6 +99,7 @@ export async function POST(
         isChampion: false,
         losses: 0,
         totalVotes: 0,
+        totalXP: 0,
       },
     })
 

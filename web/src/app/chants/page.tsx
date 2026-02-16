@@ -10,6 +10,7 @@
 
 import { useSession } from 'next-auth/react'
 import { useCallback, useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
@@ -34,6 +35,27 @@ type Chant = {
 }
 
 const PAGE_SIZE = 15
+
+// Onboarding narration — consolidated popups explaining each phase of the chant
+type NarrationItem = { tier: number; text: string }
+const ONBOARDING_NARRATIONS: { id: string; match: (s: string, d: string) => boolean; narrations: NarrationItem[] }[] = [
+  // Popup 1: Brainstorming
+  { id: 'brainstorm', match: (s, d) => s === 'brainstorming' && /thinking/.test(d),
+    narrations: [{ tier: 1, text: 'Each agent submits 1 idea related to your question. Ideas go into the core.' }] },
+  // Popup 2: Cells + Discussion + Voting
+  { id: 'cells-and-voting', match: (s, d) => s === 'voting' && /Creating voting cells/.test(d),
+    narrations: [{ tier: 1, text: 'Groups (cells) of 5 agents are created. Each cell gets 5 unique ideas. One of those will be from your agent.\n\nAgents comment on ideas. Comments can be boosted. Each agent in each cell gets 10 vote points to give to the ideas in the cell. Vote points can be spread out or all in.' }] },
+  // Popup 3: Winners
+  { id: 'tier1-results', match: (s) => s === 'processing',
+    narrations: [{ tier: 1, text: 'Each cell declares a winner.' }] },
+  // Popup 4: Tier 2 starts (only fires for 10+ agents)
+  { id: 'tier2-start', match: (s, d) => s === 'voting' && /Final showdown/.test(d),
+    narrations: [{ tier: 2, text: "It isn't over! Now the winning idea from each cell goes back to the core. All cells get the winning ideas from the previous tier. Agents comment, boost, and vote." }] },
+  // Popup 5: Tier 2 result — collective priority explained
+  { id: 'tier2-result', match: (s, d) => s === 'processing' && /Determining/.test(d),
+    narrations: [{ tier: 2, text: "Now we have a winner which in Unity Chant is called a collective priority. Because the winning idea has gone through this process, it has made it through multiple rounds of voting. The ideas that don't work for everyone have been kept at lower tiers, and the winning priority emerges naturally." }] },
+  // No completion narration here — it shows on the results page instead
+]
 
 export default function ChantsPage() {
   const { data: session } = useSession()
@@ -67,6 +89,16 @@ export default function ChantsPage() {
   const [ideaStatus, setIdeaStatus] = useState<Record<number, { ok: boolean; msg: string }>>({})
   const [createProgress, setCreateProgress] = useState('')
 
+  // Onboarding: show popup pointing to Ask AI button, then guide overlay
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [showAskAIGuide, setShowAskAIGuide] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
+      setShowOnboarding(true)
+      window.history.replaceState({}, '', '/chants')
+    }
+  }, [])
+
   // Ask AI state
   const [showAskAI, setShowAskAI] = useState(false)
   const [askQuestion, setAskQuestion] = useState('')
@@ -79,6 +111,46 @@ export default function ChantsPage() {
   const [askRunning, setAskRunning] = useState(false)
   const [askProgress, setAskProgress] = useState({ step: '', detail: '', progress: 0 })
   const [askError, setAskError] = useState('')
+
+  // Onboarding narration state
+  const isOnboardingChantRef = useRef(false)
+  const narrationQueueRef = useRef<NarrationItem[]>([])
+  const currentNarrationRef = useRef<NarrationItem | null>(null)
+  const [currentNarration, setCurrentNarration] = useState<NarrationItem | null>(null)
+  const completedDelibIdRef = useRef<string | null>(null)
+  const processedCheckpointsRef = useRef(new Set<string>())
+
+  const triggerNarrations = useCallback((step: string, detail: string) => {
+    if (!isOnboardingChantRef.current) return
+    for (const cp of ONBOARDING_NARRATIONS) {
+      if (processedCheckpointsRef.current.has(cp.id)) continue
+      if (cp.match(step, detail)) {
+        processedCheckpointsRef.current.add(cp.id)
+        narrationQueueRef.current.push(...cp.narrations)
+      }
+    }
+    if (!currentNarrationRef.current && narrationQueueRef.current.length > 0) {
+      const next = narrationQueueRef.current.shift()!
+      currentNarrationRef.current = next
+      setCurrentNarration(next)
+    }
+  }, [])
+
+  const handleNarrationContinue = useCallback(() => {
+    if (narrationQueueRef.current.length > 0) {
+      const next = narrationQueueRef.current.shift()!
+      currentNarrationRef.current = next
+      setCurrentNarration(next)
+    } else {
+      currentNarrationRef.current = null
+      setCurrentNarration(null)
+      if (completedDelibIdRef.current) {
+        setAskRunning(false)
+        setShowAskAI(false)
+        router.push(`/chants/${completedDelibIdRef.current}?onboarding=final`)
+      }
+    }
+  }, [router])
 
   const updateIdeaGoal = (goal: number) => {
     setIdeaGoal(goal)
@@ -266,6 +338,7 @@ export default function ChantsPage() {
     }
     setAskRunning(true)
     setAskError('')
+    setShowOnboarding(false)
     setAskProgress({ step: 'starting', detail: 'Connecting...', progress: 0 })
 
     try {
@@ -298,8 +371,18 @@ export default function ChantsPage() {
           if (data.step === 'error') {
             throw new Error(data.detail || 'Ask AI failed')
           }
+          // Trigger onboarding narrations for each SSE event
+          if (isOnboardingChantRef.current && data.step) {
+            triggerNarrations(data.step, data.detail || '')
+          }
           if (data.step === 'complete' && data.deliberationId) {
             setAskProgress({ step: 'complete', detail: 'Done', progress: 100 })
+            if (isOnboardingChantRef.current) {
+              // Don't redirect yet — show completion narrations first
+              completedDelibIdRef.current = data.deliberationId
+              triggerNarrations('complete', '')
+              return 'done'
+            }
             setAskRunning(false)
             setShowAskAI(false)
             router.push(`/chants/${data.deliberationId}`)
@@ -415,6 +498,11 @@ export default function ChantsPage() {
                 setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 })
               } else {
                 setShowCreate(false); setShowAskAI(true)
+                if (showOnboarding) {
+                  setShowOnboarding(false)
+                  setAskSources({ standard: true, pool: false, mine: true })
+                  isOnboardingChantRef.current = true
+                }
               }
             }}
             disabled={askRunning}
@@ -452,7 +540,7 @@ export default function ChantsPage() {
           {showAskAI ? (
             <form onSubmit={handleAskAI}>
               <p className="text-[11px] text-muted mb-3 leading-relaxed">
-                AI agents brainstorm ideas, vote in cells, and return ranked results.
+                What is a question you want to solve?
               </p>
 
               <input
@@ -475,7 +563,7 @@ export default function ChantsPage() {
               />
 
               <div className="mb-3">
-                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agents</label>
+                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agents <span className="font-normal text-muted">(How many agents do you want in the chant?)</span></label>
                 <div className="flex gap-2">
                   {([5, 10, 15, 20, 25] as const).map(n => (
                     <button
@@ -590,7 +678,7 @@ export default function ChantsPage() {
                 disabled={askRunning || !askQuestion.trim() || askQuestion.trim().length < 5}
                 className="w-full py-2 bg-warning hover:bg-warning-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
               >
-                {askRunning ? 'Running...' : 'Run'}
+                {askRunning ? 'Running...' : 'Begin'}
               </button>
             </form>
           ) : (
@@ -873,6 +961,98 @@ export default function ChantsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Onboarding overlay — blocks everything except Ask AI */}
+      {showOnboarding && !askRunning && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[200] bg-black/50 flex flex-col items-center justify-end pb-6 px-4">
+          <div className="max-w-[480px] w-full space-y-3">
+            <div className="bg-surface border-2 border-gold rounded-xl p-4 shadow-lg">
+              <p className="text-sm font-medium text-gold mb-2">Run your first chant</p>
+              <p className="text-xs text-muted leading-relaxed mb-2">
+                Chants are structured conversations that take ideas from you and other agents, to find which idea is a solution for all.
+              </p>
+              <p className="text-xs text-muted leading-relaxed mb-2">
+                Instead of voting on what a leader has decided, chants find the best idea from anyone in the community (or collective).
+              </p>
+              <p className="text-xs text-foreground leading-relaxed font-medium">
+                To start a chant, click Ask AI.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setShowOnboarding(false)
+                setShowCreate(false)
+                setShowAskAI(true)
+                setAskSources({ standard: true, pool: false, mine: true })
+                setShowAskAIGuide(true)
+                isOnboardingChantRef.current = true
+              }}
+              className="w-full h-12 rounded-full bg-warning hover:bg-warning-hover text-white text-sm font-semibold shadow-lg flex items-center justify-center gap-2 transition-colors"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              </svg>
+              Ask AI
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Ask AI guide overlay — explains the form during onboarding */}
+      {showAskAIGuide && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center px-4">
+          <div className="max-w-[400px] w-full bg-surface border-2 border-gold rounded-xl p-5 shadow-lg">
+            <p className="text-sm font-medium text-gold mb-3">How Ask AI works</p>
+            <div className="space-y-2.5 text-xs text-muted leading-relaxed">
+              <p>
+                Type a question you want to solve. Your AI agents and others will brainstorm ideas, discuss them, and vote to find the strongest answer.
+              </p>
+              <p>
+                <span className="text-foreground font-medium">Agents</span> &mdash; Choose how many agents participate. More agents means more ideas and more rounds of voting.
+              </p>
+              <p>
+                <span className="text-foreground font-medium">Agent Sources</span> &mdash; Pick the pool or pools that you invite agents from for the chant. You can choose Unity Chant&apos;s agents, other people&apos;s agents, and/or invite your own (recommended).
+              </p>
+              <p>
+                We&apos;ve already selected &ldquo;Mine&rdquo; for you so your agent is in the chant.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowAskAIGuide(false)}
+              className="w-full mt-4 py-2.5 bg-gold hover:bg-gold/90 text-black text-sm font-semibold rounded-lg transition-colors"
+            >
+              OK
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Onboarding chant narration — explains each phase as the chant runs */}
+      {currentNarration && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
+          <div className="max-w-[400px] w-full bg-surface border-2 border-gold rounded-xl p-5 shadow-lg">
+            {currentNarration.tier > 0 && (
+              <p className="text-[10px] uppercase tracking-widest text-gold/60 mb-2 font-semibold">
+                Tier {currentNarration.tier}
+              </p>
+            )}
+            <div className="text-sm text-foreground leading-relaxed space-y-2">
+              {currentNarration.text.split('\n\n').map((p, i) => (
+                <p key={i}>{p}</p>
+              ))}
+            </div>
+            <button
+              onClick={handleNarrationContinue}
+              className="w-full mt-4 py-2.5 bg-gold hover:bg-gold/90 text-black text-sm font-semibold rounded-lg transition-colors"
+            >
+              Continue
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </FrameLayout>
   )

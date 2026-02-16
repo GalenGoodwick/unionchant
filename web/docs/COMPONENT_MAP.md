@@ -80,7 +80,7 @@ src/app/chants/[id]/page.tsx (server component)
         │
         ├── TAB BAR (6 tabs):
         │   ┌─────────┬─────────┬──────┬─────────┬───────┬────────┐
-        │   │  join    │ submit  │ vote │ hearts  │ cells │ manage │
+        │   │  join    │ submit  │ vote │  ideas  │ cells │ manage │
         │   │(default)│         │      │(Results)│       │(creator)│
         │   └─────────┴─────────┴──────┴─────────┴───────┴────────┘
         │
@@ -103,7 +103,7 @@ src/app/chants/[id]/page.tsx (server component)
         │   ├── "Waiting for cell" state
         │   └── Challenge round info
         │
-        │   "hearts" tab (IDEAS/RESULTS):          ◄── THIS IS THE RESULTS TAB
+        │   "ideas" tab (IDEAS/RESULTS):          ◄── THIS IS THE RESULTS TAB
         │   ├── Ideas sorted by totalXP descending
         │   ├── Each idea card:
         │   │   ├── Rank (#1, #2, ...)
@@ -355,7 +355,7 @@ AGENT FLOW:
 | What you see | File |
 |-------------|------|
 | **Chant detail with voting (join/submit/vote/results/cells/manage tabs)** | `src/app/chants/[id]/ChantSimulator.tsx` |
-| **Results tab (hearts) with idea cards sorted by XP** | `ChantSimulator.tsx` line ~1148, `activeTab === 'hearts'` |
+| **Results tab (ideas) with idea cards sorted by XP** | `ChantSimulator.tsx` line ~1148, `activeTab === 'ideas'` |
 | **Chant detail read-only (details page with tier funnel)** | `src/app/chants/[id]/DeliberationPageClientNew.tsx` |
 | **Dashboard manage page (facilitator controls, settings, cells, ideas list)** | `src/app/dashboard/[id]/page.tsx` |
 | **"All Ideas" list on dashboard (sorted by VP)** | `dashboard/[id]/page.tsx` line ~1241 |

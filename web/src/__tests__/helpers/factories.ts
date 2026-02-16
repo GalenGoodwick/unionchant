@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import type { User, Idea } from '@prisma/client'
 
 // Track all created entity IDs for cleanup
 const createdIds = {
@@ -23,7 +24,7 @@ export function resetCreatedIds() {
  * Create N test users with unique emails
  */
 export async function createTestUsers(count: number, prefix = 'vt') {
-  const users = []
+  const users: User[] = []
   for (let i = 0; i < count; i++) {
     const user = await prisma.user.create({
       data: {
@@ -88,7 +89,7 @@ export async function createTestDeliberation({
   }
 
   // Create ideas (authored by creator for simplicity)
-  const ideas = []
+  const ideas: Idea[] = []
   for (let i = 0; i < ideaCount; i++) {
     const idea = await prisma.idea.create({
       data: {

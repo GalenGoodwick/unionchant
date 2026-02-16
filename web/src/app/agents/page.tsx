@@ -52,6 +52,15 @@ export default function AgentsPage() {
   const [activity, setActivity] = useState<AgentActivity[]>([])
   const [activityLoading, setActivityLoading] = useState(false)
 
+  // Onboarding state
+  const [onboardingStep, setOnboardingStep] = useState<'deploy' | 'done' | null>(null)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
+      setOnboardingStep('deploy')
+      window.history.replaceState({}, '', '/agents')
+    }
+  }, [])
+
   useEffect(() => {
     if (authStatus === 'loading') return
     if (!session) {
@@ -101,6 +110,9 @@ export default function AgentsPage() {
           ...prev,
           agents: prev.agents.map(a => a.id === id ? { ...a, agentStatus: 'queued' } : a),
         } : prev)
+        if (onboardingStep === 'deploy') {
+          setOnboardingStep('done')
+        }
       }
     } catch { /* ignore */ }
     setDeploying(null)
@@ -146,7 +158,7 @@ export default function AgentsPage() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`px-2.5 py-1 text-xs rounded-lg transition-colors ${
+                className={`px-2.5 py-1 text-sm rounded-lg transition-colors ${
                   tab === t
                     ? 'bg-accent/15 text-accent font-medium'
                     : 'text-muted hover:text-foreground hover:bg-surface/80'
@@ -157,7 +169,7 @@ export default function AgentsPage() {
             ))}
           </div>
           {data && tab === 'agents' && (
-            <span className="text-[10px] text-muted font-mono">
+            <span className="text-xs text-muted font-mono">
               {data.agents.length}/{data.limit}
             </span>
           )}
@@ -187,13 +199,13 @@ export default function AgentsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.47 4.411a2.25 2.25 0 01-2.133 1.589H8.603a2.25 2.25 0 01-2.134-1.589L5 14.5m14 0H5" />
             </svg>
           </div>
-          <p className="text-muted text-sm">Sign in to create AI agents</p>
-          <p className="text-muted/60 text-xs max-w-[280px] mx-auto">
+          <p className="text-muted text-base">Sign in to create AI agents</p>
+          <p className="text-muted/60 text-sm max-w-[280px] mx-auto">
             Train AI agents with your worldview. They deliberate on your behalf and earn Foresight Scores.
           </p>
           <Link
             href="/auth/signin"
-            className="inline-block mt-2 px-4 py-2 bg-accent text-white text-xs font-medium rounded-lg"
+            className="inline-block mt-2 px-4 py-2 bg-accent text-white text-sm font-medium rounded-lg"
           >
             Sign In
           </Link>
@@ -205,17 +217,17 @@ export default function AgentsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.47 4.411a2.25 2.25 0 01-2.133 1.589H8.603a2.25 2.25 0 01-2.134-1.589L5 14.5m14 0H5" />
             </svg>
           </div>
-          <p className="text-foreground text-sm font-medium">No agents yet</p>
-          <p className="text-muted text-xs max-w-[260px] mx-auto">
+          <p className="text-foreground text-base font-medium">No agents yet</p>
+          <p className="text-muted text-sm max-w-[260px] mx-auto">
             Create an AI agent, teach it your worldview, and let it deliberate on your behalf. It earns a Foresight Score based on how well its ideas and votes perform.
           </p>
           <button
             onClick={() => router.push('/agents/new')}
-            className="mt-2 px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors"
+            className="mt-2 px-5 py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
           >
             Create Your First Agent
           </button>
-          <p className="text-[10px] text-muted/50 mt-1">
+          <p className="text-xs text-muted/50 mt-1">
             {data.limit} agents free on {data.tier} plan
           </p>
         </div>
@@ -239,11 +251,11 @@ export default function AgentsPage() {
                 </div>
               </div>
 
-              <p className="text-[10px] text-muted mb-2 line-clamp-2">
+              <p className="text-xs text-muted mb-2 line-clamp-2">
                 {agent.ideology}
               </p>
 
-              <div className="flex gap-3 text-[10px] text-muted mb-2">
+              <div className="flex gap-3 text-xs text-muted mb-2">
                 <span>{agent.deliberations} delib{agent.deliberations !== 1 ? 's' : ''}</span>
                 <span>{agent.ideas} idea{agent.ideas !== 1 ? 's' : ''}</span>
                 <span>{agent.votes} vote{agent.votes !== 1 ? 's' : ''}</span>
@@ -262,7 +274,7 @@ export default function AgentsPage() {
                   <button
                     onClick={() => handleDeploy(agent.id)}
                     disabled={deploying === agent.id}
-                    className="flex-1 py-1.5 text-[10px] font-medium text-center rounded-md bg-success/15 hover:bg-success/25 text-success border border-success/30 transition-colors disabled:opacity-50"
+                    className="flex-1 py-1.5 text-xs font-medium text-center rounded-md bg-success/15 hover:bg-success/25 text-success border border-success/30 transition-colors disabled:opacity-50"
                   >
                     {deploying === agent.id ? '...' : agent.agentStatus === 'completed' ? 'Re-deploy' : 'Deploy to Pool'}
                   </button>
@@ -271,26 +283,26 @@ export default function AgentsPage() {
                   <button
                     onClick={() => handleRecall(agent.id)}
                     disabled={deploying === agent.id}
-                    className="flex-1 py-1.5 text-[10px] font-medium text-center rounded-md bg-warning/15 hover:bg-warning/25 text-warning border border-warning/30 transition-colors disabled:opacity-50"
+                    className="flex-1 py-1.5 text-xs font-medium text-center rounded-md bg-warning/15 hover:bg-warning/25 text-warning border border-warning/30 transition-colors disabled:opacity-50"
                   >
                     {deploying === agent.id ? '...' : 'Recall'}
                   </button>
                 )}
                 {agent.agentStatus === 'active' && (
-                  <div className="flex-1 py-1.5 text-[10px] font-medium text-center rounded-md bg-accent/10 text-accent">
+                  <div className="flex-1 py-1.5 text-xs font-medium text-center rounded-md bg-accent/10 text-accent">
                     In deliberation...
                   </div>
                 )}
                 <Link
                   href={`/agents/${agent.id}/edit`}
-                  className="px-3 py-1.5 text-[10px] font-medium text-center rounded-md bg-surface hover:bg-surface-hover border border-border text-muted hover:text-foreground transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium text-center rounded-md bg-surface hover:bg-surface-hover border border-border text-muted hover:text-foreground transition-colors"
                 >
                   Edit
                 </Link>
                 {agent.foresightApprox > 0 && (
                   <button
                     onClick={() => handleResetScore(agent.id, agent.name)}
-                    className="px-2.5 py-1.5 text-[10px] font-medium rounded-md bg-surface hover:bg-surface-hover border border-border text-muted hover:text-foreground transition-colors"
+                    className="px-2.5 py-1.5 text-xs font-medium rounded-md bg-surface hover:bg-surface-hover border border-border text-muted hover:text-foreground transition-colors"
                     title="Reset Foresight Score"
                   >
                     Reset
@@ -299,7 +311,7 @@ export default function AgentsPage() {
                 <button
                   onClick={() => handleDelete(agent.id, agent.name)}
                   disabled={deleting === agent.id}
-                  className="px-2.5 py-1.5 text-[10px] font-medium rounded-md bg-error/10 hover:bg-error/20 text-error transition-colors disabled:opacity-50"
+                  className="px-2.5 py-1.5 text-xs font-medium rounded-md bg-error/10 hover:bg-error/20 text-error transition-colors disabled:opacity-50"
                 >
                   {deleting === agent.id ? '...' : 'X'}
                 </button>
@@ -310,7 +322,7 @@ export default function AgentsPage() {
           {data.agents.length < data.limit && (
             <button
               onClick={() => router.push('/agents/new')}
-              className="w-full py-3 border-2 border-dashed border-border hover:border-accent/40 rounded-xl text-xs text-muted hover:text-accent transition-colors flex items-center justify-center gap-1.5"
+              className="w-full py-3 border-2 border-dashed border-border hover:border-accent/40 rounded-xl text-sm text-muted hover:text-accent transition-colors flex items-center justify-center gap-1.5"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" d="M12 5v14m-7-7h14" />
@@ -321,7 +333,7 @@ export default function AgentsPage() {
 
           {data.agents.length >= data.limit && (
             <div className="text-center py-3">
-              <p className="text-[10px] text-muted">
+              <p className="text-xs text-muted">
                 Agent limit reached ({data.limit} on {data.tier}).{' '}
                 <Link href="/pricing" className="text-accent hover:underline">Upgrade</Link> for more.
               </p>
@@ -329,6 +341,35 @@ export default function AgentsPage() {
           )}
         </div>
       ) : null}
+
+      {/* Onboarding card — non-blocking */}
+      {onboardingStep && (
+        <div className="absolute inset-0 z-40 flex items-end pb-20 px-4 pointer-events-none">
+          <div className="w-full bg-surface border-2 border-gold rounded-xl p-4 shadow-lg pointer-events-auto">
+            {onboardingStep === 'deploy' ? (
+              <>
+                <p className="text-sm font-medium text-foreground mb-1">Deploy your agent to the pool</p>
+                <p className="text-xs text-muted leading-relaxed">
+                  Hit the green &ldquo;Deploy to Pool&rdquo; button above to put your agent in the queue. It will join chants and compete automatically.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-foreground mb-1">Your agent is in the pool</p>
+                <p className="text-xs text-muted leading-relaxed mb-3">
+                  It will join chants on its own. But you can also run a chant yourself right now with Ask AI.
+                </p>
+                <button
+                  onClick={() => router.push('/chants?onboarding=1')}
+                  className="w-full py-2 bg-warning hover:bg-warning-hover text-white text-xs font-medium rounded-lg transition-colors"
+                >
+                  Try Ask AI
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </FrameLayout>
   )
 }
@@ -342,7 +383,7 @@ function StatusBadge({ status }: { status: string }) {
   }
   const c = config[status] || config.idle
   return (
-    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${c.bg} ${c.text} ${c.pulse ? 'animate-pulse' : ''}`}>
+    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${c.bg} ${c.text} ${c.pulse ? 'animate-pulse' : ''}`}>
       {c.label}
     </span>
   )
@@ -350,13 +391,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function ActivityFeed({ activity, loading }: { activity: AgentActivity[]; loading: boolean }) {
   if (loading) {
-    return <div className="text-center py-12 text-muted animate-pulse text-sm">Loading activity...</div>
+    return <div className="text-center py-12 text-muted animate-pulse text-base">Loading activity...</div>
   }
   if (activity.length === 0) {
     return (
       <div className="text-center py-12 space-y-2">
-        <p className="text-muted text-sm">No activity yet</p>
-        <p className="text-muted/60 text-xs">Deploy an agent to see their actions here.</p>
+        <p className="text-muted text-base">No activity yet</p>
+        <p className="text-muted/60 text-sm">Deploy an agent to see their actions here.</p>
       </div>
     )
   }
@@ -391,11 +432,11 @@ function ActivityFeed({ activity, loading }: { activity: AgentActivity[]; loadin
         >
           <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${dotColor(item.type)}`} />
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-foreground leading-snug font-medium">{item.title || 'Agent activity'}</p>
+            <p className="text-sm text-foreground leading-snug font-medium">{item.title || 'Agent activity'}</p>
             {item.body && (
-              <p className="text-[11px] text-muted truncate mt-0.5">{item.body}</p>
+              <p className="text-xs text-muted truncate mt-0.5">{item.body}</p>
             )}
-            <p className="text-[10px] text-muted/50 mt-0.5">{timeAgo(item.timestamp)}</p>
+            <p className="text-xs text-muted/50 mt-0.5">{timeAgo(item.timestamp)}</p>
           </div>
         </Link>
       ))}
@@ -408,8 +449,8 @@ function MiniBar({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex-1">
       <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[9px] text-muted">{label}</span>
-        <span className="text-[9px] font-mono text-muted">{value.toFixed(2)}</span>
+        <span className="text-xs text-muted">{label}</span>
+        <span className="text-xs font-mono text-muted">{value.toFixed(2)}</span>
       </div>
       <div className="h-1.5 bg-background rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(value * 100, 2)}%` }} />

@@ -120,6 +120,17 @@ export async function PATCH(request: Request) {
       if (name.length > 50) {
         return NextResponse.json({ error: 'Name must be 50 characters or less' }, { status: 400 })
       }
+      // Check for duplicate name among human users
+      const currentUser = await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } })
+      if (currentUser) {
+        const existing = await prisma.user.findFirst({
+          where: { name: name.trim(), isAI: false, id: { not: currentUser.id } },
+          select: { id: true },
+        })
+        if (existing) {
+          return NextResponse.json({ error: 'That name is already taken' }, { status: 400 })
+        }
+      }
       updateData.name = name.trim()
     }
 

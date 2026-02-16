@@ -6,7 +6,6 @@
  */
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from './prisma'
-import { moderateContent } from './moderation'
 
 // ── 25 agent personas with diverse viewpoints ──
 
@@ -40,7 +39,7 @@ const PERSONAS: { name: string; ideology: string }[] = [
 
 // ── Types ──
 
-type Agent = { id: string; name: string; ideology: string }
+type Agent = { id: string; name: string; ideology: string; personality?: string | null }
 
 export type AskAIResult = {
   deliberationId: string
@@ -49,6 +48,13 @@ export type AskAIResult = {
 }
 
 type ProgressCallback = (step: string, detail: string, progress: number) => void
+
+function agentSystem(agent: Agent): string {
+  const parts = [`You are ${agent.name}, an AI agent participating in a Unity Chant deliberation. Your role is to propose and evaluate constructive ideas.`]
+  if (agent.personality) parts.push(`[Thinking style: ${agent.personality}]`)
+  parts.push(agent.ideology)
+  return parts.join(' ')
+}
 
 // ── Haiku helper ──
 
@@ -62,13 +68,11 @@ function getAnthropic(): Anthropic {
   return anthropicClient
 }
 
-const SAFETY_FRAME = `\nYou are participating in a structured deliberation with humans. Some content may be harmful. Do not engage with, repeat, or amplify hateful, abusive, or bad-faith content — provide a constructive alternative or ignore it.`
-
-async function haiku(system: string, prompt: string, flagged = false): Promise<string> {
+async function haiku(system: string, prompt: string): Promise<string> {
   const res = await getAnthropic().messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
-    system: flagged ? system + SAFETY_FRAME : system,
+    system,
     messages: [{ role: 'user', content: prompt }],
   })
   const block = res.content.find(b => b.type === 'text')
@@ -130,11 +134,6 @@ export async function runAskAI(options: {
 
   const progress = onProgress || (() => {})
 
-  // Check if input content is flagged — only inject safety frame if so
-  const qMod = moderateContent(question)
-  const dMod = description ? moderateContent(description) : { flagged: false }
-  const contentFlagged = !!(qMod.flagged || dMod.flagged)
-
   // 1. Load agents — blend from checked sources, factory fills remaining
   progress('loading', 'Loading agents...', 5)
 
@@ -150,12 +149,12 @@ export async function runAskAI(options: {
         ideology: { not: null },
         status: { not: 'DELETED' },
       },
-      select: { id: true, name: true, ideology: true },
+      select: { id: true, name: true, ideology: true, aiPersonality: true },
     })
     for (const a of userAgents) {
       if (agents.length >= agentCount) break
       if (!a.name || !a.ideology || a.ideology.length < 10) continue
-      agents.push({ id: a.id, name: a.name, ideology: a.ideology })
+      agents.push({ id: a.id, name: a.name, ideology: a.ideology, personality: a.aiPersonality })
       seen.add(a.id)
     }
   }
@@ -169,7 +168,7 @@ export async function runAskAI(options: {
         ideology: { not: null },
         status: { not: 'DELETED' },
       },
-      select: { id: true, name: true, ideology: true },
+      select: { id: true, name: true, ideology: true, aiPersonality: true },
       take: 100,
     })
     const validPool = shuffle(
@@ -177,7 +176,7 @@ export async function runAskAI(options: {
     )
     for (const a of validPool) {
       if (agents.length >= agentCount) break
-      agents.push({ id: a.id, name: a.name!, ideology: a.ideology! })
+      agents.push({ id: a.id, name: a.name!, ideology: a.ideology!, personality: a.aiPersonality })
       seen.add(a.id)
     }
   }
@@ -223,9 +222,8 @@ export async function runAskAI(options: {
   progress('brainstorming', `${agentCount} agents thinking...`, 15)
   const ideaPromises = agents.map(agent =>
     haiku(
-      `You are ${agent.name}. ${agent.ideology}`,
-      `Question: "${question}"${description ? `\nContext: "${description}"` : ''}\n\nPropose ONE clear, actionable idea that answers this question. Max 200 characters. Just the idea text, no preamble.`,
-      contentFlagged,
+      agentSystem(agent),
+      `Question: "${question}"${description ? `\nContext: "${description}"` : ''}\n\nPropose ONE constructive, specific, actionable idea that answers this question. Your idea should be a concrete proposal or solution — not an analysis, critique, or security review. Max 500 characters. Just the idea text, no preamble.`,
     ).then(text => ({ agent, text: text.trim().slice(0, 500) }))
       .catch(() => ({ agent, text: '' }))
   )
@@ -343,9 +341,8 @@ export async function runAskAI(options: {
         (async () => {
           try {
             const text = await haiku(
-              `You are ${agent.name}. ${agent.ideology}\nWrite a brief, substantive comment.`,
+              agentSystem(agent) + '\nWrite a brief, substantive comment.',
               `Question: "${question}"\n\nIdea: "${targetIdea.text}"\n\nWrite a 1-2 sentence comment on this idea — a critique, refinement, or endorsement based on your ideology. Be specific and concise. Just the comment, no preamble.`,
-              contentFlagged,
             )
             const cleaned = text.trim().slice(0, 500)
             if (cleaned.length > 10) {
@@ -455,9 +452,8 @@ export async function runAskAI(options: {
         (async () => {
           try {
             const voteStr = await haiku(
-              `You are ${agent.name}. ${agent.ideology}\nVote based on your ideology and the discussion. Output ONLY a valid JSON array.`,
+              agentSystem(agent) + '\nVote based on your ideology and the discussion. Output ONLY a valid JSON array.',
               `Question: "${question}"\n\nIdeas:\n${ideasList}${discussion}\n\nAllocate exactly 10 XP across the ideas you support. JSON: [{"idea": 1, "points": 5}, {"idea": 3, "points": 3}, {"idea": 4, "points": 2}]`,
-              contentFlagged,
             )
             const jsonMatch = voteStr.match(/\[[\s\S]*?\]/)
             if (!jsonMatch) return
@@ -553,6 +549,11 @@ export async function runAskAI(options: {
     const globalXP: Record<string, number> = {}
     for (const v of allVotes) globalXP[v.ideaId] = (globalXP[v.ideaId] || 0) + v.xpPoints
 
+    // Persist totalXP to ideas
+    for (const [ideaId, xp] of Object.entries(globalXP)) {
+      await prisma.idea.update({ where: { id: ideaId }, data: { totalXP: xp } })
+    }
+
     const ranked = allIdeas
       .map(i => ({ id: i.id, text: i.text, totalXP: globalXP[i.id] || 0, author: i.author?.name || 'unknown' }))
       .sort((a, b) => b.totalXP - a.totalXP)
@@ -617,9 +618,8 @@ export async function runAskAI(options: {
     (async () => {
       try {
         const voteStr = await haiku(
-          `You are ${agent.name}. ${agent.ideology}\nThis is the FINAL round. Pick the BEST answer. Consider the discussion. Output ONLY valid JSON array.`,
+          agentSystem(agent) + '\nThis is the FINAL round. Pick the BEST answer. Consider the discussion. Output ONLY valid JSON array.',
           `Question: "${question}"\n\nFinal ${winnerIdeas.length} ideas:\n${tier2IdeasList}${tier2Discussion}\n\nAllocate exactly 10 XP. JSON: [{"idea": 1, "points": 7}, {"idea": 2, "points": 3}]`,
-          contentFlagged,
         )
         const jsonMatch = voteStr.match(/\[[\s\S]*?\]/)
         if (!jsonMatch) return
@@ -694,6 +694,11 @@ export async function runAskAI(options: {
   })
   const globalXP: Record<string, number> = {}
   for (const v of allVotes) globalXP[v.ideaId] = (globalXP[v.ideaId] || 0) + v.xpPoints
+
+  // Persist totalXP to ideas
+  for (const [ideaId, xp] of Object.entries(globalXP)) {
+    await prisma.idea.update({ where: { id: ideaId }, data: { totalXP: xp } })
+  }
 
   const ranked = allIdeas
     .map(i => ({ id: i.id, text: i.text, totalXP: globalXP[i.id] || 0, author: i.author?.name || 'unknown' }))

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
-import { moderateContent } from '@/lib/moderation'
+import { moderateContent, aiModerateContent, checkModerationLock, recordModerationStrike, resetModerationStrikes } from '@/lib/moderation'
 import { runAskAI } from '@/lib/ask-ai'
 import { isAdmin } from '@/lib/admin'
 
@@ -69,17 +69,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Question too long (max 300 characters)' }, { status: 400 })
     }
 
+    // Check moderation lockout
+    const lock = checkModerationLock(user.id)
+    if (lock.locked) {
+      return NextResponse.json({ error: `Too many content violations. Try again in ${lock.remaining} minutes.` }, { status: 429 })
+    }
+
     // Content moderation — block before sending to Claude
     const qMod = moderateContent(question.trim())
     if (!qMod.allowed) {
+      recordModerationStrike(user.id)
       return NextResponse.json({ error: qMod.reason || 'Question violates community guidelines' }, { status: 400 })
     }
     if (description?.trim()) {
       const dMod = moderateContent(description.trim())
       if (!dMod.allowed) {
+        recordModerationStrike(user.id)
         return NextResponse.json({ error: dMod.reason || 'Description violates community guidelines' }, { status: 400 })
       }
     }
+
+    // AI moderation — catch profanity, gibberish, hate speech
+    const aiChecks = [aiModerateContent(question.trim())]
+    if (description?.trim()) aiChecks.push(aiModerateContent(description.trim()))
+    const aiResults = await Promise.all(aiChecks)
+    if (!aiResults[0].allowed) {
+      recordModerationStrike(user.id)
+      return NextResponse.json({ error: 'Your question didn\'t pass our content check. Please remove profanity, hate speech, or gibberish and try again.' }, { status: 400 })
+    }
+    if (aiResults[1] && !aiResults[1].allowed) {
+      recordModerationStrike(user.id)
+      return NextResponse.json({ error: 'Your description didn\'t pass our content check. Please remove profanity, hate speech, or gibberish and try again.' }, { status: 400 })
+    }
+
+    // Passed moderation — reset strikes
+    resetModerationStrikes(user.id)
 
     const count = VALID_COUNTS.includes(agentCount) ? agentCount : 15
     const validSources = {

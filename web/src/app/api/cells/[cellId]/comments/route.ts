@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { moderateContent } from '@/lib/moderation'
+import { moderateContent, aiModerateContent, checkModerationLock, recordModerationStrike, resetModerationStrikes } from '@/lib/moderation'
 import { checkRateLimit, incrementChatStrike } from '@/lib/rate-limit'
 
 
@@ -297,11 +297,26 @@ export async function POST(
       }
     }
 
-    // Content moderation
+    // Check moderation lockout
+    const modLock = checkModerationLock(user.id)
+    if (modLock.locked) {
+      return NextResponse.json({ error: `Too many content violations. Try again in ${modLock.remaining} minutes.` }, { status: 429 })
+    }
+
+    // Content moderation (regex + AI)
     const moderation = moderateContent(text)
     if (!moderation.allowed) {
+      recordModerationStrike(user.id)
       return NextResponse.json({ error: moderation.reason }, { status: 400 })
     }
+    const aiCheck = await aiModerateContent(text)
+    if (!aiCheck.allowed) {
+      recordModerationStrike(user.id)
+      return NextResponse.json({ error: 'Your comment didn\'t pass our content check. Please remove profanity, hate speech, or gibberish and try again.' }, { status: 400 })
+    }
+
+    // Passed moderation — reset strikes
+    resetModerationStrikes(user.id)
 
     const comment = await prisma.comment.create({
       data: {

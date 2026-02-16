@@ -25,6 +25,7 @@ interface FrameLayoutProps {
 }
 
 const menuLinks = [
+  { href: '/?landing=1', label: 'Landing' },
   { href: '/tools', label: 'Tools' },
   { href: '/resources', label: 'Resources' },
   { href: '/dashboard', label: 'Manage' },
@@ -67,10 +68,10 @@ export default function FrameLayout({
   const btnRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
 
-  const [topBarOpen, setTopBarOpen] = useState(true)
+  const [topBarOpen, setTopBarOpen] = useState(false)
 
   useEffect(() => {
-    if (localStorage.getItem('topBarOpen') === 'false') setTopBarOpen(false)
+    if (localStorage.getItem('topBarOpen') === 'true') setTopBarOpen(true)
   }, [])
 
   const toggleTopBar = () => {
@@ -121,12 +122,12 @@ export default function FrameLayout({
   ]
 
   return (
-    <div className="fixed inset-0 z-10 flex flex-col bg-background overflow-hidden sm:px-4 sm:pb-4 sm:pt-4">
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden sm:max-w-[480px] w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
+    <div className="fixed inset-0 z-10 flex flex-col bg-background overflow-clip sm:px-4 sm:pb-4 sm:pt-4">
+      <div className="flex-1 min-h-0 flex flex-col overflow-clip sm:max-w-[480px] w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
         <AmbientConstellation />
 
         {/* ── Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method) ── */}
-        {topBarOpen && (
+        {topBarOpen && !hideFooter && (
           <div className="shrink-0 relative z-10 px-3 pt-2 pb-1 border-b border-border/50">
             <div className="flex justify-center items-center gap-1 flex-wrap">
               {topBarLinksLeft.map(link => (

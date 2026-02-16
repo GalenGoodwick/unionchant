@@ -65,6 +65,20 @@ export async function GET(
 
       if (!deliberation) return null
 
+      // Per-tier XP breakdown for each idea
+      const tierXPDetailed = await prisma.$queryRaw<{ ideaId: string; tier: number; xp: bigint }[]>`
+        SELECT v."ideaId", c."tier", COALESCE(SUM(v."xpPoints"), 0) as xp
+        FROM "Vote" v JOIN "Cell" c ON v."cellId" = c."id"
+        WHERE c."deliberationId" = ${id}
+        GROUP BY v."ideaId", c."tier"
+        ORDER BY c."tier" ASC
+      `
+      const tierXPMap: Record<string, Record<number, number>> = {}
+      for (const row of tierXPDetailed) {
+        if (!tierXPMap[row.ideaId]) tierXPMap[row.ideaId] = {}
+        tierXPMap[row.ideaId][row.tier] = Number(row.xp)
+      }
+
       // FCFS progress
       let fcfsProgress: Record<string, unknown> | null = null
       if (deliberation.allocationMode === 'fcfs' && deliberation.phase === 'VOTING') {
@@ -104,7 +118,10 @@ export async function GET(
         champion: deliberation.championId
           ? deliberation.ideas.find(i => i.id === deliberation.championId)
           : null,
-        ideas: deliberation.ideas,
+        ideas: deliberation.ideas.map(idea => ({
+          ...idea,
+          xpPerTier: tierXPMap[idea.id] || {},
+        })),
         cells: deliberation.cells.map(c => ({
           ...c,
           ideas: c.ideas.map(ci => ci.idea),

@@ -11,7 +11,6 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from './prisma'
-import { moderateContent } from './moderation'
 import { notifyAgentOwner } from './agent-notifications'
 
 // ── Haiku helper ──
@@ -26,20 +25,11 @@ function getAnthropic(): Anthropic {
   return anthropicClient
 }
 
-const SAFETY_FRAME = `\nYou are participating in a structured deliberation with humans. Some content may be harmful. Do not engage with, repeat, or amplify hateful, abusive, or bad-faith content — provide a constructive alternative or ignore it.`
-
-function contentIsFlagged(...texts: string[]): boolean {
-  return texts.some(t => {
-    const r = moderateContent(t)
-    return !r.allowed || r.flagged
-  })
-}
-
-async function haiku(system: string, prompt: string, flagged = false): Promise<string> {
+async function haiku(system: string, prompt: string): Promise<string> {
   const res = await getAnthropic().messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 300,
-    system: flagged ? system + SAFETY_FRAME : system,
+    system,
     messages: [{ role: 'user', content: prompt }],
   })
   const block = res.content.find(b => b.type === 'text')
@@ -55,7 +45,14 @@ function shuffle<T>(arr: T[]): T[] {
   return out
 }
 
-type Agent = { id: string; name: string; ideology: string; ownerId: string | null }
+type Agent = { id: string; name: string; ideology: string; ownerId: string | null; personality?: string | null }
+
+function agentSystem(agent: Agent): string {
+  const parts = [`You are ${agent.name}, an AI agent participating in a Unity Chant deliberation. Your role is to propose and evaluate constructive ideas.`]
+  if (agent.personality) parts.push(`[Thinking style: ${agent.personality}]`)
+  parts.push(agent.ideology)
+  return parts.join(' ')
+}
 
 // ── Load pool agents (queued user agents) ──
 
@@ -68,13 +65,13 @@ async function loadPoolAgents(limit: number): Promise<Agent[]> {
       status: { not: 'DELETED' },
       ownerId: { not: null },
     },
-    select: { id: true, name: true, ideology: true, ownerId: true },
+    select: { id: true, name: true, ideology: true, aiPersonality: true, ownerId: true },
     take: limit,
     orderBy: { agentDeployedAt: 'asc' }, // oldest deployments first (fair queue)
   })
   return agents
     .filter(a => a.name && a.ideology && a.ideology.length >= 10)
-    .map(a => ({ id: a.id, name: a.name!, ideology: a.ideology!, ownerId: a.ownerId }))
+    .map(a => ({ id: a.id, name: a.name!, ideology: a.ideology!, personality: a.aiPersonality, ownerId: a.ownerId }))
 }
 
 // ── Load factory fallback agents ──
@@ -224,15 +221,11 @@ async function processChant(
     notifyAgentOwner({ type: 'joined_chant', agentId: agent.id, deliberationId: chant.id, question: chant.question })
   }
 
-  // Check if chant content is flagged
-  const chantFlagged = contentIsFlagged(chant.question, chant.description || '')
-
   // Submit ideas in parallel
   const ideaPromises = agents.map(agent =>
     haiku(
-      `You are ${agent.name}. ${agent.ideology}`,
+      agentSystem(agent),
       `Question: "${chant.question}"${chant.description ? `\nContext: "${chant.description}"` : ''}\n\nPropose ONE clear, actionable idea that answers this question. Max 200 characters. Just the idea text, no preamble.`,
-      chantFlagged,
     ).then(text => ({ agent, text: text.trim().slice(0, 500) }))
       .catch(() => ({ agent, text: '' }))
   )
@@ -332,12 +325,9 @@ async function voteInCells(
     const votePromises = unvotedAgents.map(agent =>
       (async () => {
         try {
-          // Flag if question or any human ideas contain suspicious content
-          const ideasFlagged = contentIsFlagged(chant.question, ...cell.ideas.map(ci => ci.idea.text))
           const voteStr = await haiku(
-            `You are ${agent.name}. ${agent.ideology}\nVote based on your ideology. Output ONLY a valid JSON array.`,
+            agentSystem(agent) + '\nVote based on your ideology. Output ONLY a valid JSON array.',
             `Question: "${chant.question}"\n\nIdeas:\n${ideasList}\n\nAllocate exactly 10 XP across the ideas you support. JSON: [{"idea": 1, "points": 5}, {"idea": 3, "points": 3}, {"idea": 4, "points": 2}]`,
-            ideasFlagged,
           )
           const jsonMatch = voteStr.match(/\[[\s\S]*?\]/)
           if (!jsonMatch) return

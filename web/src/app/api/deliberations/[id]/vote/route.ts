@@ -214,13 +214,23 @@ export async function POST(
 
     // Background: XP tally + cell completion
     after(async () => {
-      await prisma.$executeRaw`
-        UPDATE "Idea" SET "totalVotes" = sub.voters::int, "totalXP" = sub.xp::int
-        FROM (
-          SELECT "ideaId", COUNT(DISTINCT "userId") as voters, COALESCE(SUM("xpPoints"), 0) as xp
-          FROM "Vote" WHERE "cellId" = ${result.cellId} GROUP BY "ideaId"
-        ) sub WHERE "Idea".id = sub."ideaId"
-      `
+      // Get all ideas in this cell
+      const cellIdeas = await prisma.cellIdea.findMany({
+        where: { cellId: result.cellId },
+        select: { ideaId: true },
+      })
+      const ideaIds = cellIdeas.map(ci => ci.ideaId)
+
+      // Update totalXP for each idea by summing ALL votes across ALL cells
+      if (ideaIds.length > 0) {
+        await prisma.$executeRaw`
+          UPDATE "Idea" SET "totalVotes" = sub.voters::int, "totalXP" = sub.xp::int
+          FROM (
+            SELECT "ideaId", COUNT(DISTINCT "userId") as voters, COALESCE(SUM("xpPoints"), 0) as xp
+            FROM "Vote" WHERE "ideaId" = ANY(${ideaIds}::text[]) GROUP BY "ideaId"
+          ) sub WHERE "Idea".id = sub."ideaId"
+        `
+      }
       if (allVoted) {
         const GRACE_PERIOD_MS = 5_000
         await prisma.cell.updateMany({

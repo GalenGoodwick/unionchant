@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, Suspense, useCallback } from 'react'
 import { useSession, signIn, signOut } from 'next-auth/react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
+import { startRegistration } from '@simplewebauthn/browser'
 
 interface TestResult {
   success: boolean
@@ -18,8 +19,16 @@ interface LogEntry {
   message: string
 }
 
+interface ChallengeStats {
+  totalLogs: number
+  resultCounts: { result: string; count: number }[]
+  recentFails: { id: string; result: string; pointerEvents: number; chaseDurationMs: number; evadeCount: number; createdAt: string; user: { id: string; name: string | null; email: string; challengeFailCount: number; botFlaggedAt: string | null } }[]
+  flaggedUsers: { id: string; name: string | null; email: string; botFlaggedAt: string | null; challengeFailCount: number; createdAt: string }[]
+}
+
 export default function AdminTestPage() {
   const { data: session, status } = useSession()
+  const router = useRouter()
   const [isRunning, setIsRunning] = useState(false)
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [testConfig, setTestConfig] = useState({
@@ -35,6 +44,23 @@ export default function AdminTestPage() {
   const [createdDeliberation, setCreatedDeliberation] = useState<{ id: string; inviteCode: string } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
 
+  // System utilities state
+  const [recalculating, setRecalculating] = useState(false)
+  const [recalcResult, setRecalcResult] = useState<string | null>(null)
+
+  // Passkey state
+  const [isAdminVerified, setIsAdminVerified] = useState(false)
+  const [hasPasskeys, setHasPasskeys] = useState(false)
+  const [verifying, setVerifying] = useState(false)
+  const [registering, setRegistering] = useState(false)
+  const [registerMsg, setRegisterMsg] = useState<string | null>(null)
+
+  // Challenge state
+  const [challengeTriggering, setChallengeTriggering] = useState(false)
+  const [challengeStats, setChallengeStats] = useState<ChallengeStats | null>(null)
+  const [challengeStatsLoading, setChallengeStatsLoading] = useState(false)
+  const [challengeResult, setChallengeResult] = useState<string | null>(null)
+
   const addLog = (type: LogEntry['type'], message: string) => {
     setLogs(prev => [...prev, {
       timestamp: new Date().toISOString().split('T')[1].split('.')[0],
@@ -45,6 +71,94 @@ export default function AdminTestPage() {
 
   const clearLogs = () => setLogs([])
 
+  const handleRecalculateXP = async () => {
+    if (!window.confirm('Recalculate XP for all ideas? This will fix any XP calculation bugs.')) return
+    setRecalculating(true)
+    setRecalcResult(null)
+    try {
+      const res = await fetch('/api/admin/recalculate-xp', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setRecalcResult(`✅ Recalculated ${data.stats.ideasWithXP} ideas (Total XP: ${data.stats.totalXP}, Max: ${data.stats.maxXP})`)
+        addLog('success', `Recalculated ${data.stats.ideasWithXP} ideas`)
+      } else {
+        setRecalcResult(`❌ ${data.error}`)
+        addLog('error', data.error)
+      }
+    } catch {
+      setRecalcResult('❌ Failed to recalculate XP')
+      addLog('error', 'Failed to recalculate XP')
+    } finally {
+      setRecalculating(false)
+    }
+  }
+
+
+  const fetchChallengeStats = useCallback(async () => {
+    setChallengeStatsLoading(true)
+    try {
+      const res = await fetch('/api/admin/trigger-challenge')
+      if (res.ok) setChallengeStats(await res.json())
+    } catch { /* silent */ }
+    setChallengeStatsLoading(false)
+  }, [])
+
+  const triggerChallenge = async () => {
+    if (!window.confirm('Force ALL users to re-verify now?')) return
+    setChallengeTriggering(true)
+    setChallengeResult(null)
+    try {
+      const res = await fetch('/api/admin/trigger-challenge', { method: 'POST' })
+      const data = await res.json()
+      setChallengeResult(`Triggered for ${data.affected} users`)
+      addLog('success', `Triggered challenge for ${data.affected} users`)
+      fetchChallengeStats()
+    } catch {
+      setChallengeResult('Failed to trigger')
+      addLog('error', 'Failed to trigger challenge')
+    }
+    setChallengeTriggering(false)
+  }
+
+  const handleRegisterPasskey = async () => {
+    setRegistering(true)
+    setRegisterMsg(null)
+    try {
+      const optRes = await fetch('/api/admin/webauthn/register-options')
+      if (!optRes.ok) throw new Error('Failed to get registration options')
+      const options = await optRes.json()
+      const credential = await startRegistration({ optionsJSON: options })
+      const verifyRes = await fetch('/api/admin/webauthn/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, deviceName: 'Admin device' }),
+      })
+      if (!verifyRes.ok) throw new Error('Registration failed')
+      setHasPasskeys(true)
+      setRegisterMsg('Passkey registered!')
+      addLog('success', 'Passkey registered')
+      setTimeout(() => setRegisterMsg(null), 5000)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Registration failed'
+      setRegisterMsg(msg)
+      addLog('error', msg)
+    } finally {
+      setRegistering(false)
+    }
+  }
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      fetch('/api/admin/check')
+        .then(res => res.json())
+        .then(data => {
+          setIsAdminVerified(data.isAdminVerified === true)
+          setHasPasskeys(data.hasPasskeys === true)
+        })
+    }
+  }, [status])
+
+  useEffect(() => { fetchChallengeStats() }, [fetchChallengeStats])
   const runTest = async () => {
     setIsRunning(true)
     clearLogs()
@@ -207,6 +321,115 @@ export default function AdminTestPage() {
           </div>
         )}
 
+
+        {/* Passkey Section */}
+        <div className={`rounded-lg p-2.5 ${hasPasskeys ? 'bg-success/10 border border-success' : 'bg-warning/10 border border-warning'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div>
+                <span className="text-foreground font-semibold text-xs">
+                  {hasPasskeys ? 'Passkey Active' : 'No Passkey'}
+                </span>
+                <span className="text-muted text-[10px] ml-1">
+                  {hasPasskeys
+                    ? isAdminVerified ? '(4h)' : '(needs verify)'
+                    : '(unprotected)'}
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              {registerMsg && (
+                <span className={`text-[10px] ${registerMsg.includes('failed') ? 'text-error' : 'text-success'}`}>
+                  {registerMsg}
+                </span>
+              )}
+              {!hasPasskeys ? (
+                <button
+                  onClick={handleRegisterPasskey}
+                  disabled={registering}
+                  className="bg-warning hover:bg-warning/80 text-background font-semibold text-xs px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {registering ? '...' : 'Register'}
+                </button>
+              ) : (
+                <Link
+                  href="/settings#security"
+                  className="text-muted hover:text-foreground text-[10px] underline"
+                >
+                  Manage
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Challenge Control */}
+        <div className="bg-error/10 border border-error rounded-lg p-2.5">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={triggerChallenge}
+              disabled={challengeTriggering}
+              className="bg-error hover:bg-error-hover text-white font-bold text-xs px-3 py-2 rounded-lg transition-colors disabled:opacity-50 shrink-0"
+            >
+              {challengeTriggering ? '...' : 'TRIGGER CHALLENGE'}
+            </button>
+            <div className="flex-1 min-w-0">
+              {challengeResult && (
+                <p className="text-success font-semibold text-[10px]">{challengeResult}</p>
+              )}
+              {challengeStatsLoading ? (
+                <p className="text-muted text-[10px]">Loading...</p>
+              ) : challengeStats && (
+                <div className="flex flex-wrap gap-1.5 text-[10px]">
+                  <span className="text-muted">Total: <span className="text-foreground font-mono">{challengeStats.totalLogs}</span></span>
+                  {challengeStats.resultCounts.map(r => (
+                    <span key={r.result} className={r.result === 'passed' ? 'text-success' : 'text-error'}>
+                      {r.result}: <span className="font-mono">{r.count}</span>
+                    </span>
+                  ))}
+                  {challengeStats.flaggedUsers.length > 0 && (
+                    <span className="text-warning">Flagged: <span className="font-mono">{challengeStats.flaggedUsers.length}</span></span>
+                  )}
+                </div>
+              )}
+              {challengeStats && challengeStats.recentFails.length > 0 && (
+                <details className="mt-1">
+                  <summary className="text-[10px] text-muted cursor-pointer hover:text-foreground">
+                    Failures ({challengeStats.recentFails.length})
+                  </summary>
+                  <div className="mt-0.5 max-h-24 overflow-y-auto space-y-0.5">
+                    {challengeStats.recentFails.slice(0, 5).map(f => (
+                      <div key={f.id} className="text-[10px] text-muted bg-background rounded px-1.5 py-0.5 flex gap-2">
+                        <span className="text-error font-mono">{f.result}</span>
+                        <span className="truncate">{f.user.email}</span>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
+
+
+        {/* System Utilities */}
+        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+          <h2 className="text-sm font-semibold text-foreground mb-3">System Utilities</h2>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleRecalculateXP}
+              disabled={recalculating}
+              className="px-4 py-2 bg-warning hover:bg-warning-hover text-white rounded-md text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {recalculating ? 'Recalculating...' : 'Recalculate All XP'}
+            </button>
+            {recalcResult && (
+              <span className="text-sm text-foreground">{recalcResult}</span>
+            )}
+          </div>
+          <p className="text-xs text-muted mt-2">Fixes broken XP values by recalculating from vote records. Safe to run multiple times.</p>
+        </div>
+
         {/* Configuration */}
         <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
           <h2 className="text-sm font-semibold text-foreground mb-3">Test Configuration</h2>
@@ -287,139 +510,6 @@ export default function AdminTestPage() {
             >
               {isRunning ? 'Running...' : 'Run Test'}
             </button>
-
-            <button
-              onClick={async () => {
-                addLog('info', 'Seeding all feed card types...')
-                try {
-                  const emails = testConfig.additionalUserEmails.split(',').map(e => e.trim()).filter(Boolean)
-                  const res = await fetch('/api/admin/test/seed-feed', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ additionalUserEmails: emails, userEmail: session?.user?.email }),
-                  })
-                  const data = await res.json()
-                  if (res.ok) {
-                    addLog('success', data.message || 'Feed data seeded')
-                    data.results?.forEach((r: string) => addLog('success', `  ${r}`))
-                    if (data.cardTypes) {
-                      addLog('info', '--- Card types created ---')
-                      data.cardTypes.forEach((ct: string) => addLog('info', `  ${ct}`))
-                    }
-                    addLog('success', 'Visit /feed to see all cards!')
-                  } else {
-                    addLog('error', data.error || 'Failed to seed')
-                    if (data.details) addLog('error', data.details)
-                  }
-                } catch (err) {
-                  addLog('error', 'Failed to seed feed data')
-                }
-              }}
-              disabled={isRunning}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple hover:bg-purple-hover text-white"
-            >
-              Seed Feed
-            </button>
-
-            <button
-              onClick={async () => {
-                addLog('info', 'Creating Tier 3 up-pollination test...')
-                try {
-                  const emails = testConfig.additionalUserEmails.split(',').map(e => e.trim()).filter(Boolean)
-                  const res = await fetch('/api/admin/test/seed-tier3', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ additionalUserEmails: emails }),
-                  })
-                  const data = await res.json()
-                  if (res.ok) {
-                    addLog('success', data.message)
-                    addLog('info', `Deliberation ID: ${data.deliberationId}`)
-                    addLog('info', `Cell ID: ${data.cellId}`)
-                    addLog('info', `Comment needs ${data.upPollinationInfo.votesNeeded} more upvote(s) to up-pollinate`)
-                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
-                  } else {
-                    addLog('error', data.error || 'Failed to create Tier 3 test')
-                    if (data.details) addLog('error', data.details)
-                  }
-                } catch (err) {
-                  addLog('error', 'Failed to create Tier 3 test')
-                }
-              }}
-              disabled={isRunning}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-orange hover:bg-orange-hover text-white"
-            >
-              Tier 3 Test
-            </button>
-
-            <button
-              onClick={async () => {
-                setIsRunning(true)
-                addLog('info', 'Seeding Discord tier 2 test...')
-                try {
-                  const res = await fetch('/api/admin/test/seed-discord-tier2', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                  })
-                  const data = await res.json()
-                  if (res.ok) {
-                    addLog('success', data.message)
-                    addLog('info', `Deliberation: ${data.deliberationId}`)
-                    addLog('info', `Invite code: ${data.inviteCode}`)
-                    addLog('info', `Load into Discord: /chant load code:${data.inviteCode}`)
-                    addLog('info', `Cell 2 (your vote): ${data.cell2Id}`)
-                    addLog('info', 'Cell 2 ideas:')
-                    data.ideas.cell2.forEach((i: { text: string; status: string }) => addLog('info', `  • ${i.text} (${i.status})`))
-                    addLog('success', 'Load it, then /vote to complete the cell and create tier 3!')
-                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
-                  } else {
-                    addLog('error', data.error || 'Failed to seed')
-                    if (data.details) addLog('error', data.details)
-                  }
-                } catch (err) {
-                  addLog('error', 'Failed to seed Discord tier 2 test')
-                } finally {
-                  setIsRunning(false)
-                }
-              }}
-              disabled={isRunning}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-warning hover:bg-warning-hover text-white"
-            >
-              Discord T2
-            </button>
-
-            <button
-              onClick={async () => {
-                setIsRunning(true)
-                addLog('info', 'Creating viral spread demo...')
-                try {
-                  const res = await fetch('/api/admin/test/seed-viral-spread', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                  })
-                  const data = await res.json()
-                  if (res.ok) {
-                    addLog('success', data.message)
-                    addLog('info', `Your cell: ${data.yourCellId}`)
-                    for (const cell of data.cells) {
-                      addLog('info', `Cell ${cell.index}: ${cell.ideas.join(' | ')}`)
-                    }
-                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
-                  } else {
-                    addLog('error', data.error || 'Failed to create viral spread demo')
-                    if (data.details) addLog('error', data.details)
-                  }
-                } catch (err) {
-                  addLog('error', 'Failed to create viral spread demo')
-                } finally {
-                  setIsRunning(false)
-                }
-              }}
-              disabled={isRunning}
-              className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-purple hover:bg-purple-hover text-white"
-            >
-              Viral Spread
-            </button>
           </div>
         </div>
 
@@ -473,638 +563,7 @@ export default function AdminTestPage() {
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
-          <h2 className="text-sm font-semibold text-foreground mb-3">Quick Actions</h2>
-          <div className="flex gap-2 flex-wrap">
-            <Link
-              href="/chants"
-              className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-lg text-xs font-medium"
-            >
-              View Feed
-            </Link>
-            <Link
-              href="/chants"
-              className="px-3 py-1.5 bg-surface hover:bg-border text-foreground rounded-lg border border-border text-xs"
-            >
-              Browse
-            </Link>
-            <button
-              onClick={async () => {
-                addLog('info', 'Creating test deliberation with completed cell...')
-                try {
-                  const res = await fetch('/api/admin/test/create-completed-cell', { method: 'POST' })
-                  const data = await res.json()
-                  if (res.ok) {
-                    addLog('success', `Created deliberation with completed cell`)
-                    addLog('info', `URL: ${data.url}`)
-                    setCreatedDeliberation({ id: data.deliberationId, inviteCode: '' })
-                  } else {
-                    addLog('error', data.error || 'Failed to create test')
-                  }
-                } catch (err) {
-                  addLog('error', 'Failed to create test')
-                }
-              }}
-              className="px-3 py-1.5 bg-success hover:bg-success-hover text-white rounded-lg text-xs"
-            >
-              Completed Cell
-            </button>
-            <button
-              onClick={async () => {
-                const res = await fetch('/api/admin/test/cleanup', { method: 'POST' })
-                if (res.ok) {
-                  const data = await res.json()
-                  addLog('success', `Cleaned up ${data.deleted} test deliberations`)
-                } else {
-                  addLog('error', 'Cleanup failed')
-                }
-              }}
-              className="px-3 py-1.5 bg-error hover:bg-error-hover text-white rounded-lg text-xs"
-            >
-              Cleanup
-            </button>
-          </div>
-        </div>
-
-        {/* Test Accumulation / Challenge Flow */}
-        <AccumulationTestSection addLog={addLog} refreshKey={refreshKey} />
-
-        {/* AI Agent Testing */}
-        <Suspense fallback={<div className="animate-pulse bg-surface rounded-lg h-48" />}>
-          <AIAgentTestSection addLog={addLog} />
-        </Suspense>
       </div>
     </FrameLayout>
-  )
-}
-
-function AccumulationTestSection({ addLog, refreshKey }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void; refreshKey: number }) {
-  const [accumulatingDeliberations, setAccumulatingDeliberations] = useState<Array<{ id: string; question: string; championId: string | null }>>([])
-  const [loading, setLoading] = useState(true)
-  const [testing, setTesting] = useState<string | null>(null)
-  const [challengerCount, setChallengerCount] = useState(10)
-
-  const fetchAccumulating = async () => {
-    setLoading(true)
-    try {
-      const res = await fetch('/api/admin/chants')
-      if (res.ok) {
-        const data = await res.json()
-        setAccumulatingDeliberations(data.filter((d: { phase: string }) => d.phase === 'ACCUMULATING'))
-      }
-    } catch (err) {
-      console.error('Failed to fetch:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchAccumulating()
-  }, [refreshKey])
-
-  const runAccumulationTest = async (deliberationId: string) => {
-    setTesting(deliberationId)
-    addLog('info', `Starting accumulation test for ${deliberationId}...`)
-
-    try {
-      const res = await fetch('/api/admin/test/simulate-accumulation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deliberationId,
-          challengerCount,
-        }),
-      })
-
-      const data = await res.json()
-
-      if (data.logs) {
-        data.logs.forEach((log: string) => addLog('info', log))
-      }
-
-      if (data.success) {
-        addLog('success', `Accumulation test complete! Challenge round ${data.challengeRound}, ${data.votesCreated} votes, ${data.tiersProcessed} tiers`)
-        addLog('success', `Final phase: ${data.finalPhase}, New champion: ${data.newChampionId}`)
-      } else {
-        addLog('error', data.error || 'Unknown error')
-      }
-
-      // Refresh the list
-      fetchAccumulating()
-    } catch (err) {
-      addLog('error', err instanceof Error ? err.message : 'Failed to run accumulation test')
-    } finally {
-      setTesting(null)
-    }
-  }
-
-  return (
-    <div className="mt-6 bg-background rounded-lg p-6 border border-border">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-lg font-semibold text-foreground">Accumulation / Challenge Test</h2>
-        <button
-          onClick={fetchAccumulating}
-          className="text-sm text-muted hover:text-foreground"
-        >
-          Refresh
-        </button>
-      </div>
-      <p className="text-muted text-sm mb-4">
-        Test the challenge flow: submit challengers, run voting, verify champion cycles.
-      </p>
-
-      <div className="mb-4">
-        <label className="block text-sm text-muted mb-1">Number of Challenger Ideas</label>
-        <input
-          type="number"
-          value={challengerCount}
-          onChange={(e) => setChallengerCount(parseInt(e.target.value) || 5)}
-          className="w-32 bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-          min={3}
-          max={50}
-        />
-      </div>
-
-      {loading ? (
-        <p className="text-muted">Loading...</p>
-      ) : accumulatingDeliberations.length === 0 ? (
-        <p className="text-muted">No deliberations in ACCUMULATING phase. Run a full test first to get a champion.</p>
-      ) : (
-        <div className="space-y-2">
-          {accumulatingDeliberations.map(d => (
-            <div key={d.id} className="flex justify-between items-center bg-surface rounded-lg p-3 border border-border">
-              <div>
-                <span className="text-foreground">{d.question}</span>
-                <span className="ml-2 text-xs px-2 py-0.5 rounded bg-purple text-white">ACCUMULATING</span>
-              </div>
-              <button
-                onClick={() => runAccumulationTest(d.id)}
-                disabled={testing === d.id}
-                className={`px-3 py-1 text-white text-sm rounded-lg ${
-                  testing === d.id
-                    ? 'bg-muted-light cursor-not-allowed'
-                    : 'bg-accent hover:bg-accent-hover'
-                }`}
-              >
-                {testing === d.id ? 'Testing...' : 'Run Challenge Test'}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AIAgentTestSection({ addLog }: { addLog: (type: 'info' | 'success' | 'error', message: string) => void }) {
-  const searchParams = useSearchParams()
-  const [deliberations, setDeliberations] = useState<Array<{ id: string; question: string; phase: string }>>([])
-  const [selectedDelibId, setSelectedDelibId] = useState(searchParams.get('deliberationId') || '')
-  const [loading, setLoading] = useState(true)
-  const [running, setRunning] = useState(false)
-  const [progress, setProgress] = useState<{
-    phase: string
-    currentTier: number
-    totalTiers: number
-    agentsCreated: number
-    ideasSubmitted: number
-    votescast: number
-    commentsPosted: number
-    upvotesGiven: number
-    dropouts: number
-    errors: string[]
-  } | null>(null)
-  const [config, setConfig] = useState({
-    totalAgents: 1000,
-    votingTimePerTierMs: 30000,
-    dropoutRate: 0.1,
-    commentRate: 0.2,
-    upvoteRate: 0.3,
-    newJoinRate: 0.05,
-    forceStartVoting: true, // Force start even if trigger not met
-  })
-
-  const fetchDeliberations = async () => {
-    try {
-      const res = await fetch('/api/admin/chants')
-      if (res.ok) {
-        const data = await res.json()
-        setDeliberations(Array.isArray(data) ? data : [])
-      }
-    } catch (err) {
-      console.error('Failed to fetch deliberations:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    fetchDeliberations()
-  }, [])
-
-  // Poll for progress while running
-  useEffect(() => {
-    if (!running) return
-
-    const pollProgress = async () => {
-      try {
-        const res = await fetch('/api/admin/test/ai-agents')
-        if (res.ok) {
-          const data = await res.json()
-          setProgress(data)
-
-          if (data.phase === 'completed') {
-            setRunning(false)
-            addLog('success', `AI Agent test completed! ${data.agentsCreated} agents, ${data.votescast} votes, ${data.commentsPosted} comments`)
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch progress:', err)
-      }
-    }
-
-    pollProgress()
-    const interval = setInterval(pollProgress, 2000)
-    return () => clearInterval(interval)
-  }, [running, addLog])
-
-  const startTest = async () => {
-    if (!selectedDelibId) {
-      addLog('error', 'Please select a deliberation')
-      return
-    }
-
-    setRunning(true)
-    setProgress(null)
-    addLog('info', 'Starting AI agent test...')
-
-    try {
-      const res = await fetch('/api/admin/test/ai-agents', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deliberationId: selectedDelibId,
-          ...config,
-        }),
-      })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to start test')
-      }
-
-      addLog('success', 'AI agent test started in background')
-    } catch (err) {
-      addLog('error', err instanceof Error ? err.message : 'Failed to start test')
-      setRunning(false)
-    }
-  }
-
-  const cleanupAgents = async () => {
-    addLog('info', 'Cleaning up test agents...')
-    try {
-      const res = await fetch('/api/admin/test/ai-agents', { method: 'DELETE' })
-      if (res.ok) {
-        const data = await res.json()
-        addLog('success', `Cleaned up ${data.deleted} test agents`)
-      } else {
-        addLog('error', 'Failed to cleanup test agents')
-      }
-    } catch (err) {
-      addLog('error', 'Failed to cleanup test agents')
-    }
-  }
-
-  return (
-    <div className="mt-6 bg-background rounded-lg p-6 border border-border">
-      <h2 className="text-lg font-semibold text-foreground mb-4">AI Agent Load Testing (Haiku)</h2>
-      <p className="text-muted text-sm mb-4">
-        Simulate realistic user behavior with AI agents powered by Claude Haiku. Agents submit ideas, vote intelligently, comment, and upvote.
-      </p>
-
-      {/* Deliberations List */}
-      <div className="mb-6 bg-surface rounded-lg p-4 border border-border">
-        <h3 className="text-sm font-semibold text-foreground mb-3">All Deliberations</h3>
-        {loading ? (
-          <p className="text-muted text-sm">Loading...</p>
-        ) : deliberations.length === 0 ? (
-          <p className="text-muted text-sm">No deliberations found</p>
-        ) : (
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {deliberations.map(d => (
-              <div key={d.id} className="flex items-center justify-between bg-background rounded p-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground truncate">{d.question}</p>
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${
-                    d.phase === 'VOTING' ? 'bg-warning/20 text-warning' :
-                    d.phase === 'SUBMISSION' ? 'bg-accent/20 text-accent' :
-                    d.phase === 'ACCUMULATING' ? 'bg-purple/20 text-purple' :
-                    d.phase === 'COMPLETED' ? 'bg-success/20 text-success' :
-                    'bg-muted/20 text-muted'
-                  }`}>
-                    {d.phase}
-                  </span>
-                </div>
-                <Link
-                  href={`/admin/deliberation/${d.id}`}
-                  className="ml-2 bg-accent hover:bg-accent-hover text-white text-xs px-3 py-1.5 rounded transition-colors whitespace-nowrap"
-                >
-                  Admin View
-                </Link>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Configuration */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-        <div>
-          <label className="block text-sm text-muted mb-1">Deliberation</label>
-          <select
-            value={selectedDelibId}
-            onChange={(e) => setSelectedDelibId(e.target.value)}
-            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-            disabled={running}
-          >
-            <option value="">Select...</option>
-            {deliberations.map(d => (
-              <option key={d.id} value={d.id}>
-                {d.question.slice(0, 40)}... ({d.phase})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {selectedDelibId && (
-          <Link
-            href={`/admin/deliberation/${selectedDelibId}`}
-            className="w-full bg-purple hover:bg-purple/80 text-white font-medium px-4 py-3 rounded-lg transition-colors text-center block"
-          >
-            Open Admin View for This Deliberation
-          </Link>
-        )}
-
-        <div>
-          <label className="block text-sm text-muted mb-1">Total Agents</label>
-          <input
-            type="number"
-            value={config.totalAgents}
-            onChange={(e) => setConfig(c => ({ ...c, totalAgents: parseInt(e.target.value) || 10 }))}
-            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-            min={5}
-            max={1000}
-            disabled={running}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-muted mb-1">Voting Time per Tier (ms)</label>
-          <input
-            type="number"
-            value={config.votingTimePerTierMs}
-            onChange={(e) => setConfig(c => ({ ...c, votingTimePerTierMs: parseInt(e.target.value) || 30000 }))}
-            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-            min={5000}
-            max={300000}
-            step={5000}
-            disabled={running}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-muted mb-1">Dropout Rate</label>
-          <input
-            type="number"
-            value={config.dropoutRate}
-            onChange={(e) => setConfig(c => ({ ...c, dropoutRate: parseFloat(e.target.value) || 0 }))}
-            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-            min={0}
-            max={0.5}
-            step={0.05}
-            disabled={running}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-muted mb-1">Comment Rate</label>
-          <input
-            type="number"
-            value={config.commentRate}
-            onChange={(e) => setConfig(c => ({ ...c, commentRate: parseFloat(e.target.value) || 0 }))}
-            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-            min={0}
-            max={1}
-            step={0.1}
-            disabled={running}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-muted mb-1">Upvote Rate</label>
-          <input
-            type="number"
-            value={config.upvoteRate}
-            onChange={(e) => setConfig(c => ({ ...c, upvoteRate: parseFloat(e.target.value) || 0 }))}
-            className="w-full bg-surface border border-border text-foreground rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-            min={0}
-            max={1}
-            step={0.1}
-            disabled={running}
-          />
-        </div>
-      </div>
-
-      {/* Force Start Option */}
-      <label className="flex items-center gap-2 text-subtle mb-4">
-        <input
-          type="checkbox"
-          checked={config.forceStartVoting}
-          onChange={(e) => setConfig(c => ({ ...c, forceStartVoting: e.target.checked }))}
-          disabled={running}
-          className="rounded"
-        />
-        Force start voting (ignore timer/ideas/manual triggers)
-      </label>
-
-      {/* Live Console Display */}
-      {(running || progress) && (
-        <div className="bg-surface rounded-lg border border-border mb-4 overflow-hidden">
-          {/* Phase Header */}
-          <div className={`px-4 py-3 flex justify-between items-center ${
-            progress?.phase === 'completed' ? 'bg-success-bg' :
-            progress?.phase === 'voting' ? 'bg-warning-bg' :
-            progress?.phase === 'submission' ? 'bg-accent-light' :
-            'bg-purple-bg'
-          }`}>
-            <div className="flex items-center gap-3">
-              {running && progress?.phase !== 'completed' && (
-                <div className="w-4 h-4 border-2 border-foreground border-t-transparent rounded-full animate-spin" />
-              )}
-              {progress?.phase === 'completed' && (
-                <span className="text-success text-lg">✓</span>
-              )}
-              <span className="font-semibold text-foreground">
-                {progress?.phase === 'setup' ? 'Setting Up...' :
-                 progress?.phase === 'submission' ? 'Submission Phase' :
-                 progress?.phase === 'voting' ? `Voting - Tier ${progress.currentTier}` :
-                 progress?.phase === 'completed' ? 'Test Complete!' :
-                 'Initializing...'}
-              </span>
-            </div>
-            {progress?.totalTiers && progress.totalTiers > 0 && (
-              <span className="text-sm text-muted font-mono">
-                {progress.totalTiers} tiers total
-              </span>
-            )}
-          </div>
-
-          {/* Stats Grid */}
-          <div className="p-4 grid grid-cols-3 md:grid-cols-6 gap-4">
-            <div className="bg-background rounded-lg p-3 text-center">
-              <div className={`text-2xl font-mono font-bold ${progress?.agentsCreated ? 'text-accent' : 'text-muted'}`}>
-                {progress?.agentsCreated || 0}
-              </div>
-              <div className="text-xs text-muted">Agents</div>
-            </div>
-            <div className="bg-background rounded-lg p-3 text-center">
-              <div className={`text-2xl font-mono font-bold ${progress?.ideasSubmitted ? 'text-purple' : 'text-muted'}`}>
-                {progress?.ideasSubmitted || 0}
-              </div>
-              <div className="text-xs text-muted">Ideas</div>
-            </div>
-            <div className="bg-background rounded-lg p-3 text-center">
-              <div className={`text-2xl font-mono font-bold ${progress?.votescast ? 'text-warning' : 'text-muted'}`}>
-                {progress?.votescast || 0}
-              </div>
-              <div className="text-xs text-muted">Votes</div>
-            </div>
-            <div className="bg-background rounded-lg p-3 text-center">
-              <div className={`text-2xl font-mono font-bold ${progress?.commentsPosted ? 'text-success' : 'text-muted'}`}>
-                {progress?.commentsPosted || 0}
-              </div>
-              <div className="text-xs text-muted">Comments</div>
-            </div>
-            <div className="bg-background rounded-lg p-3 text-center">
-              <div className={`text-2xl font-mono font-bold ${progress?.upvotesGiven ? 'text-orange' : 'text-muted'}`}>
-                {progress?.upvotesGiven || 0}
-              </div>
-              <div className="text-xs text-muted">Upvotes</div>
-            </div>
-            <div className="bg-background rounded-lg p-3 text-center">
-              <div className={`text-2xl font-mono font-bold ${progress?.dropouts ? 'text-error' : 'text-muted'}`}>
-                {progress?.dropouts || 0}
-              </div>
-              <div className="text-xs text-muted">Dropouts</div>
-            </div>
-          </div>
-
-          {/* Progress Bars */}
-          {progress?.phase === 'voting' && progress.currentTier > 0 && (
-            <div className="px-4 pb-4">
-              <div className="bg-background rounded-lg p-3">
-                <div className="flex justify-between text-xs text-muted mb-2">
-                  <span>Tier Progress</span>
-                  <span>{progress.currentTier} / {progress.totalTiers || '?'}</span>
-                </div>
-                <div className="h-2 bg-border rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-warning transition-all duration-500"
-                    style={{ width: `${progress.totalTiers ? (progress.currentTier / progress.totalTiers) * 100 : 10}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Tier Visualization */}
-          {progress?.phase === 'voting' && progress.currentTier > 0 && (
-            <div className="px-4 pb-4">
-              <div className="flex items-center gap-2 overflow-x-auto py-2">
-                {Array.from({ length: progress.totalTiers || progress.currentTier + 2 }, (_, i) => i + 1).map(tier => (
-                  <div
-                    key={tier}
-                    className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                      tier < progress.currentTier ? 'bg-success text-white' :
-                      tier === progress.currentTier ? 'bg-warning text-white ring-2 ring-warning ring-offset-2 ring-offset-surface' :
-                      'bg-border text-muted'
-                    }`}
-                  >
-                    {tier < progress.currentTier ? '✓' : tier}
-                  </div>
-                ))}
-                <div className="flex-shrink-0 w-10 h-10 rounded-full bg-success-bg border-2 border-success flex items-center justify-center">
-                  🏆
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Errors */}
-          {progress?.errors && progress.errors.length > 0 && (
-            <div className="px-4 pb-4">
-              <div className="bg-error-bg border border-error rounded-lg p-3">
-                <div className="text-error text-xs font-semibold mb-1">Errors ({progress.errors.length})</div>
-                <div className="text-error text-xs max-h-24 overflow-y-auto space-y-1">
-                  {progress.errors.slice(-5).map((e, i) => (
-                    <div key={i} className="truncate">{e}</div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Completion Summary */}
-          {progress?.phase === 'completed' && (
-            <div className="px-4 pb-4">
-              <div className="bg-success-bg border border-success rounded-lg p-4 text-center">
-                <div className="text-success text-4xl mb-2">🎉</div>
-                <div className="text-success font-semibold">Load Test Complete!</div>
-                <div className="text-muted text-sm mt-2">
-                  {progress.agentsCreated} agents processed {progress.votescast} votes across {progress.totalTiers} tiers
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex gap-4 flex-wrap">
-        <button
-          onClick={startTest}
-          disabled={running || !selectedDelibId}
-          className={`px-6 py-2 rounded-lg font-semibold ${
-            running || !selectedDelibId
-              ? 'bg-muted-light text-muted cursor-not-allowed'
-              : 'bg-accent hover:bg-accent-hover text-white'
-          }`}
-        >
-          {running ? 'Running...' : 'Start AI Agent Test'}
-        </button>
-
-        <button
-          onClick={cleanupAgents}
-          disabled={running}
-          className="px-4 py-2 bg-error hover:bg-error-hover text-white rounded-lg disabled:opacity-50"
-        >
-          Cleanup Test Agents
-        </button>
-
-        <button
-          onClick={fetchDeliberations}
-          className="px-4 py-2 bg-surface hover:bg-border text-muted border border-border rounded-lg"
-        >
-          Refresh List
-        </button>
-      </div>
-
-      <p className="text-muted text-xs mt-4">
-        Note: Test agents are created with @test.bot email addresses and can be cleaned up using the button above.
-        Agents are named &quot;TestBot 1&quot;, &quot;TestBot 2&quot;, etc. for transparency.
-      </p>
-    </div>
   )
 }

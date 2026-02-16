@@ -1,5 +1,7 @@
-// Basic content moderation utilities
-// This is a simple word filter - not comprehensive, but catches obvious violations
+// Content moderation utilities
+// Combines regex word filter + AI scan via Haiku for deeper checks
+
+import Anthropic from '@anthropic-ai/sdk'
 
 const BLOCKED_PATTERNS = [
   // Slurs and hate speech (partial list, regex patterns)
@@ -54,8 +56,8 @@ export function moderateContent(text: string): ModerationResult {
   const normalizedText = text.trim()
 
   // Check length
-  if (normalizedText.length > 2000) {
-    return { allowed: false, reason: 'Content too long (max 2000 characters)' }
+  if (normalizedText.length > 5000) {
+    return { allowed: false, reason: 'Content too long (max 5000 characters)' }
   }
 
   if (normalizedText.length < 2) {
@@ -95,6 +97,39 @@ export function moderateContent(text: string): ModerationResult {
   return { allowed: true }
 }
 
+// ── Moderation strike tracker ──
+// After 10 failed moderation attempts, lock user out for 15 minutes
+
+const moderationStrikes = new Map<string, { count: number; lockedUntil: number }>()
+const MAX_STRIKES = 10
+const LOCKOUT_MS = 15 * 60 * 1000 // 15 minutes
+
+export function checkModerationLock(userId: string): { locked: boolean; remaining?: number } {
+  const entry = moderationStrikes.get(userId)
+  if (!entry) return { locked: false }
+  if (entry.lockedUntil > Date.now()) {
+    return { locked: true, remaining: Math.ceil((entry.lockedUntil - Date.now()) / 60000) }
+  }
+  if (entry.lockedUntil > 0) {
+    moderationStrikes.delete(userId)
+  }
+  return { locked: false }
+}
+
+export function recordModerationStrike(userId: string): void {
+  const entry = moderationStrikes.get(userId) || { count: 0, lockedUntil: 0 }
+  entry.count++
+  if (entry.count >= MAX_STRIKES) {
+    entry.lockedUntil = Date.now() + LOCKOUT_MS
+    entry.count = 0
+  }
+  moderationStrikes.set(userId, entry)
+}
+
+export function resetModerationStrikes(userId: string): void {
+  moderationStrikes.delete(userId)
+}
+
 /**
  * Sanitize text for display (basic XSS prevention)
  * Note: React already escapes by default, this is extra safety for edge cases
@@ -110,6 +145,55 @@ export function sanitizeText(text: string): string {
 /**
  * Check if text looks like spam
  */
+/**
+ * AI-powered content moderation using Haiku.
+ * Catches profanity, hate speech, gibberish, and nonsense that regex misses.
+ * Returns { allowed: true } if clean, { allowed: false, reason } if rejected.
+ */
+let _anthropic: Anthropic | null = null
+function getAnthropic(): Anthropic {
+  if (!_anthropic) {
+    if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set')
+    _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  }
+  return _anthropic
+}
+
+export async function aiModerateContent(text: string): Promise<ModerationResult> {
+  try {
+    const res = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 100,
+      system: 'You are a content moderator. Respond with ONLY valid JSON. No other text.',
+      messages: [{
+        role: 'user',
+        content: `Check this user-submitted text. Reject if it contains:
+- Profanity or swear words (fuck, shit, ass, damn, bitch, etc.)
+- Hate speech, slurs, or bigotry
+- Gibberish or random characters (e.g. "asdfjkl", "SFwdesFwef")
+- Nonsensical text that isn't real language
+- Threats or calls to violence
+
+Respond with JSON: {"ok": true} if clean, or {"ok": false, "reason": "brief reason"}.
+
+Text: "${text.slice(0, 5000).replace(/"/g, '\\"')}"`
+      }],
+    })
+    const block = res.content.find(b => b.type === 'text')
+    const raw = block && 'text' in block ? block.text : ''
+    const match = raw.match(/\{[\s\S]*?\}/)
+    if (!match) return { allowed: true } // fail open if parse fails
+    const parsed = JSON.parse(match[0])
+    if (parsed.ok === false) {
+      return { allowed: false, reason: parsed.reason || 'Content rejected by moderation' }
+    }
+    return { allowed: true }
+  } catch (err) {
+    console.error('AI moderation error:', err)
+    return { allowed: true } // fail open — don't block users if AI is down
+  }
+}
+
 export function isLikelySpam(text: string): boolean {
   const normalizedText = text.toLowerCase()
 

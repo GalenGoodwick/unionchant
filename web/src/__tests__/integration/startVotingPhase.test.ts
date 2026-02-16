@@ -41,7 +41,7 @@ describe('startVotingPhase', () => {
 
     expect(result.success).toBe(true)
     expect(result.reason).toBe('SINGLE_IDEA')
-    expect(result.championId).toBe(ideas[0].id)
+    expect((result as any).championId).toBe(ideas[0].id)
 
     const updated = await prisma.deliberation.findUnique({ where: { id: deliberation.id } })
     expect(updated?.phase).toBe('COMPLETED')
@@ -105,7 +105,7 @@ describe('startVotingPhase', () => {
 
     expect(result.success).toBe(true)
     expect(result.reason).toBe('VOTING_STARTED')
-    expect(result.cellsCreated).toBe(2)
+    expect((result as any).cellsCreated).toBe(2)
 
     const cells = await getCellsAtTier(deliberation.id, 1)
     expect(cells.length).toBe(2)
@@ -133,7 +133,7 @@ describe('startVotingPhase', () => {
     const result = await startVotingPhase(deliberation.id)
 
     expect(result.success).toBe(true)
-    expect(result.cellsCreated).toBe(8)
+    expect((result as any).cellsCreated).toBe(8)
 
     const cells = await getCellsAtTier(deliberation.id, 1)
 

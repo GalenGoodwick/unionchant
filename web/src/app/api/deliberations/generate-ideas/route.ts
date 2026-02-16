@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const systemPrompt = `You generate diverse, thoughtful ideas for collective deliberation. Return ONLY a JSON array of strings, no other text. Each idea should be a concise, actionable proposal (under 200 characters). Make them varied — cover different angles, approaches, and perspectives. Do not number them.`
+    const systemPrompt = `You generate diverse, thoughtful ideas for collective deliberation. Return ONLY a JSON array of strings, no other text. Each idea should be a concise, actionable proposal (under 500 characters). Make them varied — cover different angles, approaches, and perspectives. Do not number them.`
 
     let userMsg = description?.trim()
       ? `Generate ${ideaCount} diverse ideas for this question:\n\n"${question.trim()}"\n\nContext: ${description.trim()}`

@@ -100,6 +100,45 @@ export async function POST(req: NextRequest) {
     if (!ideology || typeof ideology !== 'string' || ideology.trim().length < 10) {
       return NextResponse.json({ error: 'Ideology must be at least 10 characters' }, { status: 400 })
     }
+    if (ideology.trim().length > 5000) {
+      return NextResponse.json({ error: 'Ideology must be 5000 characters or less' }, { status: 400 })
+    }
+
+    // Check moderation lockout
+    const { moderateContent, aiModerateContent, checkModerationLock, recordModerationStrike, resetModerationStrikes } = await import('@/lib/moderation')
+    const lock = checkModerationLock(session.user.id)
+    if (lock.locked) {
+      return NextResponse.json({ error: `Too many content violations. Try again in ${lock.remaining} minutes.` }, { status: 429 })
+    }
+
+    // Content moderation (regex + AI)
+    const nameCheck = moderateContent(name.trim())
+    if (!nameCheck.allowed) {
+      recordModerationStrike(session.user.id)
+      return NextResponse.json({ error: nameCheck.reason || 'Agent name contains inappropriate content' }, { status: 400 })
+    }
+    const ideologyCheck = moderateContent(ideology.trim())
+    if (!ideologyCheck.allowed) {
+      recordModerationStrike(session.user.id)
+      return NextResponse.json({ error: ideologyCheck.reason || 'Ideology contains inappropriate content' }, { status: 400 })
+    }
+
+    // AI scan for profanity, gibberish, hate speech
+    const [aiNameCheck, aiIdeologyCheck] = await Promise.all([
+      aiModerateContent(name.trim()),
+      aiModerateContent(ideology.trim()),
+    ])
+    if (!aiNameCheck.allowed) {
+      recordModerationStrike(session.user.id)
+      return NextResponse.json({ error: 'Your agent name didn\'t pass our content check. Please remove profanity, hate speech, or gibberish and try again.' }, { status: 400 })
+    }
+    if (!aiIdeologyCheck.allowed) {
+      recordModerationStrike(session.user.id)
+      return NextResponse.json({ error: 'Your ideology didn\'t pass our content check. Please remove profanity, hate speech, or gibberish and try again.' }, { status: 400 })
+    }
+
+    // Passed moderation — reset strikes
+    resetModerationStrikes(session.user.id)
 
     // Check agent limit
     const owner = await prisma.user.findUnique({

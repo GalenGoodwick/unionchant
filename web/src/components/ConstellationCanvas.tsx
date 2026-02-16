@@ -123,7 +123,7 @@ export function PentagonConstellation({ className }: AmbientProps) {
     return () => { cancelAnimationFrame(animRef.current); window.removeEventListener('resize', resize) }
   }, [])
 
-  return <canvas ref={canvasRef} className={`sticky top-0 w-full pointer-events-none -mb-[100vh] ${className || ''}`} style={{ opacity: 0.5, height: '100vh' }} />
+  return <canvas ref={canvasRef} className={`sticky top-0 w-full pointer-events-none ${className || ''}`} style={{ opacity: 0.5, height: '100dvh', marginBottom: '-100dvh' }} />
 }
 
 // ─── Live state canvas for chant detail ───
@@ -532,36 +532,8 @@ export function AmbientConstellation({ className }: AmbientProps) {
         drawDot(ctx, em.x, em.y, em.size * (1 - p * 0.6), `rgba(8,145,178,${al})`)
       }
 
-      // Heart
-      const cx = w / 2, cy = h / 2
-      const beatPeriod = 1.0
-      const beatPhase = (time % beatPeriod) / beatPeriod
-      const thump = beatPhase < 0.08
-        ? beatPhase / 0.08
-        : beatPhase < 0.15
-        ? 1 - (beatPhase - 0.08) / 0.07 * 0.6
-        : beatPhase < 0.22
-        ? 0.4 + (beatPhase - 0.15) / 0.07 * 0.3
-        : beatPhase < 0.35
-        ? 0.7 * (1 - (beatPhase - 0.22) / 0.13)
-        : 0
-      const heartScale = 1 + thump * 0.1
-      const heartSize = Math.min(w, h) * 0.12
-
-      ctx.save(); ctx.translate(cx, cy); ctx.scale(heartScale, heartScale)
-      heartPath(ctx, heartSize)
-      ctx.fillStyle = `rgba(252,252,252,${0.65 + thump * 0.35})`; ctx.fill()
-      ctx.shadowColor = `rgba(252,252,252,${0.12 + thump * 0.25})`; ctx.shadowBlur = 18 + thump * 14; ctx.fill()
-      ctx.shadowBlur = 0; ctx.restore()
-
-      if (thump > 0.1) {
-        const ringR = heartSize * 0.5 + (1 - thump) * heartSize * 0.35
-        ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2)
-        ctx.strokeStyle = `rgba(252,252,252,${thump * 0.05})`
-        ctx.lineWidth = 1; ctx.stroke()
-      }
-
       // Constellation
+      const cx = w / 2, cy = h / 2
       const br = time * 0.1 - Math.PI / 2, mR = Math.min(w, h) * 0.3
       drawPolygon(ctx, cx, cy, mR, 5, 'rgba(8,145,178,0.10)', null, 1.4, br)
       const oV = polygonVertices(cx, cy, mR, 5, br)

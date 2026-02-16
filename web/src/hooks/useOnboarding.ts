@@ -25,7 +25,9 @@ export function useOnboarding() {
           // User needs onboarding if:
           // 1. onboardedAt is null/undefined AND
           // 2. name is null/undefined or matches email prefix (auto-generated)
-          setNeedsOnboarding(data.user.onboardedAt == null)
+          // Don't show modal if onboarding is in progress (sessionStorage flag set by modal)
+          const inProgress = typeof window !== 'undefined' && sessionStorage.getItem('onboardingStarted')
+          setNeedsOnboarding(data.user.onboardedAt == null && !inProgress)
         }
       } catch (error) {
         console.error('Error checking onboarding status:', error)

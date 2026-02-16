@@ -53,9 +53,22 @@ export async function POST(request: Request) {
       }
     }
 
-    // Update user name (always works)
+    // Check for duplicate name among human users
+    const currentUser = await prisma.user.findUnique({ where: { email: session.user.email } })
+    if (!currentUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+    const existing = await prisma.user.findFirst({
+      where: { name: name.trim(), isAI: false, id: { not: currentUser.id } },
+      select: { id: true },
+    })
+    if (existing) {
+      return NextResponse.json({ error: 'That name is already taken' }, { status: 400 })
+    }
+
+    // Update user name
     const user = await prisma.user.update({
-      where: { email: session.user.email },
+      where: { id: currentUser.id },
       data: { name: name.trim() },
     })
 

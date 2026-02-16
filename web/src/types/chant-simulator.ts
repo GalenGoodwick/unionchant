@@ -50,6 +50,7 @@ export interface IdeaInfo {
   totalVotes: number
   isChampion: boolean
   author: { id: string; name: string }
+  xpPerTier?: Record<number, number>
 }
 
 export interface CellIdea {

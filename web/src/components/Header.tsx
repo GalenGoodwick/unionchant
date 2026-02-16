@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { useChallenge } from '@/components/ChallengeProvider'
 
 export default function Header() {
   const pathname = usePathname()
   const router = useRouter()
+  const { data: session } = useSession()
 
   const { triggerChallenge } = useChallenge()
   const [collapsed, setCollapsed] = useState(false)
@@ -110,8 +112,16 @@ export default function Header() {
             ))}
           </nav>
 
-          {/* Right: toggle */}
+          {/* Right: sign in + toggle */}
           <div className="flex items-center gap-1.5 shrink-0">
+            {!session && (
+              <Link
+                href="/auth/signin"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors bg-accent hover:bg-accent-hover text-white"
+              >
+                Sign In
+              </Link>
+            )}
             <button
               onClick={toggleCollapsed}
               className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors text-white/40 hover:text-white"

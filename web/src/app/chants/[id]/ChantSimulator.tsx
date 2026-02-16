@@ -12,13 +12,14 @@ import { useSession } from 'next-auth/react'
 import { ChantStatus, CommentInfo, IdeaInfo, VoteResult } from '@/types/chant-simulator'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import { PentagonConstellation } from '@/components/ConstellationCanvas'
 import CopyButton from '@/components/deliberation/CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
 import { useChallenge } from '@/components/ChallengeProvider'
 
-type Tab = 'join' | 'vote' | 'hearts' | 'submit' | 'cells' | 'manage'
+type Tab = 'join' | 'vote' | 'ideas' | 'submit' | 'cells' | 'manage'
 
 export default function ChantSimulator({ id, authToken }: { id: string; authToken?: string | null }) {
   const { data: session } = useSession()
@@ -91,6 +92,22 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const [commentError, setCommentError] = useState('')
   const [upvoting, setUpvoting] = useState<string | null>(null)
 
+  // Onboarding final narration
+  const [showOnboardingFinal, setShowOnboardingFinal] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === 'final') {
+      setShowOnboardingFinal(true)
+      window.history.replaceState({}, '', `/chants/${id}`)
+      // Mark onboarding complete now that user has reached the results page
+      sessionStorage.removeItem('onboardingStarted')
+      fetch('/api/user/onboarding', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skip: true }),
+      }).catch(() => {})
+    }
+  }, [id])
+
   // Explicit join — no auto-join, user clicks Join tab button
   const [joined, setJoined] = useState(false)
   const [joining, setJoining] = useState(false)
@@ -111,7 +128,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         // Switch to appropriate tab
         if (status?.phase === 'SUBMISSION') setActiveTab('submit')
         else if (status?.phase === 'VOTING') setActiveTab('vote')
-        else setActiveTab('hearts')
+        else setActiveTab('ideas')
       }
     } catch { /* silent */ }
     finally { setJoining(false) }
@@ -158,7 +175,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           // Already a member — go to phase tab
           if (data.phase === 'VOTING' && !data.hasVoted) setActiveTab('vote')
           else if (data.phase === 'SUBMISSION') setActiveTab('submit')
-          else if (data.phase === 'COMPLETED') setActiveTab('hearts')
+          else if (data.phase === 'COMPLETED') setActiveTab('ideas')
         }
         // else stay on 'join' tab (default)
         setTabInitialized(true)
@@ -189,7 +206,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   }, [fetchStatus])
 
   useEffect(() => {
-    if (activeTab === 'hearts' || activeTab === 'submit') {
+    if (activeTab === 'ideas' || activeTab === 'submit') {
       setCommentsLoading(true)
       fetchComments().finally(() => setCommentsLoading(false))
       const interval = setInterval(fetchComments, 15000)
@@ -564,11 +581,13 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     status.phase === 'SUBMISSION' || (status.phase === 'VOTING' && status.continuousFlow)
   )
 
+  const totalXP = status.ideas.reduce((sum, idea) => sum + (idea.totalXP || 0), 0)
+
   const tabs: { key: Tab; label: string; badge?: number; show: boolean }[] = [
     { key: 'join', label: joined ? 'Overview' : 'Join', show: true },
     { key: 'submit', label: 'Submit', show: true },
     { key: 'vote', label: 'Vote', show: true },
-    { key: 'hearts', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length, show: true },
+    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: totalXP || undefined, show: true },
     { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: true },
     { key: 'manage', label: 'Manage', show: !!isCreator },
   ]
@@ -816,7 +835,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   onClick={() => {
                     if (status.phase === 'SUBMISSION') setActiveTab('submit')
                     else if (status.phase === 'VOTING') setActiveTab('vote')
-                    else setActiveTab('hearts')
+                    else setActiveTab('ideas')
                   }}
                   className="text-success text-xs font-semibold hover:underline"
                 >
@@ -931,7 +950,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             )}
 
             {status.phase === 'COMPLETED' && status.champion && (
-              <EmptyState icon={'\u2605'} title="Priority Declared" bold subtitle={<>Check <button onClick={() => setActiveTab('hearts')} className="text-accent hover:underline font-medium">Results</button> for full rankings.</>} />
+              <EmptyState icon={'\u2605'} title="Priority Declared" bold subtitle={<>Check <button onClick={() => setActiveTab('ideas')} className="text-accent hover:underline font-medium">Results</button> for full rankings.</>} />
             )}
 
             {status.phase === 'VOTING' && (status.votedTiers?.includes(effectiveTier) || localVotedTiers.has(effectiveTier)) && !status.multipleIdeasAllowed && !tierVoteResults[effectiveTier] && (() => {
@@ -1146,7 +1165,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         )}
 
         {/* ─── IDEAS/RESULTS TAB ─── */}
-        {activeTab === 'hearts' && (
+        {activeTab === 'ideas' && (
           <div>
             {commentsLoading && comments.length === 0 && status.ideas.length > 0 && (
               <p className="text-muted text-xs text-center py-2 animate-pulse">Loading comments...</p>
@@ -1182,7 +1201,14 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                           </div>
                           <div className="flex items-center gap-2">
                             {idea.totalXP > 0 && (
-                              <span className="text-xs font-mono font-bold text-warning">{idea.totalXP} XP</span>
+                              <span className="text-xs font-mono font-bold text-warning" title={
+                                idea.xpPerTier ? Object.entries(idea.xpPerTier).map(([t, xp]) => `T${t}: ${xp}`).join(', ') : ''
+                              }>{idea.totalXP} XP</span>
+                            )}
+                            {idea.xpPerTier && Object.keys(idea.xpPerTier).length > 1 && (
+                              <span className="text-[10px] font-mono text-muted">
+                                ({Object.entries(idea.xpPerTier).map(([t, xp]) => `T${t}:${xp}`).join(' ')})
+                              </span>
                             )}
                             <IdeaStatusBadge status={idea.status} isChampion={idea.isChampion} tier={idea.tier} />
                             {userCommented && (
@@ -1654,6 +1680,26 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         </div>
 
       </div>
+
+      {/* Onboarding final narration — shown on results page after chant completes */}
+      {showOnboardingFinal && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
+          <div className="max-w-[400px] w-full bg-surface border-2 border-gold rounded-xl p-5 shadow-lg">
+            <div className="text-sm text-foreground leading-relaxed space-y-2">
+              <p>Now you can review how each idea did, what comments were made, how cells worked, and of course, what the winner of the chant was! If you want to see how your agent did, click the foresight button. You can explore podiums (articles) or make more agents.</p>
+              <p>If this process was useful go tell your community and see if you can make the priority work in real life.</p>
+              <p>Unity Chant&apos;s goal is for people to come together, bring their thoughts, ideas, missions, and through their agent, come up with a solution that can be implemented in your real life situation.</p>
+            </div>
+            <button
+              onClick={() => setShowOnboardingFinal(false)}
+              className="w-full mt-4 py-2.5 bg-gold hover:bg-gold/90 text-black text-sm font-semibold rounded-lg transition-colors"
+            >
+              Got it
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   )
 }
