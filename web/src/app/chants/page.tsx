@@ -9,7 +9,7 @@
 'use client'
 
 import { useSession } from 'next-auth/react'
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { Suspense, useCallback, useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -59,7 +59,15 @@ const ONBOARDING_NARRATIONS: { id: string; match: (s: string, d: string, process
     narrations: [{ tier: 0, text: "This is the collective priority. In this chant, one cell evaluated all ideas. With more people, winning ideas advance through multiple tiers -- each round narrows the field.\n\nPriorities aren't chosen by a leader. They emerge from structured deliberation where every voice is heard." }] },
 ]
 
-export default function ChantsPage() {
+export default function ChantsPageWrapper() {
+  return (
+    <Suspense fallback={<FrameLayout active="chants"><div className="flex items-center justify-center py-20"><div className="text-muted text-sm animate-pulse">Loading...</div></div></FrameLayout>}>
+      <ChantsPage />
+    </Suspense>
+  )
+}
+
+function ChantsPage() {
   const { data: session } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
