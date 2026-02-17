@@ -201,6 +201,8 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = (token.sub || token.id) as string
+        if (token.picture) session.user.image = token.picture as string
+        if (token.name) session.user.name = token.name as string
       }
       return session
     },
@@ -208,6 +210,8 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id
         token.sub = user.id
+        if (user.image) token.picture = user.image
+        if (user.name) token.name = user.name
       }
 
       // For new Discord signups (not bot-merged), set discordId on the user

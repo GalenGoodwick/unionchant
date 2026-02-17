@@ -4,9 +4,7 @@ import { useSession } from 'next-auth/react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useEffect, useState, useRef, useCallback } from 'react'
-import SectionNav from '@/components/SectionNav'
-import { AmbientConstellation } from '@/components/ConstellationCanvas'
-import { useCollectiveChat } from '@/app/providers'
+import FrameLayout from '@/components/FrameLayout'
 import ShareMenu from '@/components/ShareMenu'
 import { useToast } from '@/components/Toast'
 import { getDisplayName } from '@/lib/user'
@@ -302,7 +300,6 @@ function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: M
 
 export default function CommunityPageClient() {
   const { data: session } = useSession()
-  const { chatOpen, toggleChat } = useCollectiveChat()
   const params = useParams()
   const router = useRouter()
   const slug = params.slug as string
@@ -380,28 +377,22 @@ export default function CommunityPageClient() {
 
   if (loading) {
     return (
-      <div className="h-screen flex flex-col bg-background overflow-hidden">
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-x-4 border-white/50">
-          <AmbientConstellation />
-          <div className="flex-1 flex items-center justify-center relative z-10">
-            <div className="text-muted text-sm animate-pulse">Loading group...</div>
-          </div>
+      <FrameLayout active="groups">
+        <div className="flex items-center justify-center py-20">
+          <div className="text-muted text-sm animate-pulse">Loading group...</div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   if (error || !community) {
     return (
-      <div className="h-screen flex flex-col bg-background overflow-hidden">
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-x-4 border-white/50">
-          <AmbientConstellation />
-          <div className="flex-1 flex flex-col items-center justify-center relative z-10 px-4">
-            <p className="text-muted text-sm mb-4">{error || 'This group does not exist or you do not have access.'}</p>
-            <Link href="/groups" className="text-accent text-sm hover:underline">Browse Groups</Link>
-          </div>
+      <FrameLayout active="groups">
+        <div className="flex flex-col items-center justify-center py-20 px-4">
+          <p className="text-muted text-sm mb-4">{error || 'This group does not exist or you do not have access.'}</p>
+          <Link href="/groups" className="text-accent text-sm hover:underline">Browse Groups</Link>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
@@ -419,18 +410,8 @@ export default function CommunityPageClient() {
   })
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-x-4 border-white/50">
-        <AmbientConstellation />
-
-        {/* Top bar */}
-        <div className="shrink-0 px-4 pt-4 relative z-10">
-          <SectionNav active="groups" />
-        </div>
-
-        {/* Scrollable content */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 relative z-10">
+    <FrameLayout active="groups" showBack>
+      <div className="pt-2">
           {/* Group header */}
           <div className="mb-3">
             <div className="flex items-start justify-between gap-2 mb-1">
@@ -511,7 +492,7 @@ export default function CommunityPageClient() {
                 href={community.discordInviteUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1 bg-[#5865F2] hover:bg-[#4752C4] text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                className="flex items-center justify-center gap-1 bg-discord hover:bg-discord-hover text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors"
               >
                 Discord
               </a>
@@ -530,7 +511,7 @@ export default function CommunityPageClient() {
           {/* New Chant CTA */}
           {isMember && (community.isPublic || isOwnerOrAdmin) && (
             <Link
-              href="/chants"
+              href={`/chants?create=1&groupId=${community.id}`}
               className="block text-center bg-surface/90 backdrop-blur-sm border border-border hover:border-accent rounded-lg p-2.5 text-xs text-accent font-medium transition-colors mb-4"
             >
               + New Chant in this Group
@@ -645,35 +626,7 @@ export default function CommunityPageClient() {
               )}
             </div>
           </div>
-        </div>
-
-        {/* Footer bar */}
-        <div className="shrink-0 px-4 py-3 relative z-10 flex items-center justify-between">
-          <button
-            onClick={toggleChat}
-            className={`h-10 px-4 rounded-full text-sm font-medium shadow-sm flex items-center gap-2 transition-colors ${
-              chatOpen ? 'bg-gold/20 text-gold' : 'bg-gold text-header hover:bg-gold/90'
-            }`}
-            aria-label="Collective Consciousness"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-              <circle cx="12" cy="12" r="3" />
-              <circle cx="12" cy="12" r="7" strokeDasharray="2 3" />
-              <circle cx="12" cy="12" r="11" strokeDasharray="1.5 3" />
-            </svg>
-            <span>Collective</span>
-          </button>
-          <Link
-            href="/groups"
-            className="h-10 px-4 rounded-full bg-accent hover:bg-accent-hover text-white text-sm font-medium shadow-sm flex items-center gap-2 transition-colors"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            <span>Groups</span>
-          </Link>
-        </div>
       </div>
-    </div>
+    </FrameLayout>
   )
 }

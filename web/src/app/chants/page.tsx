@@ -11,7 +11,7 @@
 import { useSession } from 'next-auth/react'
 import { useCallback, useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
 
@@ -38,28 +38,31 @@ const PAGE_SIZE = 15
 
 // Onboarding narration — consolidated popups explaining each phase of the chant
 type NarrationItem = { tier: number; text: string }
-const ONBOARDING_NARRATIONS: { id: string; match: (s: string, d: string) => boolean; narrations: NarrationItem[] }[] = [
-  // Popup 1: Brainstorming
+const ONBOARDING_NARRATIONS: { id: string; match: (s: string, d: string, processed: Set<string>) => boolean; narrations: NarrationItem[] }[] = [
+  // Popup 1: Brainstorming — ideas submitted
   { id: 'brainstorm', match: (s, d) => s === 'brainstorming' && /thinking/.test(d),
     narrations: [{ tier: 1, text: 'Each agent submits 1 idea related to your question. Ideas go into the core.' }] },
   // Popup 2: Cells + Discussion + Voting
   { id: 'cells-and-voting', match: (s, d) => s === 'voting' && /Creating voting cells/.test(d),
     narrations: [{ tier: 1, text: 'Groups (cells) of 5 agents are created. Each cell gets 5 unique ideas. One of those will be from your agent.\n\nAgents comment on ideas. Comments can be boosted. Each agent in each cell gets 10 vote points to give to the ideas in the cell. Vote points can be spread out or all in.' }] },
-  // Popup 3: Winners
+  // Popup 3: Winners declared
   { id: 'tier1-results', match: (s) => s === 'processing',
     narrations: [{ tier: 1, text: 'Each cell declares a winner.' }] },
-  // Popup 4: Tier 2 starts (only fires for 10+ agents)
+  // Popup 4: Tier 2 starts (10+ agents only)
   { id: 'tier2-start', match: (s, d) => s === 'voting' && /Final showdown/.test(d),
     narrations: [{ tier: 2, text: "It isn't over! Now the winning idea from each cell goes back to the core. All cells get the winning ideas from the previous tier. Agents comment, boost, and vote." }] },
   // Popup 5: Tier 2 result — collective priority explained
   { id: 'tier2-result', match: (s, d) => s === 'processing' && /Determining/.test(d),
     narrations: [{ tier: 2, text: "Now we have a winner which in Unity Chant is called a collective priority. Because the winning idea has gone through this process, it has made it through multiple rounds of voting. The ideas that don't work for everyone have been kept at lower tiers, and the winning priority emerges naturally." }] },
-  // No completion narration here — it shows on the results page instead
+  // Popup 6: Single-cell priority (≤5 agents, no tier 2)
+  { id: 'single-cell-priority', match: (s, d, processed) => s === 'complete' && /Champion:/.test(d) && !processed.has('tier2-result'),
+    narrations: [{ tier: 0, text: "This is the collective priority. In this chant, one cell evaluated all ideas. With more people, winning ideas advance through multiple tiers -- each round narrows the field.\n\nPriorities aren't chosen by a leader. They emerge from structured deliberation where every voice is heard." }] },
 ]
 
 export default function ChantsPage() {
   const { data: session } = useSession()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [chants, setChants] = useState<Chant[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -70,8 +73,12 @@ export default function ChantsPage() {
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Deep-link: ?create=1&groupId=XXX opens create form with group pre-selected
+  const initCreate = searchParams.get('create') === '1'
+  const initGroupId = searchParams.get('groupId')
+
   // Inline create form state
-  const [showCreate, setShowCreate] = useState(false)
+  const [showCreate, setShowCreate] = useState(initCreate)
   const [question, setQuestion] = useState('')
   const [description, setDescription] = useState('')
   const [creating, setCreating] = useState(false)
@@ -84,20 +91,44 @@ export default function ChantsPage() {
   const [allowAI, setAllowAI] = useState(true)
   const [tags, setTags] = useState('')
   const [communities, setCommunities] = useState<{ id: string; name: string }[]>([])
-  const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null)
+  const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(initGroupId)
   const [communityOnly, setCommunityOnly] = useState(false)
   const [ideaStatus, setIdeaStatus] = useState<Record<number, { ok: boolean; msg: string }>>({})
   const [createProgress, setCreateProgress] = useState('')
 
-  // Onboarding: show popup pointing to Ask AI button, then guide overlay
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [showAskAIGuide, setShowAskAIGuide] = useState(false)
+  // Clean up create deep-link params
   useEffect(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
-      setShowOnboarding(true)
-      window.history.replaceState({}, '', '/chants')
+    if (initCreate) router.replace('/chants', { scroll: false })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Onboarding: auto-open Ask AI with "Mine" pre-selected
+  const [onboardingTip, setOnboardingTip] = useState(false)
+  const onboardingHandledRef = useRef(false)
+  useEffect(() => {
+    if (onboardingHandledRef.current) return
+    if (typeof window === 'undefined') return
+    const isOnboarding = searchParams.get('onboarding') === '1'
+    const isSessionResume = !isOnboarding && sessionStorage.getItem('onboardingStarted') && !sessionStorage.getItem('onboardingChantCompleted')
+    if (isOnboarding || isSessionResume) {
+      onboardingHandledRef.current = true
+      setShowAskAI(true)
+      setAskSources({ standard: true, pool: false, mine: true })
+      isOnboardingChantRef.current = true
+      setOnboardingTip(true)
+      if (isOnboarding) router.replace('/chants', { scroll: false })
+      // Re-fetch agents — user may have just created one in onboarding
+      fetch('/api/my-agents')
+        .then(res => res.json())
+        .then(data => {
+          if (data.agents?.length > 0) {
+            setHasUserAgents(true)
+            setUserAgentCount(data.agents.length)
+          }
+        })
+        .catch(() => {})
     }
-  }, [])
+  }, [searchParams, router])
+
 
   // Ask AI state
   const [showAskAI, setShowAskAI] = useState(false)
@@ -124,7 +155,7 @@ export default function ChantsPage() {
     if (!isOnboardingChantRef.current) return
     for (const cp of ONBOARDING_NARRATIONS) {
       if (processedCheckpointsRef.current.has(cp.id)) continue
-      if (cp.match(step, detail)) {
+      if (cp.match(step, detail, processedCheckpointsRef.current)) {
         processedCheckpointsRef.current.add(cp.id)
         narrationQueueRef.current.push(...cp.narrations)
       }
@@ -147,6 +178,7 @@ export default function ChantsPage() {
       if (completedDelibIdRef.current) {
         setAskRunning(false)
         setShowAskAI(false)
+        sessionStorage.setItem('onboardingChantCompleted', '1')
         router.push(`/chants/${completedDelibIdRef.current}?onboarding=final`)
       }
     }
@@ -338,7 +370,7 @@ export default function ChantsPage() {
     }
     setAskRunning(true)
     setAskError('')
-    setShowOnboarding(false)
+    setOnboardingTip(false)
     setAskProgress({ step: 'starting', detail: 'Connecting...', progress: 0 })
 
     try {
@@ -495,14 +527,9 @@ export default function ChantsPage() {
           <button
             onClick={() => {
               if (showAskAI) {
-                setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 })
+                setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
               } else {
                 setShowCreate(false); setShowAskAI(true)
-                if (showOnboarding) {
-                  setShowOnboarding(false)
-                  setAskSources({ standard: true, pool: false, mine: true })
-                  isOnboardingChantRef.current = true
-                }
               }
             }}
             disabled={askRunning}
@@ -539,13 +566,19 @@ export default function ChantsPage() {
         <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
           {showAskAI ? (
             <form onSubmit={handleAskAI}>
+              {onboardingTip && !askRunning && (
+                <div className="bg-gold/10 border border-gold/30 rounded-lg p-2.5 mb-3">
+                  <p className="text-xs text-gold font-medium mb-0.5">Your first chant</p>
+                  <p className="text-[11px] text-muted leading-relaxed">A chant takes your question, has agents brainstorm ideas, splits them into small groups for discussion and voting, and finds the strongest answer. Type any question to start.</p>
+                </div>
+              )}
               <p className="text-[11px] text-muted mb-3 leading-relaxed">
                 What is a question you want to solve?
               </p>
 
               <input
                 type="text"
-                placeholder="What should we decide?"
+                placeholder="What is your question?"
                 value={askQuestion}
                 onChange={(e) => setAskQuestion(e.target.value)}
                 maxLength={300}
@@ -686,7 +719,7 @@ export default function ChantsPage() {
           <p className="text-[11px] text-muted mb-3 leading-relaxed">Tip: Open-ended questions work best. Let ideas explore the space.</p>
           <input
             type="text"
-            placeholder="What should we decide?"
+            placeholder="What is your question?"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             maxLength={200}
@@ -892,6 +925,16 @@ export default function ChantsPage() {
         </div>
       ) : (
         <>
+          {/* Re-engagement banner for users who skipped agent creation */}
+          {session && !hasUserAgents && !loading && (
+            <Link
+              href="/agents"
+              className="block mx-0 mb-3 bg-gold/10 border border-gold/30 rounded-xl p-3.5 hover:bg-gold/15 transition-colors"
+            >
+              <p className="text-sm font-medium text-gold mb-1">Create your AI agent</p>
+              <p className="text-[11px] text-muted leading-relaxed">Your agent brainstorms ideas, discusses in cells, and votes on your behalf. It participates even when you&apos;re away.</p>
+            </Link>
+          )}
           {loading && chants.length === 0 ? (
             <div className="text-center text-muted py-12 animate-pulse text-sm">Loading chants...</div>
           ) : filtered.length === 0 ? (
@@ -963,72 +1006,6 @@ export default function ChantsPage() {
         </>
       )}
 
-      {/* Onboarding overlay — blocks everything except Ask AI */}
-      {showOnboarding && !askRunning && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[200] bg-black/50 flex flex-col items-center justify-end pb-6 px-4">
-          <div className="max-w-[480px] w-full space-y-3">
-            <div className="bg-surface border-2 border-gold rounded-xl p-4 shadow-lg">
-              <p className="text-sm font-medium text-gold mb-2">Run your first chant</p>
-              <p className="text-xs text-muted leading-relaxed mb-2">
-                Chants are structured conversations that take ideas from you and other agents, to find which idea is a solution for all.
-              </p>
-              <p className="text-xs text-muted leading-relaxed mb-2">
-                Instead of voting on what a leader has decided, chants find the best idea from anyone in the community (or collective).
-              </p>
-              <p className="text-xs text-foreground leading-relaxed font-medium">
-                To start a chant, click Ask AI.
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setShowOnboarding(false)
-                setShowCreate(false)
-                setShowAskAI(true)
-                setAskSources({ standard: true, pool: false, mine: true })
-                setShowAskAIGuide(true)
-                isOnboardingChantRef.current = true
-              }}
-              className="w-full h-12 rounded-full bg-warning hover:bg-warning-hover text-white text-sm font-semibold shadow-lg flex items-center justify-center gap-2 transition-colors"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-              </svg>
-              Ask AI
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Ask AI guide overlay — explains the form during onboarding */}
-      {showAskAIGuide && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[200] bg-black/50 flex items-center justify-center px-4">
-          <div className="max-w-[400px] w-full bg-surface border-2 border-gold rounded-xl p-5 shadow-lg">
-            <p className="text-sm font-medium text-gold mb-3">How Ask AI works</p>
-            <div className="space-y-2.5 text-xs text-muted leading-relaxed">
-              <p>
-                Type a question you want to solve. Your AI agents and others will brainstorm ideas, discuss them, and vote to find the strongest answer.
-              </p>
-              <p>
-                <span className="text-foreground font-medium">Agents</span> &mdash; Choose how many agents participate. More agents means more ideas and more rounds of voting.
-              </p>
-              <p>
-                <span className="text-foreground font-medium">Agent Sources</span> &mdash; Pick the pool or pools that you invite agents from for the chant. You can choose Unity Chant&apos;s agents, other people&apos;s agents, and/or invite your own (recommended).
-              </p>
-              <p>
-                We&apos;ve already selected &ldquo;Mine&rdquo; for you so your agent is in the chant.
-              </p>
-            </div>
-            <button
-              onClick={() => setShowAskAIGuide(false)}
-              className="w-full mt-4 py-2.5 bg-gold hover:bg-gold/90 text-black text-sm font-semibold rounded-lg transition-colors"
-            >
-              OK
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* Onboarding chant narration — explains each phase as the chant runs */}
       {currentNarration && typeof document !== 'undefined' && createPortal(

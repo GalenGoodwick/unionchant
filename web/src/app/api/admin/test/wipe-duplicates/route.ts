@@ -4,6 +4,10 @@ import { requireAdminVerified } from '@/lib/admin'
 
 // POST /api/admin/test/wipe-duplicates - Delete duplicate deliberations (keep oldest)
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+  }
+
   try {
     const auth = await requireAdminVerified(req)
     if (!auth.authorized) return auth.response

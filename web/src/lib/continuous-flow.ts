@@ -95,9 +95,8 @@ export async function tryAdvanceContinuousFlowTier(
     },
   })
 
-  // If we couldn't claim all ideas, another call beat us — revert and bail
+  // If we couldn't claim all ideas, another call beat us — revert the ones we claimed
   if (updated.count < cellSize) {
-    // Revert any we did claim back to ADVANCING
     await prisma.idea.updateMany({
       where: {
         id: { in: cellIdeas.map(i => i.id) },
@@ -177,10 +176,11 @@ export async function tryAdvanceContinuousFlowTier(
   // (recursive: keep forming cells as long as we have enough winners)
   const remaining = advancingIdeas.length - cellSize
   if (remaining >= cellSize) {
-    // Schedule another attempt (don't await to avoid deep recursion)
-    tryAdvanceContinuousFlowTier(deliberationId, completedTier).catch(err =>
+    try {
+      await tryAdvanceContinuousFlowTier(deliberationId, completedTier)
+    } catch (err) {
       console.error('continuousFlow: recursive tier advance failed:', err)
-    )
+    }
   }
 
   return true

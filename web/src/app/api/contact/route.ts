@@ -1,12 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
+import { checkRateLimit } from '@/lib/rate-limit'
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 export async function POST(req: NextRequest) {
   try {
-    const { name, email, subject, message } = await req.json()
+    const { name: rawName, email: rawEmail, subject: rawSubject, message: rawMessage } = await req.json()
+    const name = escapeHtml(String(rawName || ''))
+    const email = escapeHtml(String(rawEmail || ''))
+    const subject = escapeHtml(String(rawSubject || ''))
+    const message = escapeHtml(String(rawMessage || ''))
 
     if (!name || !email || !subject || !message) {
       return NextResponse.json({ error: 'All fields required' }, { status: 400 })
+    }
+
+    // Rate limit: 5 submissions per 10 minutes per email
+    const rateLimited = await checkRateLimit('contact', rawEmail || 'anonymous')
+    if (rateLimited) {
+      return NextResponse.json({ error: 'Too many submissions. Please try again later.' }, { status: 429 })
     }
 
     const apiKey = process.env.RESEND_API_KEY

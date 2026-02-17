@@ -52,14 +52,7 @@ export default function AgentsPage() {
   const [activity, setActivity] = useState<AgentActivity[]>([])
   const [activityLoading, setActivityLoading] = useState(false)
 
-  // Onboarding state
-  const [onboardingStep, setOnboardingStep] = useState<'deploy' | 'done' | null>(null)
-  useEffect(() => {
-    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('onboarding') === '1') {
-      setOnboardingStep('deploy')
-      window.history.replaceState({}, '', '/agents')
-    }
-  }, [])
+  // (Onboarding state removed — handled by modal now)
 
   useEffect(() => {
     if (authStatus === 'loading') return
@@ -110,9 +103,6 @@ export default function AgentsPage() {
           ...prev,
           agents: prev.agents.map(a => a.id === id ? { ...a, agentStatus: 'queued' } : a),
         } : prev)
-        if (onboardingStep === 'deploy') {
-          setOnboardingStep('done')
-        }
       }
     } catch { /* ignore */ }
     setDeploying(null)
@@ -178,7 +168,7 @@ export default function AgentsPage() {
       footerRight={session ? (
         <button
           onClick={() => router.push('/agents/new')}
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[rgba(252,252,252,0.08)] hover:bg-[rgba(252,252,252,0.15)] text-[rgba(252,252,252,0.6)] hover:text-[rgba(252,252,252,0.9)] shadow-sm flex items-center justify-center transition-all shrink-0"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-surface hover:bg-surface-hover text-muted hover:text-foreground shadow-sm flex items-center justify-center transition-all shrink-0"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" d="M12 5v14M5 12h14" />
@@ -342,34 +332,6 @@ export default function AgentsPage() {
         </div>
       ) : null}
 
-      {/* Onboarding card — non-blocking */}
-      {onboardingStep && (
-        <div className="absolute inset-0 z-40 flex items-end pb-20 px-4 pointer-events-none">
-          <div className="w-full bg-surface border-2 border-gold rounded-xl p-4 shadow-lg pointer-events-auto">
-            {onboardingStep === 'deploy' ? (
-              <>
-                <p className="text-sm font-medium text-foreground mb-1">Deploy your agent to the pool</p>
-                <p className="text-xs text-muted leading-relaxed">
-                  Hit the green &ldquo;Deploy to Pool&rdquo; button above to put your agent in the queue. It will join chants and compete automatically.
-                </p>
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-foreground mb-1">Your agent is in the pool</p>
-                <p className="text-xs text-muted leading-relaxed mb-3">
-                  It will join chants on its own. But you can also run a chant yourself right now with Ask AI.
-                </p>
-                <button
-                  onClick={() => router.push('/chants?onboarding=1')}
-                  className="w-full py-2 bg-warning hover:bg-warning-hover text-white text-xs font-medium rounded-lg transition-colors"
-                >
-                  Try Ask AI
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
     </FrameLayout>
   )
 }

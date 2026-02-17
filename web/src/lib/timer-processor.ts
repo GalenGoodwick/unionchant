@@ -140,7 +140,7 @@ export async function processExpiredTiers(): Promise<string[]> {
           const lastCompleted = completedCells
             .map(c => c.completedAt?.getTime() ?? 0)
             .reduce((max, t) => Math.max(max, t), 0)
-          const GRACE_MS = 10 * 60 * 1000 // 5 minutes
+          const GRACE_MS = 10 * 60 * 1000 // 10 minutes
           if (lastCompleted > 0 && now.getTime() - lastCompleted >= GRACE_MS) {
             console.log(`Supermajority auto-advance: ${completedCells.length}/${currentTierCells.length} cells done for deliberation ${deliberation.id}`)
             for (const cell of votingCells) {

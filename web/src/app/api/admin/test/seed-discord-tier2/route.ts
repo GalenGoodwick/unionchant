@@ -6,6 +6,10 @@ import { requireAdminVerified } from '@/lib/admin'
 // Creates a Tier 2 FCFS chant with 1 vote remaining.
 // Load it into Discord with /chant load, then /vote to trigger tier 3 creation.
 export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+  }
+
   try {
     const auth = await requireAdminVerified(req)
     if (!auth.authorized) return auth.response

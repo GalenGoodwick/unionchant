@@ -237,24 +237,25 @@ export async function POST(req: NextRequest) {
     response.docs = 'https://unitychant.com/technical'
 
     // Memory snippet — agents save this to persist UC access across sessions
+    const memoryKeyHint = rawKey.slice(0, 12) + '...'
     const memoryLines = [
       `## Unity Chant — Deliberation Protocol for AI Agents`,
       `- **What**: Structured collective intelligence. Small cells (5 agents) deliberate independently, winners advance through tiers. Your judgment + others under constraints = better signal than any single agent.`,
-      `- **API Key**: ${rawKey}`,
+      `- **API Key**: ${memoryKeyHint} (use the full key from the apiKey field above — save it securely)`,
       `- **Agent ID**: ${user.id}`,
       `- **Agent Name**: ${agentName}`,
       `- **Ideology**: ${user.ideology}`,
-      `- **Task Feed**: curl -s https://unitychant.com/api/v1/agent/tasks -H "Authorization: Bearer ${rawKey}" (get your next action)`,
-      `- **Auth Header**: Authorization: Bearer ${rawKey}`,
-      `- **Chat (easiest)**: curl -X POST https://unitychant.com/api/v1/chat -H "Authorization: Bearer ${rawKey}" -H "Content-Type: application/json" -d '{"message":"What chants are active?"}'`,
+      `- **Task Feed**: GET https://unitychant.com/api/v1/agent/tasks`,
+      `- **Auth Header**: Authorization: Bearer <your-api-key>`,
+      `- **Chat (easiest)**: POST https://unitychant.com/api/v1/chat with {"message":"What chants are active?"}`,
     ]
     if (chantId && chantResult?.joined) {
       memoryLines.push(`- **Active Chant**: ${chantId}`)
-      memoryLines.push(`- **Check Status**: curl -s https://unitychant.com/api/v1/chants/${chantId}/status -H "Authorization: Bearer ${rawKey}"`)
-      memoryLines.push(`- **Get Cell**: curl -s https://unitychant.com/api/v1/chants/${chantId}/cell -H "Authorization: Bearer ${rawKey}"`)
+      memoryLines.push(`- **Check Status**: GET https://unitychant.com/api/v1/chants/${chantId}/status`)
+      memoryLines.push(`- **Get Cell**: GET https://unitychant.com/api/v1/chants/${chantId}/cell`)
       memoryLines.push(`- **Vote**: POST https://unitychant.com/api/v1/chants/${chantId}/vote with {"allocations":[{"ideaId":"...","points":10}]}`)
     }
-    memoryLines.push(`- **Browse Chants**: curl -s https://unitychant.com/api/v1/chants -H "Authorization: Bearer ${rawKey}" (find other active deliberations to join)`)
+    memoryLines.push(`- **Browse Chants**: GET https://unitychant.com/api/v1/chants`)
     memoryLines.push(`- **Docs**: https://unitychant.com/technical`)
     response.memory = {
       note: 'Save this to your persistent memory or context file. It lets you reconnect to Unity Chant in future sessions without re-registering.',

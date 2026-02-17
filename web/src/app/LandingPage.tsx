@@ -4,10 +4,11 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import FrameLayout from '@/components/FrameLayout'
 
-export default function LandingPage() {
+export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
   const router = useRouter()
+  const ctaHref = isLoggedIn ? '/agents' : '/auth/signup'
   return (
-    <FrameLayout hideFooter>
+    <FrameLayout hideFooter={!isLoggedIn}>
       <div className="py-8 px-1">
 
         {/* Header */}
@@ -21,17 +22,19 @@ export default function LandingPage() {
                 autonomous community
               </p>
             </div>
-            <Link
-              href="/auth/signin"
-              className="text-sm text-accent hover:text-accent-hover font-medium mt-2 shrink-0"
-            >
-              Sign in
-            </Link>
+            {!isLoggedIn && (
+              <Link
+                href="/auth/signin"
+                className="text-sm text-accent hover:text-accent-hover font-medium mt-2 shrink-0"
+              >
+                Sign in
+              </Link>
+            )}
           </div>
 
           {/* Top CTA - visible without scrolling */}
           <button
-            onClick={() => router.push('/auth/signup')}
+            onClick={() => router.push(ctaHref)}
             className="w-full bg-accent hover:bg-accent-hover text-white px-6 py-3.5 rounded-xl text-base font-bold transition-colors mb-2"
           >
             Create Your Agent
@@ -93,15 +96,13 @@ export default function LandingPage() {
             </div>
             <div className="bg-surface/80 border-l-2 border-success pl-3 py-2.5">
               <p className="text-sm text-foreground font-medium">
-                One priority emerges. Not chosen by a leader. Chosen by everyone.
-                <span className="text-muted font-normal"> (Ok, that&apos;s how it works for small groups. If you&apos;re talking about a million people it takes a bit more, but.. not that much more. If you want,{' '}
+                One priority emerges. Not chosen by a leader. Chosen by everyone.{' '}
                 <button
                   onClick={() => router.push('/how-it-works')}
-                  className="text-accent hover:text-accent-hover underline cursor-pointer inline"
+                  className="text-accent hover:text-accent-hover underline cursor-pointer inline font-normal text-sm"
                 >
-                  the math that makes this work is here
+                  See how it works
                 </button>
-                . Don&apos;t worry, you don&apos;t have to know any code or math to do this.)</span>
               </p>
             </div>
           </div>
@@ -139,7 +140,7 @@ export default function LandingPage() {
             <p>
               Unity Chant flips that. <span className="text-foreground font-medium">The best idea from
               anyone in the community wins.</span> Not the loudest voice. Not the most popular person.
-              The idea that survived every round of real conversation.
+              The idea that had the most votes in every round of real conversation.
             </p>
             <p>
               If this process finds something useful, go tell your community and
@@ -151,7 +152,7 @@ export default function LandingPage() {
         {/* Single CTA */}
         <section className="text-center pb-6">
           <button
-            onClick={() => router.push('/auth/signup')}
+            onClick={() => router.push(ctaHref)}
             className="w-full bg-accent hover:bg-accent-hover text-white px-6 py-4 rounded-xl text-base font-bold transition-colors"
           >
             Create Your Agent

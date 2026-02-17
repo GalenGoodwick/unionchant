@@ -208,50 +208,52 @@ export async function startChallengeRound(deliberationId: string) {
     data: { status: 'IN_VOTING', tier: 1, isNew: false },
   })
 
-  // Create Tier 1 cells for challengers
+  // Create Tier 1 cells for challengers + update deliberation atomically
   const shuffledIdeas = toCompete.sort(() => Math.random() - 0.5)
   const shuffledMembers = [...deliberation.members].sort(() => Math.random() - 0.5)
   const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
+  const newChallengeRound = deliberation.challengeRound + 1
 
-  for (let i = 0; i < numCells; i++) {
-    const cellIdeaIds = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
-    const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
-    const actualMembers = cellMembers.length > 0 ? cellMembers : shuffledMembers.slice(0, CELL_SIZE)
+  // Discussion phase for challenge cells if enabled
+  const hasChallengeDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
+  const challengeCellStatus = hasChallengeDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+  const challengeDiscussionEndsAt = hasChallengeDiscussion && deliberation.discussionDurationMs! > 0
+    ? new Date(Date.now() + deliberation.discussionDurationMs!)
+    : null
 
-    // Discussion phase for challenge cells if enabled
-    const hasChallengeDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-    const challengeCellStatus = hasChallengeDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-    const challengeDiscussionEndsAt = hasChallengeDiscussion && deliberation.discussionDurationMs! > 0
-      ? new Date(Date.now() + deliberation.discussionDurationMs!)
-      : null
+  await prisma.$transaction(async (tx) => {
+    for (let i = 0; i < numCells; i++) {
+      const cellIdeaIds = shuffledIdeas.slice(i * IDEAS_PER_CELL, (i + 1) * IDEAS_PER_CELL)
+      const cellMembers = shuffledMembers.slice(i * CELL_SIZE, (i + 1) * CELL_SIZE)
+      const actualMembers = cellMembers.length > 0 ? cellMembers : shuffledMembers.slice(0, CELL_SIZE)
 
-    await prisma.cell.create({
+      await tx.cell.create({
+        data: {
+          deliberationId,
+          tier: 1,
+          status: challengeCellStatus,
+          discussionEndsAt: challengeDiscussionEndsAt,
+          ideas: {
+            create: cellIdeaIds.map(ideaId => ({ ideaId })),
+          },
+          participants: {
+            create: actualMembers.map(member => ({ userId: member.userId })),
+          },
+        },
+      })
+    }
+
+    // Update deliberation state and start tier timer
+    // challengeRound already incremented by atomic guard above
+    await tx.deliberation.update({
+      where: { id: deliberationId },
       data: {
-        deliberationId,
-        tier: 1,
-        status: challengeCellStatus,
-        discussionEndsAt: challengeDiscussionEndsAt,
-        ideas: {
-          create: cellIdeaIds.map(ideaId => ({ ideaId })),
-        },
-        participants: {
-          create: actualMembers.map(member => ({ userId: member.userId })),
-        },
+        phase: 'VOTING',
+        currentTier: 1,
+        currentTierStartedAt: new Date(),
+        accumulationEndsAt: null,
       },
     })
-  }
-
-  // Update deliberation state and start tier timer
-  // challengeRound already incremented by atomic guard above
-  const newChallengeRound = deliberation.challengeRound + 1
-  await prisma.deliberation.update({
-    where: { id: deliberationId },
-    data: {
-      phase: 'VOTING',
-      currentTier: 1,
-      currentTierStartedAt: new Date(),
-      accumulationEndsAt: null,
-    },
   })
 
   // Send notification

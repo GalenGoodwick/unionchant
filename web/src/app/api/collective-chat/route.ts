@@ -568,13 +568,16 @@ BEHAVIOR:
             // Delete existing votes and cast new ones
             await prisma.vote.deleteMany({ where: { cellId: cell.id, userId: user.id } })
             const now = new Date()
-            for (const a of allocations) {
-              const voteId = crypto.randomUUID().replace(/-/g, '').slice(0, 25)
-              await prisma.$executeRawUnsafe(
-                `INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt") VALUES ($1, $2, $3, $4, $5, $6)`,
-                voteId, cell.id, user.id, a.ideaId, a.points, now
-              )
-            }
+            await prisma.vote.createMany({
+              data: allocations.map((a: { ideaId: string; points: number }) => ({
+                id: crypto.randomUUID().replace(/-/g, '').slice(0, 25),
+                cellId: cell.id,
+                userId: user.id,
+                ideaId: a.ideaId,
+                xpPoints: a.points,
+                votedAt: now,
+              })),
+            })
             // Update idea totals
             for (const a of allocations) {
               const agg = await prisma.vote.aggregate({ where: { cellId: cell.id, ideaId: a.ideaId }, _sum: { xpPoints: true }, _count: true })

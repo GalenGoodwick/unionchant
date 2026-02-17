@@ -635,18 +635,24 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   if (!isBatchCell) {
     // ── Single-cell batch: resolve winner/loser from this cell's votes ──
-    const cellVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
-      SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cellId}
-    `
+    let cellVotes: { ideaId: string; xpPoints: number }[] = []
+    let numVoters = 0
+    try {
+      cellVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+        SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ${cellId}
+      `
+      const voterResult = await prisma.$queryRaw<{ cnt: bigint }[]>`
+        SELECT COUNT(DISTINCT "userId") as cnt FROM "Vote" WHERE "cellId" = ${cellId}
+      `
+      numVoters = Number(voterResult[0]?.cnt || 0)
+    } catch (err) {
+      console.error(`Failed to query votes for cell ${cellId}, all ideas advance as tie:`, err)
+      winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
+    }
     const xpTotals: Record<string, number> = {}
     cellVotes.forEach(vote => {
       xpTotals[vote.ideaId] = (xpTotals[vote.ideaId] || 0) + vote.xpPoints
     })
-
-    const voterResult = await prisma.$queryRaw<{ cnt: bigint }[]>`
-      SELECT COUNT(DISTINCT "userId") as cnt FROM "Vote" WHERE "cellId" = ${cellId}
-    `
-    const numVoters = Number(voterResult[0]?.cnt || 0)
     const minXPToAdvance = numVoters <= 1 ? 4 : 0
     const maxXP = Math.max(...Object.values(xpTotals), 0)
 
@@ -701,9 +707,14 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
       if (unresolvedCount > 0) {
         const batchCellIds = batchCells.map(c => c.id)
-        const batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
-          SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
-        `
+        let batchVotes: { ideaId: string; xpPoints: number }[] = []
+        try {
+          batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+            SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
+          `
+        } catch (err) {
+          console.error(`Failed to query batch votes for cell ${cellId}, picking random winner:`, err)
+        }
         const tally: Record<string, number> = {}
         for (const vote of batchVotes) {
           tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
@@ -968,9 +979,14 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     if (unresolvedCount === 0) continue // Already resolved
 
     // Cross-cell XP tally for this batch
-    const batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
-      SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
-    `
+    let batchVotes: { ideaId: string; xpPoints: number }[] = []
+    try {
+      batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+        SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
+      `
+    } catch (err) {
+      console.error(`Failed to query batch votes for batch ${batchNum}, picking random winner:`, err)
+    }
     const tally: Record<string, number> = {}
     for (const vote of batchVotes) {
       tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints

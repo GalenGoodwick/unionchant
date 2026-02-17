@@ -187,16 +187,20 @@ export async function POST(
         if (!cellIdeaIds.has(a.ideaId)) throw new Error('IDEA_NOT_IN_CELL')
       }
 
-      // Delete old votes + insert new ones in single raw SQL
+      // Delete old votes + insert new ones
       if (!deliberation.multipleIdeasAllowed) {
-        await tx.$executeRaw`DELETE FROM "Vote" WHERE "cellId" = ${cellId} AND "userId" = ${userId}`
+        await tx.vote.deleteMany({ where: { cellId: cellId!, userId } })
       }
-      const voteValues = (allocations as { ideaId: string; points: number }[])
-        .map(a => `('vt${Date.now()}${Math.random().toString(36).slice(2, 8)}', '${cellId}', '${userId}', '${a.ideaId}', ${a.points}, '${now.toISOString()}')`)
-        .join(', ')
-      await tx.$executeRawUnsafe(
-        `INSERT INTO "Vote" (id, "cellId", "userId", "ideaId", "xpPoints", "votedAt") VALUES ${voteValues}`
-      )
+      await tx.vote.createMany({
+        data: (allocations as { ideaId: string; points: number }[]).map(a => ({
+          id: `vt${Date.now()}${Math.random().toString(36).slice(2, 8)}`,
+          cellId: cellId!,
+          userId,
+          ideaId: a.ideaId,
+          xpPoints: a.points,
+          votedAt: now,
+        })),
+      })
 
       // Mark voted + count in one go
       await tx.$executeRaw`UPDATE "CellParticipation" SET status = 'VOTED', "votedAt" = ${now} WHERE "cellId" = ${cellId} AND "userId" = ${userId}`

@@ -34,6 +34,10 @@ const FALLBACK_IDEAS = [
 
 // POST /api/admin/test/seed-world-peace — Seed the world peace chant
 export async function POST() {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Test endpoints disabled in production' }, { status: 403 })
+  }
+
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.email || !(await isAdmin(session.user.email))) {

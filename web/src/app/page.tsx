@@ -13,7 +13,7 @@ export default async function Home({
 
   // Show landing page if ?landing param exists OR user not authenticated
   if (params.landing || !session) {
-    return <LandingPage />
+    return <LandingPage isLoggedIn={!!session} />
   }
 
   // Authenticated users without ?landing → redirect to chants
