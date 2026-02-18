@@ -61,7 +61,7 @@ const ONBOARDING_NARRATIONS: { id: string; match: (s: string, d: string, process
 
 export default function ChantsPageWrapper() {
   return (
-    <Suspense fallback={<FrameLayout active="chants"><div className="flex items-center justify-center py-20"><div className="text-muted text-sm animate-pulse">Loading...</div></div></FrameLayout>}>
+    <Suspense fallback={<div className="flex items-center justify-center py-20"><div className="text-muted text-sm animate-pulse">Loading...</div></div>}>
       <ChantsPage />
     </Suspense>
   )
@@ -147,9 +147,21 @@ function ChantsPage() {
   const [hasUserAgents, setHasUserAgents] = useState(false)
   const [userAgentCount, setUserAgentCount] = useState(0)
   const [poolCount, setPoolCount] = useState(0)
+  const [userTier, setUserTier] = useState<string>('free')
+  const [isUserAdmin, setIsUserAdmin] = useState(false)
+  const [showCustomCount, setShowCustomCount] = useState(false)
+  const [customCountText, setCustomCountText] = useState('')
   const [askRunning, setAskRunning] = useState(false)
   const [askProgress, setAskProgress] = useState({ step: '', detail: '', progress: 0 })
   const [askError, setAskError] = useState('')
+
+  // Live priority leaderboard during Ask AI run
+  type LiveRankedIdea = { id: string; text: string; xp: number; status: string; author: string }
+  const [liveRanked, setLiveRanked] = useState<LiveRankedIdea[]>([])
+  const [liveTier, setLiveTier] = useState(0)
+  const [livePaused, setLivePaused] = useState(false)
+  const livePausedRef = useRef(false)
+  const liveRankedRef = useRef<LiveRankedIdea[]>([])
 
   // Onboarding narration state
   const isOnboardingChantRef = useRef(false)
@@ -222,7 +234,10 @@ function ChantsPage() {
       const res = await fetch('/api/deliberations')
       if (res.ok) {
         const data = await res.json()
-        if (Array.isArray(data)) setChants(data)
+        if (Array.isArray(data)) {
+          const seen = new Set<string>()
+          setChants(data.filter((c: Chant) => seen.has(c.id) ? false : (seen.add(c.id), true)))
+        }
       }
     } catch {
       // silent
@@ -256,6 +271,8 @@ function ChantsPage() {
           setHasUserAgents(true)
           setUserAgentCount(data.agents.length)
         }
+        if (data.tier) setUserTier(data.tier)
+        if (data.isAdmin) setIsUserAdmin(true)
       })
       .catch(() => {})
     fetch('/api/agent-pool/count')
@@ -379,6 +396,11 @@ function ChantsPage() {
     setAskRunning(true)
     setAskError('')
     setOnboardingTip(false)
+    setLiveRanked([])
+    setLiveTier(0)
+    setLivePaused(false)
+    livePausedRef.current = false
+    liveRankedRef.current = []
     setAskProgress({ step: 'starting', detail: 'Connecting...', progress: 0 })
 
     try {
@@ -427,6 +449,12 @@ function ChantsPage() {
             setShowAskAI(false)
             router.push(`/chants/${data.deliberationId}`)
             return 'done'
+          }
+          // Capture live ranked snapshots for the leaderboard
+          if (data.step === 'tier_results' && data.ranked) {
+            liveRankedRef.current = data.ranked
+            setLiveTier(data.tier || 0)
+            if (!livePausedRef.current) setLiveRanked(data.ranked)
           }
           if (data.step && data.detail) {
             setAskProgress({ step: data.step, detail: data.detail, progress: data.progress || 0 })
@@ -606,7 +634,7 @@ function ChantsPage() {
               <div className="mb-3">
                 <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agents <span className="font-normal text-muted">(How many agents do you want in the chant?)</span></label>
                 <div className="flex gap-2">
-                  {([5, 10, 15, 20, 25] as const).map(n => (
+                  {([10, 15, 20, 25] as const).map(n => (
                     <button
                       key={n}
                       type="button"
@@ -621,13 +649,80 @@ function ChantsPage() {
                       {n}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!showCustomCount) setCustomCountText(![10, 15, 20, 25].includes(askAgentCount) ? String(askAgentCount) : '')
+                      setShowCustomCount(!showCustomCount)
+                    }}
+                    disabled={askRunning}
+                    className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors font-medium ${
+                      ![10, 15, 20, 25].includes(askAgentCount)
+                        ? 'bg-warning/15 border-warning/40 text-warning'
+                        : 'bg-surface border-border text-muted hover:border-border-strong'
+                    }`}
+                  >
+                    {![10, 15, 20, 25].includes(askAgentCount) ? askAgentCount : '30+'}
+                  </button>
                 </div>
+                {showCustomCount && (
+                  <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
+                    {isUserAdmin || userTier !== 'free' ? (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-muted whitespace-nowrap">Agents:</label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          value={customCountText}
+                          placeholder="30"
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/\D/g, '')
+                            setCustomCountText(raw)
+                            const v = parseInt(raw)
+                            const max = isUserAdmin ? 500 : userTier === 'scale' ? 250 : userTier === 'business' ? 100 : 50
+                            if (!isNaN(v) && v >= 5 && v <= max) setAskAgentCount(v)
+                          }}
+                          disabled={askRunning}
+                          className="w-20 px-2 py-1.5 text-xs text-center rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:border-warning"
+                        />
+                        <span className="text-[10px] text-muted">max {isUserAdmin ? 500 : userTier === 'scale' ? 250 : userTier === 'business' ? 100 : 50}</span>
+                        <button
+                          type="button"
+                          onClick={() => { setShowCustomCount(false) }}
+                          className="ml-auto text-[10px] text-muted hover:text-foreground"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <p className="text-xs text-foreground/80 mb-1.5 font-medium">30+ agents requires a paid plan</p>
+                        <p className="text-[10px] text-muted mb-3">Pro: up to 50 / Business: 100 / Scale: 250</p>
+                        <div className="flex gap-2 justify-center">
+                          <Link
+                            href="/pricing"
+                            className="px-3 py-1.5 text-xs font-medium bg-warning text-background rounded-md hover:bg-warning-hover transition-colors"
+                          >
+                            View Plans
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => setShowCustomCount(false)}
+                            className="px-3 py-1.5 text-xs font-medium text-muted hover:text-foreground transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-muted mt-1.5">
-                  {askAgentCount === 5 && '1 cell, no tiers. Fast (~5s).'}
-                  {askAgentCount === 10 && '2 cells + final showdown (~10s).'}
-                  {askAgentCount === 15 && '3 cells + final showdown (~15s).'}
-                  {askAgentCount === 20 && '4 cells + final showdown (~15s).'}
-                  {askAgentCount === 25 && '5 cells + final showdown (~20s).'}
+                  {askAgentCount <= 5 && '1 cell, no tiers. Fast (~5s).'}
+                  {askAgentCount > 5 && askAgentCount <= 25 && `${Math.ceil(askAgentCount / 5)} cells + final showdown (~${Math.ceil(askAgentCount / 5) * 5}s).`}
+                  {askAgentCount > 25 && askAgentCount <= 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers (~${Math.ceil(askAgentCount / 2)}s).`}
+                  {askAgentCount > 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers. Large deliberation.`}
                 </p>
               </div>
 
@@ -647,7 +742,7 @@ function ChantsPage() {
                     <span className={`text-[11px] font-medium ${askSources.standard ? 'text-warning' : 'text-muted'}`}>
                       Standard
                     </span>
-                    <span className="text-[10px] text-muted ml-auto">25 built-in personas</span>
+                    <span className="text-[10px] text-muted ml-auto">100 built-in personas</span>
                   </label>
                   {poolCount > 0 && (
                     <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
@@ -699,16 +794,103 @@ function ChantsPage() {
 
               {askRunning && (
                 <div className="mb-3">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <div className="w-2 h-2 bg-warning rounded-full animate-pulse" />
-                    <span className="text-xs text-warning font-medium">{askProgress.detail || 'Starting...'}</span>
+                  {currentNarration ? (
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
+                      <span className="text-xs text-muted">Chant running in the background...</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <div className="w-2 h-2 bg-warning rounded-full animate-pulse" />
+                        <span className="text-xs text-warning font-medium">{askProgress.detail || 'Starting...'}</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-warning rounded-full transition-all duration-500"
+                          style={{ width: `${askProgress.progress}%` }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Live Priority Leaderboard — shows ranked ideas updating after each tier */}
+              {askRunning && liveRanked.length > 0 && !currentNarration && (
+                <div className="mb-3 border border-border rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-background/60 border-b border-border">
+                    <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">
+                      Live Priorities {liveTier > 0 && <span className="text-warning">Tier {liveTier}</span>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (livePaused) {
+                          setLiveRanked(liveRankedRef.current)
+                          setLivePaused(false)
+                          livePausedRef.current = false
+                        } else {
+                          setLivePaused(true)
+                          livePausedRef.current = true
+                        }
+                      }}
+                      className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
+                        livePaused
+                          ? 'bg-warning/15 text-warning'
+                          : 'text-muted hover:text-foreground'
+                      }`}
+                    >
+                      {livePaused ? 'Resume' : 'Pause'}
+                    </button>
                   </div>
-                  <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-warning rounded-full transition-all duration-500"
-                      style={{ width: `${askProgress.progress}%` }}
-                    />
+                  <div className="max-h-48 overflow-y-auto">
+                    {liveRanked.slice(0, 15).map((idea, i) => {
+                      const maxXP = liveRanked[0]?.xp || 1
+                      const barWidth = maxXP > 0 ? (idea.xp / maxXP) * 100 : 0
+                      const isAdvancing = idea.status === 'ADVANCING' || idea.status === 'WINNER' || idea.status === 'IN_VOTING'
+                      const isEliminated = idea.status === 'ELIMINATED'
+                      return (
+                        <div
+                          key={idea.id}
+                          className={`relative px-2.5 py-1.5 border-b border-border/30 last:border-0 transition-all ${
+                            isEliminated ? 'opacity-40' : ''
+                          }`}
+                        >
+                          <div
+                            className={`absolute inset-y-0 left-0 transition-all duration-700 ${
+                              isAdvancing ? 'bg-success/8' : isEliminated ? 'bg-error/5' : 'bg-warning/5'
+                            }`}
+                            style={{ width: `${barWidth}%` }}
+                          />
+                          <div className="relative flex items-start gap-1.5">
+                            <span className={`text-[10px] font-mono w-4 shrink-0 mt-0.5 ${
+                              i === 0 ? 'text-gold font-bold' : 'text-muted'
+                            }`}>
+                              {i + 1}
+                            </span>
+                            <p className="text-[11px] text-foreground leading-tight flex-1 line-clamp-2">{idea.text}</p>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {isAdvancing && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
+                              )}
+                              <span className={`text-[10px] font-mono tabular-nums ${
+                                i === 0 ? 'text-gold font-bold' : 'text-muted'
+                              }`}>
+                                {idea.xp}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="relative text-[9px] text-muted/60 ml-5.5 mt-0.5">{idea.author}</p>
+                        </div>
+                      )
+                    })}
                   </div>
+                  {liveRanked.length > 15 && (
+                    <p className="text-[9px] text-muted text-center py-1 bg-background/40">
+                      +{liveRanked.length - 15} more ideas
+                    </p>
+                  )}
                 </div>
               )}
 

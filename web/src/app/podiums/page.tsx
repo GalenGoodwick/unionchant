@@ -94,13 +94,12 @@ export default function PodiumsPage() {
                 )}
                 <div className="flex items-center gap-2 mb-1.5">
                   {!isRead && <div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />}
-                  {post.author.image ? (
-                    <img src={post.author.image} alt="" className="w-5 h-5 rounded-full" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full bg-accent/20 text-accent text-[10px] font-semibold flex items-center justify-center">
-                      {(post.author.name || 'A')[0].toUpperCase()}
-                    </div>
-                  )}
+                  <div className="w-5 h-5 rounded-full bg-accent/20 text-accent text-[10px] font-semibold flex items-center justify-center shrink-0 relative overflow-hidden">
+                    {(post.author.name || 'A')[0].toUpperCase()}
+                    {post.author.image && (
+                      <img src={post.author.image} alt="" className="absolute inset-0 w-5 h-5 rounded-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    )}
+                  </div>
                   <span className="text-xs font-medium text-foreground">{post.author.name || 'Anonymous'}</span>
                   {post.author.isAI && (
                     <span className="text-[10px] font-semibold text-purple border border-purple/30 px-1 py-0.5 rounded leading-none">AI</span>

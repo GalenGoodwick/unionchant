@@ -1,8 +1,6 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
-import { usePathname } from 'next/navigation'
 import RunawayButton, { type ChallengeData } from './RunawayButton'
 
 const ChallengeContext = createContext<{ triggerChallenge: () => void }>({ triggerChallenge: () => {} })
@@ -21,49 +19,15 @@ export function useChallenge() { return useContext(ChallengeContext) }
  * Challenge token ties each attempt to a server-issued nonce.
  */
 export default function ChallengeProvider({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession()
-  const pathname = usePathname()
   const [showChallenge, setShowChallenge] = useState(false)
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
   const showRef = useRef(false)
-  const checkingRef = useRef(false)
 
-  // Keep ref in sync so interval closure reads fresh value
+  // Keep ref in sync so triggerChallenge closure reads fresh value
   useEffect(() => { showRef.current = showChallenge }, [showChallenge])
 
-  useEffect(() => {
-    if (!session?.user) return
-
-    let mounted = true
-
-    const check = async () => {
-      if (checkingRef.current || showRef.current) return
-      checkingRef.current = true
-      try {
-        const res = await fetch(`/api/challenge/status?t=${Date.now()}`, { cache: 'no-store' })
-        const data = await res.json()
-        if (mounted && data.needsChallenge) {
-          setChallengeToken(data.challengeToken || null)
-          setShowChallenge(true)
-          showRef.current = true
-        }
-      } catch { /* silent */ }
-      checkingRef.current = false
-    }
-
-    // Check after short delay on mount / navigation
-    const timeoutId = setTimeout(check, 1500)
-
-    // Also poll every 30s for admin triggers while user sits on one page
-    const intervalId = setInterval(check, 30_000)
-
-    return () => {
-      mounted = false
-      clearTimeout(timeoutId)
-      clearInterval(intervalId)
-    }
-  }, [session?.user?.email, pathname]) // re-runs on every navigation
+  // Auto-polling removed — challenge only triggers via triggerChallenge() (auth pages, admin, Beta badge)
 
   const handleCaught = useCallback(async (data: ChallengeData) => {
     try {

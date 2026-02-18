@@ -312,7 +312,8 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
         onMouseMove={handleMouseMove}
         onTouchMove={handleTouchMove}
         onTouchStart={() => getAudioCtx()}
-        className="relative w-full h-52 bg-surface border border-border rounded-lg overflow-hidden select-none touch-none"
+        onClick={() => { if (surrendered && !passed) handleClick() }}
+        className={`relative w-full h-52 bg-surface border border-border rounded-lg overflow-hidden select-none ${surrendered && !passed ? 'cursor-pointer' : 'touch-none'}`}
       >
         {/* Progress bar */}
         {chasing && !passed && (

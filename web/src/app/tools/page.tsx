@@ -3,24 +3,18 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
-import { useAdmin } from '@/hooks/useAdmin'
 import FrameLayout from '@/components/FrameLayout'
 
 type ApiKeyEntry = { id: string; name: string; keyPrefix: string; lastUsedAt: string | null; createdAt: string }
 
 export default function ToolsPage() {
   const { data: session } = useSession()
-  const { isAdmin } = useAdmin()
-  const [tier, setTier] = useState('free')
-
   // API key state
   const [apiKeys, setApiKeys] = useState<ApiKeyEntry[]>([])
   const [apiKeyName, setApiKeyName] = useState('')
   const [newApiKey, setNewApiKey] = useState<string | null>(null)
   const [apiKeyCreating, setApiKeyCreating] = useState(false)
   const [apiKeyError, setApiKeyError] = useState<string | null>(null)
-
-  const isPro = tier !== 'free' || isAdmin
 
   const fetchApiKeys = useCallback(async () => {
     try {
@@ -34,9 +28,6 @@ export default function ToolsPage() {
 
   useEffect(() => {
     if (!session) return
-    fetch('/api/user/me').then(r => r.ok ? r.json() : null).then(data => {
-      if (data?.subscriptionTier) setTier(data.subscriptionTier)
-    }).catch(() => {})
     fetchApiKeys()
   }, [session, fetchApiKeys])
 
@@ -106,13 +97,6 @@ export default function ToolsPage() {
 
           {!session ? (
             <p className="text-muted text-xs">Sign in to manage API keys.</p>
-          ) : !isPro ? (
-            <div className="bg-gold-bg border border-gold-border rounded-lg p-3">
-              <p className="text-xs text-foreground mb-2">API access requires a Pro subscription.</p>
-              <Link href="/pricing" className="inline-block px-3 py-1.5 bg-gold hover:bg-gold-hover text-background text-xs font-medium rounded-lg transition-colors">
-                Upgrade to Pro
-              </Link>
-            </div>
           ) : (
             <>
               <div className="flex gap-2 mb-2">

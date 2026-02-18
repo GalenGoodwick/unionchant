@@ -583,6 +583,16 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     }
   }
 
+  // GUARD: If not a timeout/forced call, refuse to complete cells with 0 votes.
+  // This prevents corruption cascades where empty cells auto-advance all ideas.
+  if (!isTimeout) {
+    const voteCount = await prisma.vote.count({ where: { cellId } })
+    if (voteCount === 0) {
+      console.log(`Cell ${cellId}: 0 votes and not a timeout — refusing to process (prevents corruption cascade)`)
+      return null
+    }
+  }
+
   // ATOMIC GUARD: Claim this cell for processing using atomic updateMany.
   // Only one concurrent caller can succeed — others get count=0 and bail out.
   const claimed = await prisma.cell.updateMany({
@@ -665,10 +675,10 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
         console.log(`Cell ${cellId}: No ideas met ${minXPToAdvance} XP threshold with ${numVoters} voter(s), all advance`)
       } else {
-        const qualifiedMax = Math.max(...qualifiedIdeas.map(([, t]) => t))
-        winnerIds = qualifiedIdeas
-          .filter(([, total]) => total === qualifiedMax)
-          .map(([id]) => id)
+        // Sort by XP descending, break ties deterministically by idea ID
+        const sorted = qualifiedIdeas.sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
+        // Winner is the single top idea (deterministic on ties)
+        winnerIds = [sorted[0][0]]
       }
 
       loserIds = cell.ideas
@@ -720,10 +730,10 @@ export async function processCellResults(cellId: string, isTimeout = false) {
           tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
         }
 
-        const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a)
+        const sorted = Object.entries(tally).sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
         const batchWinnerId = sorted.length > 0
           ? sorted[0][0]
-          : batchIdeaIds[Math.floor(Math.random() * batchIdeaIds.length)]
+          : batchIdeaIds.sort()[0]  // deterministic fallback
 
         if (batchWinnerId) {
           winnerIds = [batchWinnerId]
@@ -992,11 +1002,11 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
     }
 
-    // Find batch winner (most total XP)
-    const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a)
+    // Find batch winner (most total XP, deterministic tiebreak by ID)
+    const sorted = Object.entries(tally).sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
     const batchWinnerId = sorted.length > 0
       ? sorted[0][0]
-      : batchIdeaIds[Math.floor(Math.random() * batchIdeaIds.length)]
+      : batchIdeaIds.sort()[0]  // deterministic fallback: alphabetically first ID
 
     if (!batchWinnerId) continue
 

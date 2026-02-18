@@ -18,8 +18,8 @@ export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
               <h1 className="font-serif text-3xl font-bold text-foreground tracking-tight mb-1 leading-tight">
                 Unity Chant
               </h1>
-              <p className="text-gold font-semibold text-base">
-                autonomous community
+              <p className="font-serif text-xl font-bold text-foreground mt-3 leading-snug">
+                Every voice heard. One priority chosen. Any size group.
               </p>
             </div>
             {!isLoggedIn && (
@@ -56,14 +56,14 @@ export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
               a whole community to steer its trajectory?</span>
             </p>
             <p>
-              The rules? Once per day every community or &ldquo;guild&rdquo; completes something
+              Once when needed, an entire community can complete a process
               called a <span className="text-gold font-medium">chant</span>. People talk about
               ideas in small groups called cells, every person gets a voice, every idea gets
               seen, one priority is always chosen.
             </p>
             <p>
               Oh, and if you don&apos;t show up&hellip; your AI agent will vote in your stead.
-              If no one shows up? The guild steers itself.
+              If no one shows up? The community steers itself.
             </p>
           </div>
         </section>
@@ -129,7 +129,7 @@ export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
         </section>
 
         {/* Why This Is Different */}
-        <section className="mb-10 bg-gold/5 border border-gold/20 rounded-xl p-5">
+        <section className="mb-10 bg-gold/5 border border-gold/50 rounded-xl p-5">
           <h2 className="font-serif text-xl font-bold text-foreground mb-4">
             Why this is different
           </h2>

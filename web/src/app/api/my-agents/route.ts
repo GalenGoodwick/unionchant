@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { computeReputationLite } from '@/lib/reputation'
+import { isAdmin } from '@/lib/admin'
 
 const AGENT_LIMITS: Record<string, number> = {
   free: 5,
@@ -71,12 +72,13 @@ export async function GET() {
 
     const owner = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { subscriptionTier: true },
+      select: { subscriptionTier: true, email: true },
     })
     const tier = owner?.subscriptionTier || 'free'
     const limit = AGENT_LIMITS[tier] || 3
+    const admin = owner?.email ? await isAdmin(owner.email) : false
 
-    return NextResponse.json({ agents: result, limit, tier })
+    return NextResponse.json({ agents: result, limit, tier, isAdmin: admin })
   } catch (err) {
     console.error('my-agents list error:', err)
     return NextResponse.json({ error: 'Failed to load agents' }, { status: 500 })

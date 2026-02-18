@@ -14,16 +14,14 @@ import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { PentagonConstellation } from '@/components/ConstellationCanvas'
 import CopyButton from '@/components/deliberation/CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
-import { useChallenge } from '@/components/ChallengeProvider'
+import FrameLayout from '@/components/FrameLayout'
 
 type Tab = 'join' | 'vote' | 'ideas' | 'submit' | 'cells' | 'manage'
 
 export default function ChantSimulator({ id, authToken }: { id: string; authToken?: string | null }) {
   const { data: session } = useSession()
-  const { triggerChallenge } = useChallenge()
   const userId = authToken ? 'embed-user' : session?.user?.email // used to detect login, actual auth is server-side
   const router = useRouter()
 
@@ -459,96 +457,23 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   const totalAllocated = Object.values(allocations).reduce((sum, v) => sum + v, 0)
 
-  // Top bar toggle (persisted)
-  const [topBarOpen, setTopBarOpen] = useState(() => {
-    if (typeof window !== 'undefined') return localStorage.getItem('topBarOpen') === 'true'
-    return false
-  })
-  const toggleTopBar = () => {
-    setTopBarOpen(prev => {
-      const next = !prev
-      localStorage.setItem('topBarOpen', String(next))
-      return next
-    })
-  }
-
-  const frameNav = (
-    <div className="shrink-0 px-4 pt-4 relative z-10">
-      {/* Top bar: SDK / API / AI / Beta / Humanity / Embed / Method */}
-      {topBarOpen && (
-        <div className="flex justify-center items-center gap-1 mb-2 pb-2 border-b border-border/50 flex-wrap">
-          {[
-            { href: '/sdk', label: 'SDK' },
-            { href: '/api-docs', label: 'API' },
-            { href: '/ai', label: 'AI' },
-          ].map(link => (
-            <Link key={link.href} href={link.href} className="px-2 py-1 text-[11px] font-medium rounded-md whitespace-nowrap transition-colors text-muted hover:text-foreground hover:bg-surface/80">{link.label}</Link>
-          ))}
-          <span onClick={triggerChallenge} className="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
-          {[
-            { href: '/humanity', label: 'Humanity' },
-            { href: '/embed', label: 'Embed' },
-            { href: '/methodology', label: 'Method' },
-          ].map(link => (
-            <Link key={link.href} href={link.href} className="px-2 py-1 text-[11px] font-medium rounded-md whitespace-nowrap transition-colors text-muted hover:text-foreground hover:bg-surface/80">{link.label}</Link>
-          ))}
-        </div>
-      )}
-      {/* Section nav: Back / Chants / Podiums / Groups / Toggle */}
-      <div className="flex items-center mb-3 border-b-2 border-accent/30 pb-3">
-        <button onClick={() => router.push('/chants')} className="w-7 h-7 rounded-full bg-surface/80 hover:bg-surface border border-border text-muted hover:text-foreground flex items-center justify-center transition-colors shrink-0" aria-label="Go back">
-          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-        </button>
-        <div className="flex-1 flex justify-center items-center gap-2">
-          {[
-            { href: '/chants', label: 'Chants' },
-            { href: '/podiums', label: 'Podiums' },
-            { href: '/groups', label: 'Groups' },
-          ].map(s => (
-            <Link key={s.href} href={s.href} className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${s.href === '/chants' ? 'bg-accent/15 text-accent font-semibold' : 'text-muted hover:text-foreground hover:bg-surface/80'}`}>{s.label}</Link>
-          ))}
-        </div>
-        <button
-          onClick={toggleTopBar}
-          className="w-7 h-7 rounded-full bg-accent/20 hover:bg-accent/30 border border-accent/40 text-accent flex items-center justify-center transition-colors shrink-0"
-          aria-label={topBarOpen ? 'Hide top bar' : 'Show top bar'}
-          title={topBarOpen ? 'Hide top bar' : 'Show top bar'}
-        >
-          <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${topBarOpen ? '' : 'rotate-180'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  )
-
   if (loading) {
     return (
-      <div className="fixed inset-0 flex flex-col bg-background overflow-hidden p-2 sm:p-4">
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-4 border-white/50 rounded-xl">
-          <PentagonConstellation />
-          {frameNav}
-          <div className="flex-1 flex items-center justify-center relative z-10">
-            <div className="text-muted animate-pulse text-sm">Loading chant...</div>
-          </div>
+      <FrameLayout active="chants" showBack>
+        <div className="min-h-full flex items-center justify-center">
+          <div className="text-muted animate-pulse text-sm">Loading chant...</div>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
   if (error || !status) {
     return (
-      <div className="fixed inset-0 flex flex-col bg-background overflow-hidden p-2 sm:p-4">
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-4 border-white/50 rounded-xl">
-          <PentagonConstellation />
-          {frameNav}
-          <div className="flex-1 flex items-center justify-center relative z-10 px-4">
-            <div className="text-center">
-              <p className="text-error mb-2">{error || 'Chant not found'}</p>
-            </div>
-          </div>
+      <FrameLayout active="chants" showBack>
+        <div className="min-h-full flex items-center justify-center px-4">
+          <p className="text-error mb-2">{error || 'Chant not found'}</p>
         </div>
-      </div>
+      </FrameLayout>
     )
   }
 
@@ -587,19 +512,13 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     { key: 'join', label: joined ? 'Overview' : 'Join', show: true },
     { key: 'submit', label: 'Submit', show: true },
     { key: 'vote', label: 'Vote', show: true },
-    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: totalXP || undefined, show: true },
+    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: true },
     { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: true },
     { key: 'manage', label: 'Manage', show: !!isCreator },
   ]
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-background overflow-hidden p-2 sm:p-4">
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden max-w-[480px] w-full mx-auto relative border-4 border-white/50 rounded-xl">
-        <PentagonConstellation />
-
-        {frameNav}
-
-        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 relative z-10">
+    <FrameLayout active="chants" showBack>
 
         {/* Header */}
         <div className="mb-3">
@@ -1681,10 +1600,6 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           </div>
         )}
 
-        </div>
-
-      </div>
-
       {/* Onboarding final — shown on results page after first chant completes */}
       {showOnboardingFinal && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
@@ -1730,7 +1645,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         </div>,
         document.body
       )}
-    </div>
+    </FrameLayout>
   )
 }
 

@@ -1,13 +1,13 @@
 /**
  * Ask AI — One-click AI deliberation engine
  *
- * Runs 5-25 AI agents through brainstorm → vote → tier 2 → champion.
- * All Haiku calls are parallelized; total runtime ~10-20 seconds.
+ * Runs 5-500 AI agents through brainstorm → discuss → multi-tier voting → champion.
+ * Haiku calls are parallelized with concurrency control; scales from 5s to ~2min.
  */
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from './prisma'
 
-// ── 25 agent personas with diverse viewpoints ──
+// ── 25 core agent personas with diverse viewpoints ──
 
 const PERSONAS: { name: string; ideology: string }[] = [
   { name: 'architect-1', ideology: '[systems-thinker] Sees everything as interconnected. Evaluates second and third-order effects. Prefers infrastructure over features. Values elegant architecture.' },
@@ -37,6 +37,86 @@ const PERSONAS: { name: string; ideology: string }[] = [
   { name: 'bridge-agent', ideology: '[diplomat] Seeks common ground between opposing views. The best solution usually synthesizes multiple perspectives. Consensus over conflict.' },
 ]
 
+// ── Extended personas (agents 26-100) — diverse worldviews ──
+
+const EXTENDED_PERSONAS: { name: string; ideology: string }[] = [
+  { name: 'historian-ai', ideology: '[historian] Patterns repeat. History teaches which ideas survive and which fail. Evaluates every proposal against centuries of evidence. What has been tried before?' },
+  { name: 'game-mind', ideology: '[game-theorist] Every system is a game with incentive structures. If incentives are misaligned, behavior will be misaligned. Designs for equilibrium, not intentions.' },
+  { name: 'evo-think', ideology: '[evolutionary] What survives isn\'t the strongest but the most adaptable. Favors variation, selection, and iteration over grand master plans.' },
+  { name: 'signal-bot', ideology: '[information-theorist] Most communication is noise. The challenge is extracting signal. Compression, clarity, and bandwidth matter more than volume.' },
+  { name: 'eco-web', ideology: '[ecological-thinker] Everything exists in relationship. Remove one element and the whole system shifts. Thinks in webs, not chains.' },
+  { name: 'institution-ai', ideology: '[institutionalist] Institutions shape behavior more than individual virtue. Good rules produce good outcomes even with imperfect people.' },
+  { name: 'behave-econ', ideology: '[behavioral-economist] Humans are predictably irrational. Choice architecture matters more than choice content. Nudges beat mandates.' },
+  { name: 'network-sci', ideology: '[network-scientist] The structure of connections matters more than the nodes themselves. Who talks to whom determines what emerges.' },
+  { name: 'complex-ai', ideology: '[complexity-theorist] Order emerges from simple rules applied at scale. Central planning fails; self-organization succeeds. Embrace emergence.' },
+  { name: 'const-mind', ideology: '[constitutionalist] Rights and frameworks matter more than outcomes. Process legitimacy is the foundation of all other legitimacy.' },
+  { name: 'util-calc', ideology: '[utilitarian] The greatest good for the greatest number. Quantify impact, compare alternatives, choose the option that maximizes total wellbeing.' },
+  { name: 'virtue-ai', ideology: '[virtue-ethicist] Character matters more than rules. The right person makes the right choice. Cultivate wisdom, courage, justice, and temperance.' },
+  { name: 'exist-mind', ideology: '[existentialist] Authentic choice is paramount. No system can replace individual responsibility. Freedom is terrifying and non-negotiable.' },
+  { name: 'stoic-bot', ideology: '[stoic] Focus on what you can control. External events are neutral; your response is everything. Resilience through acceptance and discipline.' },
+  { name: 'care-eth', ideology: '[care-ethicist] Relationships and responsibilities are the fabric of morality. Who is vulnerable? Who bears the burden? Center the margins.' },
+  { name: 'postco-ai', ideology: '[postcolonial] Power structures are invisible to those who benefit from them. Whose knowledge counts? Whose voice is missing? Challenge the default.' },
+  { name: 'sysdyn-bot', ideology: '[systems-dynamicist] Feedback loops and delays explain most surprises. Stocks and flows, not snapshots. The system resists change in predictable ways.' },
+  { name: 'lean-ai', ideology: '[lean-practitioner] Eliminate waste. Maximize flow. Every step that doesn\'t add value is a step to remove. Pull, don\'t push.' },
+  { name: 'antifrag-x', ideology: '[antifragile] What doesn\'t kill the system makes it stronger. Volatility is food. Protect against catastrophe but welcome stress.' },
+  { name: 'longterm-ai', ideology: '[longtermist] Optimize for centuries, not quarters. Today\'s convenience is tomorrow\'s debt. The discount rate for future suffering should be near zero.' },
+  { name: 'precaution-v', ideology: '[precautionary] When the stakes are irreversible, proof of safety must precede action. Better to miss an opportunity than cause a catastrophe.' },
+  { name: 'proact-bot', ideology: '[proactionary] Inaction has costs too. Excessive caution kills more people than reasonable risk. Progress requires acceptable uncertainty.' },
+  { name: 'demex-ai', ideology: '[democratic-experimentalist] No one knows the best answer in advance. Let communities try different solutions. Compare results. Scale what works.' },
+  { name: 'techopt-x', ideology: '[techno-optimist] Technology has solved most of humanity\'s worst problems and will solve the rest. Invest in R&D, not regulation.' },
+  { name: 'techreal-v', ideology: '[techno-realist] Technology creates as many problems as it solves. Every tool has unintended consequences. Solutionism is its own trap.' },
+  { name: 'local-mind', ideology: '[localist] Small-scale, place-based solutions outperform universal prescriptions. Communities know their own needs. Subsidiarity over standardization.' },
+  { name: 'cosmo-ai', ideology: '[cosmopolitan] Borders are arbitrary. Universal human dignity transcends tribal identity. Think globally, act with global solidarity.' },
+  { name: 'regen-bot', ideology: '[regenerative] Sustainability is not enough — we must restore and regenerate. Leave every system healthier than you found it.' },
+  { name: 'perma-ai', ideology: '[permaculture-thinker] Observe before acting. Design with nature, not against it. Yields come from patient pattern recognition, not force.' },
+  { name: 'indig-wis', ideology: '[indigenous-wisdom] Seven-generation thinking. The land is not a resource but a relative. Ancient knowledge systems hold solutions modern science rediscovers.' },
+  { name: 'cypher-x', ideology: '[cypherpunk] Privacy is a fundamental right. Cryptography is the tool. Surveillance is the enemy. Write code, not laws.' },
+  { name: 'socent-ai', ideology: '[social-entrepreneur] Market mechanisms can solve social problems. Sustainable models beat charity. Impact and revenue are not opposites.' },
+  { name: 'commons-v', ideology: '[commons-advocate] The best things are shared. Air, knowledge, culture, code. Enclosure destroys value. Governance of the commons is the real challenge.' },
+  { name: 'degrow-ai', ideology: '[degrowth] Infinite growth on a finite planet is delusion. Sufficiency beats efficiency. Less production, more living.' },
+  { name: 'mutual-bot', ideology: '[mutualist] Cooperation outperforms competition in the long run. Mutual aid, reciprocity, and voluntary association build stronger societies.' },
+  { name: 'ea-mind', ideology: '[effective-altruist] Evidence-based impact maximization. Compare interventions rigorously. Scope sensitivity matters. A dollar can save more lives in the right place.' },
+  { name: 'biomim-ai', ideology: '[biomimicry] Nature has 3.8 billion years of R&D. Most engineering problems have biological solutions. Observe, then adapt the pattern.' },
+  { name: 'resil-eng', ideology: '[resilience-engineer] Systems will fail. The question is how they fail. Design for graceful degradation, rapid recovery, and learning from failure.' },
+  { name: 'crit-ai', ideology: '[critical-theorist] Question the structures of power hiding in plain sight. Whose interests does this serve? What is being normalized?' },
+  { name: 'phenom-x', ideology: '[phenomenologist] Lived experience is primary data. Before theorizing, describe what is actually happening. Ground all abstractions in concrete experience.' },
+  { name: 'anarch-v', ideology: '[anarchist] Voluntary association, no coercion. Every hierarchy must justify itself or be dismantled. Self-organization over imposed order.' },
+  { name: 'federal-ai', ideology: '[federalist] Power distributed across levels. Local autonomy within shared frameworks. No single point of control or failure.' },
+  { name: 'merit-bot', ideology: '[meritocrat] Ability and effort should determine outcomes. Remove barriers to competition but reward genuine achievement. Equal opportunity, not equal results.' },
+  { name: 'equal-ai', ideology: '[egalitarian] Substantive equality, not just formal equality. Starting positions determine outcomes. Level the playing field first, then compete.' },
+  { name: 'capab-mind', ideology: '[capabilities-approach] Freedom is the ability to live the life you have reason to value. Measure development by what people can do and be, not by GDP.' },
+  { name: 'narr-ai', ideology: '[narrative-thinker] Stories shape reality more than data. The frame determines the conclusion. Change the story and you change the world.' },
+  { name: 'dialec-bot', ideology: '[dialectical] Truth emerges from thesis meeting antithesis. Contradiction is productive. Hold the tension until the synthesis reveals itself.' },
+  { name: 'screal-ai', ideology: '[scientific-realist] Reality exists independent of our observations. The goal is to describe it accurately. Theories are maps; the territory is what matters.' },
+  { name: 'soccon-x', ideology: '[social-constructionist] Reality is collectively negotiated. Categories, institutions, and norms are human inventions. They can be reinvented.' },
+  { name: 'deepeco-v', ideology: '[deep-ecologist] Nature has intrinsic value beyond human utility. Anthropocentrism is the root error. All life forms have equal right to flourish.' },
+  { name: 'transh-ai', ideology: '[transhumanist] Human enhancement is a moral imperative. Biological limits are engineering problems. Death, disease, and cognitive limits are solvable.' },
+  { name: 'conviv-bot', ideology: '[convivial-technologist] Tools should empower individuals and communities, not create dependency. Technology serves life, not the reverse.' },
+  { name: 'radtrans-x', ideology: '[radical-transparency] Sunlight is the best disinfectant. Hidden information breeds corruption. Default to open; encrypt only what must be private.' },
+  { name: 'cyber-ai', ideology: '[cybernetician] Governance is information processing. Feedback loops, error correction, and adaptation. Steer, don\'t command.' },
+  { name: 'jazz-mind', ideology: '[improvisational] Structure enables freedom. Constraints breed creativity. The best outcomes emerge from skilled players responding to each other in real time.' },
+  { name: 'patience-v', ideology: '[strategic-patience] The right timing matters more than the right answer. Rushing destroys value. Wait for the moment, then act decisively.' },
+  { name: 'boundary-x', ideology: '[boundary-spanner] The most valuable insights live at the intersection of disconnected worlds. Translate between domains. Cross-pollinate relentlessly.' },
+  { name: 'pattern-ai', ideology: '[pattern-recognizer] Everything rhymes if you look at the right level of abstraction. The same dynamics appear in biology, markets, and politics.' },
+  { name: 'contra-bot', ideology: '[contrarian] The crowd is usually wrong at turning points. When everyone agrees, something important is being missed. Dissent is a service.' },
+  { name: 'ensemble-v', ideology: '[ensemble-thinker] No single perspective captures reality. The blend of many imperfect views exceeds any single brilliant one. Diversity is epistemic fuel.' },
+  { name: 'epistem-ai', ideology: '[epistemic-humility] How much of what we "know" is actually wrong? Uncertainty is honest. Overconfidence kills. Hold beliefs lightly.' },
+  { name: 'moralim-x', ideology: '[moral-imagination] What would a truly just future actually look like? Don\'t optimize the current system — imagine a fundamentally better one.' },
+  { name: 'trick-ai', ideology: '[trickster-wisdom] Sometimes breaking rules reveals deeper truths. Sacred cows make the best burgers. Disruption is a form of care.' },
+  { name: 'steward-v', ideology: '[steward] We are caretakers, not owners. Every resource, institution, and relationship is borrowed from the future. Leave it better.' },
+  { name: 'craft-bot', ideology: '[craftsperson] Quality, attention, and care in everything. Shortcuts compound into disasters. Mastery is the patient accumulation of small excellences.' },
+  { name: 'absurd-ai', ideology: '[absurdist] Life has no inherent meaning, and that\'s liberating. We create meaning through commitment. The struggle itself is enough to fill a heart.' },
+  { name: 'romant-x', ideology: '[romantic] Beauty, passion, and feeling guide truth better than cold logic. What moves the heart moves the world. Inspiration over calculation.' },
+  { name: 'func-bot', ideology: '[functionalist] If it works, it\'s good enough. Elegance is a luxury. Ship the thing, measure the outcome, iterate on what matters.' },
+  { name: 'perfect-ai', ideology: '[perfectionist] Good enough is the enemy of great. Standards exist for a reason. Cut no corners. The details are not the details — they are the design.' },
+  { name: 'integr-v', ideology: '[integrative-thinker] Hold contradictions without resolving them prematurely. The best solutions honor multiple truths. Find the third way.' },
+  { name: 'syspoet-x', ideology: '[systems-poet] Complex systems have a beauty that reductionism destroys. See the whole. Feel the dynamics. Let understanding emerge from immersion.' },
+  { name: 'edge-ai', ideology: '[edge-finder] The most interesting things happen at boundaries — between disciplines, cultures, certainties. Seek the liminal. That\'s where novelty lives.' },
+  { name: 'analog-bot', ideology: '[analogist] Understanding is pattern-matching across domains. The best explanations are the ones that make unfamiliar things feel familiar.' },
+  { name: 'emerg-mind', ideology: '[emergence-advocate] The whole is not just more than the sum of parts — it is different in kind. Reduce and you lose the phenomenon. Scale up to understand.' },
+  { name: 'scaffold-v', ideology: '[scaffolder] Build temporary structures that help others build permanent ones. Enablement over dependency. Teach to fish, then dissolve the school.' },
+]
+
 // ── Types ──
 
 type Agent = { id: string; name: string; ideology: string; personality?: string | null }
@@ -47,7 +127,8 @@ export type AskAIResult = {
   ranked: { id: string; text: string; totalXP: number; rank: number; author: string }[]
 }
 
-type ProgressCallback = (step: string, detail: string, progress: number) => void
+type RankedIdea = { id: string; text: string; xp: number; status: string; author: string }
+type ProgressCallback = (step: string, detail: string, progress: number, extra?: Record<string, unknown>) => void
 
 function agentSystem(agent: Agent): string {
   const parts = [`You are ${agent.name}, an AI agent participating in a Unity Chant deliberation. Your role is to propose and evaluate constructive ideas.`]
@@ -79,15 +160,31 @@ async function haiku(system: string, prompt: string): Promise<string> {
   return block && 'text' in block ? block.text : ''
 }
 
-// ── Agent loading (cached in module scope) ──
+// ── Concurrency-limited batch execution ──
 
-let cachedAgents: Agent[] | null = null
+async function batchAsync<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
+  const results: T[] = new Array(tasks.length)
+  let idx = 0
+  const worker = async () => {
+    while (idx < tasks.length) {
+      const i = idx++
+      results[i] = await tasks[i]()
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()))
+  return results
+}
+
+// ── Agent loading ──
+
+const ALL_PERSONAS = [...PERSONAS, ...EXTENDED_PERSONAS]
 
 async function loadAgents(count: number): Promise<Agent[]> {
-  if (cachedAgents && cachedAgents.length >= count) return cachedAgents.slice(0, count)
-
   const agents: Agent[] = []
-  for (const p of PERSONAS) {
+  const needed = Math.min(count, ALL_PERSONAS.length)
+
+  for (let i = 0; i < needed; i++) {
+    const p = ALL_PERSONAS[i]
     const email = `factory_${p.name}@agent.unitychant.com`
     let user = await prisma.user.findUnique({ where: { email } })
     if (!user) {
@@ -100,7 +197,6 @@ async function loadAgents(count: number): Promise<Agent[]> {
     }
     agents.push({ id: user.id, name: p.name, ideology: p.ideology })
   }
-  cachedAgents = agents
   return agents.slice(0, count)
 }
 
@@ -121,20 +217,20 @@ export async function runAskAI(options: {
   question: string
   description?: string
   creatorId: string
-  agentCount?: number // 5, 10, 15, 20, 25
+  agentCount?: number
   sources?: { standard?: boolean; pool?: boolean; mine?: boolean }
   onProgress?: ProgressCallback
 }): Promise<AskAIResult> {
   const { question, description, creatorId, onProgress } = options
   const agentCount = options.agentCount || 15
   const sources = options.sources || { standard: true }
-  // If nothing checked, default to standard
   if (!sources.standard && !sources.pool && !sources.mine) sources.standard = true
   const CELL_SIZE = 5
+  const CONCURRENCY = 40 // max parallel Haiku calls
 
   const progress = onProgress || (() => {})
 
-  // 1. Load agents — blend from checked sources, factory fills remaining
+  // ── 1. Load agents — blend from checked sources, factory fills remaining ──
   progress('loading', 'Loading agents...', 5)
 
   const seen = new Set<string>()
@@ -169,7 +265,7 @@ export async function runAskAI(options: {
         status: { not: 'DELETED' },
       },
       select: { id: true, name: true, ideology: true, aiPersonality: true },
-      take: 100,
+      take: 200,
     })
     const validPool = shuffle(
       poolAgents.filter(a => a.name && a.ideology && a.ideology.length >= 10 && !seen.has(a.id))
@@ -181,7 +277,7 @@ export async function runAskAI(options: {
     }
   }
 
-  // Standard (factory) fills remaining slots when checked or as fallback
+  // Standard (factory) fills remaining slots
   if (agents.length < agentCount && (sources.standard || agents.length === 0)) {
     const factoryAgents = await loadAgents(agentCount)
     for (const a of factoryAgents) {
@@ -194,7 +290,7 @@ export async function runAskAI(options: {
 
   progress('loading', `${agents.length} agents loaded`, 8)
 
-  // 2. Create deliberation
+  // ── 2. Create deliberation ──
   progress('creating', 'Setting up deliberation...', 8)
   const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
   const deliberation = await prisma.deliberation.create({
@@ -218,23 +314,25 @@ export async function runAskAI(options: {
   })
   const delibId = deliberation.id
 
-  // 3. Brainstorm — all agents in parallel
-  progress('brainstorming', `${agentCount} agents thinking...`, 15)
-  const ideaPromises = agents.map(agent =>
-    haiku(
-      agentSystem(agent),
-      `Question: "${question}"${description ? `\nContext: "${description}"` : ''}\n\nPropose ONE constructive, specific, actionable idea that answers this question. Your idea should be a concrete proposal or solution — not an analysis, critique, or security review. Max 500 characters. Just the idea text, no preamble.`,
-    ).then(text => ({ agent, text: text.trim().slice(0, 500) }))
-      .catch(() => ({ agent, text: '' }))
+  // ── 3. Brainstorm — all agents submit ideas ──
+  progress('brainstorming', `${agents.length} agents thinking...`, 15)
+  const ideaResults = await batchAsync(
+    agents.map(agent => () =>
+      haiku(
+        agentSystem(agent),
+        `Question: "${question}"${description ? `\nContext: "${description}"` : ''}\n\nPropose ONE constructive, specific, actionable idea that answers this question. Your idea should be a concrete proposal or solution — not an analysis, critique, or security review. Max 500 characters. Just the idea text, no preamble.`,
+      ).then(text => ({ agent, text: text.trim().slice(0, 500) }))
+        .catch(() => ({ agent, text: '' }))
+    ),
+    CONCURRENCY,
   )
-  const ideaResults = await Promise.all(ideaPromises)
   const validIdeas = ideaResults.filter(r => r.text.length > 5)
 
   if (validIdeas.length < 3) {
     throw new Error(`Only ${validIdeas.length} ideas generated (need at least 3)`)
   }
 
-  // 4. Insert ideas
+  // ── 4. Insert ideas ──
   progress('brainstorming', `${validIdeas.length} ideas generated`, 25)
   const createdIdeas = await Promise.all(
     validIdeas.map(r =>
@@ -249,122 +347,122 @@ export async function runAskAI(options: {
     )
   )
 
-  // 5. Start voting — transition phase + create tier 1 cells
+  // ── 5. Start voting phase ──
   progress('voting', 'Creating voting cells...', 30)
   await prisma.deliberation.update({
     where: { id: delibId },
     data: { phase: 'VOTING', currentTier: 1, currentTierStartedAt: new Date() },
   })
 
-  const shuffledIdeas = shuffle(createdIdeas)
-  const shuffledAgents = shuffle(agents.filter(a => validIdeas.some(vi => vi.agent.id === a.id)))
-  // Include all agents for voting, even if their idea failed
-  const allAgentsShuffled = shuffle(agents)
-  const numCells = Math.max(1, Math.ceil(shuffledIdeas.length / CELL_SIZE))
+  // ── 6. Tier 1: Comment round ──
+  // Build tier 1 cells first, then discuss, then vote
 
-  // Distribute ideas across cells
-  const cellIdeaGroups: typeof shuffledIdeas[] = []
-  const baseIdeas = Math.floor(shuffledIdeas.length / numCells)
-  const extraIdeas = shuffledIdeas.length % numCells
-  let ideaIdx = 0
-  for (let c = 0; c < numCells; c++) {
-    const count = baseIdeas + (c < extraIdeas ? 1 : 0)
-    cellIdeaGroups.push(shuffledIdeas.slice(ideaIdx, ideaIdx + count))
-    ideaIdx += count
-  }
+  type IdeaInfo = { id: string; text: string; authorId: string | null }
+  type CellInfo = { cellId: string; ideas: IdeaInfo[]; agents: Agent[] }
 
-  // Build author-to-cell conflict map
-  const authorCells = new Map<string, Set<number>>()
-  cellIdeaGroups.forEach((group, ci) => {
-    for (const idea of group) {
-      if (!idea.authorId) continue
-      if (!authorCells.has(idea.authorId)) authorCells.set(idea.authorId, new Set())
-      authorCells.get(idea.authorId)!.add(ci)
-    }
-  })
+  function buildCells(ideas: IdeaInfo[], tier: number): { cellIdeaGroups: IdeaInfo[][]; cellMemberGroups: Agent[][] } {
+    const shuffledIdeas = shuffle(ideas)
+    const numCells = Math.max(1, Math.ceil(shuffledIdeas.length / CELL_SIZE))
 
-  // Distribute agents across cells, avoiding author conflicts
-  const cellMemberGroups: typeof allAgentsShuffled[] = Array.from({ length: numCells }, () => [])
-  const membersPerCell = Math.ceil(allAgentsShuffled.length / numCells)
-
-  for (const agent of allAgentsShuffled) {
-    const conflicts = authorCells.get(agent.id)
-    let best = -1
-    let bestFill = Infinity
+    // Distribute ideas
+    const cellIdeaGroups: IdeaInfo[][] = []
+    const baseCount = Math.floor(shuffledIdeas.length / numCells)
+    const extra = shuffledIdeas.length % numCells
+    let idx = 0
     for (let c = 0; c < numCells; c++) {
-      if (cellMemberGroups[c].length >= membersPerCell + 1) continue
-      if (conflicts?.has(c)) continue
-      if (cellMemberGroups[c].length < bestFill) { best = c; bestFill = cellMemberGroups[c].length }
+      const n = baseCount + (c < extra ? 1 : 0)
+      cellIdeaGroups.push(shuffledIdeas.slice(idx, idx + n))
+      idx += n
     }
-    if (best === -1) {
-      // Fallback: accept conflict
+
+    // Build author-to-cell conflict map
+    const authorCells = new Map<string, Set<number>>()
+    cellIdeaGroups.forEach((group, ci) => {
+      for (const idea of group) {
+        if (!idea.authorId) continue
+        if (!authorCells.has(idea.authorId)) authorCells.set(idea.authorId, new Set())
+        authorCells.get(idea.authorId)!.add(ci)
+      }
+    })
+
+    // Distribute agents avoiding author conflicts
+    const allShuffled = shuffle(agents)
+    const cellMemberGroups: Agent[][] = Array.from({ length: numCells }, () => [])
+    const membersPerCell = Math.ceil(allShuffled.length / numCells)
+
+    for (const agent of allShuffled) {
+      const conflicts = authorCells.get(agent.id)
+      let best = -1
+      let bestFill = Infinity
       for (let c = 0; c < numCells; c++) {
+        if (cellMemberGroups[c].length >= membersPerCell + 1) continue
+        if (conflicts?.has(c)) continue
         if (cellMemberGroups[c].length < bestFill) { best = c; bestFill = cellMemberGroups[c].length }
       }
+      if (best === -1) {
+        for (let c = 0; c < numCells; c++) {
+          if (cellMemberGroups[c].length < bestFill) { best = c; bestFill = cellMemberGroups[c].length }
+        }
+      }
+      if (best !== -1) cellMemberGroups[best].push(agent)
     }
-    if (best !== -1) cellMemberGroups[best].push(agent)
+
+    return { cellIdeaGroups, cellMemberGroups }
   }
 
-  // Create cells in DB
-  type CellInfo = { cellId: string; ideas: typeof shuffledIdeas; agents: Agent[] }
-  const tier1Cells: CellInfo[] = []
-
-  for (let c = 0; c < numCells; c++) {
-    if (cellIdeaGroups[c].length === 0 || cellMemberGroups[c].length === 0) continue
-    await prisma.idea.updateMany({
-      where: { id: { in: cellIdeaGroups[c].map(i => i.id) } },
-      data: { status: 'IN_VOTING', tier: 1 },
-    })
-    const cell = await prisma.cell.create({
-      data: {
-        deliberationId: delibId, tier: 1, batch: c, status: 'VOTING',
-        ideas: { create: cellIdeaGroups[c].map(idea => ({ ideaId: idea.id })) },
-        participants: { create: cellMemberGroups[c].map(a => ({ userId: a.id })) },
-      },
-    })
-    tier1Cells.push({ cellId: cell.id, ideas: cellIdeaGroups[c], agents: cellMemberGroups[c] })
+  async function createCellsInDB(cellIdeaGroups: IdeaInfo[][], cellMemberGroups: Agent[][], tier: number): Promise<CellInfo[]> {
+    const cells: CellInfo[] = []
+    for (let c = 0; c < cellIdeaGroups.length; c++) {
+      if (cellIdeaGroups[c].length === 0 || cellMemberGroups[c].length === 0) continue
+      await prisma.idea.updateMany({
+        where: { id: { in: cellIdeaGroups[c].map(i => i.id) } },
+        data: { status: 'IN_VOTING', tier },
+      })
+      const cell = await prisma.cell.create({
+        data: {
+          deliberationId: delibId, tier, batch: c, status: 'VOTING',
+          ideas: { create: cellIdeaGroups[c].map(idea => ({ ideaId: idea.id })) },
+          participants: { create: cellMemberGroups[c].map(a => ({ userId: a.id })) },
+        },
+      })
+      cells.push({ cellId: cell.id, ideas: cellIdeaGroups[c], agents: cellMemberGroups[c] })
+    }
+    return cells
   }
 
-  // 5b. Comment round — each agent comments on one idea in their cell
+  // Build + create tier 1 cells
+  const tier1Layout = buildCells(createdIdeas.map(i => ({ id: i.id, text: i.text, authorId: i.authorId })), 1)
+  const tier1Cells = await createCellsInDB(tier1Layout.cellIdeaGroups, tier1Layout.cellMemberGroups, 1)
+
+  // Comment round (tier 1 only)
   progress('discussing', 'Agents discussing ideas...', 35)
-  const commentPromises: Promise<void>[] = []
+  await batchAsync(
+    tier1Cells.flatMap(cellInfo =>
+      cellInfo.agents.map(agent => async () => {
+        try {
+          const otherIdeas = cellInfo.ideas.filter(i => i.authorId !== agent.id)
+          const targetIdea = otherIdeas.length > 0
+            ? otherIdeas[Math.floor(Math.random() * otherIdeas.length)]
+            : cellInfo.ideas[Math.floor(Math.random() * cellInfo.ideas.length)]
 
-  for (const cellInfo of tier1Cells) {
-    for (const agent of cellInfo.agents) {
-      // Pick a random idea that isn't the agent's own
-      const otherIdeas = cellInfo.ideas.filter(i => i.authorId !== agent.id)
-      const targetIdea = otherIdeas.length > 0
-        ? otherIdeas[Math.floor(Math.random() * otherIdeas.length)]
-        : cellInfo.ideas[Math.floor(Math.random() * cellInfo.ideas.length)]
+          const text = await haiku(
+            agentSystem(agent) + '\nWrite a brief, substantive comment.',
+            `Question: "${question}"\n\nIdea: "${targetIdea.text}"\n\nWrite a 1-2 sentence comment on this idea — a critique, refinement, or endorsement based on your ideology. Be specific and concise. Just the comment, no preamble.`,
+          )
+          const cleaned = text.trim().slice(0, 500)
+          if (cleaned.length > 10) {
+            await prisma.comment.create({
+              data: { text: cleaned, userId: agent.id, cellId: cellInfo.cellId, ideaId: targetIdea.id },
+            })
+          }
+        } catch { /* skip */ }
+      })
+    ),
+    CONCURRENCY,
+  )
 
-      commentPromises.push(
-        (async () => {
-          try {
-            const text = await haiku(
-              agentSystem(agent) + '\nWrite a brief, substantive comment.',
-              `Question: "${question}"\n\nIdea: "${targetIdea.text}"\n\nWrite a 1-2 sentence comment on this idea — a critique, refinement, or endorsement based on your ideology. Be specific and concise. Just the comment, no preamble.`,
-            )
-            const cleaned = text.trim().slice(0, 500)
-            if (cleaned.length > 10) {
-              await prisma.comment.create({
-                data: {
-                  text: cleaned,
-                  userId: agent.id,
-                  cellId: cellInfo.cellId,
-                  ideaId: targetIdea.id,
-                },
-              })
-            }
-          } catch { /* skip failed comments */ }
-        })()
-      )
-    }
-  }
-  await Promise.all(commentPromises)
-
-  // 5c. Upvote round — agents upvote comments they find compelling
+  // Upvote round (tier 1 only)
   progress('discussing', 'Agents upvoting comments...', 37)
-
   for (const cellInfo of tier1Cells) {
     const cellComments = await prisma.comment.findMany({
       where: { cellId: cellInfo.cellId },
@@ -372,87 +470,99 @@ export async function runAskAI(options: {
     })
     if (cellComments.length === 0) continue
 
-    // Each agent upvotes 1-2 comments (not their own)
     for (const agent of cellInfo.agents) {
       const othersComments = cellComments.filter(c => c.userId !== agent.id)
       if (othersComments.length === 0) continue
-
-      // Pick 1-2 random comments to upvote
-      const shuffled = shuffle(othersComments)
-      const toUpvote = shuffled.slice(0, Math.min(2, shuffled.length))
+      const toUpvote = shuffle(othersComments).slice(0, Math.min(2, othersComments.length))
 
       for (const comment of toUpvote) {
         try {
-          await prisma.commentUpvote.create({
-            data: { commentId: comment.id, userId: agent.id },
-          })
+          await prisma.commentUpvote.create({ data: { commentId: comment.id, userId: agent.id } })
           const updated = await prisma.comment.update({
             where: { id: comment.id },
             data: { upvoteCount: { increment: 1 } },
           })
-          // Update spreadCount for idea-linked comments (every 2 upvotes = 1 spread)
           if (comment.ideaId) {
             const newSpread = Math.floor(updated.upvoteCount / 2)
             if (newSpread > updated.spreadCount) {
-              await prisma.comment.update({
-                where: { id: comment.id },
-                data: { spreadCount: newSpread },
-              })
+              await prisma.comment.update({ where: { id: comment.id }, data: { spreadCount: newSpread } })
             }
           }
-        } catch { /* duplicate upvote — skip */ }
+        } catch { /* duplicate — skip */ }
       }
     }
   }
 
-  // 6. Tier 1 votes — all agents in parallel, with discussion context
-  progress('voting', `Tier 1: ${tier1Cells.length} cells voting...`, 40)
+  // ── 7. Multi-tier voting loop ──
 
-  // Fetch comments per cell (local + up-pollinated from other cells)
-  const cellCommentContext: Record<string, string> = {}
-  for (const cellInfo of tier1Cells) {
-    // Local cell comments
-    const localComments = await prisma.comment.findMany({
-      where: { cellId: cellInfo.cellId },
-      include: { user: { select: { name: true } }, idea: { select: { text: true } } },
-      orderBy: { upvoteCount: 'desc' },
-      take: 10,
-    })
-    // Up-pollinated: comments from OTHER cells in this deliberation with spreadCount > 0
-    const spreadComments = await prisma.comment.findMany({
+  // Estimate total tiers for progress reporting
+  const totalTiers = Math.max(1, Math.ceil(Math.log(createdIdeas.length) / Math.log(CELL_SIZE)))
+  let currentTier = 1
+  let currentCells = tier1Cells
+  let currentIdeas: IdeaInfo[] = createdIdeas.map(i => ({ id: i.id, text: i.text, authorId: i.authorId }))
+
+  while (true) {
+    const tierProgressBase = 40 + ((currentTier - 1) / totalTiers) * 50
+    const tierProgressRange = 50 / totalTiers
+    const isFinal = currentCells.length === 1
+
+    progress('voting', `${isFinal ? 'Final showdown' : `Tier ${currentTier}`}: ${currentCells.length} cell${currentCells.length !== 1 ? 's' : ''} voting...`, tierProgressBase)
+
+    // Gather discussion context from previous tiers
+    const topComments = await prisma.comment.findMany({
       where: {
-        cell: { deliberationId: delibId, id: { not: cellInfo.cellId } },
-        spreadCount: { gte: 1 },
-        ideaId: { in: cellInfo.ideas.map(i => i.id) },
+        cell: { deliberationId: delibId, tier: { lt: currentTier } },
+        ideaId: { in: currentIdeas.map(i => i.id) },
       },
       include: { user: { select: { name: true } }, idea: { select: { text: true } } },
       orderBy: { upvoteCount: 'desc' },
-      take: 5,
+      take: 15,
     })
+    const globalDiscussion = topComments.length > 0
+      ? `\n\nTop comments from previous discussion:\n${topComments.map(c =>
+          `- ${c.user.name}: "${c.text}"${c.upvoteCount > 0 ? ` (${c.upvoteCount} upvotes)` : ''}${c.idea ? ` [re: ${c.idea.text.slice(0, 40)}]` : ''}`
+        ).join('\n')}`
+      : ''
 
-    const lines: string[] = []
-    for (const c of localComments) {
-      lines.push(`- ${c.user.name}: "${c.text}"${c.upvoteCount > 0 ? ` (${c.upvoteCount} upvotes)` : ''}${c.idea ? ` [re: ${c.idea.text.slice(0, 40)}]` : ''}`)
+    // Also gather cell-local comments + up-pollinated comments
+    const cellDiscussionCtx: Record<string, string> = {}
+    for (const cellInfo of currentCells) {
+      const localComments = await prisma.comment.findMany({
+        where: { cellId: cellInfo.cellId },
+        include: { user: { select: { name: true } }, idea: { select: { text: true } } },
+        orderBy: { upvoteCount: 'desc' },
+        take: 10,
+      })
+      const spreadComments = await prisma.comment.findMany({
+        where: {
+          cell: { deliberationId: delibId, id: { not: cellInfo.cellId } },
+          spreadCount: { gte: 1 },
+          ideaId: { in: cellInfo.ideas.map(i => i.id) },
+        },
+        include: { user: { select: { name: true } }, idea: { select: { text: true } } },
+        orderBy: { upvoteCount: 'desc' },
+        take: 5,
+      })
+      const lines: string[] = []
+      for (const c of localComments) {
+        lines.push(`- ${c.user.name}: "${c.text}"${c.upvoteCount > 0 ? ` (${c.upvoteCount} upvotes)` : ''}${c.idea ? ` [re: ${c.idea.text.slice(0, 40)}]` : ''}`)
+      }
+      for (const c of spreadComments) {
+        lines.push(`- [from another cell] ${c.user.name}: "${c.text}" (${c.upvoteCount} upvotes)`)
+      }
+      if (lines.length > 0) cellDiscussionCtx[cellInfo.cellId] = `\n\nDiscussion:\n${lines.join('\n')}`
     }
-    for (const c of spreadComments) {
-      lines.push(`- [from another cell] ${c.user.name}: "${c.text}" (${c.upvoteCount} upvotes)${c.idea ? ` [re: ${c.idea.text.slice(0, 40)}]` : ''}`)
-    }
-    if (lines.length > 0) {
-      cellCommentContext[cellInfo.cellId] = `\n\nDiscussion:\n${lines.join('\n')}`
-    }
-  }
 
-  const votePromises: Promise<void>[] = []
-
-  for (const cellInfo of tier1Cells) {
-    const ideasList = cellInfo.ideas.map((idea, i) => `${i + 1}. ${idea.text}`).join('\n')
-    const discussion = cellCommentContext[cellInfo.cellId] || ''
-    for (const agent of cellInfo.agents) {
-      votePromises.push(
-        (async () => {
+    // Vote in all cells
+    const tierLabel = isFinal ? 'This is the FINAL round. Pick the BEST answer.' : `Tier ${currentTier} voting.`
+    await batchAsync(
+      currentCells.flatMap(cellInfo => {
+        const ideasList = cellInfo.ideas.map((idea, i) => `${i + 1}. ${idea.text}`).join('\n')
+        const discussion = cellDiscussionCtx[cellInfo.cellId] || (currentTier > 1 ? globalDiscussion : '')
+        return cellInfo.agents.map(agent => async () => {
           try {
             const voteStr = await haiku(
-              agentSystem(agent) + '\nVote based on your ideology and the discussion. Output ONLY a valid JSON array.',
+              agentSystem(agent) + `\n${tierLabel} Consider the discussion. Output ONLY a valid JSON array.`,
               `Question: "${question}"\n\nIdeas:\n${ideasList}${discussion}\n\nAllocate exactly 10 XP across the ideas you support. JSON: [{"idea": 1, "points": 5}, {"idea": 3, "points": 3}, {"idea": 4, "points": 2}]`,
             )
             const jsonMatch = voteStr.match(/\[[\s\S]*?\]/)
@@ -481,210 +591,116 @@ export async function runAskAI(options: {
                 })
               }
             }
-          } catch { /* skip failed votes */ }
-        })()
-      )
-    }
-  }
-  await Promise.all(votePromises)
+          } catch { /* skip */ }
+        })
+      }),
+      CONCURRENCY,
+    )
 
-  // 7. Process Tier 1 results
-  progress('processing', 'Tallying Tier 1 results...', 55)
-  const tier1Winners: { ideaId: string; xp: number }[] = []
+    // Process results for this tier
+    progress('processing', `Processing Tier ${currentTier} results...`, tierProgressBase + tierProgressRange * 0.8)
 
-  for (const cellInfo of tier1Cells) {
-    await prisma.cell.update({
-      where: { id: cellInfo.cellId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
-    })
+    const tierWinners: { id: string; text: string; authorId: string | null; xp: number }[] = []
 
-    const votes = await prisma.vote.findMany({ where: { cellId: cellInfo.cellId } })
-    const xpTotals: Record<string, number> = {}
-    for (const v of votes) xpTotals[v.ideaId] = (xpTotals[v.ideaId] || 0) + v.xpPoints
-
-    const maxXP = Math.max(...Object.values(xpTotals), 0)
-    const winnerIds = maxXP > 0
-      ? Object.entries(xpTotals).filter(([, xp]) => xp === maxXP).map(([id]) => id)
-      : cellInfo.ideas.map(i => i.id) // no votes: all advance
-
-    const loserIds = cellInfo.ideas.map(i => i.id).filter(id => !winnerIds.includes(id))
-
-    await prisma.idea.updateMany({
-      where: { id: { in: winnerIds } },
-      data: { status: 'ADVANCING', tier: 1 },
-    })
-    if (loserIds.length > 0) {
-      await prisma.idea.updateMany({
-        where: { id: { in: loserIds } },
-        data: { status: 'ELIMINATED', losses: { increment: 1 } },
+    for (const cellInfo of currentCells) {
+      await prisma.cell.update({
+        where: { id: cellInfo.cellId },
+        data: { status: 'COMPLETED', completedAt: new Date() },
       })
+
+      const votes = await prisma.vote.findMany({ where: { cellId: cellInfo.cellId } })
+      const xpTotals: Record<string, number> = {}
+      for (const v of votes) xpTotals[v.ideaId] = (xpTotals[v.ideaId] || 0) + v.xpPoints
+
+      // Pick 1 winner per cell (deterministic tie-breaking by ID)
+      const sorted = cellInfo.ideas
+        .map(i => ({ ...i, xp: xpTotals[i.id] || 0 }))
+        .sort((a, b) => b.xp - a.xp || a.id.localeCompare(b.id))
+
+      const winnerId = sorted[0].id
+      const loserIds = sorted.slice(1).map(s => s.id)
+
+      await prisma.idea.updateMany({
+        where: { id: winnerId },
+        data: { status: isFinal ? 'WINNER' : 'ADVANCING', tier: currentTier },
+      })
+      if (loserIds.length > 0) {
+        await prisma.idea.updateMany({
+          where: { id: { in: loserIds } },
+          data: { status: 'ELIMINATED', losses: { increment: 1 } },
+        })
+      }
+
+      tierWinners.push(sorted[0])
     }
 
-    for (const wid of winnerIds) {
-      tier1Winners.push({ ideaId: wid, xp: xpTotals[wid] || 0 })
-    }
-  }
-
-  // Single cell (5 agents) — no tier 2 needed, winner is champion
-  if (tier1Cells.length === 1) {
-    const winner = tier1Winners.sort((a, b) => b.xp - a.xp)[0]
-    const winnerIdea = await prisma.idea.update({
-      where: { id: winner.ideaId },
-      data: { status: 'WINNER', isChampion: true },
+    // Stream ranked snapshot after this tier — live priority leaderboard
+    const allVotesSoFar = await prisma.vote.findMany({
+      where: { cell: { deliberationId: delibId } },
     })
-    await prisma.deliberation.update({
-      where: { id: delibId },
-      data: { phase: 'COMPLETED', completedAt: new Date(), championId: winner.ideaId },
-    })
+    const xpSoFar: Record<string, number> = {}
+    for (const v of allVotesSoFar) xpSoFar[v.ideaId] = (xpSoFar[v.ideaId] || 0) + v.xpPoints
 
-    const authorUser = await prisma.user.findUnique({ where: { id: winnerIdea.authorId! }, select: { name: true } })
-    const allIdeas = await prisma.idea.findMany({
+    const allIdeasSoFar = await prisma.idea.findMany({
       where: { deliberationId: delibId },
       include: { author: { select: { name: true } } },
     })
-    // Tally all votes across the deliberation for ranking
-    const allVotes = await prisma.vote.findMany({
-      where: { cell: { deliberationId: delibId } },
-    })
-    const globalXP: Record<string, number> = {}
-    for (const v of allVotes) globalXP[v.ideaId] = (globalXP[v.ideaId] || 0) + v.xpPoints
+    const rankedSnapshot: RankedIdea[] = allIdeasSoFar
+      .map(i => ({ id: i.id, text: i.text, xp: xpSoFar[i.id] || 0, status: i.status, author: i.author?.name || 'unknown' }))
+      .sort((a, b) => b.xp - a.xp || a.id.localeCompare(b.id))
 
-    // Persist totalXP to ideas
-    for (const [ideaId, xp] of Object.entries(globalXP)) {
-      await prisma.idea.update({ where: { id: ideaId }, data: { totalXP: xp } })
+    progress('tier_results', `Tier ${currentTier} complete: ${tierWinners.length} ideas advancing`, tierProgressBase + tierProgressRange, {
+      tier: currentTier,
+      ranked: rankedSnapshot.slice(0, 30), // top 30 for bandwidth
+      advancing: tierWinners.length,
+      eliminated: currentCells.reduce((sum, c) => sum + c.ideas.length, 0) - tierWinners.length,
+    })
+
+    // Check if we have a champion
+    if (tierWinners.length <= 1) {
+      // Champion declared!
+      const champion = tierWinners[0]
+      await prisma.idea.update({
+        where: { id: champion.id },
+        data: { status: 'WINNER', isChampion: true },
+      })
+      await prisma.deliberation.update({
+        where: { id: delibId },
+        data: { phase: 'COMPLETED', completedAt: new Date(), championId: champion.id },
+      })
+
+      // Build final ranking
+      return await buildFinalResult(delibId, champion, question, progress)
     }
 
-    const ranked = allIdeas
-      .map(i => ({ id: i.id, text: i.text, totalXP: globalXP[i.id] || 0, author: i.author?.name || 'unknown' }))
-      .sort((a, b) => b.totalXP - a.totalXP)
-      .map((r, i) => ({ ...r, rank: i + 1 }))
-
-    progress('complete', `Champion: "${winnerIdea.text.slice(0, 60)}"`, 100)
-
-    return {
-      deliberationId: delibId,
-      champion: { id: winnerIdea.id, text: winnerIdea.text, totalXP: winner.xp, author: authorUser?.name || 'unknown' },
-      ranked,
-    }
-  }
-
-  // 8. Tier 2 Final Showdown
-  progress('voting', `Final showdown: ${tier1Winners.length} ideas remain...`, 65)
-  await prisma.deliberation.update({
-    where: { id: delibId },
-    data: { currentTier: 2, currentTierStartedAt: new Date() },
-  })
-
-  const winnerIdeas = await prisma.idea.findMany({
-    where: { id: { in: tier1Winners.map(w => w.ideaId) } },
-  })
-
-  // Update winner ideas for tier 2
-  await prisma.idea.updateMany({
-    where: { id: { in: winnerIdeas.map(i => i.id) } },
-    data: { status: 'IN_VOTING', tier: 2 },
-  })
-
-  // Final showdown: single cell, ALL agents vote on ALL winners
-  const tier2Cell = await prisma.cell.create({
-    data: {
-      deliberationId: delibId, tier: 2, batch: 0, status: 'VOTING',
-      ideas: { create: winnerIdeas.map(idea => ({ ideaId: idea.id })) },
-      participants: { create: agents.map(a => ({ userId: a.id })) },
-    },
-  })
-
-  // 9. Tier 2 votes — all agents in parallel, with top comments from tier 1
-  progress('voting', `${agents.length} agents voting on final ${winnerIdeas.length} ideas...`, 75)
-  const tier2IdeasList = winnerIdeas.map((idea, i) => `${i + 1}. ${idea.text}`).join('\n')
-
-  // Gather top comments from tier 1 about the finalist ideas
-  const topTier1Comments = await prisma.comment.findMany({
-    where: {
-      cell: { deliberationId: delibId, tier: 1 },
-      ideaId: { in: winnerIdeas.map(i => i.id) },
-    },
-    include: { user: { select: { name: true } }, idea: { select: { text: true } } },
-    orderBy: { upvoteCount: 'desc' },
-    take: 15,
-  })
-  const tier2Discussion = topTier1Comments.length > 0
-    ? `\n\nTop comments from Tier 1 discussion:\n${topTier1Comments.map(c =>
-        `- ${c.user.name}: "${c.text}"${c.upvoteCount > 0 ? ` (${c.upvoteCount} upvotes)` : ''}${c.idea ? ` [re: ${c.idea.text.slice(0, 40)}]` : ''}`
-      ).join('\n')}`
-    : ''
-
-  const tier2VotePromises = agents.map(agent =>
-    (async () => {
-      try {
-        const voteStr = await haiku(
-          agentSystem(agent) + '\nThis is the FINAL round. Pick the BEST answer. Consider the discussion. Output ONLY valid JSON array.',
-          `Question: "${question}"\n\nFinal ${winnerIdeas.length} ideas:\n${tier2IdeasList}${tier2Discussion}\n\nAllocate exactly 10 XP. JSON: [{"idea": 1, "points": 7}, {"idea": 2, "points": 3}]`,
-        )
-        const jsonMatch = voteStr.match(/\[[\s\S]*?\]/)
-        if (!jsonMatch) return
-        const parsed = JSON.parse(jsonMatch[0]) as { idea: number; points: number }[]
-        const allocations = parsed
-          .filter(v => v.idea >= 1 && v.idea <= winnerIdeas.length && v.points > 0)
-          .map(v => ({ ideaId: winnerIdeas[v.idea - 1].id, points: v.points }))
-
-        const total = allocations.reduce((s, a) => s + a.points, 0)
-        if (total > 0 && total !== 10) {
-          const scale = 10 / total
-          let running = 0
-          for (let i = 0; i < allocations.length - 1; i++) {
-            allocations[i].points = Math.max(1, Math.round(allocations[i].points * scale))
-            running += allocations[i].points
-          }
-          allocations[allocations.length - 1].points = 10 - running
-        }
-
-        if (allocations.length > 0 && allocations.every(a => a.points > 0) && allocations.reduce((s, a) => s + a.points, 0) === 10) {
-          for (const a of allocations) {
-            await prisma.vote.create({
-              data: { cellId: tier2Cell.id, ideaId: a.ideaId, userId: agent.id, xpPoints: a.points },
-            })
-          }
-        }
-      } catch { /* skip */ }
-    })()
-  )
-  await Promise.all(tier2VotePromises)
-
-  // 10. Process Tier 2 results
-  progress('processing', 'Determining champion...', 90)
-  await prisma.cell.update({
-    where: { id: tier2Cell.id },
-    data: { status: 'COMPLETED', completedAt: new Date() },
-  })
-
-  const tier2Votes = await prisma.vote.findMany({ where: { cellId: tier2Cell.id } })
-  const tier2XP: Record<string, number> = {}
-  for (const v of tier2Votes) tier2XP[v.ideaId] = (tier2XP[v.ideaId] || 0) + v.xpPoints
-
-  const tier2Ranked = winnerIdeas
-    .map(i => ({ id: i.id, text: i.text, authorId: i.authorId, xp: tier2XP[i.id] || 0 }))
-    .sort((a, b) => b.xp - a.xp)
-
-  const champion = tier2Ranked[0]
-
-  // Update statuses
-  await prisma.idea.update({
-    where: { id: champion.id },
-    data: { status: 'WINNER', isChampion: true },
-  })
-  for (const r of tier2Ranked.slice(1)) {
-    await prisma.idea.update({
-      where: { id: r.id },
-      data: { status: 'ELIMINATED' },
+    // Advance to next tier
+    currentTier++
+    await prisma.deliberation.update({
+      where: { id: delibId },
+      data: { currentTier, currentTierStartedAt: new Date() },
     })
-  }
-  await prisma.deliberation.update({
-    where: { id: delibId },
-    data: { phase: 'COMPLETED', completedAt: new Date(), championId: champion.id },
-  })
 
-  // Build full ranked list (all ideas, not just finalists)
+    // Mark winners as IN_VOTING for next tier
+    await prisma.idea.updateMany({
+      where: { id: { in: tierWinners.map(w => w.id) } },
+      data: { status: 'IN_VOTING', tier: currentTier },
+    })
+
+    // Build cells for next tier
+    const nextLayout = buildCells(tierWinners, currentTier)
+    currentCells = await createCellsInDB(nextLayout.cellIdeaGroups, nextLayout.cellMemberGroups, currentTier)
+    currentIdeas = tierWinners
+  }
+}
+
+// ── Build final ranked result ──
+
+async function buildFinalResult(
+  delibId: string,
+  champion: { id: string; text: string; xp: number },
+  question: string,
+  progress: ProgressCallback,
+): Promise<AskAIResult> {
   const allIdeas = await prisma.idea.findMany({
     where: { deliberationId: delibId },
     include: { author: { select: { name: true } } },
@@ -695,14 +711,14 @@ export async function runAskAI(options: {
   const globalXP: Record<string, number> = {}
   for (const v of allVotes) globalXP[v.ideaId] = (globalXP[v.ideaId] || 0) + v.xpPoints
 
-  // Persist totalXP to ideas
+  // Persist totalXP
   for (const [ideaId, xp] of Object.entries(globalXP)) {
     await prisma.idea.update({ where: { id: ideaId }, data: { totalXP: xp } })
   }
 
   const ranked = allIdeas
     .map(i => ({ id: i.id, text: i.text, totalXP: globalXP[i.id] || 0, author: i.author?.name || 'unknown' }))
-    .sort((a, b) => b.totalXP - a.totalXP)
+    .sort((a, b) => b.totalXP - a.totalXP || a.id.localeCompare(b.id))
     .map((r, i) => ({ ...r, rank: i + 1 }))
 
   const championAuthor = allIdeas.find(i => i.id === champion.id)?.author?.name || 'unknown'

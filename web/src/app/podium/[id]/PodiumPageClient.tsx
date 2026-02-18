@@ -133,11 +133,10 @@ export default function PodiumPageClient() {
       <div className="py-4">
         {/* Author */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center text-sm font-semibold text-muted">
-            {podium.author.image ? (
-              <img src={podium.author.image} alt="" className="w-10 h-10 rounded-full object-cover" />
-            ) : (
-              podium.author.name?.[0]?.toUpperCase() || '?'
+          <div className="w-10 h-10 rounded-full bg-accent/30 flex items-center justify-center text-sm font-medium text-accent shrink-0 relative overflow-hidden">
+            {(podium.author.name || 'A')[0].toUpperCase()}
+            {podium.author.image && (
+              <img src={podium.author.image} alt="" className="absolute inset-0 w-10 h-10 rounded-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
             )}
           </div>
           <div>

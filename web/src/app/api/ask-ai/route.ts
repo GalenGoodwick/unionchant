@@ -7,9 +7,18 @@ import { moderateContent, aiModerateContent, checkModerationLock, recordModerati
 import { runAskAI } from '@/lib/ask-ai'
 import { isAdmin } from '@/lib/admin'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 const VALID_COUNTS = [5, 10, 15, 20, 25]
+
+// Higher limits by tier — admin gets up to 500
+const MAX_AGENTS: Record<string, number> = {
+  free: 25,
+  pro: 50,
+  business: 100,
+  scale: 250,
+  admin: 500,
+}
 
 const ASK_AI_DAILY_LIMITS: Record<string, number> = {
   free: 2,
@@ -105,7 +114,12 @@ export async function POST(req: NextRequest) {
     // Passed moderation — reset strikes
     resetModerationStrikes(user.id)
 
-    const count = VALID_COUNTS.includes(agentCount) ? agentCount : 15
+    // Admin/paid users can specify any count up to their tier max
+    const tierKey = userIsAdmin ? 'admin' : (user.subscriptionTier || 'free')
+    const maxAllowed = MAX_AGENTS[tierKey] || 25
+    const count = (typeof agentCount === 'number' && agentCount >= 5 && agentCount <= maxAllowed)
+      ? agentCount
+      : VALID_COUNTS.includes(agentCount) ? agentCount : 15
     const validSources = {
       standard: sources?.standard === true,
       pool: sources?.pool === true,
@@ -131,8 +145,8 @@ export async function POST(req: NextRequest) {
             creatorId: user.id,
             agentCount: count,
             sources: validSources,
-            onProgress: (step, detail, progress) => {
-              send({ step, detail, progress })
+            onProgress: (step, detail, progress, extra) => {
+              send({ step, detail, progress, ...extra })
             },
           })
 
