@@ -12,6 +12,7 @@ export interface ChantStatus {
   question: string
   description?: string | null
   phase: 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING'
+  chantMode: 'classic' | 'synthesis'
   allocationMode: string
   continuousFlow: boolean
   multipleIdeasAllowed: boolean
@@ -68,6 +69,41 @@ export interface CellInfo {
   createdAt: string
   _count: { participants: number; votes: number }
   ideas?: CellIdea[]
+}
+
+// Synthesis mode types
+export interface SynthesisCellData {
+  id: string
+  status: string
+  tier: number
+  question: string
+  ideas: { id: string; text: string; status: string; author: string }[]
+  participants: { id: string; name: string }[]
+  dialogues: SynthesisDialogueMessage[]
+  convergence: {
+    type: string
+    action?: string
+    suggestion: string
+    proposedText?: string
+    discovery?: string
+  } | null
+  outcome: {
+    action: string
+    resultText: string
+    sourceIdeas: string[]
+  } | null
+}
+
+export interface SynthesisDialogueMessage {
+  id: string
+  content: string
+  role: 'human' | 'shell' | 'system'
+  speaker: {
+    type: 'human' | 'shell' | 'system'
+    name?: string
+    id?: string
+  }
+  createdAt: string
 }
 
 export interface CommentInfo {

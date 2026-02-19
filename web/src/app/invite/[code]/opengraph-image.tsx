@@ -3,40 +3,35 @@ import { prisma } from '@/lib/prisma'
 import { OGCard, ogSize, brandedFallback } from '@/lib/og-helpers'
 
 export const runtime = 'nodejs'
-export const alt = 'Unity Chant Deliberation'
+export const alt = 'Join Unity Chant'
 export const size = ogSize
 export const contentType = 'image/png'
 
-export default async function Image({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params
+export default async function Image({ params }: { params: Promise<{ code: string }> }) {
+  const { code } = await params
 
   const deliberation = await prisma.deliberation.findUnique({
-    where: { id },
+    where: { inviteCode: code },
     select: {
       question: true,
-      phase: true,
-      isPublic: true,
-      creator: { select: { name: true } },
       _count: { select: { members: true, ideas: true } },
     },
   })
 
-  if (!deliberation || !deliberation.isPublic) {
-    return brandedFallback('Private Deliberation')
+  if (!deliberation) {
+    return brandedFallback('Invite')
   }
 
   return new ImageResponse(
     (
       <OGCard
-        badge="CHANT"
+        badge="JOIN"
         badgeColor="#22d3ee"
         borderColor="#22d3ee"
-        title={deliberation.question}
-        author={deliberation.creator?.name || undefined}
+        title={`Join: ${deliberation.question}`}
         stats={[
           { label: 'participants', value: deliberation._count.members },
           { label: 'ideas', value: deliberation._count.ideas },
-          { label: 'phase', value: deliberation.phase },
         ]}
       />
     ),

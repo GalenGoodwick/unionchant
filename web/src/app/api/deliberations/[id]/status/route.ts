@@ -107,6 +107,7 @@ export async function GET(
         question: deliberation.question,
         description: deliberation.description,
         phase: deliberation.phase,
+        chantMode: deliberation.chantMode || 'classic',
         allocationMode: deliberation.allocationMode,
         continuousFlow: deliberation.continuousFlow,
         multipleIdeasAllowed: deliberation.multipleIdeasAllowed,

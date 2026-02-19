@@ -93,11 +93,8 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
         setChallengeToken(data.challengeToken)
         setShowChallenge(true)
         showRef.current = true
-      } else {
-        // No token from server (already passed recently) — show anyway with existing token
-        setShowChallenge(true)
-        showRef.current = true
       }
+      // No token = admin or already passed — skip silently
     } catch { /* silent */ }
   }, [])
 

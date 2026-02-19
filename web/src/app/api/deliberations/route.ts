@@ -150,6 +150,7 @@ export async function POST(req: NextRequest) {
       ideaGoal,
       memberGoal,
       allowAI,
+      chantMode,
       // Community integration
       communityId,
       communityOnly,
@@ -242,6 +243,7 @@ export async function POST(req: NextRequest) {
         ...(ideaGoal && { ideaGoal }),
         ...(memberGoal && { memberGoal }),
         ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
+        ...(chantMode === 'synthesis' && { chantMode: 'synthesis' }),
         // Community integration
         ...(communityId && { communityId }),
         ...(communityOnly && communityId && { isPublic: false }),

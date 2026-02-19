@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { startVotingPhase } from '@/lib/voting'
+import { startSynthesisTier } from '@/lib/synthesis'
 
 // POST /api/deliberations/[id]/start-voting - Transition to voting phase
 export async function POST(
@@ -36,6 +37,16 @@ export async function POST(
     // Only creator can start voting
     if (deliberation.creatorId !== user.id) {
       return NextResponse.json({ error: 'Only the creator can start voting' }, { status: 403 })
+    }
+
+    // Synthesis chants use startSynthesisTier instead of classic voting
+    if (deliberation.chantMode === 'synthesis') {
+      const synthResult = await startSynthesisTier(id)
+      return NextResponse.json({
+        success: true,
+        message: `Synthesis tier started with ${synthResult.cells.length} cells`,
+        cells: synthResult.cells,
+      })
     }
 
     const result = await startVotingPhase(id)

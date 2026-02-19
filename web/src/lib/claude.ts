@@ -32,7 +32,9 @@ export type ToolResult = {
 
 export type ClaudeResponse = {
   text: string
-  toolUse?: ToolResult
+  toolUse?: ToolResult & { id: string }
+  rawContent: unknown[]
+  stopReason: string
 }
 
 export async function callClaude(
@@ -72,8 +74,65 @@ export async function callClaudeWithTools(
   return {
     text: textBlock && 'text' in textBlock ? textBlock.text : '',
     toolUse: toolBlock && 'name' in toolBlock ? {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      id: (toolBlock as any).id || '',
       toolName: toolBlock.name,
       toolInput: toolBlock.input as Record<string, unknown>,
     } : undefined,
+    rawContent: response.content as unknown[],
+    stopReason: response.stop_reason || 'end_turn',
+  }
+}
+
+/**
+ * Continue a conversation after tool execution.
+ * Feeds the assistant's tool_use response + tool_result back to get natural speech.
+ * This is what lets the Shell speak AND use tools in the same turn.
+ */
+export async function continueAfterTool(
+  systemPrompt: string,
+  priorMessages: { role: 'user' | 'assistant'; content: string }[],
+  assistantContent: unknown[],
+  toolUseId: string,
+  toolResult: string,
+  model: string = 'haiku',
+  tools?: ToolDefinition[]
+): Promise<ClaudeResponse> {
+  const client = getClient()
+  const modelId = MODEL_MAP[model] || MODEL_MAP.haiku
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const messages: any[] = [
+    ...priorMessages,
+    { role: 'assistant', content: assistantContent },
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: toolResult }] },
+  ]
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const params: any = {
+    model: modelId,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages,
+  }
+  if (tools && tools.length > 0) {
+    params.tools = tools
+  }
+
+  const response: Message = await client.messages.create(params)
+
+  const textBlock = response.content.find(block => block.type === 'text')
+  const toolBlock = response.content.find(block => block.type === 'tool_use')
+
+  return {
+    text: textBlock && 'text' in textBlock ? textBlock.text : '',
+    toolUse: toolBlock && 'name' in toolBlock ? {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      id: (toolBlock as any).id || '',
+      toolName: toolBlock.name,
+      toolInput: toolBlock.input as Record<string, unknown>,
+    } : undefined,
+    rawContent: response.content as unknown[],
+    stopReason: response.stop_reason || 'end_turn',
   }
 }

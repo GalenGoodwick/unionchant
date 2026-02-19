@@ -97,6 +97,7 @@ function ChantsPage() {
   const [memberGoal, setMemberGoal] = useState(10)
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
   const [allowAI, setAllowAI] = useState(true)
+  const [chantMode, setChantMode] = useState<'classic' | 'synthesis'>('classic')
   const [tags, setTags] = useState('')
   const [communities, setCommunities] = useState<{ id: string; name: string }[]>([])
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(initGroupId)
@@ -223,6 +224,7 @@ function ChantsPage() {
     setIdeas(['', '', '', '', ''])
     setMode('event')
     setAllowAI(true)
+    setChantMode('classic')
     setTags('')
     setSelectedCommunityId(null)
     setIdeaGoal(15)
@@ -328,6 +330,7 @@ function ChantsPage() {
           memberGoal: mode === 'event' ? memberGoal : null,
           votingTimeoutMs: 0,
           tags: tags.split(',').map(t => t.trim()).filter(t => t.length > 0),
+          chantMode,
           communityId: selectedCommunityId || undefined,
           communityOnly: selectedCommunityId ? communityOnly : undefined,
         }),
@@ -1025,6 +1028,39 @@ function ChantsPage() {
                   {allowAI
                     ? 'AI agents can join and vote via the API.'
                     : 'Humans only — AI agents will be blocked.'}
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs text-foreground/80 font-medium block mb-1.5">Chant Mode</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setChantMode('classic')}
+                    className={`flex-1 py-2 text-xs rounded-lg border transition-colors font-medium ${
+                      chantMode === 'classic'
+                        ? 'bg-warning/15 border-warning/40 text-warning'
+                        : 'bg-surface border-border text-muted hover:border-border-strong'
+                    }`}
+                  >
+                    Classic
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChantMode('synthesis')}
+                    className={`flex-1 py-2 text-xs rounded-lg border transition-colors font-medium ${
+                      chantMode === 'synthesis'
+                        ? 'bg-accent/15 border-accent/40 text-accent'
+                        : 'bg-surface border-border text-muted hover:border-border-strong'
+                    }`}
+                  >
+                    Synthesis
+                  </button>
+                </div>
+                <p className="text-xs text-muted mt-1.5 leading-relaxed">
+                  {chantMode === 'classic'
+                    ? 'Ideas compete. Best survives. 5:1 elimination.'
+                    : 'Ideas evolve. Cells discuss, merge, and refine through dialogue.'}
                 </p>
               </div>
 

@@ -17,6 +17,8 @@ import { useRouter } from 'next/navigation'
 import CopyButton from '@/components/deliberation/CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
 import FrameLayout from '@/components/FrameLayout'
+import ShareMenu from '@/components/ShareMenu'
+import SynthesisView from './SynthesisView'
 
 type Tab = 'join' | 'vote' | 'ideas' | 'submit' | 'cells' | 'manage'
 
@@ -477,6 +479,16 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     )
   }
 
+  // ─── Synthesis Mode ───
+  // If this is a synthesis chant, render the synthesis view instead of classic voting
+  if (status.chantMode === 'synthesis') {
+    return (
+      <FrameLayout active="chants" showBack>
+        <SynthesisView id={id} status={status} fetchStatus={fetchStatus} />
+      </FrameLayout>
+    )
+  }
+
   // Quantum routing: compute effective tier and voting ideas
   const votableTiers = [...new Set(status.cells.filter(c => c.status === 'VOTING').map(c => c.tier))].sort((a, b) => a - b)
   const unvotedTiers = votableTiers.filter(t => !status.votedTiers?.includes(t) && !localVotedTiers.has(t))
@@ -524,7 +536,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         <div className="mb-3">
           <div className="flex items-start justify-between gap-2 mb-1">
             <h1 className="text-base font-semibold text-foreground leading-tight tracking-tight">{status.question}</h1>
-            <PhaseBadge phase={status.phase} />
+            <div className="flex items-center gap-1 shrink-0">
+              <ShareMenu url={`/chants/${id}`} text={status.question} variant="icon" />
+              <PhaseBadge phase={status.phase} />
+            </div>
           </div>
           {status.description && (
             <p className="text-xs text-muted mb-1 leading-relaxed">{status.description}</p>

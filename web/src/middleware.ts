@@ -5,7 +5,6 @@ const MUTATION_METHODS = ['POST', 'PUT', 'PATCH', 'DELETE']
 const CSRF_EXEMPT_PATHS = [
   '/api/cron/',
   '/api/auth/',
-  '/api/og',
   '/api/admin/test/',
   '/api/stripe/webhook',
   '/api/bot/',
@@ -13,6 +12,7 @@ const CSRF_EXEMPT_PATHS = [
   '/api/v1/',
   '/api/embed/',
   '/api/ask-ai',
+  '/api/shell/',
 ]
 
 // Patterns that match via regex (for dynamic segments)

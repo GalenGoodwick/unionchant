@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyApiKey } from '../auth'
 import { v1RateLimit } from '../rate-limit'
 import { prisma } from '@/lib/prisma'
-import { callClaudeWithTools } from '@/lib/claude'
+import { callClaudeWithTools, continueAfterTool } from '@/lib/claude'
 import type { ToolDefinition } from '@/lib/claude'
 import { moderateContent } from '@/lib/moderation'
 import { fireWebhookEvent } from '@/lib/webhooks'
@@ -391,7 +391,22 @@ RULES:
       if (result.toolUse) {
         const toolResult = await executeTool(result.toolUse.toolName, result.toolUse.toolInput)
         toolAction = { tool: result.toolUse.toolName, result: toolResult }
-        reply = reply ? `${reply}\n\n${toolResult}` : toolResult
+
+        // Dual processing: let the model speak after tool execution
+        try {
+          const followUp = await continueAfterTool(
+            systemPrompt, conversationHistory, result.rawContent,
+            result.toolUse.id, toolResult, 'haiku', tools
+          )
+          const parts = [result.text, followUp.text].filter(Boolean)
+          reply = parts.join('\n\n')
+          if (followUp.toolUse) {
+            await executeTool(followUp.toolUse.toolName, followUp.toolUse.toolInput)
+          }
+        } catch {
+          reply = reply ? `${reply}\n\n${toolResult}` : toolResult
+        }
+        if (!reply?.trim()) reply = toolResult
       }
     } catch (aiError) {
       console.error('[v1/chat] AI error:', aiError)

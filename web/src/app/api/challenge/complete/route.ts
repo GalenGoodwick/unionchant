@@ -74,9 +74,13 @@ export async function POST(req: NextRequest) {
       // Validate behavioral data — real humans produce these minimums
       // Surrendered challenges have lower thresholds (button stops early)
       const isSurrender = !!surrendered
-      const validPointer = typeof pointerEvents === 'number' && pointerEvents >= (isSurrender ? 5 : 10)
-      const validDuration = typeof chaseDurationMs === 'number' && chaseDurationMs >= (isSurrender ? 800 : 1200)
-      const validEvade = typeof evadeCount === 'number' && evadeCount >= (isSurrender ? 1 : 2)
+      const validPointer = typeof pointerEvents === 'number' && pointerEvents >= (isSurrender ? 3 : 5)
+      const validDuration = typeof chaseDurationMs === 'number' && chaseDurationMs >= (isSurrender ? 500 : 800)
+      const validEvade = typeof evadeCount === 'number' && evadeCount >= 1
+
+      if (!validPointer || !validDuration || !validEvade) {
+        console.warn('[Challenge] Failed validation:', { pointerEvents, chaseDurationMs, evadeCount, surrendered, userId })
+      }
 
       if (!validPointer || !validDuration || !validEvade) {
         await prisma.challengeLog.update({

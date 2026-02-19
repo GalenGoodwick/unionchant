@@ -185,11 +185,15 @@ function PasskeyPromptGate({ children }: { children: React.ReactNode }) {
 type CollectiveChatContextType = {
   chatOpen: boolean
   toggleChat: () => void
+  chatTab: 'chat' | 'bridge'
+  setChatTab: (tab: 'chat' | 'bridge') => void
 }
 
 const CollectiveChatContext = createContext<CollectiveChatContextType>({
   chatOpen: false,
   toggleChat: () => {},
+  chatTab: 'chat',
+  setChatTab: () => {},
 })
 
 export function useCollectiveChat() {
@@ -198,6 +202,7 @@ export function useCollectiveChat() {
 
 function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   const [chatOpen, setChatOpen] = useState(false)
+  const [chatTab, setChatTab] = useState<'chat' | 'bridge'>('chat')
   const { triggerPasskeyPrompt } = usePasskeyPrompt()
   const toggleChat = useCallback(() => {
     setChatOpen(prev => !prev)
@@ -212,7 +217,7 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   const hideChat = pathname === '/demo'
 
   return (
-    <CollectiveChatContext.Provider value={{ chatOpen, toggleChat }}>
+    <CollectiveChatContext.Provider value={{ chatOpen, toggleChat, chatTab, setChatTab }}>
       {children}
     </CollectiveChatContext.Provider>
   )

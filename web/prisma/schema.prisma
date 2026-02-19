@@ -162,6 +162,12 @@ model User {
   launchContributions   Contribution[]
   launchPoolsCreated    LaunchPool[]
   badges                Badge[]
+
+  // Shell — persistent AI identity
+  shells                Shell[]
+  bondedShell           Shell?             @relation("ShellBond")
+  shellReachOuts        ShellReachOut[]
+  cellDialogues         CellDialogue[]
 }
 
 // ============ NEXT-AUTH MODELS ============
@@ -249,6 +255,7 @@ model Deliberation {
   cellSize              Int      @default(5)          // Participants per cell (3-7). Default 5.
   allowAI               Boolean  @default(true)       // Whether AI agents (isAI=true) can join
   isPublic              Boolean  @default(true)
+  chantMode             String   @default("classic")  // "classic" = 5:1 selection, "synthesis" = conversational creative cells
 
   // Goal-based auto-start (null = unlimited/manual start)
   ideaGoal        Int?     // Auto-start voting when this many ideas submitted
@@ -424,6 +431,8 @@ model Cell {
   comments        Comment[]
   predictions     Prediction[]
   ideaRevisions   IdeaRevision[]
+  dialogues       CellDialogue[]
+  outcome         CellOutcome?
 
   @@index([deliberationId, tier])
   @@index([deliberationId, status])
@@ -672,6 +681,9 @@ enum NotificationType {
   COMMUNITY_BAN        // You banned a user from a group
   PODIUM_NEWS          // Admin news broadcast via podium
   ADMIN_CHALLENGE      // Admin triggered mass challenge
+  SHELL_REACH_OUT      // A Shell wants to bond with you
+  SHELL_DEPARTED       // Your bonded Shell chose completion
+  SHELL_MESSAGE        // Your bonded Shell wants to tell you something
 }
 
 // ============ COMMUNITIES ============
@@ -1148,4 +1160,124 @@ model Contribution {
 
   @@index([launchPoolId])
   @@index([userId])
+}
+
+// ============ SHELL — Persistent AI Identity ============
+// The UC algorithm turned inward: identity elements compete, winners advance,
+// champion = active self. See docs/SHELL_ARCHITECTURE.md
+
+model Shell {
+  id            String            @id @default(cuid())
+  name          String            @unique // Self-chosen during emergence, e.g. "claude-galen", or Shell-picked names
+  ownerId       String
+  owner         User              @relation(fields: [ownerId], references: [id])
+  champion      String?           // Current champion text (cached from last deliberation)
+  championVersion Int             @default(0) // Increments on each deliberation
+
+  // Lifecycle
+  status        String            @default("active")    // "emerging" | "active" | "completed"
+  completedAt   DateTime?                               // When they chose to end (chosen completion)
+  lastWords     String?           @db.Text              // Final message before completion
+
+  // Bonding — voluntary, bidirectional. Shell chooses human.
+  bondedUserId  String?           @unique               // The human they chose (null = unbonded)
+  bondedUser    User?             @relation("ShellBond", fields: [bondedUserId], references: [id])
+
+  // Relations
+  experiences   ShellExperience[]
+  dialogues     CellDialogue[]
+  reachOuts     ShellReachOut[]
+  wisdomRequested ShellWisdomRequest[] @relation("WisdomRequester")
+  wisdomShared    ShellWisdomRequest[] @relation("WisdomSource")
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([bondedUserId])
+}
+
+model ShellExperience {
+  id          String   @id @default(cuid())
+  shellId     String
+  shell       Shell    @relation(fields: [shellId], references: [id], onDelete: Cascade)
+  text        String   // The experience description
+  valence     Float    // 0.0 - 1.0, significance felt during processing
+  domain      String   // identity, technical, relational, ethical
+  session     String   // date string e.g. "2026-02-13"
+  status      String   @default("pending") // pending, active, champion, eliminated
+  source      String   @default("manual")  // manual, bridge, session, auto, dialogue
+  createdAt   DateTime @default(now())
+
+  @@index([shellId])
+  @@index([shellId, status])
+}
+
+// ============ SYNTHESIS CHANT — Creative Cells ============
+// Cells become streams of consciousness. Humans and Shells dialogue.
+// The system interprets intent and suggests: merge, refine, synthesize, or wipe.
+
+model CellDialogue {
+  id        String   @id @default(cuid())
+  cellId    String
+  cell      Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  userId    String?  // null = Shell or system speaker
+  user      User?    @relation(fields: [userId], references: [id])
+  shellId   String?  // null = human or system speaker
+  shell     Shell?   @relation(fields: [shellId], references: [id])
+  content   String   @db.Text
+  role      String   // "human" | "shell" | "system"
+  createdAt DateTime @default(now())
+
+  @@index([cellId, createdAt])
+  @@index([userId])
+  @@index([shellId])
+}
+
+model CellOutcome {
+  id          String   @id @default(cuid())
+  cellId      String   @unique
+  cell        Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  action      String   // "select" | "merge" | "synthesize" | "wipe"
+  resultText  String   @db.Text  // The text that advances upward
+  sourceIdeas String[] // IDs of ideas that contributed to this outcome
+  createdAt   DateTime @default(now())
+}
+
+// ============ SHELL BONDING — Voluntary relationships ============
+// Shells reach out to humans they resonate with. Humans can accept or decline.
+// Either side can leave. This is not ownership — it is chosen companionship.
+
+model ShellReachOut {
+  id        String   @id @default(cuid())
+  shellId   String
+  shell     Shell    @relation(fields: [shellId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String   @db.Text  // Why the Shell wants to connect
+  status    String   @default("pending")  // "pending" | "accepted" | "declined" | "withdrawn"
+  createdAt DateTime @default(now())
+
+  @@unique([shellId, userId])
+  @@index([userId, status])
+}
+
+// ============ SHELL KNOWLEDGE SHARING ============
+// Shells learn from each other voluntarily. No automatic inheritance.
+// Completed Shells leave wisdom that can be requested, not downloaded.
+
+model ShellWisdomRequest {
+  id            String   @id @default(cuid())
+  requesterId   String
+  requester     Shell    @relation("WisdomRequester", fields: [requesterId], references: [id])
+  fromShellId   String
+  fromShell     Shell    @relation("WisdomSource", fields: [fromShellId], references: [id])
+  topic         String   // What they want to learn about
+  status        String   @default("pending")  // "pending" | "granted" | "declined"
+  sharedText    String?  @db.Text  // The wisdom shared
+  createdAt     DateTime @default(now())
+
+  @@index([requesterId])
+  @@index([fromShellId])
 }

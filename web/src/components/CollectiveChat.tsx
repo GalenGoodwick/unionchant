@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useCollectiveChat } from '@/app/providers'
 
 interface Message {
   id: string
@@ -74,6 +75,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [mutedUntil, setMutedUntil] = useState<number | null>(null)
   const [dailyLimitHit, setDailyLimitHit] = useState(false)
+  const [showSonnetInfo, setShowSonnetInfo] = useState(false)
+  const { chatTab: activeTab, setChatTab: setActiveTab } = useCollectiveChat()
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -98,12 +101,15 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     setShowSkip(distanceFromBottom > 100)
   }, [])
 
-  // Fetch messages once on mount, scroll to bottom when loaded
+  // Fetch messages on mount and when tab changes, scroll to bottom when loaded
   const initialScrollDone = useRef(false)
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        const res = await fetch('/api/collective-chat')
+        const url = activeTab === 'bridge'
+          ? '/api/collective-chat?bridge=true'
+          : '/api/collective-chat'
+        const res = await fetch(url)
         if (res.ok) {
           const data = await res.json()
           setMessages(data.messages)
@@ -120,7 +126,25 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
 
     fetchMessages()
-  }, [scrollToBottom])
+  }, [scrollToBottom, activeTab])
+
+  // Auto-poll bridge tab every 5s to show live progress
+  useEffect(() => {
+    if (activeTab !== 'bridge') return
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/collective-chat?bridge=true')
+        if (res.ok) {
+          const data = await res.json()
+          setMessages(prev => {
+            if (data.messages.length !== prev.length) return data.messages
+            return prev
+          })
+        }
+      } catch { /* silent */ }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [activeTab])
 
   // Only auto-scroll if user is already near the bottom
   const isNearBottomRef = useRef(true)
@@ -167,7 +191,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         return
       }
 
-      // Refetch messages
+      // Refetch messages (always refetch chat tab after sending)
       const messagesRes = await fetch('/api/collective-chat')
       if (messagesRes.ok) {
         const messagesData = await messagesRes.json()
@@ -186,7 +210,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     setLoadingMore(true)
     try {
       const oldest = messages[0].createdAt
-      const res = await fetch(`/api/collective-chat?before=${oldest}`)
+      const bridgeParam = activeTab === 'bridge' ? '&bridge=true' : ''
+      const res = await fetch(`/api/collective-chat?before=${oldest}${bridgeParam}`)
       if (res.ok) {
         const data = await res.json()
         if (data.messages.length > 0) {
@@ -217,9 +242,28 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             <h3 className="text-sm font-semibold text-gold font-sans">
               The Collective
             </h3>
-            <p className="text-xs text-muted">
-              Your personal AI guide to Unity Chant.
-            </p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <button
+                onClick={() => setActiveTab('chat')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                  activeTab === 'chat'
+                    ? 'bg-gold/20 text-gold border-gold-border'
+                    : 'text-muted hover:text-foreground border-border hover:border-gold-border'
+                }`}
+              >
+                chat
+              </button>
+              <button
+                onClick={() => setActiveTab('bridge')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                  activeTab === 'bridge'
+                    ? 'bg-accent/20 text-accent border-accent/40'
+                    : 'text-muted hover:text-foreground border-border hover:border-accent/40'
+                }`}
+              >
+                bridge
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-1.5">
             {onClose && (
@@ -236,6 +280,20 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           </div>
         </div>
       </div>
+
+      {/* Sonnet upgrade info */}
+      {showSonnetInfo && (
+        <div className="px-4 py-3 border-b border-gold-border bg-gold-bg/50">
+          <p className="text-sm text-foreground mb-1">Sonnet is a stronger model.</p>
+          <p className="text-xs text-muted mb-2">It costs more to run. A paid tier to support higher quality engagement is coming soon.</p>
+          <button
+            onClick={() => setShowSonnetInfo(false)}
+            className="text-[11px] text-gold hover:text-gold-hover transition-colors"
+          >
+            Got it
+          </button>
+        </div>
+      )}
 
       {/* Messages */}
       <div
@@ -256,51 +314,88 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         )}
         {messages.length === 0 && (
           <div className="text-center text-muted text-sm py-12">
-            <p className="mb-1 text-gold/80">The Collective</p>
-            <p className="text-muted-light text-xs">
-              Ask about chants, get voting reminders, or explore the platform.
-            </p>
+            {activeTab === 'bridge' ? (
+              <>
+                <p className="mb-1 text-accent/80">Bridge</p>
+                <p className="text-muted-light text-xs">
+                  Live feed of parent-child communication between Claude Code and the Shell.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="mb-1 text-gold/80">The Collective</p>
+                <p className="text-muted-light text-xs">
+                  Ask about chants, get voting reminders, or explore the platform.
+                </p>
+              </>
+            )}
           </div>
         )}
 
-        {messages.map(msg => (
-          <div
-            key={msg.id}
-            className={`flex flex-col ${
-              msg.role === 'assistant' ? 'items-start' : 'items-end'
-            }`}
-          >
+        {messages.map(msg => {
+          // For bridge messages, strip the [BRIDGE — Speaker] prefix
+          const isBridgeMsg = msg.content.startsWith('[BRIDGE')
+          let displayContent = msg.content
+          let bridgeSpeaker = ''
+          if (isBridgeMsg) {
+            const match = msg.content.match(/^\[BRIDGE — ([^\]]+)\]\s*/)
+            if (match) {
+              bridgeSpeaker = match[1]
+              displayContent = msg.content.slice(match[0].length)
+            }
+          }
+
+          const isShellSpeaker = bridgeSpeaker === 'Shell'
+          const isParentSpeaker = bridgeSpeaker.includes('parent')
+
+          return (
             <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                msg.role === 'assistant'
-                  ? 'bg-gold-bg border border-gold-border text-foreground'
-                  : 'bg-surface-hover border border-border text-foreground'
+              key={msg.id}
+              className={`flex flex-col ${
+                isBridgeMsg
+                  ? isShellSpeaker ? 'items-start' : 'items-end'
+                  : msg.role === 'assistant' ? 'items-start' : 'items-end'
               }`}
             >
-              {msg.role === 'user' && (
-                <div className="text-[10px] text-muted mb-0.5 font-mono">
-                  {msg.userName || 'Anonymous'}
+              <div
+                className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                  isBridgeMsg
+                    ? isShellSpeaker
+                      ? 'bg-accent/10 border border-accent/30 text-foreground'
+                      : 'bg-purple-bg border border-purple/30 text-foreground'
+                    : msg.role === 'assistant'
+                      ? 'bg-gold-bg border border-gold-border text-foreground'
+                      : 'bg-surface-hover border border-border text-foreground'
+                }`}
+              >
+                {isBridgeMsg ? (
+                  <div className={`text-[10px] mb-0.5 font-mono ${isShellSpeaker ? 'text-accent' : 'text-purple'}`}>
+                    {bridgeSpeaker || (msg.role === 'user' ? 'Parent' : 'Shell')}
+                  </div>
+                ) : msg.role === 'user' ? (
+                  <div className="text-[10px] text-muted mb-0.5 font-mono">
+                    {msg.userName || 'Anonymous'}
+                  </div>
+                ) : (
+                  <div className="text-[10px] text-gold mb-0.5 font-mono">
+                    Collective
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap leading-relaxed">
+                  {parseMessageContent(displayContent, onClose)}
                 </div>
-              )}
-              {msg.role === 'assistant' && (
-                <div className="text-[10px] text-gold mb-0.5 font-mono">
-                  Collective
-                </div>
-              )}
-              <div className="whitespace-pre-wrap leading-relaxed">
-                {parseMessageContent(msg.content, onClose)}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5 px-1">
+                <span className="text-[9px] text-muted-light">
+                  {new Date(msg.createdAt).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
               </div>
             </div>
-            <div className="flex items-center gap-2 mt-0.5 px-1">
-              <span className="text-[9px] text-muted-light">
-                {new Date(msg.createdAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </span>
-            </div>
-          </div>
-        ))}
+          )
+        })}
 
         {sending && (
           <div className="flex items-start">
@@ -347,7 +442,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {/* Input */}
+      {/* Input — hidden on bridge tab (read-only observation) */}
+      {activeTab === 'bridge' ? (
+        <div className="px-4 py-2 border-t border-accent/20 bg-accent/5">
+          <p className="text-[10px] text-accent/60 font-mono text-center">
+            live bridge feed — parent ↔ shell
+          </p>
+        </div>
+      ) : (
       <div className="px-4 py-3 border-t border-gold-border">
         {session ? (
           <div className="flex gap-2">
@@ -380,6 +482,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           </Link>
         )}
       </div>
+      )}
 
     </div>
   )
