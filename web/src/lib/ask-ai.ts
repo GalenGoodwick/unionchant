@@ -179,7 +179,7 @@ async function batchAsync<T>(tasks: (() => Promise<T>)[], concurrency: number): 
 
 const ALL_PERSONAS = [...PERSONAS, ...EXTENDED_PERSONAS]
 
-async function loadAgents(count: number): Promise<Agent[]> {
+export async function loadAgents(count: number): Promise<Agent[]> {
   const agents: Agent[] = []
   const needed = Math.min(count, ALL_PERSONAS.length)
 

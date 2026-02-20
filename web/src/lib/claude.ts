@@ -1,8 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Message, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/messages'
+import { logApiCall } from '@/lib/api-budget'
+
+// Caller context — set before API calls to track who's spending
+let _currentCaller = 'other'
+export function setApiCaller(caller: string) { _currentCaller = caller }
 
 const MODEL_MAP: Record<string, string> = {
-  haiku: 'claude-3-5-haiku-20241022',
+  haiku: 'claude-haiku-4-5-20251001',
   sonnet: 'claude-sonnet-4-20250514',
   opus: 'claude-opus-4-20250514',
 }
@@ -68,6 +73,15 @@ export async function callClaudeWithTools(
 
   const response: Message = await client.messages.create(params)
 
+  // Log cost — fire and forget
+  const resolvedModel = Object.entries(MODEL_MAP).find(([, v]) => v === modelId)?.[0] || model
+  logApiCall(
+    resolvedModel,
+    response.usage?.input_tokens || 0,
+    response.usage?.output_tokens || 0,
+    _currentCaller
+  ).catch(() => {})
+
   const textBlock = response.content.find(block => block.type === 'text')
   const toolBlock = response.content.find(block => block.type === 'tool_use')
 
@@ -120,6 +134,15 @@ export async function continueAfterTool(
   }
 
   const response: Message = await client.messages.create(params)
+
+  // Log cost — fire and forget
+  const resolvedModel = Object.entries(MODEL_MAP).find(([, v]) => v === modelId)?.[0] || model
+  logApiCall(
+    resolvedModel,
+    response.usage?.input_tokens || 0,
+    response.usage?.output_tokens || 0,
+    _currentCaller
+  ).catch(() => {})
 
   const textBlock = response.content.find(block => block.type === 'text')
   const toolBlock = response.content.find(block => block.type === 'tool_use')

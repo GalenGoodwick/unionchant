@@ -118,7 +118,7 @@ export async function GET(
     const cell = await prisma.cell.findUnique({
       where: { id: cellId },
       include: {
-        deliberation: { select: { chantMode: true, question: true } },
+        deliberation: { select: { chantMode: true, question: true, creatorId: true } },
         participants: {
           include: { user: { select: { id: true, name: true } } },
         },
@@ -140,9 +140,13 @@ export async function GET(
       return NextResponse.json({ error: 'Cell not found' }, { status: 404 })
     }
 
-    // Verify user is a participant
+    // Check if creator or admin (can observe any cell)
     const isParticipant = cell.participants.some(p => p.userId === user.id)
-    if (!isParticipant) {
+    const isCreator = cell.deliberation.creatorId === user.id
+    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim())
+    const isAdmin = adminEmails.includes(session.user.email)
+
+    if (!isParticipant && !isCreator && !isAdmin) {
       return NextResponse.json({ error: 'You are not a participant in this cell' }, { status: 403 })
     }
 

@@ -16,7 +16,7 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
-  const [ideasCollapsed, setIdeasCollapsed] = useState(false)
+  const [ideasCollapsed, setIdeasCollapsed] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -165,7 +165,7 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
           <span className="text-xs font-semibold text-muted uppercase tracking-wide">
             {cell.ideas.length} Ideas in Cell
           </span>
-          <span className="text-muted text-[10px]">{ideasCollapsed ? '\u25BC' : '\u25B2'}</span>
+          <span className="text-muted text-[10px]">{ideasCollapsed ? '\u25B6' : '\u25BC'}</span>
         </button>
         {!ideasCollapsed && (
           <div className="px-3 pb-2 space-y-1.5">

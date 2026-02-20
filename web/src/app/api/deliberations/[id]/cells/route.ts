@@ -38,13 +38,26 @@ export async function GET(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Get cells where user is a participant
+    // Check if user is the creator (sees all cells)
+    const deliberation = await prisma.deliberation.findUnique({
+      where: { id },
+      select: { creatorId: true },
+    })
+    const isCreator = deliberation?.creatorId === user.id
+
+    // Check if admin
+    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim())
+    const isAdmin = adminEmails.includes(session.user.email)
+
+    // Creator/admin sees all cells; others see only cells they're in
     const cells = await prisma.cell.findMany({
       where: {
         deliberationId: id,
-        participants: {
-          some: { userId: user.id },
-        },
+        ...((isCreator || isAdmin) ? {} : {
+          participants: {
+            some: { userId: user.id },
+          },
+        }),
       },
       include: {
         ideas: {

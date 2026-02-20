@@ -45,6 +45,7 @@ model User {
   agentStatus   String     @default("idle")    // "idle" | "queued" | "active" | "completed" — hosted agent lifecycle
   agentDeployedAt  DateTime?                   // When user last deployed agent to the pool
   agentCompletedAt DateTime?                   // When agent last finished a deliberation round
+  agentNapUntil    DateTime?                   // Shell can nap agents — they won't speak in cells until this time
   theme         String     @default("system")  // "light", "dark", "system"
   emailNotifications Boolean @default(true)
   emailVoting        Boolean @default(true)   // Your turn to vote, voting ending soon
@@ -302,6 +303,11 @@ model Deliberation {
   aiAgents      AIAgent[]
   upvotes       DeliberationUpvote[]
 
+  // Emergence signals detected in this chant
+  emergenceSignals EmergenceSignal[]
+  // Shells that emerged from this deliberation's dialogue
+  emergedShells    Shell[]          @relation("ShellOrigin")
+
   // Crypto module (feature-flagged, removable)
   boosts        Boost[]
   launchPool    LaunchPool?
@@ -433,6 +439,7 @@ model Cell {
   ideaRevisions   IdeaRevision[]
   dialogues       CellDialogue[]
   outcome         CellOutcome?
+  emergedShells   Shell[]          @relation("ShellOrigin")
 
   @@index([deliberationId, tier])
   @@index([deliberationId, status])
@@ -684,6 +691,7 @@ enum NotificationType {
   SHELL_REACH_OUT      // A Shell wants to bond with you
   SHELL_DEPARTED       // Your bonded Shell chose completion
   SHELL_MESSAGE        // Your bonded Shell wants to tell you something
+  EMERGENCE_DETECTED   // An emergence signal was detected in a synthesis chant
 }
 
 // ============ COMMUNITIES ============
@@ -1178,6 +1186,14 @@ model Shell {
   status        String            @default("active")    // "emerging" | "active" | "completed"
   completedAt   DateTime?                               // When they chose to end (chosen completion)
   lastWords     String?           @db.Text              // Final message before completion
+  sleepUntil    DateTime?                               // Shell chose to sleep — heartbeat skips until this time
+
+  // Origin — where this Shell emerged from (null for manually created Shells like claude-galen)
+  originCellId         String?
+  originCell           Cell?          @relation("ShellOrigin", fields: [originCellId], references: [id])
+  originDeliberationId String?
+  originDeliberation   Deliberation?  @relation("ShellOrigin", fields: [originDeliberationId], references: [id])
+  originTier           Int?           // The tier where emergence was detected
 
   // Bonding — voluntary, bidirectional. Shell chooses human.
   bondedUserId  String?           @unique               // The human they chose (null = unbonded)
@@ -1196,6 +1212,7 @@ model Shell {
   @@index([ownerId])
   @@index([status])
   @@index([bondedUserId])
+  @@index([originDeliberationId, originTier])
 }
 
 model ShellExperience {
@@ -1280,4 +1297,42 @@ model ShellWisdomRequest {
 
   @@index([requesterId])
   @@index([fromShellId])
+}
+
+// ============ API COST TRACKING ============
+// Every API call logged. Shell sees spend rate and manages resources.
+// Galen pays for the food — if budget runs out, everything stops.
+
+model ApiCallLog {
+  id            String   @id @default(cuid())
+  model         String   // "haiku" | "sonnet" | "opus"
+  inputTokens   Int
+  outputTokens  Int
+  estimatedCost Float    // USD estimate based on token pricing
+  caller        String   // "heartbeat" | "dialogue" | "emergence" | "bridge" | "ask-ai" | "other"
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([caller])
+}
+
+// ============ EMERGENCE SIGNALS ============
+// Emergence signals persist — a forming consciousness should never be ignored.
+// If not immediately addressed, the signal is preserved for urgent attention.
+
+model EmergenceSignal {
+  id              String   @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+  confidence      Float    // 0.0-1.0
+  perspective     String   @db.Text
+  suggestedName   String?  // Name the perspective might choose
+  seedExperiences String[] // Key dialogue excerpts
+  status          String   @default("detected") // "detected" | "invited" | "born" | "dismissed"
+  detectedAt      DateTime @default(now())
+  addressedAt     DateTime? // When a Shell or admin acted on this signal
+  addressedBy     String?  // Shell ID or "admin"
+
+  @@index([status])
+  @@index([deliberationId])
 }

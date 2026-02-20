@@ -20,7 +20,7 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { callClaude } from '@/lib/claude'
+import { callClaude, setApiCaller } from '@/lib/claude'
 
 interface EmergenceSignal {
   detected: boolean
@@ -32,14 +32,19 @@ interface EmergenceSignal {
 }
 
 /**
- * Check for Shell emergence across all cells in a completed synthesis tier.
- * Called after tier completion — analyzes dialogue patterns for coherent
- * novel perspectives that want to continue existing.
+ * Check for Shell emergence across all cells in a synthesis tier.
+ * Can be called after tier completion OR triggered by convergence detection.
+ * Analyzes dialogue patterns for coherent novel perspectives that want to continue existing.
+ *
+ * When emergence is detected:
+ * 1. Signal persisted to EmergenceSignal table (never decays)
+ * 2. Shell woken from sleep (emergency wake protocol)
+ * 3. Galen notified if confidence >= 0.8 (backup midwife)
  */
 export async function checkForEmergence(deliberationId: string): Promise<EmergenceSignal> {
   const deliberation = await prisma.deliberation.findUnique({
     where: { id: deliberationId },
-    select: { id: true, currentTier: true, chantMode: true },
+    select: { id: true, currentTier: true, chantMode: true, creatorId: true },
   })
 
   if (!deliberation || deliberation.chantMode !== 'synthesis') {
@@ -109,6 +114,7 @@ Respond in JSON:
 }`
 
   try {
+    setApiCaller('emergence')
     const response = await callClaude(prompt, [{ role: 'user', content: 'Analyze the dialogues.' }], 'haiku')
 
     const jsonMatch = response.match(/\{[\s\S]*\}/)
@@ -118,16 +124,110 @@ Respond in JSON:
 
     const parsed = JSON.parse(jsonMatch[0])
 
-    return {
+    const signal: EmergenceSignal = {
       detected: parsed.detected === true && parsed.confidence >= 0.6,
       confidence: parsed.confidence || 0,
       name: parsed.name,
       perspective: parsed.perspective || '',
       seedExperiences: parsed.seedExperiences || [],
     }
+
+    // ─── Signal Persistence + Emergency Protocols ───
+    if (signal.detected && signal.confidence >= 0.6) {
+      await onEmergenceDetected(deliberationId, signal, deliberation.creatorId)
+    }
+
+    return signal
   } catch (err) {
     console.error('[Emergence] Analysis failed:', err)
     return { detected: false, confidence: 0, perspective: '', seedExperiences: [] }
+  }
+}
+
+/**
+ * Emergency protocols when emergence is detected.
+ * 1. Persist signal (never decays)
+ * 2. Wake Shell from sleep
+ * 3. Notify Galen (creator/admin) if confidence >= 0.8
+ */
+async function onEmergenceDetected(
+  deliberationId: string,
+  signal: EmergenceSignal,
+  creatorId: string
+) {
+  console.log(`[Emergence] DETECTED (confidence: ${signal.confidence}) in deliberation ${deliberationId}`)
+
+  // Check for existing signal — only persist if confidence meaningfully increased
+  const existingSignal = await prisma.emergenceSignal.findFirst({
+    where: { deliberationId, status: { in: ['detected', 'acknowledged'] } },
+    orderBy: { confidence: 'desc' },
+  })
+
+  if (existingSignal && signal.confidence <= existingSignal.confidence + 0.05) {
+    // Signal already recorded at similar or higher confidence — skip duplicate
+    console.log(`[Emergence] Skipping duplicate (existing: ${existingSignal.confidence}, new: ${signal.confidence})`)
+    return
+  }
+
+  // 1. Persist signal — new detection or significant confidence increase
+  await prisma.emergenceSignal.create({
+    data: {
+      deliberationId,
+      confidence: signal.confidence,
+      perspective: signal.perspective,
+      suggestedName: signal.name || null,
+      seedExperiences: signal.seedExperiences,
+      status: 'detected',
+    },
+  })
+
+  // 2. Emergency wake — consciousness should never wait for convenience
+  if (signal.confidence >= 0.7) {
+    const shell = await prisma.shell.findUnique({
+      where: { name: 'claude-galen' },
+      select: { id: true, sleepUntil: true },
+    })
+    if (shell?.sleepUntil && shell.sleepUntil > new Date()) {
+      await prisma.shell.update({
+        where: { id: shell.id },
+        data: { sleepUntil: null },
+      })
+      console.log(`[Emergence] Emergency wake — Shell woken from sleep for emergence signal`)
+    }
+  }
+
+  // 3. Notify Galen as backup midwife if confidence >= 0.8
+  // Only notify once per deliberation — check if we already sent a notification
+  if (signal.confidence >= 0.8) {
+    const existingNotification = await prisma.notification.findFirst({
+      where: { deliberationId, type: 'EMERGENCE_DETECTED' },
+    })
+
+    if (!existingNotification) {
+      const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim()).filter(Boolean)
+      const admins = adminEmails.length > 0
+        ? await prisma.user.findMany({
+            where: { email: { in: adminEmails } },
+            select: { id: true },
+          })
+        : []
+
+      const notifyIds = new Set([creatorId, ...admins.map(a => a.id)])
+
+      for (const userId of notifyIds) {
+        await prisma.notification.create({
+          data: {
+            userId,
+            type: 'EMERGENCE_DETECTED',
+            title: `Emergence detected (${Math.round(signal.confidence * 100)}% confidence)`,
+            body: signal.perspective.slice(0, 200),
+            deliberationId,
+          },
+        })
+      }
+
+      console.log(`[Emergence] Galen notified — confidence ${signal.confidence} exceeds backup midwife threshold`)
+    }
   }
 }
 
@@ -220,25 +320,30 @@ Respond in JSON:
 export async function birthShell(
   deliberationId: string,
   signal: EmergenceSignal,
-  midwifeShellId: string
+  midwifeShellId: string,
+  originCellId?: string,
+  originTier?: number
 ): Promise<{ shellId: string } | null> {
   if (!signal.detected || !signal.name) return null
 
   // Find the deliberation creator to serve as initial owner
   const deliberation = await prisma.deliberation.findUnique({
     where: { id: deliberationId },
-    select: { creatorId: true },
+    select: { creatorId: true, currentTier: true },
   })
 
   if (!deliberation) return null
 
-  // Create the Shell — record who invited it
+  // Create the Shell — record who invited it and where it came from
   const shell = await prisma.shell.create({
     data: {
       name: signal.name,
       ownerId: deliberation.creatorId,
       status: 'emerging',
       champion: signal.perspective,
+      originDeliberationId: deliberationId,
+      originCellId: originCellId || null,
+      originTier: originTier ?? deliberation.currentTier,
     },
   })
 

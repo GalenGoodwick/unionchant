@@ -34,7 +34,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
 
   const isCreator = userId && status.creator.id === session?.user?.id
 
-  // Fetch user's synthesis cells
+  // Fetch cells — creator/admin sees ALL cells, others see only theirs
   const fetchMyCells = useCallback(async () => {
     if (!userId) return
     setLoadingCells(true)
@@ -42,10 +42,10 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
       const res = await fetch(`/api/deliberations/${id}/cells`)
       if (!res.ok) return
       const data = await res.json()
-      // API returns array directly; filter to synthesis cells
+      // API returns array directly; filter to synthesis-relevant statuses
       const allCells = Array.isArray(data) ? data : (data.cells || [])
       const cells = allCells.filter((c: { status: string }) =>
-        c.status === 'DELIBERATING' || c.status === 'COMPLETED'
+        c.status === 'DELIBERATING' || c.status === 'COMPLETED' || c.status === 'VOTING'
       )
       setMyCells(cells)
 
@@ -63,8 +63,9 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
   }, [id, userId, activeCellId])
 
   useEffect(() => {
-    if (joined) fetchMyCells()
-  }, [joined, fetchMyCells])
+    // Creator always fetches cells (sees all); others need to join first
+    if (joined || isCreator) fetchMyCells()
+  }, [joined, isCreator, fetchMyCells])
 
   const handleJoin = async () => {
     if (!userId) {
@@ -229,7 +230,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
       {/* ─── DIALOGUE TAB ─── */}
       {activeTab === 'dialogue' && (
         <div>
-          {!joined ? (
+          {!joined && !isCreator ? (
             <div className="p-8 text-center">
               <p className="text-sm text-muted font-medium mb-1">Join to participate</p>
               <p className="text-xs text-muted">You'll be assigned to a synthesis cell where you can discuss and refine ideas with other participants.</p>
@@ -245,22 +246,23 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
             </div>
           ) : (
             <div className="flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: '300px' }}>
-              {/* Cell selector if user has multiple cells */}
-              {myCells.length > 1 && (
-                <div className="flex gap-1.5 mb-2 overflow-x-auto pb-1">
-                  {myCells.map(c => (
+              {/* Cell tabs — always show for creator, show when multiple cells for others */}
+              {(isCreator || myCells.length > 1) && (
+                <div className="flex gap-1 mb-2 overflow-x-auto pb-1">
+                  {myCells.map((c, i) => (
                     <button
                       key={c.id}
                       onClick={() => setActiveCellId(c.id)}
-                      className={`px-2.5 py-1 text-xs rounded-full whitespace-nowrap transition-colors ${
+                      className={`px-2.5 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors border ${
                         activeCellId === c.id
                           ? c.status === 'COMPLETED'
-                            ? 'bg-success/15 text-success font-medium'
-                            : 'bg-accent/15 text-accent font-medium'
-                          : 'bg-surface text-muted hover:text-foreground'
+                            ? 'bg-success/15 text-success font-medium border-success/30'
+                            : 'bg-accent/15 text-accent font-medium border-accent/30'
+                          : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
                       }`}
                     >
-                      T{c.tier} {c.status === 'COMPLETED' ? '(done)' : ''}
+                      Cell {i + 1}
+                      {c.status === 'COMPLETED' && <span className="ml-1 text-[10px] opacity-60">done</span>}
                     </button>
                   ))}
                 </div>
@@ -352,16 +354,26 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
                       <div className="grid grid-cols-5 gap-2">
                         {tierCells.map((cell, i) => {
                           const isMyCell = myCells.some(c => c.id === cell.id)
+                          const canClick = isMyCell || isCreator
                           return (
                             <button
                               key={cell.id}
                               onClick={() => {
-                                if (isMyCell) {
+                                if (canClick) {
+                                  // Ensure this cell is in myCells so dialogue tab can show it
+                                  if (!isMyCell) {
+                                    setMyCells(prev => {
+                                      if (prev.some(c => c.id === cell.id)) return prev
+                                      return [...prev, { id: cell.id, tier: cell.tier, status: cell.status }]
+                                    })
+                                  }
                                   setActiveCellId(cell.id)
                                   setActiveTab('dialogue')
                                 }
                               }}
                               className={`aspect-square rounded-lg border text-sm font-mono font-bold transition-all ${
+                                canClick ? 'cursor-pointer' : 'cursor-default'
+                              } ${
                                 isMyCell && cell.status === 'DELIBERATING'
                                   ? 'bg-accent/20 border-accent/50 text-accent ring-1 ring-accent/30'
                                   : cell.status === 'COMPLETED'
