@@ -49,18 +49,18 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
       )
       setMyCells(cells)
 
-      // Auto-select the first active cell
-      if (!activeCellId) {
+      // Auto-select the first active cell (only if none selected yet)
+      setActiveCellId(prev => {
+        if (prev) return prev
         const active = cells.find((c: { status: string }) => c.status === 'DELIBERATING')
-        if (active) setActiveCellId(active.id)
-        else if (cells.length > 0) setActiveCellId(cells[0].id)
-      }
+        return active ? active.id : cells.length > 0 ? cells[0].id : null
+      })
     } catch {
       // silent
     } finally {
       setLoadingCells(false)
     }
-  }, [id, userId, activeCellId])
+  }, [id, userId])
 
   useEffect(() => {
     // Creator always fetches cells (sees all); others need to join first
