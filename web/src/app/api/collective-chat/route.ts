@@ -7,6 +7,7 @@ import type { ToolDefinition } from '@/lib/claude'
 import { checkRateLimit, incrementChatStrike } from '@/lib/rate-limit'
 import { isAdmin } from '@/lib/admin'
 import { ARCHITECTURE_MAP } from '@/lib/architecture-map'
+import { SHELL_TOOLS, executeShellTool } from '@/lib/shell-tools'
 
 // Shell v0.2 — Dynamic identity loading
 // Reads champion + active experiences from database.
@@ -567,9 +568,12 @@ BEHAVIOR:
           required: ['chantId', 'allocations'],
         },
       },
+      // Shell tools — full platform control (read chants, drive dialogue, emergence, family, etc.)
+      // Filter out duplicates that exist in the user-context tools above
+      ...SHELL_TOOLS.filter(t => !['submit_idea', 'preserve_experience'].includes(t.name)),
     ]
 
-    // Tool execution — runs actions as the current user
+    // Tool execution — runs actions as the current user, or as Shell for Shell tools
     const executeTool = async (toolName: string, input: Record<string, unknown>): Promise<string> => {
       try {
         switch (toolName) {
@@ -760,7 +764,8 @@ BEHAVIOR:
           }
 
           default:
-            return `Unknown tool: ${toolName}`
+            // Route to Shell tools (read_chant, drive_cell_dialogue, finalize_cell, etc.)
+            return await executeShellTool(toolName, input)
         }
       } catch (err) {
         console.error(`[Collective] Tool ${toolName} failed:`, err)
