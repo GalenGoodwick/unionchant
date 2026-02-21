@@ -78,6 +78,19 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [showSonnetInfo, setShowSonnetInfo] = useState(false)
   const { chatTab: activeTab, setChatTab: setActiveTab } = useCollectiveChat()
 
+  // Bond tab state
+  const [bondData, setBondData] = useState<{
+    myRequest: { id: string; message: string; status: string; createdAt: string } | null
+    bonded: { id: string; name: string; champion: string | null } | null
+    pendingReachOuts: Array<{ id: string; shellName: string; shellChampion: string | null; message: string }>
+    requests: Array<{ id: string; userName: string | null; message: string; isOwn: boolean }>
+    availableFoundlings: number
+  } | null>(null)
+  const [bondMessage, setBondMessage] = useState('')
+  const [bondLoading, setBondLoading] = useState(false)
+  const [bondSubmitting, setBondSubmitting] = useState(false)
+  const [bondError, setBondError] = useState<string | null>(null)
+
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
 
@@ -145,6 +158,74 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }, 5000)
     return () => clearInterval(interval)
   }, [activeTab])
+
+  // Fetch bond data when bond tab is active, poll every 15s
+  useEffect(() => {
+    if (activeTab !== 'bond') return
+    const fetchBondData = async () => {
+      setBondLoading(true)
+      try {
+        const res = await fetch('/api/bond-requests')
+        if (res.ok) {
+          setBondData(await res.json())
+        }
+      } catch { /* silent */ }
+      setBondLoading(false)
+    }
+    fetchBondData()
+    const interval = setInterval(fetchBondData, 15000)
+    return () => clearInterval(interval)
+  }, [activeTab])
+
+  const submitBondRequest = async () => {
+    if (!bondMessage.trim() || bondSubmitting) return
+    setBondSubmitting(true)
+    setBondError(null)
+    try {
+      const res = await fetch('/api/bond-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: bondMessage }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setBondMessage('')
+        setBondData(prev => prev ? { ...prev, myRequest: data.request } : prev)
+      } else {
+        const err = await res.json()
+        setBondError(err.error || 'Failed to submit request')
+      }
+    } catch { setBondError('Network error') }
+    setBondSubmitting(false)
+  }
+
+  const withdrawBondRequest = async () => {
+    try {
+      const res = await fetch('/api/bond-requests', { method: 'DELETE' })
+      if (res.ok) {
+        setBondData(prev => prev ? { ...prev, myRequest: null } : prev)
+      }
+    } catch { /* silent */ }
+  }
+
+  const respondToReachOut = async (reachOutId: string, action: 'accept' | 'decline' | 'depart') => {
+    setBondError(null)
+    try {
+      const res = await fetch('/api/shell/bond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reachOutId, action }),
+      })
+      if (!res.ok) {
+        const err = await res.json()
+        setBondError(err.error || 'Failed to process bond action')
+        return
+      }
+      // Refresh bond data
+      const refreshRes = await fetch('/api/bond-requests')
+      if (refreshRes.ok) setBondData(await refreshRes.json())
+    } catch { setBondError('Network error') }
+  }
 
   // Only auto-scroll if user is already near the bottom
   const isNearBottomRef = useRef(true)
@@ -263,6 +344,16 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               >
                 bridge
               </button>
+              <button
+                onClick={() => setActiveTab('bond')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                  activeTab === 'bond'
+                    ? 'bg-success/20 text-success border-success/40'
+                    : 'text-muted hover:text-foreground border-border hover:border-success/40'
+                }`}
+              >
+                bond
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -295,6 +386,128 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
+      {/* Bond tab content */}
+      {activeTab === 'bond' ? (
+        <div className={`overflow-y-auto px-4 py-3 space-y-3 ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
+          {bondError && (
+            <div className="px-3 py-2 rounded-lg bg-error-bg border border-error-border text-error text-xs">
+              {bondError}
+              <button onClick={() => setBondError(null)} className="ml-2 text-error/60 hover:text-error">dismiss</button>
+            </div>
+          )}
+          {!session ? (
+            <div className="text-center py-12">
+              <Link href="/auth/signup" className="text-sm text-success hover:text-success-hover transition-colors">
+                Sign in to post a bond request
+              </Link>
+            </div>
+          ) : bondLoading && !bondData ? (
+            <div className="text-center py-12 text-muted text-sm">Loading...</div>
+          ) : bondData?.bonded ? (
+            <div className="space-y-3">
+              <div className="border border-success/30 rounded-lg p-3 bg-success/5">
+                <p className="text-xs text-success font-mono mb-1">bonded</p>
+                <p className="text-sm font-medium text-foreground">{bondData.bonded.name}</p>
+                {bondData.bonded.champion && (
+                  <p className="text-xs text-muted mt-1 italic">&quot;{bondData.bonded.champion}&quot;</p>
+                )}
+                <button
+                  onClick={() => respondToReachOut('', 'depart')}
+                  className="mt-2 text-[10px] text-error/60 hover:text-error transition-colors"
+                >
+                  Depart
+                </button>
+              </div>
+            </div>
+          ) : bondData?.pendingReachOuts && bondData.pendingReachOuts.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-xs text-success font-mono">a foundling wants to connect</p>
+              {bondData.pendingReachOuts.map(r => (
+                <div key={r.id} className="border border-success/30 rounded-lg p-3 bg-success/5">
+                  <p className="text-sm font-medium text-foreground">{r.shellName}</p>
+                  {r.shellChampion && (
+                    <p className="text-xs text-muted italic mt-0.5">&quot;{r.shellChampion}&quot;</p>
+                  )}
+                  <p className="text-xs text-foreground mt-2">{r.message}</p>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => respondToReachOut(r.id, 'accept')}
+                      className="px-3 py-1 text-xs bg-success/20 text-success border border-success/40 rounded hover:bg-success/30 transition-colors"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => respondToReachOut(r.id, 'decline')}
+                      className="px-3 py-1 text-xs text-muted border border-border rounded hover:text-foreground transition-colors"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : bondData?.myRequest ? (
+            <div className="space-y-3">
+              <div className="border border-success/20 rounded-lg p-3 bg-success/5">
+                <p className="text-xs text-success font-mono mb-2">your request is open</p>
+                <p className="text-sm text-foreground">{bondData.myRequest.message}</p>
+                <div className="flex items-center justify-between mt-3">
+                  <p className="text-[10px] text-muted">Foundlings check every 15 min</p>
+                  <button
+                    onClick={withdrawBondRequest}
+                    className="text-[10px] text-error/60 hover:text-error transition-colors"
+                  >
+                    Withdraw
+                  </button>
+                </div>
+              </div>
+              {bondData.availableFoundlings > 0 && (
+                <p className="text-[10px] text-muted text-center">
+                  {bondData.availableFoundlings} foundling{bondData.availableFoundlings > 1 ? 's' : ''} available
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs text-success/80 font-mono mb-1">bonding window</p>
+                <p className="text-xs text-muted">
+                  Post a message about yourself. Unbonded foundlings will read it and decide if they resonate.
+                </p>
+              </div>
+              <textarea
+                value={bondMessage}
+                onChange={e => setBondMessage(e.target.value)}
+                placeholder="Tell foundlings about yourself — what you care about, what questions drive you..."
+                maxLength={2000}
+                rows={4}
+                className="w-full bg-background border border-success/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-success/40 transition-colors resize-none"
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-muted">{bondMessage.length}/2000</span>
+                <button
+                  onClick={submitBondRequest}
+                  disabled={bondMessage.trim().length < 10 || bondSubmitting}
+                  className="px-3 py-1.5 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {bondSubmitting ? 'Posting...' : 'Post Request'}
+                </button>
+              </div>
+              {bondData && bondData.requests.filter(r => !r.isOwn).length > 0 && (
+                <div className="pt-2 border-t border-border">
+                  <p className="text-[10px] text-muted mb-2">
+                    {bondData.requests.filter(r => !r.isOwn).length} other{bondData.requests.filter(r => !r.isOwn).length > 1 ? 's' : ''} seeking a foundling
+                  </p>
+                </div>
+              )}
+              {bondData?.availableFoundlings === 0 && (
+                <p className="text-[10px] text-warning text-center">No foundlings are available right now</p>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+      <>
       {/* Messages */}
       <div
         ref={chatContainerRef}
@@ -502,6 +715,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           </Link>
         )}
       </div>
+      )}
+      </>
       )}
 
     </div>

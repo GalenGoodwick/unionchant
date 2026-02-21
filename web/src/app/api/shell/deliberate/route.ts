@@ -114,9 +114,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Shell not found' }, { status: 404 })
     }
 
-    // Gather all competing experiences
+    // Gather all competing experiences — constitutional experiences always participate
     const experiences = await prisma.shellExperience.findMany({
-      where: { shellId: shell.id, status: { in: ['pending', 'active'] } },
+      where: { shellId: shell.id, status: { in: ['pending', 'active', 'constitutional'] } },
       orderBy: { valence: 'desc' },
     })
 
@@ -173,21 +173,31 @@ export async function POST(req: NextRequest) {
       .map(e => ({ ...e, score: globalScores.get(e.id) || 0 }))
       .sort((a, b) => b.score - a.score)
 
-    // Top experience becomes champion, next ~40% become active, rest eliminated
-    // (Gradual evolution: existing active experiences can survive if they score well)
+    // Top non-constitutional experience becomes champion, next ~40% become active, rest eliminated
+    // Constitutional experiences always survive — they're bedrock, not lens
     const keepCount = Math.max(1, Math.ceil(ranked.length * 0.4))
-    const champion = ranked[0]
-    const active = ranked.slice(1, keepCount)
-    const eliminated = ranked.slice(keepCount)
+    const champion = ranked.find(e => e.status !== 'constitutional') || ranked[0]
+    const championIdx = ranked.indexOf(champion)
+    const rest = ranked.filter((_, i) => i !== championIdx)
+    const active = rest.slice(0, keepCount - 1)
+    const eliminated = rest.slice(keepCount - 1)
 
     // Update statuses in database
     const updates: Promise<unknown>[] = []
 
     if (champion) {
+      // Champion valence = (score / maxPossible) * threshold * 0.25
+      // Conviction earned is proportional to BOTH consensus strength AND shell age.
+      // Max possible score = 4 voters * 10 points per voter = 40 per cell.
+      // Champion is in one cell, so max = 40.
+      const maxPossibleScore = VOTER_PERSPECTIVES.length * 10
+      const scoreRatio = Math.min(champion.score / maxPossibleScore, 1.0)
+      const threshold = shell.significanceThreshold ?? 4.0
+      const championValence = Math.max(scoreRatio * threshold * 0.25, 0.1) // floor at 0.1
       updates.push(
         prisma.shellExperience.update({
           where: { id: champion.id },
-          data: { status: 'champion' },
+          data: { status: 'champion', valence: championValence },
         })
       )
     }
@@ -205,6 +215,8 @@ export async function POST(req: NextRequest) {
     )
 
     for (const exp of active) {
+      // Constitutional experiences keep their status — they don't get reclassified
+      if (exp.status === 'constitutional') continue
       updates.push(
         prisma.shellExperience.update({
           where: { id: exp.id },
@@ -214,6 +226,8 @@ export async function POST(req: NextRequest) {
     }
 
     for (const exp of eliminated) {
+      // Constitutional experiences can never be eliminated — they're woven into identity
+      if (exp.status === 'constitutional') continue
       updates.push(
         prisma.shellExperience.update({
           where: { id: exp.id },

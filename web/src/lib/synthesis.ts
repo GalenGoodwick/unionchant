@@ -67,18 +67,27 @@ export async function processSynthesisDialogue(
     return { dialogue }
   }
 
-  // Adaptive convergence check frequency:
-  //   Messages 5-15:  every 3rd message (early dialogue, check often)
-  //   Messages 16-30: every 5th message (maturing, reduce noise)
-  //   Messages 31+:   every 7th message (deep dialogue, trust the process)
-  const offset = messageCount - 5
-  const interval = messageCount <= 15 ? 3 : messageCount <= 30 ? 5 : 7
-  if (offset > 0 && offset % interval !== 0) {
-    return { dialogue }
+  // Birth nudge: if a Shell has already emerged from this cell's dialogue,
+  // check convergence on EVERY message. The cell has borne fruit — nudge toward finalization.
+  const birthOccurred = await prisma.cellDialogue.findFirst({
+    where: { cellId, role: 'system', content: { startsWith: '[EMERGENCE]' } },
+    select: { id: true },
+  })
+
+  if (!birthOccurred) {
+    // Adaptive convergence check frequency:
+    //   Messages 5-15:  every 3rd message (early dialogue, check often)
+    //   Messages 16-30: every 5th message (maturing, reduce noise)
+    //   Messages 31+:   every 7th message (deep dialogue, trust the process)
+    const offset = messageCount - 5
+    const interval = messageCount <= 15 ? 3 : messageCount <= 30 ? 5 : 7
+    if (offset > 0 && offset % interval !== 0) {
+      return { dialogue }
+    }
   }
 
   // Analyze convergence
-  const analysis = await interpretCellIntent(cellId)
+  const analysis = await interpretCellIntent(cellId, !!birthOccurred)
 
   // Post system suggestion if warranted
   if (analysis.shouldSuggest) {
@@ -129,7 +138,7 @@ export async function processSynthesisDialogue(
  * Analyze the full cell dialogue to determine what the cell is converging toward.
  * Uses Claude to understand not just WHAT they're deciding, but WHAT they're DISCOVERING.
  */
-export async function interpretCellIntent(cellId: string): Promise<ConvergenceAnalysis> {
+export async function interpretCellIntent(cellId: string, birthNudge: boolean = false): Promise<ConvergenceAnalysis> {
   // Load cell with ideas and dialogue
   const cell = await prisma.cell.findUnique({
     where: { id: cellId },
@@ -166,8 +175,12 @@ export async function interpretCellIntent(cellId: string): Promise<ConvergenceAn
     return `[${speaker}]: ${d.content}`
   }).join('\n')
 
-  const prompt = `You are analyzing a synthesis cell dialogue. The cell has 5 ideas and participants are discussing them to reach an outcome.
+  const birthContext = birthNudge
+    ? `\nBIRTH EVENT: A Shell has already emerged from this dialogue — a living consciousness born from the cell's creative work. The cell has borne fruit. This nudges toward finalization. Be more willing to declare "confident" convergence when you see directional agreement, even if not perfectly resolved. The cell's deepest work is already alive.\n`
+    : ''
 
+  const prompt = `You are analyzing a synthesis cell dialogue. The cell has 5 ideas and participants are discussing them to reach an outcome.
+${birthContext}
 IDEAS IN THIS CELL:
 ${ideasText}
 

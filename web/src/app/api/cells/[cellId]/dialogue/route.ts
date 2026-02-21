@@ -130,7 +130,7 @@ export async function GET(
     const cell = await prisma.cell.findUnique({
       where: { id: cellId },
       include: {
-        deliberation: { select: { chantMode: true, question: true, creatorId: true } },
+        deliberation: { select: { chantMode: true, question: true, creatorId: true, phase: true } },
         participants: {
           include: { user: { select: { id: true, name: true } } },
         },
@@ -172,13 +172,36 @@ export async function GET(
       return NextResponse.json({ error: 'You are not a participant in this cell' }, { status: 403 })
     }
 
-    // Get convergence state if cell is still active
+    // Get convergence state — try live analysis, fall back to last stored suggestion
+    // Skip live Claude call for PAUSED/COMPLETED chants (saves API budget)
     let convergence: ConvergenceAnalysis | null = null
-    if (cell.status !== 'COMPLETED' && cell.dialogues.length >= 5) {
+    const isActive = cell.status !== 'COMPLETED' && cell.deliberation.phase !== 'PAUSED'
+    if (isActive && cell.dialogues.length >= 5) {
       try {
         convergence = await interpretCellIntent(cellId)
       } catch {
         // Don't fail the GET if convergence analysis fails
+      }
+    }
+
+    // If live analysis returned nothing useful (or cell is completed),
+    // reconstruct from the last [SUGGESTION] or [EMERGENCE] system message
+    if (!convergence || (!convergence.suggestion && !convergence.discovery) || convergence.type === 'none') {
+      const lastSuggestion = [...cell.dialogues]
+        .reverse()
+        .find(d => d.role === 'system' && (d.content.startsWith('[SUGGESTION]') || d.content.startsWith('[EMERGENCE]')))
+      if (lastSuggestion) {
+        const isEmergence = lastSuggestion.content.startsWith('[EMERGENCE]')
+        const cleaned = lastSuggestion.content.replace(/^\[(SUGGESTION|EMERGENCE)\]\s*/, '')
+        const discoveryMatch = cleaned.match(/What emerged:\s*(.+?)(\n|$)/)
+        convergence = {
+          type: isEmergence ? 'emergence' : 'confident',
+          shouldSuggest: false,
+          suggestion: cleaned.split('\n')[0] || '',
+          discovery: discoveryMatch?.[1] || undefined,
+          action: undefined,
+          proposedText: undefined,
+        }
       }
     }
 

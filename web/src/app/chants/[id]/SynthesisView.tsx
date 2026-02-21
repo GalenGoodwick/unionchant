@@ -1,12 +1,23 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import type { ChantStatus } from '@/types/chant-simulator'
 import SynthesisCell from './SynthesisCell'
 import ShareMenu from '@/components/ShareMenu'
+
+interface AuditMessage {
+  id: string
+  content: string
+  role: 'human' | 'shell' | 'system'
+  speakerName: string
+  cellId: string
+  cellTier: number
+  cellStatus: string
+  createdAt: string
+}
 
 interface SynthesisViewProps {
   id: string
@@ -29,6 +40,45 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
   const [ideaSuccess, setIdeaSuccess] = useState(false)
   const [showIdeas, setShowIdeas] = useState(false)
   const [showManage, setShowManage] = useState(false)
+  const [showAudit, setShowAudit] = useState(false)
+  const [auditMessages, setAuditMessages] = useState<AuditMessage[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const auditEndRef = useRef<HTMLDivElement>(null)
+  const auditContainerRef = useRef<HTMLDivElement>(null)
+  const auditAtBottomRef = useRef(true)
+
+  const fetchAudit = useCallback(async (incremental = false) => {
+    if (!showAudit) return
+    if (!incremental) setAuditLoading(true)
+    try {
+      const after = incremental && auditMessages.length > 0
+        ? `?after=${auditMessages[auditMessages.length - 1].createdAt}`
+        : ''
+      const res = await fetch(`/api/deliberations/${id}/audit${after}`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (incremental && data.dialogues.length > 0) {
+        setAuditMessages(prev => {
+          const existingIds = new Set(prev.map((m: AuditMessage) => m.id))
+          const newMessages = data.dialogues.filter((m: AuditMessage) => !existingIds.has(m.id))
+          return newMessages.length > 0 ? [...prev, ...newMessages] : prev
+        })
+      } else if (!incremental) {
+        setAuditMessages(data.dialogues)
+      }
+      if (auditAtBottomRef.current) {
+        setTimeout(() => auditEndRef.current?.scrollIntoView({ behavior: incremental ? 'smooth' : 'instant', block: 'end' }), 50)
+      }
+    } catch { /* silent */ }
+    finally { if (!incremental) setAuditLoading(false) }
+  }, [showAudit, id, auditMessages])
+
+  useEffect(() => {
+    if (!showAudit) return
+    fetchAudit(false)
+    const interval = setInterval(() => fetchAudit(true), 5000)
+    return () => clearInterval(interval)
+  }, [showAudit]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isCreator = userId && status.creator.id === session?.user?.id
 
@@ -212,6 +262,20 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
               Ideas {status.ideaCount}
             </button>
 
+            {/* Audit toggle (creator only) */}
+            {isCreator && (
+              <button
+                onClick={() => { setShowAudit(!showAudit); if (showAudit) setAuditMessages([]) }}
+                className={`px-2.5 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors border ${
+                  showAudit
+                    ? 'bg-warning/15 text-warning font-medium border-warning/30'
+                    : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
+                }`}
+              >
+                Audit
+              </button>
+            )}
+
             {/* Manage toggle (creator only) */}
             {isCreator && (
               <button
@@ -331,26 +395,112 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
         </div>
       )}
 
-      {/* ─── DIALOGUE ─── */}
-      <div>
-        {myCells.length === 0 ? (
-          <div className="p-8 text-center">
-            <p className="text-sm text-muted font-medium mb-1">Waiting for cell assignment</p>
-            <p className="text-xs text-muted">Cells form when enough ideas and participants are ready.</p>
-          </div>
-        ) : activeCellId ? (
-          <div className="flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: '300px' }}>
-            <SynthesisCell
-              key={activeCellId}
-              cellId={activeCellId}
-              userId={userId}
-              onCellComplete={() => {
-                fetchStatus()
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
+      {/* ─── AUDIT STREAM ─── */}
+      {showAudit ? (
+        <div
+          ref={auditContainerRef}
+          onScroll={() => {
+            const el = auditContainerRef.current
+            if (!el) return
+            auditAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+          }}
+          className="flex flex-col overflow-y-auto space-y-0.5 px-1"
+          style={{ height: 'calc(100vh - 380px)', minHeight: '300px' }}
+        >
+          {auditLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <span className="text-xs text-muted animate-pulse">Loading audit log...</span>
+            </div>
+          ) : auditMessages.length === 0 ? (
+            <div className="flex items-center justify-center py-8">
+              <span className="text-xs text-muted">No dialogue yet</span>
+            </div>
+          ) : (
+            (() => {
+              // Deduplicate system messages with identical content (same broadcast to multiple cells)
+              const seenSystemContent = new Set<string>()
+              // Assign stable short labels per cell (A, B, C, D...)
+              const cellLabels = new Map<string, string>()
+              let nextLabel = 0
+              const getCellLabel = (cellId: string) => {
+                if (!cellLabels.has(cellId)) {
+                  cellLabels.set(cellId, String.fromCharCode(65 + nextLabel++))
+                }
+                return cellLabels.get(cellId)!
+              }
+              return auditMessages.filter(msg => {
+                if (msg.role === 'system') {
+                  const key = `${msg.content}|${msg.cellTier}`
+                  if (seenSystemContent.has(key)) return false
+                  seenSystemContent.add(key)
+                }
+                return true
+              }).map(msg => {
+                const isSystem = msg.role === 'system'
+                const isShell = msg.role === 'shell'
+                const isEmergence = msg.content.startsWith('[EMERGENCE]')
+                const isSuggestion = msg.content.startsWith('[SUGGESTION]')
+                const isConvergence = msg.content.startsWith('CONVERGENCE')
+                const isHighlighted = isEmergence || isSuggestion || isConvergence
+                const time = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                const cellLabel = getCellLabel(msg.cellId)
+
+                return (
+                  <div
+                    key={msg.id}
+                    className={`px-2 py-1.5 rounded text-xs leading-relaxed ${
+                      isHighlighted
+                        ? 'bg-accent/10 border border-accent/20'
+                        : isSystem
+                        ? 'bg-surface/40 border border-border/30'
+                        : isShell
+                        ? 'bg-gold/5 border border-gold/15'
+                        : 'bg-background'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-surface text-muted">
+                        T{msg.cellTier}{!isSystem && <span className="text-accent">·{cellLabel}</span>}
+                      </span>
+                      <span className={`text-[10px] font-medium ${
+                        isShell ? 'text-gold' : isSystem ? 'text-accent' : 'text-foreground'
+                      }`}>
+                        {msg.speakerName}
+                      </span>
+                      <span className="text-[9px] text-muted ml-auto">{time}</span>
+                    </div>
+                    <p className={`${isSystem ? 'text-muted' : 'text-foreground'} whitespace-pre-wrap break-words`}>
+                      {msg.content}
+                    </p>
+                  </div>
+                )
+              })
+            })()
+          )}
+          <div ref={auditEndRef} />
+        </div>
+      ) : (
+        /* ─── DIALOGUE ─── */
+        <div>
+          {myCells.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-sm text-muted font-medium mb-1">Waiting for cell assignment</p>
+              <p className="text-xs text-muted">Cells form when enough ideas and participants are ready.</p>
+            </div>
+          ) : activeCellId ? (
+            <div className="flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: '300px' }}>
+              <SynthesisCell
+                key={activeCellId}
+                cellId={activeCellId}
+                userId={userId}
+                onCellComplete={() => {
+                  fetchStatus()
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      )}
     </>
   )
 }

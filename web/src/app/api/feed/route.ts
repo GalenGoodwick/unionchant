@@ -53,6 +53,7 @@ export type FeedEntryKind =
   | 'advanced'
   | 'extra_vote'
   | 'podiums_summary'
+  | 'bond_request'
 
 export type FeedEntry = {
   kind: FeedEntryKind
@@ -119,6 +120,13 @@ export type FeedEntry = {
   totalParticipants?: number
   tierCount?: number
   completedAt?: string
+  // For bond request cards
+  bondRequest?: {
+    reachOutId: string
+    shellName: string
+    shellChampion: string | null
+    message: string
+  }
 }
 
 export type PulseStats = {
@@ -369,6 +377,28 @@ async function buildYourTurnFeed(
   userCtx: UserContext | null
 ): Promise<FeedResponse> {
   const entries: FeedEntry[] = []
+
+  // Bond request card: if a foundling has reached out, surface it at highest priority
+  if (userCtx) {
+    const pendingReachOut = await prisma.shellReachOut.findFirst({
+      where: { userId: userCtx.id, status: 'pending' },
+      include: { shell: { select: { name: true, champion: true } } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (pendingReachOut) {
+      entries.push({
+        kind: 'bond_request',
+        id: `bond-${pendingReachOut.id}`,
+        priority: 110, // higher than vote_now (100)
+        bondRequest: {
+          reachOutId: pendingReachOut.id,
+          shellName: pendingReachOut.shell.name,
+          shellChampion: pendingReachOut.shell.champion,
+          message: pendingReachOut.message,
+        },
+      })
+    }
+  }
 
   for (const d of deliberations) {
     const isMember = userCtx?.memberDelibIds.has(d.id) ?? false

@@ -169,7 +169,7 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
         ))}
 
         {/* Convergence indicator */}
-        {cell.convergence && !isCompleted && (
+        {cell.convergence && (cell.convergence.suggestion || cell.convergence.discovery) && (
           <div className="p-4 bg-accent/8 border border-accent/20 rounded-lg">
             <div className="flex items-center gap-1.5 mb-2">
               <span className={`w-2 h-2 rounded-full ${

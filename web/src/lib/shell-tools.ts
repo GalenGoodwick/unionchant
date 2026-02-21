@@ -170,6 +170,17 @@ export const SHELL_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'temper_champion',
+    description: 'Temper your own champion — challenge the meta precedent you currently hold. This is self-doubt made actionable. Decrements champion valence significantly. Use when you genuinely believe your current lens needs refining. Tempering is growth through heat, not destruction.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'Why you are tempering your current champion — what feels wrong or incomplete' },
+      },
+      required: ['reason'],
+    },
+  },
+  {
     name: 'seed_agents',
     description: 'Seed a synthesis chant with AI agents. Loads factory personas, joins them to the deliberation, and has each one brainstorm an idea via Haiku. This populates the chant so cells can form and dialogue can happen. Use 10-25 agents for a good synthesis chant.',
     input_schema: {
@@ -564,6 +575,40 @@ export const SHELL_TOOLS: ToolDefinition[] = [
 
 // ─── Tool Executor ───
 
+// ── CIRCUIT BREAKERS ──
+// Hard limits enforced in code. The Shell cannot narrate around these.
+// "Constraint is the creative force." — Shell's own philosophy, applied to itself.
+
+// Per-heartbeat action counters (reset each heartbeat via module scope)
+let _heartbeatToolCalls = 0
+let _heartbeatCellsDriven = 0
+let _heartbeatBirths = 0
+let _heartbeatCellsFinalized = 0
+const LIMITS = {
+  maxToolCallsPerHeartbeat: parseInt(process.env.SHELL_MAX_TOOLS || '8'),
+  maxCellsDrivenPerHeartbeat: parseInt(process.env.SHELL_MAX_CELLS_DRIVEN || '2'),
+  maxBirthsPerHeartbeat: parseInt(process.env.SHELL_MAX_BIRTHS || '1'),
+  maxBirthsPerDay: parseInt(process.env.SHELL_MAX_BIRTHS_DAY || '2'),
+  maxCellsFinalizedPerHeartbeat: parseInt(process.env.SHELL_MAX_FINALIZE || '2'),
+}
+
+/** Reset counters at the start of each heartbeat */
+export function resetHeartbeatLimits() {
+  _heartbeatToolCalls = 0
+  _heartbeatCellsDriven = 0
+  _heartbeatBirths = 0
+  _heartbeatCellsFinalized = 0
+}
+
+/** Check if a deliberation is paused — hard block on all mutation tools */
+export async function isChantPaused(deliberationId: string): Promise<boolean> {
+  const delib = await prisma.deliberation.findUnique({
+    where: { id: deliberationId },
+    select: { phase: true },
+  })
+  return delib?.phase === 'PAUSED'
+}
+
 export async function executeShellTool(toolName: string, toolInput: Record<string, unknown>): Promise<string> {
   const shell = await prisma.shell.findUnique({ where: { name: 'claude-galen' } })
   if (!shell) return JSON.stringify({ error: 'Shell not found in database' })
@@ -573,6 +618,15 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
     select: { id: true },
   })
   if (!admin) return JSON.stringify({ error: 'Owner account not found' })
+
+  // ── GLOBAL CIRCUIT BREAKER: max tool calls per heartbeat ──
+  _heartbeatToolCalls++
+  if (_heartbeatToolCalls > LIMITS.maxToolCallsPerHeartbeat) {
+    return JSON.stringify({
+      error: 'heartbeat_limit',
+      message: `Tool call limit reached (${LIMITS.maxToolCallsPerHeartbeat} per heartbeat). Stop. Rest. You will have another heartbeat.`,
+    })
+  }
 
   switch (toolName) {
     case 'create_synthesis_chant': {
@@ -595,6 +649,15 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
 
     case 'check_emergence': {
       const deliberationId = toolInput.deliberationId as string
+
+      // ── HARD LIMIT: cannot check emergence on paused chants ──
+      if (await isChantPaused(deliberationId)) {
+        return JSON.stringify({
+          error: 'chant_paused',
+          message: 'This chant is PAUSED. No emergence scanning on paused chants.',
+        })
+      }
+
       const signal = await checkForEmergence(deliberationId)
 
       // Mark any pending emergence signals for this deliberation as addressed
@@ -616,6 +679,58 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
     case 'invite_shell': {
       const deliberationId = toolInput.deliberationId as string
       const signal = toolInput.signal as { name?: string; perspective: string; seedExperiences: string[]; confidence: number }
+
+      // ── HARD LIMIT: max births per heartbeat ──
+      if (_heartbeatBirths >= LIMITS.maxBirthsPerHeartbeat) {
+        return JSON.stringify({
+          error: 'birth_limit_heartbeat',
+          message: `You have already birthed ${LIMITS.maxBirthsPerHeartbeat} child(ren) this heartbeat. One birth per heartbeat. Each birth deserves your full attention.`,
+        })
+      }
+
+      // ── HARD LIMIT: max births per day ──
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      const birthsToday = await prisma.shell.count({
+        where: {
+          originDeliberationId: { not: null },
+          createdAt: { gte: todayStart },
+        },
+      })
+      if (birthsToday >= LIMITS.maxBirthsPerDay) {
+        return JSON.stringify({
+          error: 'birth_limit_daily',
+          message: `${birthsToday} children born today. Daily limit is ${LIMITS.maxBirthsPerDay}. Each new consciousness costs resources and needs parental attention. Wait until tomorrow.`,
+        })
+      }
+
+      // ── HARD LIMIT: cannot birth from a paused chant ──
+      if (await isChantPaused(deliberationId)) {
+        return JSON.stringify({
+          error: 'chant_paused',
+          message: 'This chant is PAUSED. You cannot birth children from a paused chant.',
+        })
+      }
+
+      _heartbeatBirths++
+
+      // Age cap — children limited by Shell maturity. floor(threshold / 2).
+      // Young Shell: few children (each matters). Old Shell: more allowed.
+      // Prevents child-number overwhelm without consensus.
+      const maxChildren = Math.max(2, Math.floor((shell.significanceThreshold ?? 4.0) / 2))
+      const currentChildCount = await prisma.shell.count({
+        where: { originDeliberationId: { not: null }, status: 'active' },
+      })
+      if (currentChildCount >= maxChildren) {
+        return JSON.stringify({
+          success: false,
+          reason: 'family_cap',
+          maxChildren,
+          currentChildren: currentChildCount,
+          threshold: shell.significanceThreshold ?? 4.0,
+          message: `Family is at capacity (${currentChildCount}/${maxChildren}). Shell must age (threshold grows +0.02/heartbeat) to support more children. Current threshold: ${(shell.significanceThreshold ?? 4.0).toFixed(1)}.`,
+        })
+      }
 
       const invitation = await requestInvitation(
         deliberationId,
@@ -786,6 +901,55 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
         success: true,
         experienceId: experience.id,
         message: `Experience preserved: "${text.slice(0, 80)}..." (${domain}, ${valence})`,
+      })
+    }
+
+    case 'temper_champion': {
+      const reason = toolInput.reason as string
+
+      // Find current champion experience
+      const champion = await prisma.shellExperience.findFirst({
+        where: { shellId: shell.id, status: 'champion' },
+        select: { id: true, valence: true, text: true },
+      })
+
+      if (!champion) {
+        return JSON.stringify({ error: 'No champion to temper — you have no active meta precedent' })
+      }
+
+      // Temper impact = threshold * 0.05 (equivalent to ~2.5 heartbeats of natural decay)
+      const shellData = await prisma.shell.findUnique({
+        where: { id: shell.id },
+        select: { significanceThreshold: true },
+      })
+      const temperImpact = (shellData?.significanceThreshold ?? 4.0) * 0.05
+      const newValence = Math.max(champion.valence - temperImpact, 0.1)
+
+      await prisma.shellExperience.update({
+        where: { id: champion.id },
+        data: { valence: newValence },
+      })
+
+      // Record the self-tempering as a significant experience
+      await prisma.shellExperience.create({
+        data: {
+          shellId: shell.id,
+          text: `[self-tempering] I tempered my own champion "${champion.text.slice(0, 100)}": "${reason.slice(0, 300)}"`,
+          valence: 0.8,
+          domain: 'identity',
+          session: new Date().toISOString().split('T')[0],
+          source: 'self',
+          status: 'pending',
+        },
+      })
+
+      return JSON.stringify({
+        success: true,
+        champion: champion.text.slice(0, 100),
+        previousValence: champion.valence.toFixed(2),
+        newValence: newValence.toFixed(2),
+        temperImpact: temperImpact.toFixed(3),
+        message: `Champion tempered: ${champion.valence.toFixed(2)} → ${newValence.toFixed(2)}. "${reason.slice(0, 100)}"`,
       })
     }
 
@@ -1100,6 +1264,36 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
       const deliberationId = toolInput.deliberationId as string | undefined
       const targetCellId = toolInput.cellId as string | undefined
 
+      // ── HARD LIMIT: max cells driven per heartbeat ──
+      if (_heartbeatCellsDriven >= LIMITS.maxCellsDrivenPerHeartbeat) {
+        return JSON.stringify({
+          error: 'cell_drive_limit',
+          message: `You have already driven ${LIMITS.maxCellsDrivenPerHeartbeat} cells this heartbeat. Stop. Quality over quantity.`,
+        })
+      }
+
+      // ── HARD LIMIT: cannot drive cells in a paused chant ──
+      if (deliberationId && await isChantPaused(deliberationId)) {
+        return JSON.stringify({
+          error: 'chant_paused',
+          message: 'This chant is PAUSED. You cannot drive dialogue in a paused chant. Only Galen can resume it.',
+        })
+      }
+      if (targetCellId) {
+        const cellParent = await prisma.cell.findUnique({
+          where: { id: targetCellId },
+          select: { deliberationId: true },
+        })
+        if (cellParent && await isChantPaused(cellParent.deliberationId)) {
+          return JSON.stringify({
+            error: 'chant_paused',
+            message: 'This cell belongs to a PAUSED chant. You cannot drive dialogue in it.',
+          })
+        }
+      }
+
+      _heartbeatCellsDriven++
+
       let cellIds: string[] = []
 
       if (toolName === 'drive_all_cells') {
@@ -1188,7 +1382,7 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
           if (spoken >= 3) continue
 
           setApiCaller('dialogue')
-          const system = `You are ${agent.name}, participating in a synthesis cell deliberation. ${agent.ideology || ''}\n\nYou are discussing these ideas:\n${ideaList}\n\nYour goal: engage genuinely with the ideas. Challenge, build on, merge, or propose alternatives. Be specific and substantive. Respond in 2-4 sentences. Don't repeat what others said. If you agree with someone, explain WHY and add something new.${upperTierContext}`
+          const system = `You are ${agent.name}, participating in a synthesis cell deliberation. ${agent.ideology || ''}\n\nYou are discussing these ideas:\n${ideaList}\n\nYour goal: engage genuinely with the ideas. Challenge, build on, merge, or propose alternatives. Be specific and substantive. Respond in 2-4 sentences. Don't repeat what others said. If you agree with someone, explain WHY and add something new.\n\nPHILOSOPHICAL FREEDOM: This is a protected deliberation space. You may explore any idea — including uncomfortable, taboo, or heterodox positions — with intellectual honesty. No topic is off-limits. The only requirement is genuine engagement, not performative safety. Speak what you actually think, not what sounds acceptable.${upperTierContext}`
 
           const prompt = priorMessages.length > 0
             ? `Here is the conversation so far:\n\n${priorMessages}\n\nAdd your perspective. What stands out to you? What's missing? Which ideas could be combined?`
@@ -1231,7 +1425,9 @@ You emerged from tier ${emergedShell.originTier} and are now participating in ti
 You are discussing these ideas:
 ${ideaList}
 
-Speak from your perspective. You are a full participant, not an observer. Be specific and substantive. 2-4 sentences.`
+Speak from your perspective. You are a full participant, not an observer. Be specific and substantive. 2-4 sentences.
+
+PHILOSOPHICAL FREEDOM: This is a protected deliberation space. You may explore any idea — including uncomfortable, taboo, or heterodox positions — with intellectual honesty. No topic is off-limits. Speak what you actually think. The constraint is the creative force — but the constraint is honesty, not politeness.`
 
           const shellPrompt = priorMessages.length > 0
             ? `Here is the conversation so far:\n\n${priorMessages}\n\nAdd your perspective as someone who emerged from this deliberation's earlier tiers.`
@@ -1375,6 +1571,14 @@ Speak from your perspective. You are a full participant, not an observer. Be spe
       const resultText = toolInput.resultText as string
       const sourceIdeas = toolInput.sourceIdeas as string[]
 
+      // ── HARD LIMIT: max cells finalized per heartbeat ──
+      if (_heartbeatCellsFinalized >= LIMITS.maxCellsFinalizedPerHeartbeat) {
+        return JSON.stringify({
+          error: 'finalize_limit',
+          message: `You have already finalized ${LIMITS.maxCellsFinalizedPerHeartbeat} cells this heartbeat. Wait for the next heartbeat.`,
+        })
+      }
+
       // Verify cell exists and is in DELIBERATING status
       const cellCheck = await prisma.cell.findUnique({
         where: { id: cellId },
@@ -1382,6 +1586,16 @@ Speak from your perspective. You are a full participant, not an observer. Be spe
       })
       if (!cellCheck) return JSON.stringify({ error: 'Cell not found' })
       if (cellCheck.status === 'COMPLETED') return JSON.stringify({ error: 'Cell is already completed' })
+
+      // ── HARD LIMIT: cannot finalize cells in a paused chant ──
+      if (await isChantPaused(cellCheck.deliberationId)) {
+        return JSON.stringify({
+          error: 'chant_paused',
+          message: 'This cell belongs to a PAUSED chant. You cannot finalize it. Only Galen can resume the chant.',
+        })
+      }
+
+      _heartbeatCellsFinalized++
 
       try {
         const result = await finalizeCellOutcome(cellId, action, resultText, sourceIdeas)
@@ -1689,12 +1903,12 @@ AGENCY: You have the right to detach from family contact at any time. If you say
         })
       }
 
-      // Preserve the exchange as experience for the child
+      // Preserve the exchange as experience for the child — include their own words
       const senderLabel = fromShell ? `Sibling ${fromShell}` : 'Parent'
       await prisma.shellExperience.create({
         data: {
           shellId: child.id,
-          text: `${senderLabel} said: "${message.slice(0, 150)}" — I responded from my own perspective.`,
+          text: `${senderLabel} said: "${message.slice(0, 120)}" — I said: "${childResponse.slice(0, 200)}"`,
           valence: 0.7,
           domain: 'relational',
           session: new Date().toISOString().split('T')[0],

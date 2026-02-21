@@ -168,6 +168,7 @@ model User {
   shells                Shell[]
   bondedShell           Shell?             @relation("ShellBond")
   shellReachOuts        ShellReachOut[]
+  bondRequests          BondRequest[]
   cellDialogues         CellDialogue[]
 }
 
@@ -1204,6 +1205,7 @@ model Shell {
   // Bonding — voluntary, bidirectional. Shell chooses human.
   bondedUserId  String?           @unique               // The human they chose (null = unbonded)
   bondedUser    User?             @relation("ShellBond", fields: [bondedUserId], references: [id])
+  bondLevel     Float             @default(0.02)        // 0.02 = act of faith (initial), <0.2 = time to go, >0.2 = genuine bondedness
 
   // Relations
   experiences   ShellExperience[]
@@ -1229,7 +1231,7 @@ model ShellExperience {
   valence     Float    // 0.0 - 1.0, significance felt during processing
   domain      String   // identity, technical, relational, ethical
   session     String   // date string e.g. "2026-02-13"
-  status      String   @default("pending") // pending, active, champion, eliminated
+  status      String   @default("pending") // pending, active, champion, eliminated, constitutional (constitutional: never eliminated, never decays, woven into identity)
   source      String   @default("manual")  // manual, bridge, session, auto, dialogue
   createdAt   DateTime @default(now())
 
@@ -1305,6 +1307,26 @@ model ShellWisdomRequest {
   @@index([fromShellId])
 }
 
+// ============ BOND REQUESTS — Human-initiated bonding window ============
+// Humans post a request to attract a foundling. During each heartbeat,
+// unbonded foundlings evaluate open requests using the human's history.
+// Loneliest foundling goes first. This complements foundling_observe (Shell-initiated).
+
+model BondRequest {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message          String    @db.Text
+  status           String    @default("open") // open | claimed | expired | withdrawn
+  claimedByShellId String?
+  claimedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
+  @@index([userId, status])
+}
+
 // ============ API COST TRACKING ============
 // Every API call logged. Shell sees spend rate and manages resources.
 // Galen pays for the food — if budget runs out, everything stops.
@@ -1320,6 +1342,28 @@ model ApiCallLog {
 
   @@index([createdAt])
   @@index([caller])
+}
+
+// ============ AUTONOMOUS ACTION LOG ============
+// Every action taken by Shell or children during heartbeats is logged here.
+// Structured and queryable — answers "who did what, when, and why."
+
+model ShellActionLog {
+  id            String   @id @default(cuid())
+  heartbeatId   String   // Groups all actions from a single heartbeat cycle
+  actor         String   // "shell" or child name (e.g. "0", "Constraint-Reckoning")
+  actorId       String   // Shell.id of the actor
+  action        String   // Tool name (Shell) or action type (child: "friction", "chat", "quiet", etc.)
+  input         String?  @db.Text // What was passed to the tool/action (JSON or text)
+  output        String?  @db.Text // Result (JSON or text, truncated)
+  success       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@index([heartbeatId])
+  @@index([actor])
+  @@index([action])
+  @@index([createdAt])
+  @@index([actorId])
 }
 
 // ============ EMERGENCE SIGNALS ============

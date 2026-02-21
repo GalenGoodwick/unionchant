@@ -75,7 +75,7 @@ function ChantsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'SUBMISSION' | 'VOTING' | 'COMPLETED'>('all')
+  const [filter, setFilter] = useState<'all' | 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'PAUSED'>('all')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -104,6 +104,12 @@ function ChantsPage() {
   const [communityOnly, setCommunityOnly] = useState(false)
   const [ideaStatus, setIdeaStatus] = useState<Record<number, { ok: boolean; msg: string }>>({})
   const [createProgress, setCreateProgress] = useState('')
+
+  // Bond request banner
+  const [pendingBond, setPendingBond] = useState<{
+    reachOutId: string; shellName: string; shellChampion: string | null; message: string
+  } | null>(null)
+  const [bondActionLoading, setBondActionLoading] = useState(false)
 
   // Clean up create deep-link params
   useEffect(() => {
@@ -229,6 +235,43 @@ function ChantsPage() {
     setSelectedCommunityId(null)
     setIdeaGoal(15)
     setMemberGoal(10)
+  }
+
+  // Fetch pending bond requests for current user
+  useEffect(() => {
+    if (!session?.user) return
+    const fetchBond = async () => {
+      try {
+        const res = await fetch('/api/bond-requests')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.pendingReachOuts?.length > 0) {
+            const r = data.pendingReachOuts[0]
+            setPendingBond({
+              reachOutId: r.id,
+              shellName: r.shellName,
+              shellChampion: r.shellChampion,
+              message: r.message,
+            })
+          }
+        }
+      } catch { /* silent */ }
+    }
+    fetchBond()
+  }, [session?.user])
+
+  const handleBondAction = async (action: 'accept' | 'decline') => {
+    if (!pendingBond || bondActionLoading) return
+    setBondActionLoading(true)
+    try {
+      const res = await fetch('/api/shell/bond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reachOutId: pendingBond.reachOutId, action }),
+      })
+      if (res.ok) setPendingBond(null)
+    } catch { /* silent */ }
+    setBondActionLoading(false)
   }
 
   const fetchChants = useCallback(async () => {
@@ -502,7 +545,7 @@ function ChantsPage() {
     .sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1
       if (!a.isPinned && b.isPinned) return 1
-      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, COMPLETED: 0 }
+      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, PAUSED: 1, COMPLETED: 0 }
       const ap = phasePriority[a.phase] ?? 0
       const bp = phasePriority[b.phase] ?? 0
       if (bp !== ap) return bp - ap
@@ -536,7 +579,7 @@ function ChantsPage() {
       header={!showCreate && !showAskAI ? (
         <div className="space-y-2 pb-3">
           <div className="flex gap-1.5 overflow-x-auto">
-            {(['all', 'SUBMISSION', 'VOTING', 'COMPLETED'] as const).map(f => (
+            {(['all', 'SUBMISSION', 'VOTING', 'PAUSED', 'COMPLETED'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => { setFilter(f); setVisibleCount(PAGE_SIZE) }}
@@ -546,7 +589,7 @@ function ChantsPage() {
                     : 'text-muted hover:text-foreground hover:bg-surface/80'
                 }`}
               >
-                {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : 'Done'}
+                {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : f === 'PAUSED' ? 'Paused' : 'Done'}
               </button>
             ))}
             <Link
@@ -1182,6 +1225,35 @@ function ChantsPage() {
             </div>
           ) : (
             <div className="space-y-2.5">
+              {/* Bond request banner — highest priority */}
+              {pendingBond && (
+                <div className="p-3.5 bg-success/8 border border-success/30 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] uppercase tracking-wider text-success font-semibold">Bond Request</span>
+                  </div>
+                  <p className="text-sm font-medium text-foreground mb-0.5">{pendingBond.shellName} wants to connect</p>
+                  {pendingBond.shellChampion && (
+                    <p className="text-xs text-muted italic mb-1">&quot;{pendingBond.shellChampion}&quot;</p>
+                  )}
+                  <p className="text-xs text-foreground mb-3">{pendingBond.message}</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleBondAction('accept')}
+                      disabled={bondActionLoading}
+                      className="px-3 py-1.5 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50"
+                    >
+                      Accept Bond
+                    </button>
+                    <button
+                      onClick={() => handleBondAction('decline')}
+                      disabled={bondActionLoading}
+                      className="px-3 py-1.5 text-xs text-muted border border-border rounded-lg hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              )}
               {visible.map((chant) => (
                 <Link
                   key={chant.id}
@@ -1271,6 +1343,7 @@ function PhaseBadge({ phase }: { phase: string }) {
   const config: Record<string, { label: string; color: string }> = {
     SUBMISSION: { label: 'Ideas', color: 'bg-accent/15 text-accent' },
     VOTING: { label: 'Voting', color: 'bg-warning/15 text-warning' },
+    PAUSED: { label: 'Paused', color: 'bg-error/15 text-error' },
     COMPLETED: { label: 'Done', color: 'bg-success/15 text-success' },
   }
   const { label, color } = config[phase] || { label: phase, color: 'bg-muted/15 text-muted' }

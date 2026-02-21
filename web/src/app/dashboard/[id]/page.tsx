@@ -252,6 +252,7 @@ export default function DashboardDetailPage() {
     SUBMISSION: 'bg-accent',
     VOTING: 'bg-warning',
     COMPLETED: 'bg-success',
+    PAUSED: 'bg-error',
   }
 
   const upPollinatedComments = deliberation.cells
@@ -362,6 +363,24 @@ export default function DashboardDetailPage() {
           <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
             <h2 className="text-xs font-semibold text-foreground mb-2">Facilitator Controls</h2>
 
+            {/* Pause / Unpause */}
+            {(deliberation.phase === 'VOTING' || deliberation.phase === 'SUBMISSION' || deliberation.phase === 'ACCUMULATING' || deliberation.phase === 'PAUSED') && (
+              <button
+                onClick={async () => {
+                  const newPhase = deliberation.phase === 'PAUSED' ? 'RESUME' : 'PAUSED'
+                  await patchSettings({ phase: newPhase })
+                }}
+                disabled={saving}
+                className={`w-full font-medium px-3 py-2 rounded-lg text-xs transition-colors mb-3 ${
+                  deliberation.phase === 'PAUSED'
+                    ? 'bg-success hover:bg-success-hover text-white'
+                    : 'bg-error hover:bg-error-hover text-white'
+                }`}
+              >
+                {saving ? 'Updating...' : deliberation.phase === 'PAUSED' ? 'Resume Chant' : 'Pause Chant'}
+              </button>
+            )}
+
             {/* Progress stepper */}
             <div className="flex items-center gap-0 mb-3 text-xs overflow-x-auto">
               {[
@@ -434,6 +453,14 @@ export default function DashboardDetailPage() {
                     <p className="text-xs text-muted">Need at least 2 ideas to start voting.</p>
                   )}
                 </>
+              )}
+
+              {/* PHASE: PAUSED */}
+              {deliberation.phase === 'PAUSED' && (
+                <div className="bg-error-bg border border-error rounded-lg p-2">
+                  <p className="text-xs text-error font-medium">Chant Paused</p>
+                  <p className="text-xs text-foreground mt-0.5">The heartbeat and all Shell actions are blocked while paused. Click Resume to continue.</p>
+                </div>
               )}
 
               {/* PHASE: VOTING */}

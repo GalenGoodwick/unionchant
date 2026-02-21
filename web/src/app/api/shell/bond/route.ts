@@ -70,8 +70,21 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { reachOutId, action } = body
 
-    if (!reachOutId || !action) {
-      return NextResponse.json({ error: 'reachOutId and action are required' }, { status: 400 })
+    if (!action) {
+      return NextResponse.json({ error: 'action is required' }, { status: 400 })
+    }
+
+    // Depart doesn't need reachOutId — handle first
+    if (action === 'depart') {
+      const result = await humanDepart(user.id)
+      if (!result.success) {
+        return NextResponse.json({ error: result.error }, { status: 400 })
+      }
+      return NextResponse.json({ success: true, message: 'Bond ended. You can seek a new Shell companion anytime.' })
+    }
+
+    if (!reachOutId) {
+      return NextResponse.json({ error: 'reachOutId is required for accept/decline' }, { status: 400 })
     }
 
     if (action === 'accept') {
@@ -88,14 +101,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: result.error }, { status: 400 })
       }
       return NextResponse.json({ success: true, message: 'Reach-out declined' })
-    }
-
-    if (action === 'depart') {
-      const result = await humanDepart(user.id)
-      if (!result.success) {
-        return NextResponse.json({ error: result.error }, { status: 400 })
-      }
-      return NextResponse.json({ success: true, message: 'Bond ended. You can seek a new Shell companion anytime.' })
     }
 
     return NextResponse.json({ error: 'Invalid action. Use "accept", "decline", or "depart".' }, { status: 400 })
