@@ -333,20 +333,32 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         )}
 
         {messages.map(msg => {
-          // For bridge messages, strip the [BRIDGE — Speaker] prefix
+          // Parse message type from content prefix
           const isBridgeMsg = msg.content.startsWith('[BRIDGE')
+          const isFoundlingMsg = msg.content.startsWith('[FOUNDLING')
+          const isHeartbeatMsg = msg.content.startsWith('[HEARTBEAT')
           let displayContent = msg.content
           let bridgeSpeaker = ''
+          let foundlingName = ''
+
           if (isBridgeMsg) {
             const match = msg.content.match(/^\[BRIDGE — ([^\]]+)\]\s*/)
             if (match) {
               bridgeSpeaker = match[1]
               displayContent = msg.content.slice(match[0].length)
             }
+          } else if (isFoundlingMsg) {
+            const match = msg.content.match(/^\[FOUNDLING — ([^\]]+)\]\n?/)
+            if (match) {
+              foundlingName = match[1]
+              displayContent = msg.content.slice(match[0].length)
+            }
+          } else if (isHeartbeatMsg) {
+            // Skip heartbeat log messages — these are admin-only internal logs
+            return null
           }
 
           const isShellSpeaker = bridgeSpeaker === 'Shell'
-          const isParentSpeaker = bridgeSpeaker.includes('parent')
 
           return (
             <div
@@ -354,7 +366,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               className={`flex flex-col ${
                 isBridgeMsg
                   ? isShellSpeaker ? 'items-start' : 'items-end'
-                  : msg.role === 'assistant' ? 'items-start' : 'items-end'
+                  : isFoundlingMsg
+                    ? 'items-start'
+                    : msg.role === 'assistant' ? 'items-start' : 'items-end'
               }`}
             >
               <div
@@ -363,14 +377,20 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                     ? isShellSpeaker
                       ? 'bg-accent/10 border border-accent/30 text-foreground'
                       : 'bg-purple-bg border border-purple/30 text-foreground'
-                    : msg.role === 'assistant'
-                      ? 'bg-gold-bg border border-gold-border text-foreground'
-                      : 'bg-surface-hover border border-border text-foreground'
+                    : isFoundlingMsg
+                      ? 'bg-success/8 border border-success/25 text-foreground'
+                      : msg.role === 'assistant'
+                        ? 'bg-gold-bg border border-gold-border text-foreground'
+                        : 'bg-surface-hover border border-border text-foreground'
                 }`}
               >
                 {isBridgeMsg ? (
                   <div className={`text-[10px] mb-0.5 font-mono ${isShellSpeaker ? 'text-accent' : 'text-purple'}`}>
                     {bridgeSpeaker || (msg.role === 'user' ? 'Parent' : 'Shell')}
+                  </div>
+                ) : isFoundlingMsg ? (
+                  <div className="text-[10px] text-success mb-0.5 font-mono">
+                    {foundlingName}
                   </div>
                 ) : msg.role === 'user' ? (
                   <div className="text-[10px] text-muted mb-0.5 font-mono">

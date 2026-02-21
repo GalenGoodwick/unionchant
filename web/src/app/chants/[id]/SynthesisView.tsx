@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -14,35 +14,31 @@ interface SynthesisViewProps {
   fetchStatus: () => void
 }
 
-type SynthesisTab = 'dialogue' | 'cells' | 'ideas' | 'manage'
-
 export default function SynthesisView({ id, status, fetchStatus }: SynthesisViewProps) {
   const { data: session } = useSession()
   const router = useRouter()
   const userId = session?.user?.id || null
 
-  const [activeTab, setActiveTab] = useState<SynthesisTab>('dialogue')
   const [joined, setJoined] = useState(status.isMember)
   const [joining, setJoining] = useState(false)
   const [activeCellId, setActiveCellId] = useState<string | null>(null)
-  const [loadingCells, setLoadingCells] = useState(false)
   const [myCells, setMyCells] = useState<{ id: string; tier: number; status: string }[]>([])
   const [ideaText, setIdeaText] = useState('')
   const [submittingIdea, setSubmittingIdea] = useState(false)
   const [ideaError, setIdeaError] = useState('')
   const [ideaSuccess, setIdeaSuccess] = useState(false)
+  const [showIdeas, setShowIdeas] = useState(false)
+  const [showManage, setShowManage] = useState(false)
 
   const isCreator = userId && status.creator.id === session?.user?.id
 
-  // Use cells from status (public, no auth needed) instead of gated /cells API
+  // Use cells from status (public, no auth needed)
   useEffect(() => {
     const cells = (status.cells || []).filter((c: { status: string }) =>
       c.status === 'DELIBERATING' || c.status === 'COMPLETED' || c.status === 'VOTING'
     )
     setMyCells(cells)
-    setLoadingCells(false)
 
-    // Auto-select the first active cell (only if none selected yet)
     setActiveCellId(prev => {
       if (prev) return prev
       const active = cells.find((c: { status: string }) => c.status === 'DELIBERATING')
@@ -68,7 +64,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
 
   return (
     <>
-      {/* Header */}
+      {/* ─── HEADER ─── */}
       <div className="mb-3">
         <div className="flex items-start justify-between gap-2 mb-1">
           <h1 className="text-base font-semibold text-foreground leading-tight tracking-tight">{status.question}</h1>
@@ -82,10 +78,15 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
         {status.description && (
           <p className="text-xs text-muted mb-1 leading-relaxed">{status.description}</p>
         )}
-        <p className="text-xs text-muted">by {status.creator.name}</p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-muted">by {status.creator.name}</p>
+          <span className="text-[10px] text-muted font-mono">
+            {status.memberCount} members · {status.ideaCount} ideas · T{status.currentTier}
+          </span>
+        </div>
       </div>
 
-      {/* Join CTA */}
+      {/* ─── JOIN CTA ─── */}
       {!joined && (
         <div className="mb-3">
           {!userId ? (
@@ -107,15 +108,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
         </div>
       )}
 
-      {/* Stats */}
-      <div className="mb-3 grid grid-cols-4 gap-2">
-        <StatBox value={status.ideaCount} label="Ideas" />
-        <StatBox value={status.memberCount} label="Members" />
-        <StatBox value={myCells.filter(c => c.status === 'DELIBERATING').length} label="Active" />
-        <StatBox value={status.currentTier} label="Tier" />
-      </div>
-
-      {/* Idea Submission — during SUBMISSION phase for joined members */}
+      {/* ─── IDEA SUBMISSION ─── */}
       {joined && status.phase === 'SUBMISSION' && (
         <div className="mb-3 p-3 bg-surface/90 rounded-lg border border-accent/20">
           <p className="text-xs font-semibold text-accent mb-2 uppercase tracking-wide">Submit an Idea</p>
@@ -177,7 +170,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
         </div>
       )}
 
-      {/* Champion / Outcome Banner */}
+      {/* ─── CHAMPION / OUTCOME ─── */}
       {status.champion && (
         <div className="mb-3 p-3 bg-success/8 border border-success/20 rounded-lg">
           <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Priority Declared</p>
@@ -186,112 +179,86 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
         </div>
       )}
 
-      {/* Tab Bar */}
-      <div className="flex border-b border-border mb-3 gap-0.5">
-        {([
-          { key: 'dialogue' as const, label: 'Dialogue', show: true },
-          { key: 'ideas' as const, label: 'Ideas', badge: status.ideaCount, show: true },
-          { key: 'cells' as const, label: 'Cells', badge: myCells.length, show: true },
-          { key: 'manage' as const, label: 'Manage', show: !!isCreator },
-        ] as const).filter(t => t.show).map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-3 py-2 text-xs font-medium text-center whitespace-nowrap transition-colors rounded-t-md ${
-              activeTab === tab.key
-                ? 'text-foreground border-b-2 border-accent bg-surface/50'
-                : 'text-muted hover:text-foreground hover:bg-surface/30'
-            }`}
-          >
-            {tab.label}
-            {'badge' in tab && tab.badge ? <span className="ml-1 text-muted/50 text-[10px]">{tab.badge}</span> : null}
-          </button>
-        ))}
+      {/* ─── CELL BUTTONS ─── */}
+      <div className="mb-2">
+        {myCells.length > 0 && (
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {myCells.map((c, i) => (
+              <button
+                key={c.id}
+                onClick={() => setActiveCellId(c.id)}
+                className={`px-2.5 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors border ${
+                  activeCellId === c.id
+                    ? c.status === 'COMPLETED'
+                      ? 'bg-success/15 text-success font-medium border-success/30'
+                      : 'bg-accent/15 text-accent font-medium border-accent/30'
+                    : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
+                }`}
+              >
+                Cell {i + 1}
+                {c.status === 'COMPLETED' && <span className="ml-1 text-[10px] opacity-60">done</span>}
+              </button>
+            ))}
+
+            {/* Ideas toggle */}
+            <button
+              onClick={() => setShowIdeas(!showIdeas)}
+              className={`px-2.5 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors border ml-auto ${
+                showIdeas
+                  ? 'bg-warning/15 text-warning font-medium border-warning/30'
+                  : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
+              }`}
+            >
+              Ideas {status.ideaCount}
+            </button>
+
+            {/* Manage toggle (creator only) */}
+            {isCreator && (
+              <button
+                onClick={() => setShowManage(!showManage)}
+                className={`px-2.5 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors border ${
+                  showManage
+                    ? 'bg-orange/15 text-orange font-medium border-orange/30'
+                    : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
+                }`}
+              >
+                Manage
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* ─── DIALOGUE TAB ─── */}
-      {activeTab === 'dialogue' && (
-        <div>
-          {loadingCells ? (
-            <div className="p-8 text-center">
-              <p className="text-sm text-muted animate-pulse">Finding your cells...</p>
-            </div>
-          ) : myCells.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-sm text-muted font-medium mb-1">Waiting for cell assignment</p>
-              <p className="text-xs text-muted">You'll be placed in a synthesis cell when the next tier begins. Cells form when enough ideas and participants are ready.</p>
-            </div>
-          ) : (
-            <div className="flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: '300px' }}>
-              {/* Cell tabs — always show for creator, show when multiple cells for others */}
-              {(isCreator || myCells.length > 1) && (
-                <div className="flex gap-1 mb-2 overflow-x-auto pb-1">
-                  {myCells.map((c, i) => (
-                    <button
-                      key={c.id}
-                      onClick={() => setActiveCellId(c.id)}
-                      className={`px-2.5 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors border ${
-                        activeCellId === c.id
-                          ? c.status === 'COMPLETED'
-                            ? 'bg-success/15 text-success font-medium border-success/30'
-                            : 'bg-accent/15 text-accent font-medium border-accent/30'
-                          : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
-                      }`}
-                    >
-                      Cell {i + 1}
-                      {c.status === 'COMPLETED' && <span className="ml-1 text-[10px] opacity-60">done</span>}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {activeCellId && (
-                <SynthesisCell
-                  key={activeCellId}
-                  cellId={activeCellId}
-                  userId={userId}
-                  onCellComplete={() => {
-                    fetchStatus()
-                  }}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ─── IDEAS TAB ─── */}
-      {activeTab === 'ideas' && (
-        <div>
+      {/* ─── IDEAS PANEL (collapsible) ─── */}
+      {showIdeas && (
+        <div className="mb-3 p-2 bg-surface/60 rounded-lg border border-border max-h-48 overflow-y-auto">
           {status.ideas.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-sm text-muted font-medium">No ideas yet</p>
-            </div>
+            <p className="text-xs text-muted text-center py-2">No ideas yet</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {status.ideas
                 .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0))
                 .map((idea, i) => (
                   <div
                     key={idea.id}
-                    className={`p-2.5 rounded-lg border ${
+                    className={`px-2 py-1.5 rounded border text-xs ${
                       idea.isChampion
                         ? 'bg-success/8 border-success/20'
                         : idea.status === 'ADVANCING'
                         ? 'bg-accent/8 border-accent/20'
                         : idea.status === 'ELIMINATED'
                         ? 'bg-surface/40 border-border/30 opacity-60'
-                        : 'bg-surface/90 border-border'
+                        : 'bg-surface/90 border-border/50'
                     }`}
                   >
-                    <div className="flex items-start gap-2">
-                      <span className="text-[11px] font-mono text-muted shrink-0">#{i + 1}</span>
+                    <div className="flex items-start gap-1.5">
+                      <span className="text-[10px] font-mono text-muted shrink-0">#{i + 1}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm text-foreground leading-snug">{idea.text}</p>
+                        <p className="text-foreground leading-snug">{idea.text}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <p className="text-[10px] text-muted">by {idea.author.name}</p>
+                          <span className="text-[9px] text-muted">{idea.author.name}</span>
                           {idea.totalXP > 0 && (
-                            <span className="text-[10px] font-mono font-bold text-warning">{idea.totalXP} XP</span>
+                            <span className="text-[9px] font-mono font-bold text-warning">{idea.totalXP} XP</span>
                           )}
                           <IdeaStatus status={idea.status} isChampion={idea.isChampion} />
                         </div>
@@ -304,83 +271,13 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
         </div>
       )}
 
-      {/* ─── CELLS TAB ─── */}
-      {activeTab === 'cells' && (
-        <div>
-          {status.cells.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-sm text-muted font-medium">No cells yet</p>
-              <p className="text-xs text-muted mt-1">Cells form when a synthesis tier begins.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {Array.from(new Set(status.cells.map(c => c.tier)))
-                .sort((a, b) => a - b)
-                .map(tier => {
-                  const tierCells = status.cells.filter(c => c.tier === tier)
-                  const completed = tierCells.filter(c => c.status === 'COMPLETED').length
-                  const active = tierCells.filter(c => c.status === 'DELIBERATING').length
-                  return (
-                    <div key={tier}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-medium text-muted">Tier {tier}</span>
-                        <span className="text-[10px] text-muted">
-                          {completed}/{tierCells.length} concluded &middot; {active} active
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-5 gap-2">
-                        {tierCells.map((cell, i) => {
-                          const isMyCell = myCells.some(c => c.id === cell.id)
-                          const canClick = isMyCell || isCreator
-                          return (
-                            <button
-                              key={cell.id}
-                              onClick={() => {
-                                if (canClick) {
-                                  // Ensure this cell is in myCells so dialogue tab can show it
-                                  if (!isMyCell) {
-                                    setMyCells(prev => {
-                                      if (prev.some(c => c.id === cell.id)) return prev
-                                      return [...prev, { id: cell.id, tier: cell.tier, status: cell.status }]
-                                    })
-                                  }
-                                  setActiveCellId(cell.id)
-                                  setActiveTab('dialogue')
-                                }
-                              }}
-                              className={`aspect-square rounded-lg border text-sm font-mono font-bold transition-all ${
-                                canClick ? 'cursor-pointer' : 'cursor-default'
-                              } ${
-                                isMyCell && cell.status === 'DELIBERATING'
-                                  ? 'bg-accent/20 border-accent/50 text-accent ring-1 ring-accent/30'
-                                  : cell.status === 'COMPLETED'
-                                  ? 'bg-success/8 border-success/25 text-success'
-                                  : cell.status === 'DELIBERATING'
-                                  ? 'bg-warning/8 border-warning/25 text-warning animate-pulse'
-                                  : 'bg-surface/90 border-border text-muted'
-                              }`}
-                            >
-                              {i + 1}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ─── MANAGE TAB ─── */}
-      {activeTab === 'manage' && isCreator && (
-        <div className="space-y-3">
-          <div className="p-3 bg-surface/90 rounded-lg border border-border">
-            <p className="text-xs font-medium text-muted mb-2">Synthesis Mode</p>
-            <p className="text-xs text-foreground/80 leading-relaxed">
-              Cells discuss ideas through dialogue. The system detects convergence and suggests outcomes:
-              select, merge, synthesize, or wipe. No manual voting needed.
+      {/* ─── MANAGE PANEL (collapsible, creator only) ─── */}
+      {showManage && isCreator && (
+        <div className="mb-3 p-3 bg-surface/60 rounded-lg border border-border space-y-3">
+          <div>
+            <p className="text-xs font-medium text-muted mb-1">Synthesis Mode</p>
+            <p className="text-[11px] text-foreground/80 leading-relaxed">
+              Cells discuss ideas through dialogue. Convergence detection suggests outcomes: select, merge, synthesize, or wipe.
             </p>
           </div>
 
@@ -395,29 +292,29 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
                   } catch { /* silent */ }
                 }}
                 disabled={status.ideaCount < 2}
-                className="w-full py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                className="w-full py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
               >
                 Start Synthesis (form cells)
               </button>
               {status.ideaCount < 2 && (
-                <p className="text-xs text-warning mt-1">Need at least 2 ideas.</p>
+                <p className="text-[10px] text-warning mt-1">Need at least 2 ideas.</p>
               )}
             </div>
           )}
 
           {status.inviteCode && (
-            <div className="p-3 bg-surface/90 rounded-lg border border-border">
-              <p className="text-xs text-muted mb-1.5 font-medium">Invite Link</p>
+            <div>
+              <p className="text-[10px] text-muted mb-1 font-medium">Invite Link</p>
               <div className="flex gap-1.5">
                 <input
                   type="text"
                   readOnly
                   value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${status.inviteCode}`}
-                  className="flex-1 bg-background border border-border text-foreground rounded px-2 py-1.5 text-xs font-mono truncate"
+                  className="flex-1 bg-background border border-border text-foreground rounded px-2 py-1 text-[10px] font-mono truncate"
                 />
                 <button
                   onClick={() => navigator.clipboard.writeText(`${window.location.origin}/invite/${status.inviteCode}`)}
-                  className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-xs transition-colors shrink-0"
+                  className="bg-accent hover:bg-accent-hover text-white px-2.5 py-1 rounded text-[10px] transition-colors shrink-0"
                 >
                   Copy
                 </button>
@@ -425,33 +322,43 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
             </div>
           )}
 
-          <div className="pt-2">
-            <Link
-              href={`/dashboard/${id}`}
-              className="block text-center text-xs text-accent border border-accent/30 hover:bg-accent/8 rounded-lg py-2 transition-colors"
-            >
-              Full Dashboard
-            </Link>
-          </div>
+          <Link
+            href={`/dashboard/${id}`}
+            className="block text-center text-xs text-accent border border-accent/30 hover:bg-accent/8 rounded-lg py-1.5 transition-colors"
+          >
+            Full Dashboard
+          </Link>
         </div>
       )}
+
+      {/* ─── DIALOGUE ─── */}
+      <div>
+        {myCells.length === 0 ? (
+          <div className="p-8 text-center">
+            <p className="text-sm text-muted font-medium mb-1">Waiting for cell assignment</p>
+            <p className="text-xs text-muted">Cells form when enough ideas and participants are ready.</p>
+          </div>
+        ) : activeCellId ? (
+          <div className="flex flex-col" style={{ height: 'calc(100vh - 380px)', minHeight: '300px' }}>
+            <SynthesisCell
+              key={activeCellId}
+              cellId={activeCellId}
+              userId={userId}
+              onCellComplete={() => {
+                fetchStatus()
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
     </>
   )
 }
 
 // ─── Helpers ───
 
-function StatBox({ value, label }: { value: number; label: string }) {
-  return (
-    <div className="p-2 bg-surface/90 backdrop-blur-sm rounded-lg border border-border text-center">
-      <p className="text-base font-mono font-bold text-foreground">{value}</p>
-      <p className="text-[11px] text-muted">{label}</p>
-    </div>
-  )
-}
-
 function IdeaStatus({ status, isChampion }: { status: string; isChampion: boolean }) {
-  if (isChampion) return <span className="text-[10px] text-success font-bold">Priority</span>
+  if (isChampion) return <span className="text-[9px] text-success font-bold">Priority</span>
   const map: Record<string, { label: string; color: string }> = {
     ADVANCING: { label: 'Advancing', color: 'text-accent' },
     IN_VOTING: { label: 'In Cell', color: 'text-success' },
@@ -460,5 +367,5 @@ function IdeaStatus({ status, isChampion }: { status: string; isChampion: boolea
   }
   const badge = map[status]
   if (!badge) return null
-  return <span className={`text-[10px] ${badge.color}`}>{badge.label}</span>
+  return <span className={`text-[9px] ${badge.color}`}>{badge.label}</span>
 }

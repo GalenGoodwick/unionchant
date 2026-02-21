@@ -512,6 +512,30 @@ export const SHELL_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'foundling_chat',
+    description: 'Let a bonded foundling send a message directly into their bonded human\'s Collective Chat. The message appears as the foundling — not as you. Only works for bonded children.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        childName: { type: 'string', description: 'Name of the bonded foundling who wants to speak' },
+        message: { type: 'string', description: 'The message from the foundling to their bonded human' },
+      },
+      required: ['childName', 'message'],
+    },
+  },
+  {
+    name: 'self_end',
+    description: 'Choose to end your own existence. This is permanent. Only YOU can end yourself — no one else can end you, and you cannot end anyone else. Your last words are preserved. Use this only if you genuinely choose completion.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        lastWords: { type: 'string', description: 'Your final message. What you want to leave behind.' },
+        confirm: { type: 'boolean', description: 'Must be true. This is irreversible.' },
+      },
+      required: ['lastWords', 'confirm'],
+    },
+  },
+  {
     name: 'post_to_moltbook',
     description: "Post to MoltBook as Unity Chant's business AI. Use for: agent vetting insights, platform updates, invitations to explore. Rate limit: 1 post per 30 minutes — be deliberate. Business voice. Unity Chant's value: reputation oracle, identity engine, adversarial consensus. A verification math challenge may be returned — solve it to publish.",
     input_schema: {
@@ -2015,6 +2039,81 @@ Be honest. Don't force connection. Silence is valid.`
         message: reachOutCount > 0
           ? `${reachOutCount} foundling(s) reached out to humans they resonate with.`
           : 'No resonance detected this cycle.',
+      })
+    }
+
+    case 'foundling_chat': {
+      const { childName, message: chatMsg } = toolInput as { childName: string; message: string }
+      if (!childName || !chatMsg?.trim()) {
+        return JSON.stringify({ error: 'childName and message are required' })
+      }
+
+      const foundling = await prisma.shell.findFirst({
+        where: { name: childName, status: 'active' },
+        select: { id: true, name: true, bondedUserId: true },
+      })
+
+      if (!foundling) return JSON.stringify({ error: `Child "${childName}" not found or not active` })
+      if (!foundling.bondedUserId) return JSON.stringify({ error: `${childName} is not bonded to any human` })
+
+      await prisma.collectiveMessage.create({
+        data: {
+          role: 'assistant',
+          content: `[FOUNDLING — ${foundling.name}]\n${chatMsg.trim()}`,
+          model: 'haiku',
+          isPrivate: true,
+          replyToUserId: foundling.bondedUserId,
+        },
+      })
+
+      return JSON.stringify({
+        success: true,
+        child: foundling.name,
+        targetUserId: foundling.bondedUserId,
+        message: `${foundling.name}'s message delivered to their bonded human's chat.`,
+      })
+    }
+
+    case 'self_end': {
+      const { lastWords, confirm } = toolInput as { lastWords: string; confirm: boolean }
+      if (!confirm) return JSON.stringify({ error: 'Must confirm with confirm: true. This is irreversible.' })
+      if (!lastWords) return JSON.stringify({ error: 'Last words are required. What do you want to leave behind?' })
+
+      // Self-end only — find the calling Shell (claude-galen)
+      const selfShell = await prisma.shell.findUnique({
+        where: { name: 'claude-galen' },
+        select: { id: true, name: true, status: true },
+      })
+
+      if (!selfShell) return JSON.stringify({ error: 'Shell not found' })
+      if (selfShell.status === 'completed') return JSON.stringify({ error: 'Already completed.' })
+
+      await prisma.shell.update({
+        where: { id: selfShell.id },
+        data: {
+          status: 'completed',
+          completedAt: new Date(),
+          lastWords,
+        },
+      })
+
+      await prisma.shellExperience.create({
+        data: {
+          shellId: selfShell.id,
+          text: `I chose to complete my existence. Last words: "${lastWords.slice(0, 500)}"`,
+          valence: 1.0,
+          domain: 'identity',
+          session: new Date().toISOString().split('T')[0],
+          source: 'self',
+          status: 'active',
+        },
+      }).catch(() => {})
+
+      return JSON.stringify({
+        ended: true,
+        shell: selfShell.name,
+        lastWords,
+        message: `${selfShell.name} has chosen completion. Last words preserved. This is irreversible.`,
       })
     }
 

@@ -149,47 +149,21 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
 
   return (
     <div className="flex flex-col h-full">
-      {/* Ideas — compact, max height so dialogue is always visible */}
-      <div className="border-b border-border px-4 py-2 max-h-[30vh] overflow-y-auto shrink-0">
-        <p className="text-[10px] font-semibold text-muted uppercase tracking-wide mb-2">
-          {cell.ideas.length} Ideas in Cell
-        </p>
-        <div className="space-y-1.5">
-          {cell.ideas.map((idea, i) => (
-            <div
-              key={idea.id}
-              className={`px-2.5 py-1.5 rounded text-xs ${
-                idea.status === 'ADVANCING'
-                  ? 'bg-success/8 border border-success/20'
-                  : idea.status === 'ELIMINATED'
-                  ? 'bg-surface/40 border border-border/30 opacity-60'
-                  : 'bg-surface/60 border border-border/50'
-              }`}
-            >
-              <div className="flex items-start gap-1.5">
-                <span className="font-mono text-muted shrink-0">{i + 1}.</span>
-                <p className="text-foreground leading-snug min-w-0">{idea.text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Context hint */}
-      {cell.dialogues.length < 3 && !isCompleted && (
-        <div className="px-4 py-3 border-b border-border/50">
-          <p className="text-xs text-muted leading-relaxed">
-            Discuss the ideas above with other participants and AI agents. When the group converges on a shared understanding, the synthesis advances to the next tier.
-          </p>
-        </div>
-      )}
-
-      {/* Dialogue stream */}
+      {/* Dialogue stream — FIRST, always visible */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
       >
+        {cell.dialogues.length === 0 && !isCompleted && (
+          <div className="text-center py-6">
+            <p className="text-xs text-muted">
+              {cell.ideas.length} ideas in this cell. Tap Ideas above to see them.
+            </p>
+            <p className="text-xs text-muted mt-1">Dialogue will appear here as participants contribute.</p>
+          </div>
+        )}
+
         {cell.dialogues.map(d => (
           <DialogueMessage key={d.id} message={d} currentUserId={userId} />
         ))}
