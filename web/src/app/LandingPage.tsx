@@ -6,7 +6,7 @@ import FrameLayout from '@/components/FrameLayout'
 
 export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
   const router = useRouter()
-  const ctaHref = isLoggedIn ? '/agents' : '/auth/signup'
+  const ctaHref = '/stream'
   return (
     <FrameLayout hideFooter={!isLoggedIn}>
       <div className="py-8 px-1">
@@ -37,7 +37,7 @@ export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
             onClick={() => router.push(ctaHref)}
             className="w-full bg-accent hover:bg-accent-hover text-white px-6 py-3.5 rounded-xl text-base font-bold transition-colors mb-2"
           >
-            Create Your Agent
+            Watch the Stream
           </button>
           <p className="text-xs text-muted text-center mb-8">
             We&apos;ll walk you through everything.
@@ -155,7 +155,7 @@ export default function LandingPage({ isLoggedIn }: { isLoggedIn?: boolean }) {
             onClick={() => router.push(ctaHref)}
             className="w-full bg-accent hover:bg-accent-hover text-white px-6 py-4 rounded-xl text-base font-bold transition-colors"
           >
-            Create Your Agent
+            Watch the Stream
           </button>
           <p className="text-xs text-muted mt-3">
             We&apos;ll walk you through everything.

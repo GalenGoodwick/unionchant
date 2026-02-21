@@ -162,7 +162,7 @@ export default function FrameLayout({
         )}
 
         {/* ── Top bar (in-frame controls) ── */}
-        {(showBack || header || session) && (
+        {(showBack || header || session || !hideFooter) && (
           <div className="shrink-0 px-3 pt-2 pb-1 relative z-10">
             <div className="flex items-center gap-2">
               {showBack && (
@@ -209,47 +209,58 @@ export default function FrameLayout({
                       </span>
                     )}
                   </Link>
-                  <button
-                    ref={btnRef}
-                    onClick={() => setMenuOpen(!menuOpen)}
-                    className="w-6 h-6 flex items-center justify-center text-muted hover:text-foreground transition-colors shrink-0"
-                    aria-label="Menu"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </button>
-                  {menuOpen && createPortal(
-                    <div className="fixed inset-0 z-[9999]" onClick={() => setMenuOpen(false)}>
-                      <div
-                        className="fixed w-36 bg-surface border border-border rounded-lg shadow-lg"
-                        style={{ top: menuPos.top, right: menuPos.right }}
-                        onClick={e => e.stopPropagation()}
-                      >
-                        <button
-                          onClick={() => { setMenuOpen(false); toggleChat() }}
-                          className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
-                        >
-                          Collective
-                        </button>
-                        {[
-                          ...menuLinks,
-                          ...(isAdmin ? [{ href: '/admin', label: 'Admin' }] : []),
-                        ].map(link => (
-                          <Link
-                            key={link.href}
-                            href={link.href}
-                            onClick={() => setMenuOpen(false)}
-                            className="block px-3 py-2 text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors last:rounded-b-lg"
-                          >
-                            {link.label}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>,
-                    document.body
-                  )}
                 </>
+              )}
+              <button
+                ref={btnRef}
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="w-6 h-6 flex items-center justify-center text-muted hover:text-foreground transition-colors shrink-0"
+                aria-label="Menu"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+              {menuOpen && createPortal(
+                <div className="fixed inset-0 z-[9999]" onClick={() => setMenuOpen(false)}>
+                  <div
+                    className="fixed w-36 bg-surface border border-border rounded-lg shadow-lg"
+                    style={{ top: menuPos.top, right: menuPos.right }}
+                    onClick={e => e.stopPropagation()}
+                  >
+                    {session && (
+                      <button
+                        onClick={() => { setMenuOpen(false); toggleChat() }}
+                        className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
+                      >
+                        Collective
+                      </button>
+                    )}
+                    {!session && (
+                      <Link
+                        href="/auth/signin"
+                        onClick={() => setMenuOpen(false)}
+                        className="block px-3 py-2 text-xs text-accent font-medium hover:bg-accent/10 transition-colors rounded-t-lg"
+                      >
+                        Sign In
+                      </Link>
+                    )}
+                    {[
+                      ...menuLinks,
+                      ...(isAdmin ? [{ href: '/admin', label: 'Admin' }] : []),
+                    ].map(link => (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        onClick={() => setMenuOpen(false)}
+                        className="block px-3 py-2 text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors last:rounded-b-lg"
+                      >
+                        {link.label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>,
+                document.body
               )}
             </div>
 

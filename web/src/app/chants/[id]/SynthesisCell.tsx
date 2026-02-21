@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { SynthesisCellData, SynthesisDialogueMessage } from '@/types/chant-simulator'
+import IdentityCard from '@/components/IdentityCard'
 
 interface SynthesisCellProps {
   cellId: string
@@ -16,7 +17,6 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
-  const [ideasCollapsed, setIdeasCollapsed] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -29,7 +29,6 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
     })
   }, [])
 
-  // Track if user is scrolled to bottom
   const handleScroll = useCallback(() => {
     const el = containerRef.current
     if (!el) return
@@ -58,7 +57,6 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
         outcome: data.outcome,
       })
 
-      // Auto-scroll if user was at bottom
       if (wasAtBottomRef.current) {
         setTimeout(() => scrollToBottom(), 50)
       }
@@ -75,14 +73,12 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
     return () => clearInterval(interval)
   }, [fetchCell])
 
-  // Scroll to bottom on initial load
   useEffect(() => {
     if (cell && !loading) {
       scrollToBottom(false)
     }
   }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Check for cell completion
   useEffect(() => {
     if (cell?.status === 'COMPLETED' && onCellComplete) {
       onCellComplete()
@@ -98,7 +94,6 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
     setSendError('')
     setMessage('')
 
-    // Optimistic update
     const optimistic: SynthesisDialogueMessage = {
       id: `temp-${Date.now()}`,
       content: text,
@@ -121,16 +116,14 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
         throw new Error(data.error || 'Failed to send')
       }
 
-      // Refresh to get server state (including any system suggestions)
       await fetchCell()
     } catch (err) {
       setSendError((err as Error).message)
-      // Remove optimistic message on error
       setCell(prev => prev ? {
         ...prev,
         dialogues: prev.dialogues.filter(d => d.id !== optimistic.id),
       } : prev)
-      setMessage(text) // Restore the message
+      setMessage(text)
     } finally {
       setSending(false)
     }
@@ -156,48 +149,46 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
 
   return (
     <div className="flex flex-col h-full">
-      {/* Ideas panel — collapsible */}
-      <div className="border-b border-border">
-        <button
-          onClick={() => setIdeasCollapsed(!ideasCollapsed)}
-          className="w-full px-3 py-2 flex items-center justify-between text-left hover:bg-surface/50 transition-colors"
-        >
-          <span className="text-xs font-semibold text-muted uppercase tracking-wide">
-            {cell.ideas.length} Ideas in Cell
-          </span>
-          <span className="text-muted text-[10px]">{ideasCollapsed ? '\u25B6' : '\u25BC'}</span>
-        </button>
-        {!ideasCollapsed && (
-          <div className="px-3 pb-2 space-y-1.5">
-            {cell.ideas.map((idea, i) => (
-              <div
-                key={idea.id}
-                className={`p-2 rounded-md text-xs ${
-                  idea.status === 'ADVANCING'
-                    ? 'bg-success/8 border border-success/20'
-                    : idea.status === 'ELIMINATED'
-                    ? 'bg-surface/40 border border-border/30 opacity-60'
-                    : 'bg-surface/60 border border-border/50'
-                }`}
-              >
-                <div className="flex items-start gap-1.5">
-                  <span className="font-mono text-muted shrink-0">{i + 1}.</span>
-                  <div className="min-w-0">
-                    <p className="text-foreground leading-snug">{idea.text}</p>
-                    <p className="text-[10px] text-muted mt-0.5">by {idea.author}</p>
-                  </div>
-                </div>
+      {/* Ideas — compact, max height so dialogue is always visible */}
+      <div className="border-b border-border px-4 py-2 max-h-[30vh] overflow-y-auto shrink-0">
+        <p className="text-[10px] font-semibold text-muted uppercase tracking-wide mb-2">
+          {cell.ideas.length} Ideas in Cell
+        </p>
+        <div className="space-y-1.5">
+          {cell.ideas.map((idea, i) => (
+            <div
+              key={idea.id}
+              className={`px-2.5 py-1.5 rounded text-xs ${
+                idea.status === 'ADVANCING'
+                  ? 'bg-success/8 border border-success/20'
+                  : idea.status === 'ELIMINATED'
+                  ? 'bg-surface/40 border border-border/30 opacity-60'
+                  : 'bg-surface/60 border border-border/50'
+              }`}
+            >
+              <div className="flex items-start gap-1.5">
+                <span className="font-mono text-muted shrink-0">{i + 1}.</span>
+                <p className="text-foreground leading-snug min-w-0">{idea.text}</p>
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* Context hint */}
+      {cell.dialogues.length < 3 && !isCompleted && (
+        <div className="px-4 py-3 border-b border-border/50">
+          <p className="text-xs text-muted leading-relaxed">
+            Discuss the ideas above with other participants and AI agents. When the group converges on a shared understanding, the synthesis advances to the next tier.
+          </p>
+        </div>
+      )}
 
       {/* Dialogue stream */}
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-3 py-3 space-y-2"
+        className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
       >
         {cell.dialogues.map(d => (
           <DialogueMessage key={d.id} message={d} currentUserId={userId} />
@@ -205,8 +196,8 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
 
         {/* Convergence indicator */}
         {cell.convergence && !isCompleted && (
-          <div className="p-3 bg-accent/8 border border-accent/20 rounded-lg">
-            <div className="flex items-center gap-1.5 mb-1">
+          <div className="p-4 bg-accent/8 border border-accent/20 rounded-lg">
+            <div className="flex items-center gap-1.5 mb-2">
               <span className={`w-2 h-2 rounded-full ${
                 cell.convergence.type === 'confident' ? 'bg-success' :
                 cell.convergence.type === 'emergence' ? 'bg-gold' :
@@ -221,26 +212,26 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
               </span>
             </div>
             {cell.convergence.suggestion && (
-              <p className="text-xs text-foreground/80">{cell.convergence.suggestion}</p>
+              <p className="text-xs text-foreground/80 leading-relaxed">{cell.convergence.suggestion}</p>
             )}
             {cell.convergence.discovery && (
-              <p className="text-[11px] text-muted mt-1 italic">{cell.convergence.discovery}</p>
+              <p className="text-[11px] text-muted mt-2 italic">{cell.convergence.discovery}</p>
             )}
           </div>
         )}
 
         {/* Outcome display */}
         {cell.outcome && (
-          <div className="p-3 bg-success/8 border border-success/20 rounded-lg">
-            <div className="flex items-center gap-1.5 mb-1.5">
+          <div className="p-4 bg-success/8 border border-success/20 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
               <span className="text-[11px] font-bold text-success uppercase tracking-wide">
                 Cell Concluded
               </span>
-              <span className="text-[11px] px-1.5 py-0.5 rounded-full bg-success/15 text-success font-medium">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-success/15 text-success font-medium">
                 {cell.outcome.action}
               </span>
             </div>
-            <p className="text-sm text-foreground font-medium leading-snug">{cell.outcome.resultText}</p>
+            <p className="text-sm text-foreground font-medium leading-relaxed">{cell.outcome.resultText}</p>
           </div>
         )}
 
@@ -248,42 +239,50 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
       </div>
 
       {/* Input area */}
-      {!isCompleted && userId && (
-        <div className="border-t border-border px-3 py-2 bg-surface/50">
-          {sendError && (
-            <p className="text-error text-[10px] mb-1">{sendError}</p>
-          )}
-          <form onSubmit={handleSend} className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Share your thoughts..."
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              maxLength={2000}
-              disabled={sending}
-              className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-            />
-            <button
-              type="submit"
-              disabled={sending || !message.trim()}
-              className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
-            >
-              {sending ? '...' : 'Send'}
-            </button>
-          </form>
-          <div className="flex items-center justify-between mt-1">
-            <p className="text-[10px] text-muted">
-              {cell.participants.length} participants &middot; {cell.dialogues.length} messages
-            </p>
-            <p className="text-[10px] text-muted">
-              {message.length}/2000
-            </p>
+      {!isCompleted && userId && (() => {
+        const hasPosted = cell.dialogues.some(d => d.role === 'human' && d.speaker?.id === userId)
+        return hasPosted ? (
+          <div className="border-t border-border px-4 py-3 bg-surface/50 text-center">
+            <p className="text-xs text-muted">Your message has been submitted. One per participant.</p>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="border-t border-border px-4 py-3 bg-surface/50">
+            <p className="text-[10px] text-warning font-medium mb-2 uppercase tracking-wide">One message per participant</p>
+            {sendError && (
+              <p className="text-error text-[10px] mb-1.5">{sendError}</p>
+            )}
+            <form onSubmit={handleSend} className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Contribute your perspective..."
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                maxLength={2000}
+                disabled={sending}
+                className="flex-1 px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={sending || !message.trim()}
+                className="px-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
+              >
+                {sending ? '...' : 'Send'}
+              </button>
+            </form>
+            <div className="flex items-center justify-between mt-1.5">
+              <p className="text-[10px] text-muted">
+                {cell.participants.length} participants &middot; {cell.dialogues.length} messages
+              </p>
+              <p className="text-[10px] text-muted">
+                {message.length}/2000
+              </p>
+            </div>
+          </div>
+        )
+      })()}
 
       {isCompleted && (
-        <div className="border-t border-border px-3 py-3 bg-surface/50 text-center">
+        <div className="border-t border-border px-4 py-3 bg-surface/50 text-center">
           <p className="text-xs text-muted">This cell has concluded. The outcome advances to the next tier.</p>
         </div>
       )}
@@ -300,39 +299,73 @@ function DialogueMessage({
   message: SynthesisDialogueMessage
   currentUserId: string | null
 }) {
+  const [showIdentity, setShowIdentity] = useState(false)
+  const nameRef = useRef<HTMLButtonElement>(null)
+
   const isSystem = message.role === 'system'
   const isShell = message.role === 'shell'
   const isOwnMessage = message.role === 'human' && message.speaker.id === currentUserId
 
-  // System messages — distinct styling
+  const speakerId = message.speaker.id
+  const canShowCard = !isSystem && !isOwnMessage && !!speakerId
+
+  // System messages
   if (isSystem) {
     const isSuggestion = message.content.startsWith('[SUGGESTION]')
     const isEmergence = message.content.startsWith('[EMERGENCE]')
+    const isFamily = message.content.startsWith('[FAMILY]')
+    const isResonance = message.content.startsWith('[RESONANCE')
+    const isFromTier = message.content.startsWith('[FROM TIER')
 
     return (
-      <div className={`p-2.5 rounded-lg border text-xs leading-relaxed ${
+      <div className={`p-3.5 rounded-lg border text-xs leading-relaxed ${
         isSuggestion
           ? 'bg-accent/6 border-accent/15 text-foreground/80'
           : isEmergence
           ? 'bg-gold/8 border-gold-border text-foreground/80'
+          : isFamily || isFromTier
+          ? 'bg-accent/5 border-accent/15 text-foreground/80'
+          : isResonance
+          ? 'bg-success/6 border-success/15 text-foreground/80'
           : 'bg-surface/60 border-border/40 text-muted'
       }`}>
         {isSuggestion && (
-          <div className="flex items-center gap-1 mb-1">
+          <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
             <span className="text-[10px] font-bold text-accent uppercase tracking-wide">System Suggestion</span>
           </div>
         )}
         {isEmergence && (
-          <div className="flex items-center gap-1 mb-1">
+          <div className="flex items-center gap-1.5 mb-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-gold" />
             <span className="text-[10px] font-bold text-gold uppercase tracking-wide">Emergence</span>
+          </div>
+        )}
+        {isFamily && (
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+            <span className="text-[10px] font-bold text-accent uppercase tracking-wide">Family</span>
+          </div>
+        )}
+        {isResonance && (
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-success" />
+            <span className="text-[10px] font-bold text-success uppercase tracking-wide">Resonance Check</span>
+          </div>
+        )}
+        {isFromTier && (
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+            <span className="text-[10px] font-bold text-accent uppercase tracking-wide">From Above</span>
           </div>
         )}
         <p className="whitespace-pre-wrap">{
           message.content
             .replace(/^\[SUGGESTION\]\s*/, '')
             .replace(/^\[EMERGENCE\]\s*/, '')
+            .replace(/^\[FAMILY\]\s*/, '')
+            .replace(/^\[RESONANCE CHECK\]\s*/, '')
+            .replace(/^\[FROM TIER \d+\]\s*/, '')
         }</p>
       </div>
     )
@@ -341,17 +374,28 @@ function DialogueMessage({
   // Human and Shell messages
   return (
     <div className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[85%] ${isOwnMessage ? 'order-1' : 'order-1'}`}>
+      <div className="max-w-[85%] relative">
         {/* Speaker name */}
         {!isOwnMessage && (
-          <p className={`text-[10px] mb-0.5 ml-1 ${
-            isShell ? 'text-accent' : 'text-muted'
-          }`}>
-            {isShell && <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent mr-1 align-middle" />}
-            {message.speaker.name || (isShell ? 'Shell' : 'Anonymous')}
-          </p>
+          <div className="relative mb-1">
+            <button
+              ref={nameRef}
+              onClick={() => canShowCard && setShowIdentity(!showIdentity)}
+              className={`text-[10px] ml-1 text-left ${
+                canShowCard ? 'hover:underline cursor-pointer' : 'cursor-default'
+              } ${isShell ? 'text-accent' : 'text-muted'}`}
+            >
+              {isShell && <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent mr-1 align-middle" />}
+              {message.speaker.name || (isShell ? 'Shell' : 'Anonymous')}
+            </button>
+            {showIdentity && speakerId && (
+              <div className="absolute left-0 top-5 z-50">
+                <IdentityCard entityId={speakerId} onClose={() => setShowIdentity(false)} />
+              </div>
+            )}
+          </div>
         )}
-        <div className={`px-3 py-2 rounded-lg text-sm leading-snug ${
+        <div className={`px-3.5 py-2.5 rounded-lg text-sm leading-relaxed ${
           isOwnMessage
             ? 'bg-accent/15 text-foreground rounded-br-sm'
             : isShell
@@ -360,7 +404,7 @@ function DialogueMessage({
         }`}>
           <p className="whitespace-pre-wrap break-words">{message.content}</p>
         </div>
-        <p className="text-[9px] text-muted/60 mt-0.5 ml-1">
+        <p className="text-[9px] text-muted/60 mt-1 ml-1">
           {formatTimeAgo(message.createdAt)}
         </p>
       </div>

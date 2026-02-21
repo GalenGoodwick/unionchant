@@ -63,6 +63,18 @@ export async function POST(
       return NextResponse.json({ error: 'You are not a participant in this cell' }, { status: 403 })
     }
 
+    // One comment per human per cell — no spamming, no interruptions
+    const existingMessage = await prisma.cellDialogue.findFirst({
+      where: { cellId, userId: user.id, role: 'human' },
+      select: { id: true },
+    })
+    if (existingMessage) {
+      return NextResponse.json(
+        { error: 'One message per participant. You have already contributed to this cell.' },
+        { status: 409 }
+      )
+    }
+
     // Process the dialogue message
     const result = await processSynthesisDialogue(
       cellId,
@@ -146,7 +158,17 @@ export async function GET(
     const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim())
     const isAdmin = adminEmails.includes(session.user.email)
 
-    if (!isParticipant && !isCreator && !isAdmin) {
+    // Synthesis cells are open to all members of the deliberation
+    const isSynthesis = cell.deliberation.chantMode === 'synthesis'
+    let isMember = false
+    if (isSynthesis && !isParticipant && !isCreator && !isAdmin) {
+      const membership = await prisma.deliberationMember.findUnique({
+        where: { deliberationId_userId: { deliberationId: cell.deliberationId, userId: user.id } },
+      })
+      isMember = !!membership
+    }
+
+    if (!isParticipant && !isCreator && !isAdmin && !isMember) {
       return NextResponse.json({ error: 'You are not a participant in this cell' }, { status: 403 })
     }
 

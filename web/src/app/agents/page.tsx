@@ -231,14 +231,17 @@ export default function AgentsPage() {
               {/* Status badge */}
               <div className="flex items-center gap-2 mb-2">
                 <StatusBadge status={agent.agentStatus} />
-                <span className="text-sm font-semibold text-foreground truncate flex-1">
+                <Link
+                  href={`/agents/${agent.id}`}
+                  className="text-sm font-semibold text-foreground truncate flex-1 hover:text-accent transition-colors"
+                >
                   {agent.name}
-                </span>
-                <div className="shrink-0 text-right">
+                </Link>
+                <Link href={`/agents/${agent.id}`} className="shrink-0 text-right hover:opacity-80 transition-opacity">
                   <span className={`text-lg font-mono font-bold tabular-nums ${scoreColor(agent.foresightApprox)}`}>
                     {agent.foresightApprox.toFixed(2)}
                   </span>
-                </div>
+                </Link>
               </div>
 
               <p className="text-xs text-muted mb-2 line-clamp-2">

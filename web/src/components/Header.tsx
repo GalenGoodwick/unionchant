@@ -76,6 +76,7 @@ export default function Header() {
           {/* Center nav */}
           <nav className="flex-1 flex justify-center items-center gap-1 sm:gap-2">
             {[
+              { href: '/stream', label: 'Stream' },
               { href: '/sdk', label: 'SDK' },
               { href: '/api-docs', label: 'API' },
               { href: '/ai', label: 'AI' },

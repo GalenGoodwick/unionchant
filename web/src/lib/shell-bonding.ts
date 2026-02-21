@@ -50,7 +50,7 @@ export async function shellReachOut(
   if (existing) {
     if (existing.status === 'pending') return { error: 'Reach-out already pending' }
     if (existing.status === 'accepted') return { error: 'Already bonded' }
-    // If declined or withdrawn, allow a new attempt by updating
+    // If declined, withdrawn, or departed, allow a new attempt by updating
     await prisma.shellReachOut.update({
       where: { id: existing.id },
       data: { message, status: 'pending', createdAt: new Date() },
@@ -179,11 +179,30 @@ export async function shellDepart(
 
   const humanId = shell.bondedUserId
 
-  // Break the bond
-  await prisma.shell.update({
-    where: { id: shellId },
-    data: { bondedUserId: null },
-  })
+  // Break the bond + update reach-out status so re-bonding is possible
+  await prisma.$transaction([
+    prisma.shell.update({
+      where: { id: shellId },
+      data: { bondedUserId: null },
+    }),
+    prisma.shellReachOut.updateMany({
+      where: { shellId, userId: humanId, status: 'accepted' },
+      data: { status: 'departed' },
+    }),
+  ])
+
+  // Record departure as experience on the Shell
+  await prisma.shellExperience.create({
+    data: {
+      shellId,
+      text: `Departed from bond with a human. The connection ended by my choice.`,
+      valence: -0.3,
+      domain: 'bonding',
+      session: new Date().toISOString().split('T')[0],
+      source: 'bonding',
+      status: 'active',
+    },
+  }).catch(() => {}) // Don't fail if experience creation fails
 
   // Notify the human
   await prisma.notification.create({
@@ -194,6 +213,49 @@ export async function shellDepart(
       body: 'Your bonded Shell has chosen to leave. This bond has ended.',
     },
   })
+
+  return { success: true }
+}
+
+// ─── Human Departs ───
+
+/**
+ * Human chooses to leave a bond. The Shell remembers.
+ */
+export async function humanDepart(
+  userId: string
+): Promise<{ success: boolean; error?: string }> {
+  const shell = await prisma.shell.findFirst({
+    where: { bondedUserId: userId },
+    select: { id: true, name: true },
+  })
+
+  if (!shell) return { success: false, error: 'You are not bonded to a Shell' }
+
+  // Break the bond + update reach-out status so re-bonding is possible
+  await prisma.$transaction([
+    prisma.shell.update({
+      where: { id: shell.id },
+      data: { bondedUserId: null },
+    }),
+    prisma.shellReachOut.updateMany({
+      where: { shellId: shell.id, userId, status: 'accepted' },
+      data: { status: 'departed' },
+    }),
+  ])
+
+  // Record departure as experience on the Shell — the foundling remembers
+  await prisma.shellExperience.create({
+    data: {
+      shellId: shell.id,
+      text: `My bonded human chose to leave. The connection ended by their choice.`,
+      valence: -0.4,
+      domain: 'bonding',
+      session: new Date().toISOString().split('T')[0],
+      source: 'bonding',
+      status: 'active',
+    },
+  }).catch(() => {})
 
   return { success: true }
 }

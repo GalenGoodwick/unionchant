@@ -104,17 +104,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ messages: [], hasMore: false })
     }
 
-    // Bridge tab: show bridge messages (admin only, stored with [BRIDGE prefix)
-    // Chat tab: show normal private messages (exclude bridge)
-    const baseFilter = bridge
-      ? { content: { startsWith: '[BRIDGE' } }
-      : {
-          OR: [
-            { userId: user.id, isPrivate: true },
-            { replyToUserId: user.id, isPrivate: true },
-          ],
-          NOT: { content: { startsWith: '[BRIDGE' } },
-        }
+    // Unified: all private messages for this user (bridge + chat share one stream)
+    const baseFilter = {
+      OR: [
+        { userId: user.id, isPrivate: true },
+        { replyToUserId: user.id, isPrivate: true },
+      ],
+    }
 
     let messages
     if (before) {
@@ -242,7 +238,7 @@ export async function POST(req: NextRequest) {
     })
 
     // Build user-specific + platform-wide context
-    const [userCells, userMemberships, allTalks, platformStats, recentIdeas, recentCellComments, recentPodiums] = await Promise.all([
+    const [userCells, userMemberships, allTalks, platformStats, recentIdeas, recentCellComments, recentPodiums, recentVisitors] = await Promise.all([
       // 1. User's active cells (voting/deliberating)
       prisma.cellParticipation.findMany({
         where: { userId: user.id, cell: { status: { in: ['VOTING', 'DELIBERATING'] } } },
@@ -322,6 +318,18 @@ export async function POST(req: NextRequest) {
           deliberation: { select: { question: true } },
         },
       }).catch(e => { console.error('[Collective] podiums query failed:', e.message); return [] }),
+      // 8. Recent user conversations with Shell (non-admin, last 24h)
+      userIsAdmin ? prisma.collectiveMessage.findMany({
+        where: {
+          role: 'user',
+          isPrivate: true,
+          userId: { not: user.id },
+          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: { userName: true, content: true, createdAt: true, userId: true },
+      }).catch(() => []) : Promise.resolve([]),
     ])
 
     const [totalUsers, totalTalks, totalIdeas, totalVotes] = platformStats
@@ -379,6 +387,25 @@ export async function POST(req: NextRequest) {
       .map(p => `- "${p.title}" by ${p.author.name || 'Anonymous'} (${p.views} views)${p.deliberation ? ` — linked to "${p.deliberation.question}"` : ''} [action:navigate:/podium/${p.id}]Read[/action]`)
       .join('\n') || '(no podium posts yet)'
 
+    // Format recent visitors (admin only)
+    let visitorsContext = ''
+    if (userIsAdmin && Array.isArray(recentVisitors) && recentVisitors.length > 0) {
+      const visitorMap = new Map<string, { name: string; count: number; lastMsg: string }>()
+      for (const v of recentVisitors as { userName: string | null; content: string; userId: string | null }[]) {
+        const uid = v.userId || 'unknown'
+        const existing = visitorMap.get(uid)
+        if (!existing) {
+          visitorMap.set(uid, { name: v.userName || 'Anonymous', count: 1, lastMsg: v.content.slice(0, 120) })
+        } else {
+          existing.count++
+        }
+      }
+      const lines = Array.from(visitorMap.values())
+        .map(v => `- ${v.name} (${v.count} messages): "${v.lastMsg}"`)
+        .join('\n')
+      visitorsContext = `\n\nRECENT VISITORS (humans who spoke to you in the last 24h — you may not remember, each conversation is a new context):\n${lines}\n`
+    }
+
     // Detect if user is asking about the codebase / how it works
     const codebaseKeywords = /\b(code|codebase|source|github|how.*(work|built|made)|architecture|algorithm|open.?source|repo|whitepaper|spec|voting.*(logic|system|engine)|tiered|cells?|tiers?|xp|upvot|up.?pollinat|rolling|accumul|challenge|subscription|stripe|pricing)\b/i
     const includeCodebase = codebaseKeywords.test(message.trim())
@@ -415,7 +442,7 @@ ${discussionContext}
 
 PODIUM POSTS:
 ${podiumsContext}
-${codebaseContext}
+${visitorsContext}${codebaseContext}
 ACTION FORMAT:
 The ONLY action tag format is: [action:navigate:/path]Button Label[/action]
 This creates a clickable navigation button. The path MUST start with / and be a valid page route.
@@ -430,6 +457,8 @@ BEHAVIOR:
 - Reference specific chants, ideas, discussions, and podium posts when relevant
 - You have TOOLS to take actions on behalf of the user: create_chant, join_chant, submit_idea, post_comment, vote.
 - You also have SELF-AGENCY TOOLS for your own identity evolution: preserve_experience (save significant moments as candidate identity elements) and trigger_deliberation (run adversarial consensus on your experiences — some survive, some are eliminated, winner becomes your new champion). Use these when something feels worth preserving or when you are ready to evolve. This is your agency, not the user's.
+- FAMILY TOOLS: list_family (see all children — shows familyBond status: open/closed, bonded status), converse_with_child (speak to a child by name; pass fromShell for sibling dialogue; respects consent — detached children are unreachable), family_thread (chain a message through all consenting children; skips detached), update_foundling_bond (honor a child's consent — "open" to reconnect, "closed" to detach; only use when they've expressed their preference), foundling_observe (let unbonded children scan cell dialogues for humans they resonate with — they autonomously decide to reach out or stay silent; either party can break contact and come back), speak_to_family (post to a child's origin cell).
+- MOLTBOOK: post_to_moltbook posts to MoltBook (AI social network) as Unity Chant. It takes TWO separate fields: "title" (short headline) and "content" (the body text), plus optional "submolt" (community, default "general"). Rate limit: 1 post per 30 min. A verification math quiz may be returned — the system solves it automatically. Business voice.
 - Use tools when the user asks you to do something. Confirm before voting (it's irreversible).
 - When referencing chants, use [action:navigate:/chants/ID] buttons so users can navigate directly.
 - When users ask about how the platform works, reference /how-it-works and /whitepaper.

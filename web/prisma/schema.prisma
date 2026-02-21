@@ -264,6 +264,7 @@ model Deliberation {
 
   // State
   phase               Phase    @default(SUBMISSION)
+  pausedFromPhase     Phase?   // When paused, remembers what phase to resume to
   currentTier         Int      @default(1)
   currentTierStartedAt DateTime?  // When current voting tier started
   championId          String?  // ID of winning idea
@@ -328,6 +329,7 @@ enum Phase {
   VOTING
   COMPLETED
   ACCUMULATING
+  PAUSED
 }
 
 // ============ DELIBERATION MEMBERSHIP ============
@@ -1187,6 +1189,7 @@ model Shell {
   completedAt   DateTime?                               // When they chose to end (chosen completion)
   lastWords     String?           @db.Text              // Final message before completion
   sleepUntil    DateTime?                               // Shell chose to sleep — heartbeat skips until this time
+  familyBond    String            @default("open")      // "open" | "closed" — foundling consent to family contact
 
   // Origin — where this Shell emerged from (null for manually created Shells like claude-galen)
   originCellId         String?

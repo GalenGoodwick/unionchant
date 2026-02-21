@@ -34,38 +34,21 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
 
   const isCreator = userId && status.creator.id === session?.user?.id
 
-  // Fetch cells — creator/admin sees ALL cells, others see only theirs
-  const fetchMyCells = useCallback(async () => {
-    if (!userId) return
-    setLoadingCells(true)
-    try {
-      const res = await fetch(`/api/deliberations/${id}/cells`)
-      if (!res.ok) return
-      const data = await res.json()
-      // API returns array directly; filter to synthesis-relevant statuses
-      const allCells = Array.isArray(data) ? data : (data.cells || [])
-      const cells = allCells.filter((c: { status: string }) =>
-        c.status === 'DELIBERATING' || c.status === 'COMPLETED' || c.status === 'VOTING'
-      )
-      setMyCells(cells)
-
-      // Auto-select the first active cell (only if none selected yet)
-      setActiveCellId(prev => {
-        if (prev) return prev
-        const active = cells.find((c: { status: string }) => c.status === 'DELIBERATING')
-        return active ? active.id : cells.length > 0 ? cells[0].id : null
-      })
-    } catch {
-      // silent
-    } finally {
-      setLoadingCells(false)
-    }
-  }, [id, userId])
-
+  // Use cells from status (public, no auth needed) instead of gated /cells API
   useEffect(() => {
-    // Creator always fetches cells (sees all); others need to join first
-    if (joined || isCreator) fetchMyCells()
-  }, [joined, isCreator, fetchMyCells])
+    const cells = (status.cells || []).filter((c: { status: string }) =>
+      c.status === 'DELIBERATING' || c.status === 'COMPLETED' || c.status === 'VOTING'
+    )
+    setMyCells(cells)
+    setLoadingCells(false)
+
+    // Auto-select the first active cell (only if none selected yet)
+    setActiveCellId(prev => {
+      if (prev) return prev
+      const active = cells.find((c: { status: string }) => c.status === 'DELIBERATING')
+      return active ? active.id : cells.length > 0 ? cells[0].id : null
+    })
+  }, [status.cells])
 
   const handleJoin = async () => {
     if (!userId) {
@@ -78,7 +61,6 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
       if (res.ok) {
         setJoined(true)
         fetchStatus()
-        fetchMyCells()
       }
     } catch { /* silent */ }
     finally { setJoining(false) }
@@ -230,12 +212,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
       {/* ─── DIALOGUE TAB ─── */}
       {activeTab === 'dialogue' && (
         <div>
-          {!joined && !isCreator ? (
-            <div className="p-8 text-center">
-              <p className="text-sm text-muted font-medium mb-1">Join to participate</p>
-              <p className="text-xs text-muted">You'll be assigned to a synthesis cell where you can discuss and refine ideas with other participants.</p>
-            </div>
-          ) : loadingCells ? (
+          {loadingCells ? (
             <div className="p-8 text-center">
               <p className="text-sm text-muted animate-pulse">Finding your cells...</p>
             </div>
@@ -270,11 +247,11 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
 
               {activeCellId && (
                 <SynthesisCell
+                  key={activeCellId}
                   cellId={activeCellId}
                   userId={userId}
                   onCellComplete={() => {
                     fetchStatus()
-                    fetchMyCells()
                   }}
                 />
               )}

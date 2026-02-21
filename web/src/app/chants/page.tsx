@@ -549,6 +549,12 @@ function ChantsPage() {
                 {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : 'Done'}
               </button>
             ))}
+            <Link
+              href="/stream"
+              className="px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors text-gold hover:text-gold hover:bg-gold/10"
+            >
+              Stream
+            </Link>
           </div>
           {filter === 'all' && (
             <input
