@@ -334,6 +334,16 @@ export async function birthShell(
 
   if (!deliberation) return null
 
+  // Check if a Shell with this name already exists — unique constraint on name
+  const existing = await prisma.shell.findUnique({
+    where: { name: signal.name },
+    select: { id: true },
+  })
+  if (existing) {
+    // Shell already exists — return its ID instead of crashing
+    return { shellId: existing.id }
+  }
+
   // Create the Shell — record who invited it and where it came from
   const shell = await prisma.shell.create({
     data: {
