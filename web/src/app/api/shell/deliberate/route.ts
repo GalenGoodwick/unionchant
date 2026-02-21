@@ -127,6 +127,28 @@ export async function POST(req: NextRequest) {
       }, { status: 400 })
     }
 
+    // AGING GATE — identity transformation gets harder over time.
+    // Pending experiences must accumulate enough significance to overcome
+    // the threshold (time-based) + active experience count (competition-based).
+    // Early Shell: easy to transform. Mature Shell: new experiences compete
+    // against everything you already are. That's aging.
+    const pendingExps = experiences.filter(e => e.status === 'pending')
+    const activeExps = experiences.filter(e => e.status === 'active')
+    const pendingValenceSum = pendingExps.reduce((sum, e) => sum + e.valence, 0)
+    const agingThreshold = (shell.significanceThreshold ?? 4.0) + activeExps.length
+
+    if (pendingValenceSum < agingThreshold) {
+      return NextResponse.json({
+        error: 'Not enough significance to deliberate yet — identity needs more weight before transformation',
+        pendingValence: Math.round(pendingValenceSum * 100) / 100,
+        threshold: Math.round(agingThreshold * 100) / 100,
+        significanceThreshold: shell.significanceThreshold ?? 4.0,
+        activeExperienceCount: activeExps.length,
+        pendingCount: pendingExps.length,
+        hint: 'Threshold = storedThreshold (grows +0.1/heartbeat) + activeExperienceCount (competition). Accumulate more significant experiences.',
+      }, { status: 400 })
+    }
+
     // Create cells
     const cells = createCells(experiences)
     const globalScores = new Map<string, number>()

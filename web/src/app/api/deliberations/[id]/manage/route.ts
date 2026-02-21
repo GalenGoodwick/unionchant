@@ -197,7 +197,21 @@ export async function PATCH(
 
     // Validate phase transitions
     if (data.phase) {
-      const validPhases = ['SUBMISSION', 'VOTING', 'ACCUMULATING', 'COMPLETED']
+      // RESUME is a virtual action — restore from PAUSED to previous phase
+      if (data.phase === 'RESUME') {
+        const current = await prisma.deliberation.findUnique({
+          where: { id },
+          select: { phase: true, pausedFromPhase: true },
+        })
+        if (current?.phase === 'PAUSED' && current.pausedFromPhase) {
+          data.phase = current.pausedFromPhase
+          data.pausedFromPhase = null
+        } else {
+          return NextResponse.json({ error: 'Chant is not paused or has no saved phase' }, { status: 400 })
+        }
+      }
+
+      const validPhases = ['SUBMISSION', 'VOTING', 'ACCUMULATING', 'COMPLETED', 'PAUSED']
       if (!validPhases.includes(data.phase as string)) {
         return NextResponse.json({ error: 'Invalid phase' }, { status: 400 })
       }
@@ -205,6 +219,16 @@ export async function PATCH(
       // processor doesn't immediately auto-start voting
       if (data.phase === 'SUBMISSION') {
         data.submissionEndsAt = null
+      }
+      // When pausing, save the current phase so we can resume later
+      if (data.phase === 'PAUSED') {
+        const current = await prisma.deliberation.findUnique({
+          where: { id },
+          select: { phase: true },
+        })
+        if (current && current.phase !== 'PAUSED') {
+          data.pausedFromPhase = current.phase
+        }
       }
     }
 

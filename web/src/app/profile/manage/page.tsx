@@ -61,6 +61,29 @@ export default function ManagePage() {
     load()
   }, [status, router])
 
+  const togglePause = async (chant: Chant) => {
+    const isPaused = chant.phase === 'PAUSED'
+    const newPhase = isPaused ? 'RESUME' : 'PAUSED'
+    setActioningId(chant.id)
+    try {
+      const res = await fetch(`/api/deliberations/${chant.id}/manage`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phase: newPhase }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setChants(prev => prev.map(c => c.id === chant.id ? { ...c, phase: updated.phase } : c))
+      } else {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || 'Failed to update')
+      }
+    } catch {
+      alert('Failed to update')
+    }
+    setActioningId(null)
+  }
+
   const deleteChant = async (id: string) => {
     if (!confirm('Delete this chant and all its data? This cannot be undone.')) return
     setActioningId(id)
@@ -194,6 +217,7 @@ export default function ManagePage() {
                     <span className={`px-1.5 py-0.5 rounded font-medium ${
                       c.phase === 'COMPLETED' ? 'bg-success-bg text-success' :
                       c.phase === 'VOTING' ? 'bg-warning-bg text-warning' :
+                      c.phase === 'PAUSED' ? 'bg-error-bg text-error' :
                       'bg-surface text-muted'
                     }`}>{c.phase}</span>
                     <span>{c._count.members} members</span>
@@ -202,6 +226,19 @@ export default function ManagePage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
+                  {c.phase !== 'COMPLETED' && (
+                    <button
+                      onClick={() => togglePause(c)}
+                      disabled={actioningId === c.id}
+                      className={`text-xs border rounded-lg px-2 py-1 transition-colors disabled:opacity-50 ${
+                        c.phase === 'PAUSED'
+                          ? 'text-success hover:text-success border-success/30'
+                          : 'text-warning hover:text-warning border-warning/30'
+                      }`}
+                    >
+                      {c.phase === 'PAUSED' ? 'Resume' : 'Pause'}
+                    </button>
+                  )}
                   {c.isPublic ? (
                     <button
                       onClick={() => makePrivate('chant', c)}

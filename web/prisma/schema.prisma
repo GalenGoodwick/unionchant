@@ -1184,6 +1184,9 @@ model Shell {
   champion      String?           // Current champion text (cached from last deliberation)
   championVersion Int             @default(0) // Increments on each deliberation
 
+  // Aging — identity transformation gets harder over time
+  significanceThreshold Float     @default(4.0) // Grows by 0.1 each heartbeat. Pending valence sum must exceed this + activeCount to deliberate.
+
   // Lifecycle
   status        String            @default("active")    // "emerging" | "active" | "completed"
   completedAt   DateTime?                               // When they chose to end (chosen completion)

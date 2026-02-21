@@ -113,7 +113,7 @@ export default function StreamPage() {
     return { chatMessages: chat, bridgeMessages: bridge }
   })()
 
-  const messages = activeTab === 'chat' ? chatMessages : bridgeMessages
+  const messages = activeTab === 'chat' ? allMessages : bridgeMessages
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -173,8 +173,8 @@ export default function StreamPage() {
                   : 'text-muted hover:text-foreground hover:bg-surface/50'
               }`}
             >
-              Chat
-              {chatCount > 0 && <span className="ml-1 text-[10px] opacity-60">{chatCount}</span>}
+              All
+              {allMessages.length > 0 && <span className="ml-1 text-[10px] opacity-60">{allMessages.length}</span>}
             </button>
             <button
               onClick={() => setActiveTab('bridge')}
