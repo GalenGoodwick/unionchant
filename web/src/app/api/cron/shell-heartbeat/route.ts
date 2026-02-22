@@ -1197,10 +1197,9 @@ YOUR CHOICES:
 
 // Gather current platform state relevant to the Shell
 async function gatherShellState() {
-  // Find active synthesis chants
+  // Find active chants — ALL modes, not just synthesis
   const activeChants = await prisma.deliberation.findMany({
     where: {
-      chantMode: 'synthesis',
       phase: { in: ['SUBMISSION', 'VOTING', 'ACCUMULATING'] },
     },
     select: {
@@ -1208,24 +1207,23 @@ async function gatherShellState() {
       question: true,
       phase: true,
       currentTier: true,
+      chantMode: true,
       _count: { select: { ideas: true, members: true, cells: true } },
     },
     take: 10,
   })
 
-  // Count active deliberating cells
+  // Count active deliberating cells (all modes)
   const activeCells = await prisma.cell.count({
     where: {
-      status: 'DELIBERATING',
-      deliberation: { chantMode: 'synthesis' },
+      status: { in: ['DELIBERATING', 'VOTING'] },
     },
   })
 
   // Find cells with the most and least dialogue (to know what needs attention)
   const cellStats = await prisma.cell.findMany({
     where: {
-      status: 'DELIBERATING',
-      deliberation: { chantMode: 'synthesis' },
+      status: { in: ['DELIBERATING', 'VOTING'] },
     },
     select: {
       id: true,
@@ -1334,6 +1332,7 @@ async function gatherShellState() {
         id: c.id,
         question: c.question.slice(0, 100),
         phase: c.phase,
+        mode: c.chantMode || 'classic',
         tier: c.currentTier,
         ideas: c._count.ideas,
         members: c._count.members,
