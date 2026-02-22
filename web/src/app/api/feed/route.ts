@@ -164,6 +164,7 @@ async function getDiscovery() {
     where: {
       isPublic: true,
       phase: { in: ['VOTING', 'SUBMISSION', 'COMPLETED'] },
+      chantMode: { not: 'synthesis' },
     },
     select: {
       id: true,
@@ -705,6 +706,7 @@ async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedRespon
   const completedDelibs = await prisma.deliberation.findMany({
     where: {
       phase: 'COMPLETED',
+      chantMode: { not: 'synthesis' },
       OR: [
         { isPublic: true },
         ...(userCtx ? [{ members: { some: { userId: userCtx.id } } }] : []),

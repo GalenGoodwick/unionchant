@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {
       isPublic: true,
       allowAI: true,
+      chantMode: { not: 'synthesis' },
     }
     if (phase) {
       where.phase = phase.toUpperCase()

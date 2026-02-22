@@ -22,9 +22,9 @@ export async function GET(
     ? (await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } }))?.id
     : null
 
-  // Get all deliberations for this community
+  // Get all deliberations for this community (exclude synthesis chants)
   const deliberations = await prisma.deliberation.findMany({
-    where: { communityId: community.id },
+    where: { communityId: community.id, chantMode: { not: 'synthesis' } },
     select: {
       id: true,
       question: true,

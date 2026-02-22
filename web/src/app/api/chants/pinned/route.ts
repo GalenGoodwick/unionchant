@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 export async function GET() {
   try {
     const pinned = await prisma.deliberation.findFirst({
-      where: { isPinned: true },
+      where: { isPinned: true, chantMode: { not: 'synthesis' } },
       select: { id: true, question: true, phase: true },
       orderBy: { createdAt: 'desc' },
     })
