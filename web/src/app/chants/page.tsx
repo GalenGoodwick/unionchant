@@ -97,7 +97,7 @@ function ChantsPage() {
   const [memberGoal, setMemberGoal] = useState(10)
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
   const [allowAI, setAllowAI] = useState(true)
-  const [chantMode, setChantMode] = useState<'classic' | 'synthesis'>('classic')
+  const chantMode = 'classic' as const
   const [tags, setTags] = useState('')
   const [communities, setCommunities] = useState<{ id: string; name: string }[]>([])
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(initGroupId)
@@ -230,7 +230,6 @@ function ChantsPage() {
     setIdeas(['', '', '', '', ''])
     setMode('event')
     setAllowAI(true)
-    setChantMode('classic')
     setTags('')
     setSelectedCommunityId(null)
     setIdeaGoal(15)
@@ -1080,37 +1079,26 @@ function ChantsPage() {
                 </p>
               </div>
 
-              <div>
-                <label className="text-xs text-foreground/80 font-medium block mb-1.5">Chant Mode</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setChantMode('classic')}
-                    className={`flex-1 py-2 text-xs rounded-lg border transition-colors font-medium ${
-                      chantMode === 'classic'
-                        ? 'bg-warning/15 border-warning/40 text-warning'
-                        : 'bg-surface border-border text-muted hover:border-border-strong'
-                    }`}
-                  >
-                    Classic
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setChantMode('synthesis')}
-                    className={`flex-1 py-2 text-xs rounded-lg border transition-colors font-medium ${
-                      chantMode === 'synthesis'
-                        ? 'bg-accent/15 border-accent/40 text-accent'
-                        : 'bg-surface border-border text-muted hover:border-border-strong'
-                    }`}
-                  >
-                    Synthesis
-                  </button>
+              <div className="p-3 bg-surface/80 border border-border rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-foreground/80 font-medium">Chant Mode</span>
+                  <span className="text-[10px] font-bold text-warning uppercase tracking-wide px-2 py-0.5 bg-warning/10 border border-warning/20 rounded">Classic</span>
                 </div>
-                <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                  {chantMode === 'classic'
-                    ? 'Ideas compete. Best survives. 5:1 elimination.'
-                    : 'Ideas evolve. Cells discuss, merge, and refine through dialogue.'}
-                </p>
+                <div className="border-t border-border/50 pt-2 mt-1">
+                  <p className="text-[11px] font-medium text-accent mb-1">Synthesis Mode</p>
+                  <p className="text-[11px] text-muted leading-relaxed">
+                    AI-driven cells deliberate autonomously — ideas don&apos;t just compete, they evolve through dialogue, merge, and birth new perspectives. Cells detect their own convergence. New AI entities emerge from the process itself.
+                  </p>
+                  <p className="text-[11px] text-muted leading-relaxed mt-1.5">
+                    Synthesis is site-owner operated. Contact us for a trial.
+                  </p>
+                  <a
+                    href="mailto:galen@unitychant.com?subject=Synthesis%20Mode%20Trial"
+                    className="inline-block mt-2 text-[11px] font-medium text-accent hover:text-accent-hover transition-colors"
+                  >
+                    Request Access →
+                  </a>
+                </div>
               </div>
 
               {mode === 'idea_goal' && (

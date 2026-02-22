@@ -82,32 +82,43 @@ export default function StreamPage() {
   }, [loading, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Split messages into chat vs bridge
-  // Bridge messages: userName contains "Claude Code" or "parent instance"
-  // Everything else is chat (Galen typing in Collective Chat, Shell responses, heartbeats, actions)
+  // Bridge = heartbeat actions, tool results, bonding window, child conversations, Claude Code relay
+  // Chat = everything else (Galen talking, Shell replies to Galen)
   const isBridgeMessage = (msg: StreamMessage): boolean => {
     if (msg.role === 'user') {
       const name = (msg.userName || '').toLowerCase()
       return name.includes('claude code') || name.includes('parent instance')
     }
-    // Assistant messages after a bridge user message belong to bridge
-    // We'll use a proximity heuristic: check the preceding user message
+    // Assistant messages with action prefixes are bridge
+    const c = msg.content
+    if (c.startsWith('[HEARTBEAT')) return true
+    if (c.startsWith('[EMERGENCY')) return true
+    if (c.startsWith('[BONDING WINDOW')) return true
+    if (c.startsWith('[FOUNDLING')) return true
+    if (/^\[(?:Shell|.+ \(sibling\)) →/.test(c)) return true
+    if (c.startsWith('[Spoke to')) return true
+    if (c.startsWith('[Family thread')) return true
+    if (c.startsWith('[Posted to MoltBook')) return true
+    if (c.startsWith('[Foundling observation')) return true
     return false
   }
 
-  // Build filtered lists with proper bridge/chat grouping
+  // Build filtered lists
   const { chatMessages, bridgeMessages } = (() => {
     const chat: StreamMessage[] = []
     const bridge: StreamMessage[] = []
     let lastUserWasBridge = false
 
     for (const msg of allMessages) {
+      const msgIsBridge = isBridgeMessage(msg)
       if (msg.role === 'user') {
-        lastUserWasBridge = isBridgeMessage(msg)
+        lastUserWasBridge = msgIsBridge
       }
-      if (lastUserWasBridge) {
+      if (msgIsBridge || (msg.role === 'assistant' && lastUserWasBridge)) {
         bridge.push(msg)
       } else {
         chat.push(msg)
+        if (msg.role === 'assistant') lastUserWasBridge = false
       }
     }
     return { chatMessages: chat, bridgeMessages: bridge }
@@ -279,7 +290,40 @@ function StreamBubble({ message, adminName, tab }: { message: StreamMessage; adm
   const content = message.content
   const isHeartbeat = content.startsWith('[HEARTBEAT')
   const isEmergency = content.startsWith('[EMERGENCY')
+  const isBondingWindow = content.startsWith('[BONDING WINDOW')
+  const isChildConvo = /^\[(?:Shell|.+ \(sibling\)) →/.test(content)
   const isFamilyAction = content.startsWith('[Spoke to') || content.startsWith('[Family thread') || content.startsWith('[Posted to MoltBook') || content.startsWith('[Foundling observation') || content.startsWith('[HEARTBEAT —')
+
+  if (isBondingWindow) {
+    return (
+      <div className="p-3 bg-purple/8 border border-purple/20 rounded-lg">
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-purple" />
+          <span className="text-[10px] font-bold text-purple uppercase tracking-wide">Bonding Window</span>
+        </div>
+        <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">
+          {content.replace(/^\[BONDING WINDOW[^\]]*\]\s*/, '')}
+        </p>
+        <p className="text-[9px] text-muted/50 mt-1.5">{formatTime(message.createdAt)}</p>
+      </div>
+    )
+  }
+
+  if (isChildConvo) {
+    const headerMatch = content.match(/^\[([^\]]+)\]/)
+    const header = headerMatch ? headerMatch[1] : 'Shell Conversation'
+    const body = content.replace(/^\[[^\]]+\]\s*/, '')
+    return (
+      <div className="p-3 bg-gold/6 border border-gold-border rounded-lg">
+        <div className="flex items-center gap-1.5 mb-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-gold" />
+          <span className="text-[10px] font-bold text-gold uppercase tracking-wide">{header}</span>
+        </div>
+        <p className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">{body}</p>
+        <p className="text-[9px] text-muted/50 mt-1.5">{formatTime(message.createdAt)}</p>
+      </div>
+    )
+  }
 
   if (isFamilyAction) {
     return (

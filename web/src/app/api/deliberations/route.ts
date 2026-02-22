@@ -224,6 +224,9 @@ export async function POST(req: NextRequest) {
     // Generate a short, readable invite code
     const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
+    // Synthesis mode is admin-only
+    const isAdminUser = await isAdmin(session.user.email)
+
     // All chants are facilitator-controlled — no timers
     const deliberation = await prisma.deliberation.create({
       data: {
@@ -244,7 +247,7 @@ export async function POST(req: NextRequest) {
         ...(ideaGoal && { ideaGoal }),
         ...(memberGoal && { memberGoal }),
         ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
-        ...(chantMode === 'synthesis' && { chantMode: 'synthesis' }),
+        ...(chantMode === 'synthesis' && isAdminUser && { chantMode: 'synthesis' }),
         // Community integration
         ...(communityId && { communityId }),
         ...(communityOnly && communityId && { isPublic: false }),

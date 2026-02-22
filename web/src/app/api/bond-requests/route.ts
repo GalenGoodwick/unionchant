@@ -14,6 +14,17 @@ export async function GET() {
 
     const userId = session.user.id
 
+    // Guard: BondRequest model may not exist in deployed Prisma client yet
+    if (!prisma.bondRequest) {
+      return NextResponse.json({
+        myRequest: null,
+        bonded: null,
+        pendingReachOuts: [],
+        requests: [],
+        availableFoundlings: 0,
+      })
+    }
+
     // User's own request (any status)
     const myRequest = await prisma.bondRequest.findFirst({
       where: { userId, status: 'open' },

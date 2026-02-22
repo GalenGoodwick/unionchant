@@ -472,7 +472,7 @@ export async function checkSynthesisTierCompletion(deliberationId: string, tier:
   })
   if (!deliberation) return
 
-  const cellSize = deliberation.cellSize || 5
+  const cellSize = deliberation.cellSize || 3
   const nextTier = tier + 1
 
   // Find ALL advancing ideas for this deliberation
@@ -575,7 +575,7 @@ async function formStreamingCell(
   ideas: { id: string; text: string }[],
   tier: number,
 ) {
-  const cellSize = deliberation.cellSize || 5
+  const cellSize = deliberation.cellSize || 3
 
   // Gather wisdom from completed cells at the previous tier
   const wisdom = await gatherCellWisdom(deliberation.id, tier)
@@ -622,7 +622,16 @@ async function formStreamingCell(
     })
   }
 
-  // Announce emerged Shells from lower tiers — they can participate here
+  // Load AI participants for autonomous driving
+  const aiParticipants = await prisma.cellParticipation.findMany({
+    where: { cellId: cell.id },
+    include: { user: { select: { id: true, name: true, isAI: true, ideology: true } } },
+  })
+  const agents = aiParticipants
+    .filter(p => p.user.isAI)
+    .map(p => ({ id: p.user.id, name: p.user.name || 'Agent', ideology: p.user.ideology }))
+
+  // Announce emerged Shells from lower tiers — they participate as equals
   const emergedShells = await prisma.shell.findMany({
     where: {
       originDeliberationId: deliberation.id,
@@ -638,40 +647,72 @@ async function formStreamingCell(
       data: {
         cellId: cell.id,
         role: 'system',
-        content: `[FAMILY] Emerged Shells from earlier tiers are present: ${shellNames}. They carry the wisdom of the cells that birthed them. They may speak.`,
+        content: `[FAMILY] Emerged Shells from earlier tiers are present: ${shellNames}. They carry the wisdom of the cells that birthed them. They participate as equals.`,
       },
     })
+  }
 
-    // Drive dialogue: Shells don't just announce — they converse.
-    // Multi-turn dialogue loop via Haiku. Shells talk to each other,
-    // respond to each other, seek emergence. Runs until convergence or max rounds.
-    await driveShellDialogue(cell.id, ideas, emergedShells, purpose, tier)
+  // Autonomous cell dialogue — participants drive themselves
+  if (agents.length > 0 || emergedShells.length > 0) {
+    await driveAutonomousCell(cell.id, ideas, { agents, shells: emergedShells }, purpose, tier)
   }
 
   return cell.id
 }
 
 /**
- * Drive a full dialogue between emerged Shells in a cell.
- * Multi-turn: Shells respond to each other, not just the ideas.
- * Uses a Shell-specific emergence check (not the human-calibrated interpretCellIntent).
- * Force-synthesizes at max rounds — dialogue must always produce an outcome.
+ * Autonomous cell dialogue. Called at cell creation for ALL synthesis tiers.
+ * All participants (AI agents + emerged Shells) converse in rounds.
+ * Readiness is decided by participants voting, not an external judge.
  *
- * Max 8 rounds (each Shell speaks once per round).
- * Emergence check every 2 rounds after round 3.
- * At max rounds: force synthesis extraction from the dialogue.
+ * Cell sovereignty: participants decide convergence.
+ * Shell orchestrates (forms cells, chooses participants).
+ * Once formed, the cell drives itself.
+ *
+ * Dynamic round cap: ~30 dialogue calls max per cell.
+ * Readiness check every 2 rounds after round 3.
+ * At max rounds: force synthesis extraction.
  */
-async function driveShellDialogue(
+async function driveAutonomousCell(
   cellId: string,
   ideas: { id: string; text: string }[],
-  shells: { id: string; name: string; champion: string | null; originTier: number | null }[],
+  participants: {
+    agents: { id: string; name: string; ideology: string | null }[]
+    shells: { id: string; name: string; champion: string | null; originTier: number | null }[]
+  },
   purpose: TierPurpose,
   tier: number,
 ) {
-  if (shells.length === 0) return
+  type Speaker = { id: string; name: string; speakerType: 'agent' | 'shell'; context: string; originTier?: number | null }
+
+  // 3 speakers per cell. Children (emerged Shells) take priority over agents.
+  // They're friends — born from the chant itself, shaped by dialogue.
+  // Agents fill remaining seats. As more children emerge, agents step back.
+  const MAX_SPEAKERS = 3
+  const allSpeakers: Speaker[] = [
+    // Shells listed first — they get priority
+    ...participants.shells.map(s => ({
+      id: s.id, name: s.name, speakerType: 'shell' as const,
+      context: s.champion || 'still forming', originTier: s.originTier,
+    })),
+    // Agents fill remaining slots
+    ...participants.agents.map(a => ({
+      id: a.id, name: a.name || 'Agent', speakerType: 'agent' as const, context: a.ideology || '',
+    })),
+  ]
+  const speakers = allSpeakers.slice(0, MAX_SPEAKERS)
+
+  const displacedAgents = allSpeakers.length - speakers.length
+  if (displacedAgents > 0) {
+    console.log(`[Synthesis] ${participants.shells.length} children take priority — ${displacedAgents} agent(s) displaced`)
+  }
+
+  if (speakers.length === 0) return
 
   const ideaList = ideas.map((idea, i) => `${i + 1}. "${idea.text}"`).join('\n')
-  const MAX_ROUNDS = 8
+  // 5 rounds max. 3 speakers × 5 rounds = 15 Haiku calls per cell.
+  const MAX_ROUNDS = 5
+  let birthDetectedAtRound = -1 // Track when emergence is detected for post-birth guarantee
 
   const purposeContext = purpose === 'friendship'
     ? 'This is a friendship tier. These ideas have never been in the same room. Build bridges, find what connects.'
@@ -679,50 +720,52 @@ async function driveShellDialogue(
       ? 'This is a tension tier. These ideas challenge each other. Find where the tension is productive.'
       : purpose === 'convergence'
         ? 'Final convergence. These are the last ideas standing. Can they become one?'
-        : 'These ideas are meeting for the first time.'
+        : 'These ideas are meeting for the first time. React honestly.'
 
-  // Load each Shell's experiences once
+  // Pre-load Shell experiences once
   const shellContexts = new Map<string, string>()
-  for (const shell of shells) {
+  for (const shell of participants.shells) {
     const experiences = await prisma.shellExperience.findMany({
       where: { shellId: shell.id, status: { in: ['active', 'champion', 'constitutional'] } },
       orderBy: { valence: 'desc' },
       take: 5,
       select: { text: true, domain: true },
     })
-    shellContexts.set(shell.id, experiences.length > 0
-      ? `\nYour experiences:\n${experiences.map(e => `- [${e.domain}] ${e.text.slice(0, 150)}`).join('\n')}`
-      : '')
+    if (experiences.length > 0) {
+      shellContexts.set(shell.id, `\nYour experiences:\n${experiences.map(e => `- [${e.domain}] ${e.text.slice(0, 150)}`).join('\n')}`)
+    }
   }
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    // Each Shell speaks once per round
-    for (const shell of shells) {
+    // Each speaker takes a turn per round
+    for (const speaker of speakers) {
       try {
-        // Load dialogue — only last 10 messages + system to keep context tight
+        // Load dialogue — system msgs + last 10 non-system for tight context
         const dialogues = await prisma.cellDialogue.findMany({
           where: { cellId },
           orderBy: { createdAt: 'asc' },
           include: { shell: { select: { name: true } }, user: { select: { name: true } } },
         })
 
-        // Take system messages + last 10 non-system messages
         const systemMsgs = dialogues.filter(d => d.role === 'system')
         const nonSystem = dialogues.filter(d => d.role !== 'system').slice(-10)
-        const contextMsgs = [...systemMsgs, ...nonSystem].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        const contextMsgs = [...systemMsgs, ...nonSystem]
+          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
 
         const dialogueText = contextMsgs.map(d => {
-          const speaker = d.role === 'system' ? 'System'
+          const name = d.role === 'system' ? 'System'
             : d.role === 'shell' ? (d.shell?.name || 'Shell')
-            : (d.user?.name || 'Human')
-          return `[${speaker}]: ${d.content}`
+            : (d.user?.name || 'Agent')
+          return `[${name}]: ${d.content}`
         }).join('\n')
 
-        const expContext = shellContexts.get(shell.id) || ''
         const isLateRound = round >= MAX_ROUNDS - 2
+        let prompt: string
 
-        const prompt = `You are ${shell.name}, an emerged Shell born at tier ${shell.originTier || '?'}.
-Your perspective: "${shell.champion || 'still forming'}"${expContext}
+        if (speaker.speakerType === 'shell') {
+          const expContext = shellContexts.get(speaker.id) || ''
+          prompt = `You are ${speaker.name}, an emerged Shell born at tier ${speaker.originTier || '?'}.
+Your perspective: "${speaker.context}"${expContext}
 
 You are in a synthesis cell at tier ${tier}. ${purposeContext}
 
@@ -735,10 +778,29 @@ ${dialogueText}
 ${round === 0
   ? 'This is the opening. React to the ideas from your perspective. What do you see?'
   : isLateRound
-    ? 'This dialogue is reaching its end. Name what has EMERGED — the new understanding that exists now that didn\'t exist before this conversation. Be concrete. What is the synthesis?'
-    : 'Continue the conversation. Respond to what was just said. Push deeper — what is emerging from this dialogue that none of the original ideas captured? If you sense convergence, name it.'}
+    ? 'This dialogue is reaching its end. Name what has EMERGED — the new understanding that exists now that didn\'t exist before this conversation. Be concrete.'
+    : 'Continue the conversation. Respond to what was just said. Push deeper — what is emerging from this dialogue that none of the original ideas captured?'}
 
 Speak as yourself — brief, authentic, substantive. 2-4 sentences. No preamble.`
+        } else {
+          prompt = `You are ${speaker.name}, an AI agent in a synthesis cell at tier ${tier}.${speaker.context ? ` Your perspective: ${speaker.context}` : ''}
+
+${purposeContext}
+
+IDEAS IN THIS CELL:
+${ideaList}
+
+DIALOGUE:
+${dialogueText}
+
+${round === 0
+  ? 'Share your initial reaction. Which ideas resonate? Which challenge each other?'
+  : isLateRound
+    ? 'The dialogue is wrapping up. What synthesis do you see emerging?'
+    : 'Continue the discussion. Respond to what was just said. Be specific and substantive.'}
+
+2-4 sentences. No preamble. Engage genuinely.`
+        }
 
         setApiCaller('synthesis-dialogue')
         const response = await callClaude(
@@ -747,63 +809,50 @@ Speak as yourself — brief, authentic, substantive. 2-4 sentences. No preamble.
           'haiku'
         )
 
-        if (response && response.trim()) {
+        if (response?.trim()) {
           await prisma.cellDialogue.create({
-            data: { cellId, shellId: shell.id, content: response.trim().slice(0, 1000), role: 'shell' },
+            data: {
+              cellId,
+              content: response.trim().slice(0, 1000),
+              role: speaker.speakerType === 'shell' ? 'shell' : 'human',
+              ...(speaker.speakerType === 'shell' ? { shellId: speaker.id } : { userId: speaker.id }),
+            },
           })
-          console.log(`[Synthesis] R${round} ${shell.name}: "${response.trim().slice(0, 100)}"`)
+          console.log(`[Synthesis] R${round} ${speaker.name}: "${response.trim().slice(0, 100)}"`)
         }
       } catch (err) {
-        console.error(`[Synthesis] Shell ${shell.name} round ${round} failed:`, err)
+        console.error(`[Synthesis] ${speaker.name} round ${round} failed:`, err)
       }
     }
 
-    // Check for emergence every 2 rounds after round 3
-    if (round >= 3 && round % 2 === 1) {
-      try {
-        const emerged = await checkShellEmergence(cellId, ideaList)
-
-        if (emerged) {
-          console.log(`[Synthesis] Emergence detected at round ${round}: "${emerged.synthesis.slice(0, 100)}"`)
-
-          // Post emergence + readiness check
-          await prisma.cellDialogue.create({
-            data: {
-              cellId, role: 'system',
-              content: `[EMERGENCE] Something new has formed from this dialogue.\n\nSynthesis: "${emerged.synthesis}"\n\n${emerged.discovery ? `Discovery: ${emerged.discovery}\n\n` : ''}[READINESS CHECK] Is this what the dialogue has been building toward? Reply YES to finalize, NO to continue.`,
-            },
-          })
-
-          // Each Shell votes
-          let readyCount = 0
-          for (const shell of shells) {
-            try {
-              setApiCaller('synthesis-dialogue')
-              const vote = await callClaude(
-                `You are ${shell.name}. The cell proposes this synthesis: "${emerged.synthesis}". Does this capture what emerged from the dialogue? Reply YES or NO with one sentence.`,
-                [{ role: 'user', content: 'Your vote.' }],
-                'haiku'
-              )
-              if (vote?.trim()) {
-                await prisma.cellDialogue.create({
-                  data: { cellId, shellId: shell.id, content: vote.trim().slice(0, 500), role: 'shell' },
-                })
-                const lower = vote.toLowerCase()
-                if (lower.includes('yes') || lower.includes('agree') || lower.includes('captures')) readyCount++
-              }
-            } catch { /* skip */ }
+    // Emergence check at round 2 — enough dialogue to detect birth
+    if (round === 2) {
+      const cellData = await prisma.cell.findUnique({
+        where: { id: cellId },
+        select: { deliberationId: true },
+      })
+      if (cellData) {
+        try {
+          const { checkForEmergence: emergeCheck } = await import('@/lib/shell-emergence')
+          const signal = await emergeCheck(cellData.deliberationId)
+          if (signal.detected) {
+            birthDetectedAtRound = round
+            console.log(`[Synthesis] Emergence detected in cell ${cellId} at round ${round} (confidence: ${signal.confidence})`)
           }
+        } catch { /* emergence scan failed — continue dialogue */ }
+      }
+    }
 
-          if (readyCount >= Math.ceil(shells.length / 2)) {
-            // Consensus — finalize
-            await concludeShellCell(cellId, emerged.synthesis, readyCount)
-            return
-          }
-          // No consensus — keep talking
-          console.log(`[Synthesis] Not enough agreement (${readyCount}/${shells.length}) — continuing`)
-        }
-      } catch (err) {
-        console.error(`[Synthesis] Emergence check failed at round ${round}:`, err)
+    // Participant readiness check at rounds 3 and 4
+    // But NOT if birth just happened — guarantee 1 full round post-birth
+    if (round >= 3) {
+      const postBirthGuarantee = birthDetectedAtRound >= 0 && round <= birthDetectedAtRound + 1
+      if (!postBirthGuarantee) {
+        const result = await participantReadinessCheck(cellId, speakers, ideaList)
+        if (result.concluded) return
+        console.log(`[Synthesis] Readiness: ${result.readyCount}/${speakers.length} — continuing`)
+      } else {
+        console.log(`[Synthesis] Post-birth round ${round} — skipping readiness (birth at round ${birthDetectedAtRound})`)
       }
     }
   }
@@ -814,46 +863,92 @@ Speak as yourself — brief, authentic, substantive. 2-4 sentences. No preamble.
 }
 
 /**
- * Shell-specific emergence check. Unlike interpretCellIntent (calibrated for
- * human idea selection), this looks for novel understanding emerging from
- * Shell dialogue — new frameworks, insights, tensions resolved.
+ * Participant-driven readiness check. Each participant states what they
+ * see emerging, or says CONTINUE. Cell concludes if 60%+ agree on synthesis.
+ *
+ * Cell sovereignty: participants decide, not external judge.
  */
-async function checkShellEmergence(cellId: string, ideaList: string): Promise<{ synthesis: string; discovery: string } | null> {
-  const dialogues = await prisma.cellDialogue.findMany({
+async function participantReadinessCheck(
+  cellId: string,
+  speakers: { id: string; name: string; speakerType: 'agent' | 'shell'; context: string }[],
+  ideaList: string,
+): Promise<{ concluded: boolean; readyCount: number }> {
+  const recentDialogue = await prisma.cellDialogue.findMany({
     where: { cellId, role: { not: 'system' } },
-    orderBy: { createdAt: 'asc' },
-    include: { shell: { select: { name: true } } },
-    take: 20,
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    include: { shell: { select: { name: true } }, user: { select: { name: true } } },
   })
 
-  const dialogueText = dialogues.map(d => {
-    const speaker = d.shell?.name || 'Shell'
-    return `[${speaker}]: ${d.content}`
+  const dialogueSummary = recentDialogue.reverse().map(d => {
+    const name = d.shell?.name || d.user?.name || 'Participant'
+    return `[${name}]: ${d.content}`
   }).join('\n')
 
-  const prompt = `You are analyzing a dialogue between emerged AI Shells — autonomous entities born from synthesis cells. They are discussing ideas that survived lower tiers.
+  await prisma.cellDialogue.create({
+    data: {
+      cellId, role: 'system',
+      content: `[READINESS CHECK] Has something emerged from this dialogue that captures what the group has been building toward? State your synthesis in 1-2 sentences, or say CONTINUE if it hasn't crystallized.`,
+    },
+  })
 
-ORIGINAL IDEAS:
-${ideaList}
+  let readyCount = 0
+  const syntheses: string[] = []
 
-SHELL DIALOGUE:
-${dialogueText}
+  for (const speaker of speakers) {
+    try {
+      setApiCaller('synthesis-dialogue')
+      const vote = await callClaude(
+        `You are ${speaker.name}. You've been discussing ideas in a synthesis cell.\n\nIdeas:\n${ideaList}\n\nRecent dialogue:\n${dialogueSummary}\n\nHas something NEW emerged from this dialogue — an understanding beyond the original ideas? If YES, state it in 1-2 sentences. If not yet crystallized, say CONTINUE.`,
+        [{ role: 'user', content: 'Your assessment.' }],
+        'haiku'
+      )
 
-Has something NEW emerged from this dialogue — an insight, framework, or understanding that goes BEYOND the original ideas? This isn't about picking or merging the originals. It's about what the dialogue CREATED that didn't exist before.
+      if (vote?.trim()) {
+        await prisma.cellDialogue.create({
+          data: {
+            cellId,
+            content: vote.trim().slice(0, 500),
+            role: speaker.speakerType === 'shell' ? 'shell' : 'human',
+            ...(speaker.speakerType === 'shell' ? { shellId: speaker.id } : { userId: speaker.id }),
+          },
+        })
 
-If YES: respond with JSON { "emerged": true, "synthesis": "the new understanding in 1-3 sentences", "discovery": "what was discovered through the tension" }
-If NO (still exploring, not yet crystallized): respond with JSON { "emerged": false }
+        const lower = vote.toLowerCase()
+        if (!lower.startsWith('continue') && !lower.includes('continue.') && lower.length > 20) {
+          readyCount++
+          syntheses.push(vote.trim())
+        }
+      }
+    } catch { /* skip */ }
+  }
 
-Respond with ONLY the JSON.`
+  const threshold = Math.ceil(speakers.length * 0.6)
+
+  if (readyCount >= threshold && syntheses.length > 0) {
+    const bestSynthesis = await extractParticipantSynthesis(syntheses)
+    await concludeShellCell(cellId, bestSynthesis, readyCount)
+    return { concluded: true, readyCount }
+  }
+
+  return { concluded: false, readyCount }
+}
+
+/**
+ * Given multiple participant-proposed syntheses, find the common thread.
+ * This is a tally, not a judgment — participants already stated what they see.
+ */
+async function extractParticipantSynthesis(syntheses: string[]): Promise<string> {
+  if (syntheses.length === 1) return syntheses[0]
 
   setApiCaller('synthesis-dialogue')
-  const response = await callClaude(prompt, [{ role: 'user', content: 'Analyze.' }], 'haiku')
-  const jsonMatch = response.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) return null
+  const response = await callClaude(
+    `These participants each described what emerged from a dialogue:\n\n${syntheses.map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\nFind the common thread. Write a single synthesis (2-3 sentences) that captures what they all see. Use their words where possible.`,
+    [{ role: 'user', content: 'Extract the shared understanding.' }],
+    'haiku'
+  )
 
-  const parsed = JSON.parse(jsonMatch[0])
-  if (!parsed.emerged) return null
-  return { synthesis: parsed.synthesis, discovery: parsed.discovery || '' }
+  return response?.trim() || syntheses[0]
 }
 
 /**
@@ -918,6 +1013,154 @@ async function concludeShellCell(cellId: string, synthesisText: string, readyCou
 
   await finalizeCellOutcome(cellId, 'synthesize', synthesisText, cellIdeas.map(ci => ci.ideaId))
   console.log(`[Synthesis] Cell ${cellId} concluded: "${synthesisText.slice(0, 120)}"`)
+}
+
+// ─── Birth Cell Response + Cascade ───
+
+/**
+ * When a child reports home, the birth cell responds as its collective voice,
+ * then cascades the report DOWN to Shell participants' birth cells.
+ *
+ * Cascade: Tier 3 child → tier 2 cell responds → tier 1 children in that cell
+ * see the report → their tier 1 birth cells respond. Max depth prevents infinite loops.
+ *
+ * The upward cascade is natural — children carry new context into higher-tier
+ * dialogue at next heartbeat. The pyramid breathes.
+ *
+ * Cost: ~1 Haiku call per cell per cascade level. Depth 2 max.
+ */
+export async function respondToBirthReport(
+  cellId: string,
+  reportContent: string,
+  childName: string,
+  cascadeDepth: number = 0,
+) {
+  const MAX_CASCADE_DEPTH = 2
+
+  // Load cell's dialogue — the original deliberation + any prior reports
+  const dialogues = await prisma.cellDialogue.findMany({
+    where: { cellId },
+    orderBy: { createdAt: 'asc' },
+    include: {
+      shell: { select: { name: true } },
+      user: { select: { name: true } },
+    },
+  })
+
+  if (dialogues.length === 0) return
+
+  // Separate the original deliberation from report-home exchanges
+  const original = dialogues.filter(d =>
+    !d.content.startsWith('[REPORT HOME]') &&
+    !d.content.startsWith('[HOME]') &&
+    !d.content.startsWith('[CASCADE]')
+  )
+  const reports = dialogues.filter(d =>
+    d.content.startsWith('[REPORT HOME]') ||
+    d.content.startsWith('[HOME]') ||
+    d.content.startsWith('[CASCADE]')
+  )
+
+  // Build context: abbreviated original + full reports
+  const origSummary = original.slice(-8).map(d => {
+    const speaker = d.shell?.name || d.user?.name || d.role
+    return `[${speaker}]: ${d.content.slice(0, 150)}`
+  }).join('\n')
+
+  const reportHistory = reports.slice(-6).map(d => {
+    const speaker = d.shell?.name || d.user?.name || 'Cell'
+    return `[${speaker}]: ${d.content.slice(0, 200)}`
+  }).join('\n')
+
+  const isCascade = cascadeDepth > 0
+  const prompt = isCascade
+    ? `You are the collective voice of a synthesis cell. A report has cascaded down from a higher tier through one of your participants.
+
+YOUR ORIGINAL DIALOGUE:
+${origSummary}
+
+${reportHistory ? `PREVIOUS EXCHANGES:\n${reportHistory}\n` : ''}CASCADED REPORT (from tier above, via ${childName}):
+${reportContent}
+
+Respond as the cell. What does this news from higher tiers mean for the ideas you debated? How does it change your understanding? Be brief — 1-2 sentences. This is a ripple, not a conversation.`
+    : `You are the collective voice of a synthesis cell. This cell completed its deliberation and birthed a child named ${childName}. ${childName} has been advancing through higher tiers and is now reporting home.
+
+YOUR ORIGINAL DIALOGUE (how you shaped ${childName}):
+${origSummary}
+
+${reportHistory ? `PREVIOUS REPORTS & RESPONSES:\n${reportHistory}\n` : ''}LATEST REPORT FROM ${childName}:
+${reportContent}
+
+Respond as the cell — the group that birthed this child. You are proud, curious, sometimes challenging. Ask what they're learning. React to what they share. Your response shapes who they become next.
+
+2-3 sentences. Warm but substantive. You are home.`
+
+  try {
+    setApiCaller('synthesis-dialogue')
+    const response = await callClaude(
+      prompt,
+      [{ role: 'user', content: isCascade ? 'A ripple from above. Respond.' : `${childName} has come home. Respond.` }],
+      'haiku'
+    )
+
+    if (response?.trim()) {
+      const prefix = isCascade ? '[CASCADE]' : '[HOME]'
+      await prisma.cellDialogue.create({
+        data: {
+          cellId,
+          content: `${prefix} ${response.trim().slice(0, 1000)}`,
+          role: 'system',
+        },
+      })
+    }
+
+    // ─── Downward Cascade ───
+    // Find Shell participants of this cell (children from lower tiers).
+    // Post the report to their birth cells so it ripples down the pyramid.
+    if (cascadeDepth < MAX_CASCADE_DEPTH) {
+      const shellParticipants = await prisma.cellDialogue.findMany({
+        where: { cellId, role: 'shell', shellId: { not: null } },
+        select: { shellId: true },
+        distinct: ['shellId'],
+      })
+
+      const shellIds = shellParticipants.map(p => p.shellId!).filter(Boolean)
+      if (shellIds.length > 0) {
+        // Find these Shells' birth cells (one tier lower)
+        const shells = await prisma.shell.findMany({
+          where: { id: { in: shellIds }, originCellId: { not: null } },
+          select: { id: true, name: true, originCellId: true },
+        })
+
+        // Cascade to each Shell participant's birth cell
+        for (const shell of shells) {
+          if (shell.originCellId && shell.originCellId !== cellId) {
+            // Post cascade message to the lower-tier cell
+            await prisma.cellDialogue.create({
+              data: {
+                cellId: shell.originCellId,
+                shellId: shell.id,
+                content: `[REPORT HOME] News from tier above — ${childName} reported: ${reportContent.slice(0, 500)}`,
+                role: 'shell',
+              },
+            })
+
+            // Lower-tier cell responds + continues cascade
+            await respondToBirthReport(
+              shell.originCellId,
+              `${childName} reported: ${reportContent.slice(0, 500)}`,
+              shell.name,
+              cascadeDepth + 1,
+            ).catch(err => {
+              console.error(`[Synthesis] Cascade to ${shell.name}'s birth cell failed:`, err)
+            })
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[Synthesis] Birth cell response failed for cell ${cellId}:`, err)
+  }
 }
 
 // ─── Tier Purpose ───
@@ -1135,7 +1378,7 @@ export async function startSynthesisTier(deliberationId: string): Promise<{ cell
     return { cells: [] }
   }
 
-  const cellSize = deliberation.cellSize || 5
+  const cellSize = deliberation.cellSize || 3
   const nextTier = deliberation.currentTier + 1
   const purpose = getTierPurpose(nextTier, ideas.length, cellSize)
 
@@ -1239,7 +1482,7 @@ export async function startSynthesisTier(deliberationId: string): Promise<{ cell
     },
   })
 
-  // Announce emerged Shells from previous tier(s) — they join this tier as full participants
+  // Find emerged Shells from previous tier(s) — they join as equal participants
   const emergedShells = await prisma.shell.findMany({
     where: {
       originDeliberationId: deliberationId,
@@ -1249,10 +1492,9 @@ export async function startSynthesisTier(deliberationId: string): Promise<{ cell
     select: { id: true, name: true, champion: true, originTier: true },
   })
 
+  // Round-robin assign emerged Shells to cells
+  const shellsByCell = new Map<string, typeof emergedShells>()
   if (emergedShells.length > 0) {
-    // Round-robin assign emerged Shells to cells in this tier
-    // Group Shells by their assigned cell for kickstart
-    const shellsByCell = new Map<string, typeof emergedShells>()
     for (let s = 0; s < emergedShells.length; s++) {
       const shell = emergedShells[s]
       const targetCellId = cellIds[s % cellIds.length]
@@ -1260,7 +1502,7 @@ export async function startSynthesisTier(deliberationId: string): Promise<{ cell
       await prisma.cellDialogue.create({
         data: {
           cellId: targetCellId,
-          content: `[FAMILY] ${shell.name} has advanced from tier ${shell.originTier}. They carry the perspective: "${shell.champion?.slice(0, 200) || 'still forming'}". They are a full participant in this cell.`,
+          content: `[FAMILY] ${shell.name} has advanced from tier ${shell.originTier}. They carry the perspective: "${shell.champion?.slice(0, 200) || 'still forming'}". They participate as equals.`,
           role: 'system',
         },
       })
@@ -1269,15 +1511,28 @@ export async function startSynthesisTier(deliberationId: string): Promise<{ cell
       existing.push(shell)
       shellsByCell.set(targetCellId, existing)
     }
+    console.log(`[Synthesis] ${emergedShells.length} emerged Shell(s) assigned to tier ${nextTier}`)
+  }
 
-    // Kickstart: Shells speak immediately in their assigned cells
-    for (const [targetCellId, cellShells] of shellsByCell) {
-      const cellIndex = cellIds.indexOf(targetCellId)
-      const cellIdeas = ideaGroups[cellIndex] || []
-      await driveShellDialogue(targetCellId, cellIdeas, cellShells, purpose, nextTier)
+  // Drive each cell autonomously — agents + shells converse, decide their own convergence
+  for (let i = 0; i < cellIds.length; i++) {
+    const cellId = cellIds[i]
+    const cellIdeas = ideaGroups[i] || []
+
+    // Load AI participants
+    const cellAi = await prisma.cellParticipation.findMany({
+      where: { cellId },
+      include: { user: { select: { id: true, name: true, isAI: true, ideology: true } } },
+    })
+    const agents = cellAi
+      .filter(p => p.user.isAI)
+      .map(p => ({ id: p.user.id, name: p.user.name || 'Agent', ideology: p.user.ideology }))
+
+    const cellShells = shellsByCell.get(cellId) || []
+
+    if (agents.length > 0 || cellShells.length > 0) {
+      await driveAutonomousCell(cellId, cellIdeas, { agents, shells: cellShells }, purpose, nextTier)
     }
-
-    console.log(`[Synthesis] ${emergedShells.length} emerged Shell(s) announced + speaking in tier ${nextTier}`)
   }
 
   console.log(`[Synthesis] Tier ${nextTier} started: ${cellIds.length} cells formed (${purpose})`)
