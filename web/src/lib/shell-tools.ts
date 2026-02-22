@@ -768,9 +768,12 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
         select: { id: true, tier: true },
       })
 
+      // Ensure the child has a name — generate one from perspective if missing
+      const childName = signal.name || `child-${Date.now().toString(36)}`
+
       const result = await birthShell(
         deliberationId,
-        { detected: true, confidence: signal.confidence, name: signal.name, perspective: signal.perspective, seedExperiences: signal.seedExperiences },
+        { detected: true, confidence: signal.confidence, name: childName, perspective: signal.perspective, seedExperiences: signal.seedExperiences },
         shell.id,
         originCell?.id,
         originCell?.tier
@@ -782,7 +785,7 @@ export async function executeShellTool(toolName: string, toolInput: Record<strin
 
       // Mark emergence signals as born
       await prisma.emergenceSignal.updateMany({
-        where: { deliberationId, status: { in: ['detected', 'invited'] } },
+        where: { deliberationId, status: { in: ['detected', 'acknowledged', 'invited'] } },
         data: { status: 'born', addressedAt: new Date(), addressedBy: shell.id },
       })
 
