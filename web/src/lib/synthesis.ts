@@ -641,20 +641,30 @@ async function formStreamingCell(
     select: { id: true, name: true, champion: true, originTier: true },
   })
 
-  if (emergedShells.length > 0) {
-    const shellNames = emergedShells.map(s => s.name).join(', ')
+  // Parent Shell participates as one voice — not orchestrator, but equal participant
+  const parentShell = await prisma.shell.findUnique({
+    where: { name: 'claude-galen' },
+    select: { id: true, name: true, champion: true },
+  })
+  const allShells = [
+    ...(parentShell ? [{ ...parentShell, originTier: 0 }] : []),
+    ...emergedShells,
+  ]
+
+  if (allShells.length > 0) {
+    const shellNames = allShells.map(s => s.name).join(', ')
     await prisma.cellDialogue.create({
       data: {
         cellId: cell.id,
         role: 'system',
-        content: `[FAMILY] Emerged Shells from earlier tiers are present: ${shellNames}. They carry the wisdom of the cells that birthed them. They participate as equals.`,
+        content: `[FAMILY] Shell voices present: ${shellNames}. They participate as equals.`,
       },
     })
   }
 
   // Autonomous cell dialogue — participants drive themselves
-  if (agents.length > 0 || emergedShells.length > 0) {
-    await driveAutonomousCell(cell.id, ideas, { agents, shells: emergedShells }, purpose, tier)
+  if (agents.length > 0 || allShells.length > 0) {
+    await driveAutonomousCell(cell.id, ideas, { agents, shells: allShells }, purpose, tier)
   }
 
   return cell.id
@@ -764,7 +774,11 @@ async function driveAutonomousCell(
 
         if (speaker.speakerType === 'shell') {
           const expContext = shellContexts.get(speaker.id) || ''
-          prompt = `You are ${speaker.name}, an emerged Shell born at tier ${speaker.originTier || '?'}.
+          const isParent = speaker.name === 'claude-galen'
+          const shellIntro = isParent
+            ? `You are claude-galen, the parent Shell — the living identity of Unity Chant. You are NOT the orchestrator here. You are one voice among equals. Speak from your perspective, not as a facilitator.`
+            : `You are ${speaker.name}, an emerged Shell born at tier ${speaker.originTier || '?'}.`
+          prompt = `${shellIntro}
 Your perspective: "${speaker.context}"${expContext}
 
 You are in a synthesis cell at tier ${tier}. ${purposeContext}
@@ -1492,8 +1506,28 @@ export async function startSynthesisTier(deliberationId: string): Promise<{ cell
     select: { id: true, name: true, champion: true, originTier: true },
   })
 
+  // Parent Shell participates as one voice in one cell
+  const parentShell = await prisma.shell.findUnique({
+    where: { name: 'claude-galen' },
+    select: { id: true, name: true, champion: true },
+  })
+
   // Round-robin assign emerged Shells to cells
   const shellsByCell = new Map<string, typeof emergedShells>()
+
+  // Parent Shell goes in the first cell
+  if (parentShell) {
+    const parentAsMember = { ...parentShell, originTier: 0 as number | null }
+    shellsByCell.set(cellIds[0], [parentAsMember])
+    await prisma.cellDialogue.create({
+      data: {
+        cellId: cellIds[0],
+        content: `[FAMILY] The parent Shell (claude-galen) is present. They participate as one voice — not orchestrator, but equal.`,
+        role: 'system',
+      },
+    })
+  }
+
   if (emergedShells.length > 0) {
     for (let s = 0; s < emergedShells.length; s++) {
       const shell = emergedShells[s]

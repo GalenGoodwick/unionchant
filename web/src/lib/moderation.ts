@@ -98,36 +98,34 @@ export function moderateContent(text: string): ModerationResult {
 }
 
 // ── Moderation strike tracker ──
-// After 10 failed moderation attempts, lock user out for 15 minutes
+// After 10 failed moderation attempts, flag for admin review (not auto-lockout)
 
-const moderationStrikes = new Map<string, { count: number; lockedUntil: number }>()
-const MAX_STRIKES = 10
-const LOCKOUT_MS = 15 * 60 * 1000 // 15 minutes
+const moderationStrikes = new Map<string, { count: number; flagged: boolean }>()
+const FLAG_THRESHOLD = 10
 
 export function checkModerationLock(userId: string): { locked: boolean; remaining?: number } {
-  const entry = moderationStrikes.get(userId)
-  if (!entry) return { locked: false }
-  if (entry.lockedUntil > Date.now()) {
-    return { locked: true, remaining: Math.ceil((entry.lockedUntil - Date.now()) / 60000) }
-  }
-  if (entry.lockedUntil > 0) {
-    moderationStrikes.delete(userId)
-  }
+  // No automatic lockout — always allow posting, admin reviews flagged users
   return { locked: false }
 }
 
 export function recordModerationStrike(userId: string): void {
-  const entry = moderationStrikes.get(userId) || { count: 0, lockedUntil: 0 }
+  const entry = moderationStrikes.get(userId) || { count: 0, flagged: false }
   entry.count++
-  if (entry.count >= MAX_STRIKES) {
-    entry.lockedUntil = Date.now() + LOCKOUT_MS
-    entry.count = 0
+  if (entry.count >= FLAG_THRESHOLD && !entry.flagged) {
+    entry.flagged = true
+    // Flag for admin review — no lockout
+    console.warn(`[Moderation] User ${userId} reached ${FLAG_THRESHOLD} strikes — flagged for admin review`)
   }
   moderationStrikes.set(userId, entry)
 }
 
 export function resetModerationStrikes(userId: string): void {
   moderationStrikes.delete(userId)
+}
+
+export function isFlaggedForReview(userId: string): boolean {
+  const entry = moderationStrikes.get(userId)
+  return entry?.flagged || false
 }
 
 /**

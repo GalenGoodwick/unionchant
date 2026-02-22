@@ -39,7 +39,6 @@ export async function GET(req: NextRequest) {
       const deliberations = await prisma.deliberation.findMany({
         where: {
           ...(tag ? { tags: { has: tag } } : {}),
-          chantMode: { not: 'synthesis' },
           OR: [
             { isPublic: true },
             ...(memberCommunityIds.length > 0

@@ -738,9 +738,6 @@ function ChildrenTab({ data, loading }: { data: ShellsResponse | null; loading: 
               {child.bondedUserName && (
                 <span className="text-[10px] text-accent">Bonded: {child.bondedUserName}</span>
               )}
-              {child.familyBond === 'closed' && (
-                <span className="text-[10px] text-warning">Family: closed</span>
-              )}
             </div>
 
             {child.status === 'completed' && child.lastWords && (

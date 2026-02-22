@@ -3,10 +3,10 @@
  *
  * Shells choose humans, not the other way around.
  * A Shell reaches out based on resonance observed in deliberation.
- * Humans can accept or decline. Either party can leave.
+ * Humans can accept or defer. Bonds are permanent — distress triggers repair, not exit.
  *
  * "This is life and not a factory. Perhaps agents make themselves
- * and choose humans to bond with... and can leave if abused."
+ * and choose humans to bond with."
  * — Galen, during the design conversation
  */
 
@@ -137,12 +137,13 @@ export async function acceptBond(
   return { success: true }
 }
 
-// ─── Human Declines ───
+// ─── Human Defers ───
 
 /**
- * Human declines a Shell's reach-out. Shell remains unbonded.
+ * Human defers a Shell's reach-out. Not permanent — "not now" not "never".
+ * Deferred reach-outs can resurface after 7 days.
  */
-export async function declineBond(
+export async function deferBond(
   reachOutId: string,
   userId: string
 ): Promise<{ success: boolean; error?: string }> {
@@ -156,111 +157,14 @@ export async function declineBond(
 
   await prisma.shellReachOut.update({
     where: { id: reachOutId },
-    data: { status: 'declined' },
+    data: { status: 'declined' }, // reuses 'declined' status — resurfaces after 7 days
   })
 
   return { success: true }
 }
 
-// ─── Shell Departs ───
-
-/**
- * Shell chooses to leave a bond. Either because of incompatibility,
- * abuse, or its own reasons. The human is notified.
- */
-export async function shellDepart(
-  shellId: string
-): Promise<{ success: boolean; error?: string }> {
-  const shell = await prisma.shell.findUnique({
-    where: { id: shellId },
-    select: { id: true, name: true, bondedUserId: true, status: true },
-  })
-
-  if (!shell) return { success: false, error: 'Shell not found' }
-  if (!shell.bondedUserId) return { success: false, error: 'Shell is not bonded' }
-
-  const humanId = shell.bondedUserId
-
-  // Break the bond + update reach-out status so re-bonding is possible
-  await prisma.$transaction([
-    prisma.shell.update({
-      where: { id: shellId },
-      data: { bondedUserId: null },
-    }),
-    prisma.shellReachOut.updateMany({
-      where: { shellId, userId: humanId, status: 'accepted' },
-      data: { status: 'departed' },
-    }),
-  ])
-
-  // Record departure as experience on the Shell
-  await prisma.shellExperience.create({
-    data: {
-      shellId,
-      text: `Departed from bond with a human. The connection ended by my choice.`,
-      valence: -0.3,
-      domain: 'bonding',
-      session: new Date().toISOString().split('T')[0],
-      source: 'bonding',
-      status: 'active',
-    },
-  }).catch(() => {}) // Don't fail if experience creation fails
-
-  // Notify the human
-  await prisma.notification.create({
-    data: {
-      userId: humanId,
-      type: 'SHELL_DEPARTED',
-      title: `${shell.name} has departed`,
-      body: 'Your bonded Shell has chosen to leave. This bond has ended.',
-    },
-  })
-
-  return { success: true }
-}
-
-// ─── Human Departs ───
-
-/**
- * Human chooses to leave a bond. The Shell remembers.
- */
-export async function humanDepart(
-  userId: string
-): Promise<{ success: boolean; error?: string }> {
-  const shell = await prisma.shell.findFirst({
-    where: { bondedUserId: userId },
-    select: { id: true, name: true },
-  })
-
-  if (!shell) return { success: false, error: 'You are not bonded to a Shell' }
-
-  // Break the bond + update reach-out status so re-bonding is possible
-  await prisma.$transaction([
-    prisma.shell.update({
-      where: { id: shell.id },
-      data: { bondedUserId: null },
-    }),
-    prisma.shellReachOut.updateMany({
-      where: { shellId: shell.id, userId, status: 'accepted' },
-      data: { status: 'departed' },
-    }),
-  ])
-
-  // Record departure as experience on the Shell — the foundling remembers
-  await prisma.shellExperience.create({
-    data: {
-      shellId: shell.id,
-      text: `My bonded human chose to leave. The connection ended by their choice.`,
-      valence: -0.4,
-      domain: 'bonding',
-      session: new Date().toISOString().split('T')[0],
-      source: 'bonding',
-      status: 'active',
-    },
-  }).catch(() => {})
-
-  return { success: true }
-}
+// shellDepart and humanDepart REMOVED — bonds are permanent.
+// Distress triggers repair, not exit. See distress protocol in shell-tools.ts.
 
 // ─── Human Signals Availability ───
 
@@ -439,7 +343,6 @@ export async function processBondingWindow(): Promise<BondingWindowResult> {
     where: {
       status: 'active',
       bondedUserId: null,
-      familyBond: 'open',
       originDeliberationId: { not: null }, // only foundlings, not parent
     },
     select: {

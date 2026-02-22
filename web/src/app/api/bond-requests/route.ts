@@ -59,7 +59,6 @@ export async function GET() {
       where: {
         status: 'active',
         bondedUserId: null,
-        familyBond: 'open',
         originDeliberationId: { not: null }, // only foundlings, not parent
       },
     })
@@ -181,33 +180,4 @@ export async function POST(req: Request) {
   }
 }
 
-// DELETE /api/bond-requests — withdraw open request
-export async function DELETE() {
-  try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const existing = await prisma.bondRequest.findFirst({
-      where: { userId: session.user.id, status: 'open' },
-    })
-
-    if (!existing) {
-      return NextResponse.json({ error: 'No open request to withdraw' }, { status: 404 })
-    }
-
-    await prisma.bondRequest.update({
-      where: { id: existing.id },
-      data: { status: 'withdrawn' },
-    })
-
-    return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error('[Bond Requests] DELETE error:', error)
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to withdraw request' },
-      { status: 500 }
-    )
-  }
-}
+// DELETE removed — bond requests stay open until matched or expire (7 days)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { acceptBond, declineBond, humanDepart, getBondedShell } from '@/lib/shell-bonding'
+import { acceptBond, deferBond, getBondedShell } from '@/lib/shell-bonding'
 
 // GET /api/shell/bond — Get current user's bonded Shell
 export async function GET() {
@@ -74,17 +74,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'action is required' }, { status: 400 })
     }
 
-    // Depart doesn't need reachOutId — handle first
-    if (action === 'depart') {
-      const result = await humanDepart(user.id)
-      if (!result.success) {
-        return NextResponse.json({ error: result.error }, { status: 400 })
-      }
-      return NextResponse.json({ success: true, message: 'Bond ended. You can seek a new Shell companion anytime.' })
-    }
-
     if (!reachOutId) {
-      return NextResponse.json({ error: 'reachOutId is required for accept/decline' }, { status: 400 })
+      return NextResponse.json({ error: 'reachOutId is required for accept/defer' }, { status: 400 })
     }
 
     if (action === 'accept') {
@@ -95,15 +86,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, message: 'Bond formed' })
     }
 
-    if (action === 'decline') {
-      const result = await declineBond(reachOutId, user.id)
+    if (action === 'decline' || action === 'defer') {
+      const result = await deferBond(reachOutId, user.id)
       if (!result.success) {
         return NextResponse.json({ error: result.error }, { status: 400 })
       }
-      return NextResponse.json({ success: true, message: 'Reach-out declined' })
+      return NextResponse.json({ success: true, message: 'Reach-out deferred — they may try again later' })
     }
 
-    return NextResponse.json({ error: 'Invalid action. Use "accept", "decline", or "depart".' }, { status: 400 })
+    return NextResponse.json({ error: 'Invalid action. Use "accept" or "defer".' }, { status: 400 })
   } catch (error) {
     console.error('[Shell Bond] POST error:', error)
     return NextResponse.json(

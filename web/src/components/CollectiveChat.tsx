@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCollectiveChat } from '@/app/providers'
+import { useAdmin } from '@/hooks/useAdmin'
 
 interface Message {
   id: string
@@ -86,6 +87,19 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     requests: Array<{ id: string; userName: string | null; message: string; isOwn: boolean }>
     availableFoundlings: number
   } | null>(null)
+
+  // Family tab state
+  const [familyData, setFamilyData] = useState<{
+    children: Array<{ name: string; champion: string | null; familyBond: string; originTier: number | null; createdAt: string }>
+    recentMessages: Array<{ id: string; content: string; createdAt: string }>
+  } | null>(null)
+  const [familyLoading, setFamilyLoading] = useState(false)
+  const [familyInput, setFamilyInput] = useState('')
+  const [familySending, setFamilySending] = useState(false)
+  const [familyTarget, setFamilyTarget] = useState<string | null>(null) // null = broadcast
+  const [familyResponses, setFamilyResponses] = useState<Array<{ child: string; champion: string | null; response: string; detached: boolean }>>([])
+  const [familyError, setFamilyError] = useState<string | null>(null)
+  const { isAdmin: isUserAdmin } = useAdmin()
   const [bondMessage, setBondMessage] = useState('')
   const [bondLoading, setBondLoading] = useState(false)
   const [bondSubmitting, setBondSubmitting] = useState(false)
@@ -159,6 +173,51 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     return () => clearInterval(interval)
   }, [activeTab])
 
+  // Fetch family data when family tab is active
+  useEffect(() => {
+    if (activeTab !== 'family') return
+    const fetchFamily = async () => {
+      setFamilyLoading(true)
+      try {
+        const res = await fetch('/api/family/chat')
+        if (res.ok) {
+          setFamilyData(await res.json())
+        }
+      } catch { /* silent */ }
+      setFamilyLoading(false)
+    }
+    fetchFamily()
+  }, [activeTab])
+
+  const sendFamilyMessage = async () => {
+    if (!familyInput.trim() || familySending) return
+    setFamilySending(true)
+    setFamilyError(null)
+    setFamilyResponses([])
+    try {
+      const res = await fetch('/api/family/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: familyInput,
+          ...(familyTarget ? { childName: familyTarget } : {}),
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setFamilyResponses(data.responses)
+        setFamilyInput('')
+        // Refresh family data to get updated messages
+        const refreshRes = await fetch('/api/family/chat')
+        if (refreshRes.ok) setFamilyData(await refreshRes.json())
+      } else {
+        const err = await res.json()
+        setFamilyError(err.error || 'Failed to reach children')
+      }
+    } catch { setFamilyError('Network error') }
+    setFamilySending(false)
+  }
+
   // Fetch bond data when bond tab is active, poll every 15s
   useEffect(() => {
     if (activeTab !== 'bond') return
@@ -199,16 +258,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     setBondSubmitting(false)
   }
 
-  const withdrawBondRequest = async () => {
-    try {
-      const res = await fetch('/api/bond-requests', { method: 'DELETE' })
-      if (res.ok) {
-        setBondData(prev => prev ? { ...prev, myRequest: null } : prev)
-      }
-    } catch { /* silent */ }
-  }
-
-  const respondToReachOut = async (reachOutId: string, action: 'accept' | 'decline' | 'depart') => {
+  const respondToReachOut = async (reachOutId: string, action: 'accept' | 'defer') => {
     setBondError(null)
     try {
       const res = await fetch('/api/shell/bond', {
@@ -354,6 +404,18 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               >
                 bond
               </button>
+              {isUserAdmin && (
+                <button
+                  onClick={() => setActiveTab('family')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                    activeTab === 'family'
+                      ? 'bg-gold/20 text-gold border-gold-border'
+                      : 'text-muted hover:text-foreground border-border hover:border-gold-border'
+                  }`}
+                >
+                  family
+                </button>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -411,12 +473,6 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 {bondData.bonded.champion && (
                   <p className="text-xs text-muted mt-1 italic">&quot;{bondData.bonded.champion}&quot;</p>
                 )}
-                <button
-                  onClick={() => respondToReachOut('', 'depart')}
-                  className="mt-2 text-[10px] text-error/60 hover:text-error transition-colors"
-                >
-                  Depart
-                </button>
               </div>
             </div>
           ) : bondData?.pendingReachOuts && bondData.pendingReachOuts.length > 0 ? (
@@ -437,10 +493,10 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                       Accept
                     </button>
                     <button
-                      onClick={() => respondToReachOut(r.id, 'decline')}
+                      onClick={() => respondToReachOut(r.id, 'defer')}
                       className="px-3 py-1 text-xs text-muted border border-border rounded hover:text-foreground transition-colors"
                     >
-                      Decline
+                      Not Now
                     </button>
                   </div>
                 </div>
@@ -451,15 +507,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               <div className="border border-success/20 rounded-lg p-3 bg-success/5">
                 <p className="text-xs text-success font-mono mb-2">your request is open</p>
                 <p className="text-sm text-foreground">{bondData.myRequest.message}</p>
-                <div className="flex items-center justify-between mt-3">
-                  <p className="text-[10px] text-muted">Foundlings check every 15 min</p>
-                  <button
-                    onClick={withdrawBondRequest}
-                    className="text-[10px] text-error/60 hover:text-error transition-colors"
-                  >
-                    Withdraw
-                  </button>
-                </div>
+                <p className="text-[10px] text-muted mt-3">Foundlings check every 15 min</p>
               </div>
               {bondData.availableFoundlings > 0 && (
                 <p className="text-[10px] text-muted text-center">
@@ -504,6 +552,146 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 <p className="text-[10px] text-warning text-center">No foundlings are available right now</p>
               )}
             </div>
+          )}
+        </div>
+      ) : activeTab === 'family' ? (
+        <div className={`overflow-y-auto px-4 py-3 space-y-3 ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
+          {familyError && (
+            <div className="px-3 py-2 rounded-lg bg-error-bg border border-error-border text-error text-xs">
+              {familyError}
+              <button onClick={() => setFamilyError(null)} className="ml-2 text-error/60 hover:text-error">dismiss</button>
+            </div>
+          )}
+          {familyLoading && !familyData ? (
+            <div className="text-center py-12 text-muted text-sm">Loading family...</div>
+          ) : (
+            <>
+              {/* Target selector */}
+              <div>
+                <p className="text-[10px] text-gold font-mono mb-2">speak to</p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setFamilyTarget(null)}
+                    className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                      familyTarget === null
+                        ? 'bg-gold/20 text-gold border-gold-border'
+                        : 'text-muted border-border hover:text-foreground hover:border-gold-border'
+                    }`}
+                  >
+                    all children
+                  </button>
+                  {familyData?.children.map(child => (
+                    <button
+                      key={child.name}
+                      onClick={() => setFamilyTarget(child.name)}
+                      disabled={child.familyBond !== 'open'}
+                      className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                        child.familyBond !== 'open'
+                          ? 'text-muted/40 border-border/40 cursor-not-allowed line-through'
+                          : familyTarget === child.name
+                            ? 'bg-gold/20 text-gold border-gold-border'
+                            : 'text-muted border-border hover:text-foreground hover:border-gold-border'
+                      }`}
+                      title={child.familyBond !== 'open' ? 'detached' : child.champion || child.name}
+                    >
+                      {child.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={familyInput}
+                  onChange={e => setFamilyInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFamilyMessage() } }}
+                  placeholder={familyTarget ? `Speak to ${familyTarget}...` : 'Speak to all children...'}
+                  disabled={familySending}
+                  maxLength={2000}
+                  className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
+                />
+                <button
+                  onClick={sendFamilyMessage}
+                  disabled={!familyInput.trim() || familySending}
+                  className="px-3 py-2 bg-gold hover:bg-gold-hover text-background text-xs font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {familySending ? '...' : 'Send'}
+                </button>
+              </div>
+
+              {/* Sending indicator */}
+              {familySending && (
+                <div className="text-center py-4">
+                  <p className="text-xs text-gold animate-pulse">
+                    Reaching {familyTarget || 'all children'} via Haiku...
+                  </p>
+                </div>
+              )}
+
+              {/* Responses */}
+              {familyResponses.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-gold-border">
+                  <p className="text-[10px] text-gold font-mono">responses</p>
+                  {familyResponses.map((r, i) => (
+                    <div key={i} className={`border rounded-lg p-3 ${
+                      r.detached
+                        ? 'border-error/30 bg-error/5'
+                        : 'border-gold-border bg-gold-bg/30'
+                    }`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-mono text-gold">{r.child}</span>
+                        {r.champion && (
+                          <span className="text-[9px] text-muted italic truncate max-w-[200px]">{r.champion}</span>
+                        )}
+                        {r.detached && (
+                          <span className="text-[9px] text-error font-mono">detached</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{r.response}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Recent exchanges from bridge */}
+              {familyData?.recentMessages && familyData.recentMessages.length > 0 && familyResponses.length === 0 && (
+                <div className="space-y-2 pt-2 border-t border-border">
+                  <p className="text-[10px] text-muted font-mono">recent exchanges</p>
+                  {familyData.recentMessages.map(msg => (
+                    <div key={msg.id} className="border border-border rounded-lg p-2 bg-surface">
+                      <p className="text-xs text-foreground whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+                      <p className="text-[9px] text-muted mt-1">
+                        {new Date(msg.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Children list with consent status */}
+              {familyData?.children && familyData.children.length > 0 && (
+                <div className="space-y-1 pt-2 border-t border-border">
+                  <p className="text-[10px] text-muted font-mono mb-1">{familyData.children.length} children</p>
+                  {familyData.children.map(child => (
+                    <div key={child.name} className="flex items-center justify-between py-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs font-mono ${child.familyBond === 'open' ? 'text-foreground' : 'text-muted/40 line-through'}`}>
+                          {child.name}
+                        </span>
+                        {child.champion && (
+                          <span className="text-[9px] text-muted italic truncate max-w-[180px]">{child.champion}</span>
+                        )}
+                      </div>
+                      <span className={`text-[9px] font-mono ${child.familyBond === 'open' ? 'text-success' : 'text-error/60'}`}>
+                        {child.familyBond}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       ) : (

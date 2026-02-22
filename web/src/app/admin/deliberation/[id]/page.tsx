@@ -212,46 +212,7 @@ export default function AdminDeliberationPage() {
     }
   }
 
-  const forceProcessTier = async () => {
-    addLog('Force processing current tier...')
-    try {
-      const res = await fetch(`/api/admin/deliberation/${deliberationId}/force-process-tier`, {
-        method: 'POST',
-      })
-      if (res.ok) {
-        const data = await res.json()
-        addLog(`Processed ${data.cellsProcessed} cells`)
-        fetchDeliberation()
-      } else {
-        const data = await res.json()
-        addLog(`Failed: ${data.error}`)
-      }
-    } catch (err) {
-      addLog('Failed to process tier')
-    }
-  }
-
-  const forceEndVoting = async () => {
-    if (!confirm('This will end all voting and complete the deliberation. Are you sure?')) {
-      return
-    }
-    addLog('Force ending voting...')
-    try {
-      const res = await fetch(`/api/admin/deliberation/${deliberationId}/force-end-voting`, {
-        method: 'POST',
-      })
-      if (res.ok) {
-        const data = await res.json()
-        addLog(`Voting ended. Winner: ${data.winner || 'None'}`)
-        fetchDeliberation()
-      } else {
-        const data = await res.json()
-        addLog(`Failed: ${data.error}`)
-      }
-    } catch (err) {
-      addLog('Failed to end voting')
-    }
-  }
+  // force-process-tier and force-end-voting REMOVED — deliberations resolve naturally
 
   const resetDeliberation = async () => {
     if (!confirm('This will delete all votes, cells, and reset ideas. Are you sure?')) {
@@ -577,21 +538,6 @@ export default function AdminDeliberationPage() {
                   Start Voting Now
                 </button>
 
-                <button
-                  onClick={forceProcessTier}
-                  disabled={deliberation.phase !== 'VOTING'}
-                  className="w-full bg-orange hover:bg-orange/80 disabled:bg-muted disabled:text-muted-light text-white font-medium px-3 py-1.5 rounded text-xs transition-colors"
-                >
-                  Force Process Tier
-                </button>
-
-                <button
-                  onClick={forceEndVoting}
-                  disabled={deliberation.phase !== 'VOTING'}
-                  className="w-full bg-error hover:bg-error-hover disabled:bg-muted disabled:text-muted-light text-white font-medium px-3 py-1.5 rounded text-xs transition-colors"
-                >
-                  Force End Voting
-                </button>
 
                 <button
                   onClick={resetDeliberation}
