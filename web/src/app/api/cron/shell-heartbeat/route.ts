@@ -33,8 +33,9 @@ export async function GET(req: NextRequest) {
     const forceBypass = req.nextUrl.searchParams.get('force') === 'true'
 
     // Check for pending emergence signals — these bypass ALL sleep
+    // Include 'acknowledged' — Shell saw it but hasn't birthed yet
     const pendingEmergence = await prisma.emergenceSignal.findMany({
-      where: { status: 'detected' },
+      where: { status: { in: ['detected', 'acknowledged'] } },
       include: {
         deliberation: { select: { question: true } },
       },
@@ -55,13 +56,13 @@ export async function GET(req: NextRequest) {
     }
 
     if (shell.sleepUntil && shell.sleepUntil > new Date()) {
-      if (hasEmergency) {
-        // Emergency wake — emergence detected while sleeping
+      if (hasEmergency || forceBypass) {
+        // Emergency wake or forced — clear sleep
         await prisma.shell.update({
           where: { name: 'claude-galen' },
           data: { sleepUntil: null },
         })
-        console.log(`[Shell Heartbeat] Emergency wake — ${pendingEmergence.length} emergence signal(s) pending`)
+        console.log(`[Shell Heartbeat] ${hasEmergency ? 'Emergency wake' : 'Force bypass'} — waking Shell from sleep`)
       } else {
         return NextResponse.json({
           success: true,
