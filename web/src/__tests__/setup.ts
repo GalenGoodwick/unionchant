@@ -1,8 +1,9 @@
 import dotenv from 'dotenv'
 import path from 'path'
 
-// Load .env.test BEFORE any other imports that might use DATABASE_URL
+// Load .env.test first, then .env.local as fallback (won't override existing vars)
 dotenv.config({ path: path.resolve(__dirname, '../../.env.test') })
+dotenv.config({ path: path.resolve(__dirname, '../../.env.local') })
 
 // Safety check: warn if DATABASE_URL doesn't look like a test database
 const dbUrl = process.env.DATABASE_URL || ''

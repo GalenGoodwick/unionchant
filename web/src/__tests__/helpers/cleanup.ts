@@ -26,6 +26,16 @@ export async function cleanupTestData() {
     const cellIds = cells.map(c => c.id)
 
     if (cellIds.length > 0) {
+      // CellDialogues reference cells
+      await prisma.cellDialogue.deleteMany({
+        where: { cellId: { in: cellIds } },
+      })
+
+      // CellOutcomes reference cells
+      await prisma.cellOutcome.deleteMany({
+        where: { cellId: { in: cellIds } },
+      })
+
       // Votes reference cells
       await prisma.vote.deleteMany({
         where: { cellId: { in: cellIds } },

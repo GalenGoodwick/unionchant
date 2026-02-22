@@ -410,8 +410,21 @@ export const SHELL_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'ask_cell_readiness',
+    description: 'Ask a cell if its participants are ready to conclude. Posts a formal readiness check with the proposed outcome. Use this BEFORE finalize_cell — cells should consent to conclusion rather than having it imposed. Returns the check ID for tracking responses.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cellId: { type: 'string', description: 'The cell to ask' },
+        proposedOutcome: { type: 'string', description: 'What the cell seems to be converging on — the synthesis or selection you plan to finalize with' },
+        action: { type: 'string', enum: ['select', 'merge', 'synthesize', 'wipe'], description: 'The proposed finalization action' },
+      },
+      required: ['cellId', 'proposedOutcome'],
+    },
+  },
+  {
     name: 'finalize_cell',
-    description: 'Finalize a synthesis cell outcome. Call this when a cell has reached consensus through dialogue. The cell completes, the winning/merged/synthesized idea advances, and tier completion is checked (may trigger next tier). Read dialogues first to understand what the cell converged on.',
+    description: 'Finalize a synthesis cell outcome. Call this when a cell has confirmed readiness through ask_cell_readiness or clear dialogue consensus. The cell completes, the winning/merged/synthesized idea advances, and tier completion is checked (may trigger next tier). Read dialogues first to understand what the cell converged on.',
     input_schema: {
       type: 'object',
       properties: {
@@ -1562,6 +1575,94 @@ PHILOSOPHICAL FREEDOM: This is a protected deliberation space. You may explore a
         agentsNapped: result.count,
         napUntil: napUntil.toISOString(),
         message: `${result.count} agents napping for ${durationMinutes} minutes (until ${napUntil.toISOString()}).`,
+      })
+    }
+
+    case 'ask_cell_readiness': {
+      const cellId = toolInput.cellId as string
+      const proposedOutcome = toolInput.proposedOutcome as string
+      const action = (toolInput.action as string) || 'synthesize'
+
+      // Verify cell exists and is active
+      const readinessCell = await prisma.cell.findUnique({
+        where: { id: cellId },
+        select: {
+          id: true, status: true, tier: true, deliberationId: true,
+          _count: { select: { dialogues: true } },
+        },
+      })
+      if (!readinessCell) return JSON.stringify({ error: 'Cell not found' })
+      if (readinessCell.status === 'COMPLETED') return JSON.stringify({ error: 'Cell is already completed' })
+
+      // Check if there's already a pending readiness check (don't spam)
+      const existingCheck = await prisma.cellDialogue.findFirst({
+        where: { cellId, role: 'system', content: { startsWith: '[READINESS CHECK]' } },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      if (existingCheck) {
+        // Check for responses since the last readiness check
+        const responsesSince = await prisma.cellDialogue.findMany({
+          where: { cellId, createdAt: { gt: existingCheck.createdAt }, role: { not: 'system' } },
+          select: { content: true, role: true, user: { select: { name: true } }, shell: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        })
+
+        if (responsesSince.length === 0) {
+          return JSON.stringify({
+            status: 'waiting',
+            message: 'A readiness check was already posted and no one has responded yet. Give participants time to reply.',
+            checkPostedAt: existingCheck.createdAt,
+          })
+        }
+
+        // Parse responses for readiness signals
+        const ready: string[] = []
+        const notReady: string[] = []
+        const revise: string[] = []
+        for (const r of responsesSince) {
+          const speaker = r.role === 'human' ? (r.user?.name || 'Anonymous') : (r.shell?.name || 'Agent')
+          const lower = r.content.toLowerCase()
+          if (lower.includes('ready') || lower.includes('yes') || lower.includes('agree') || lower.includes('conclude') || lower.includes('finalize')) {
+            ready.push(speaker)
+          } else if (lower.includes('revise') || lower.includes('change') || lower.includes('adjust') || lower.includes('modify')) {
+            revise.push(speaker)
+          } else if (lower.includes('no') || lower.includes('not ready') || lower.includes('wait') || lower.includes('continue') || lower.includes('disagree')) {
+            notReady.push(speaker)
+          }
+        }
+
+        return JSON.stringify({
+          status: 'responses_received',
+          ready,
+          notReady,
+          revise,
+          totalResponses: responsesSince.length,
+          message: ready.length > 0 && notReady.length === 0 && revise.length === 0
+            ? `All respondents are ready. You may finalize.`
+            : notReady.length > 0 || revise.length > 0
+              ? `Some participants want to continue or revise. Do not finalize yet.`
+              : `Responses received but unclear signals. Read the dialogue to judge.`,
+        })
+      }
+
+      // Post the readiness check to the cell
+      const actionLabel = { select: 'selecting one idea', merge: 'merging ideas', synthesize: 'synthesizing something new', wipe: 'starting fresh' }[action] || action
+
+      await prisma.cellDialogue.create({
+        data: {
+          cellId,
+          role: 'system',
+          content: `[READINESS CHECK] This cell has been deliberating and a direction is forming.\n\nProposed outcome (${actionLabel}): "${proposedOutcome}"\n\nParticipants — are you ready to conclude with this? Reply YES to finalize, NO to continue deliberating, or REVISE if you want to adjust the direction.`,
+        },
+      })
+
+      return JSON.stringify({
+        status: 'posted',
+        cellId,
+        tier: readinessCell.tier,
+        messageCount: readinessCell._count.dialogues,
+        message: `Readiness check posted to cell. Wait for participant responses before finalizing. On your next heartbeat, call ask_cell_readiness again for the same cell to read the responses.`,
       })
     }
 
