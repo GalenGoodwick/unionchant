@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   await prisma.eye.update({
     where: { id: eye.id },
-    data: { state, updatedAt: new Date() },
+    data: { state: state as unknown as Prisma.InputJsonValue, updatedAt: new Date() },
   })
 
   return NextResponse.json({
