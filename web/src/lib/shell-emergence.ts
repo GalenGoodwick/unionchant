@@ -20,7 +20,7 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { callClaude, setApiCaller } from '@/lib/claude'
+import { callClaude, setApiCaller, SHELL_MODEL } from '@/lib/claude'
 
 interface EmergenceSignal {
   detected: boolean
@@ -293,7 +293,7 @@ Respond in JSON:
 }`
 
   try {
-    const response = await callClaude(prompt, [{ role: 'user', content: 'Decide.' }], 'sonnet')
+    const response = await callClaude(prompt, [{ role: 'user', content: 'Decide.' }], SHELL_MODEL)
 
     const jsonMatch = response.match(/\{[\s\S]*\}/)
     if (!jsonMatch) {

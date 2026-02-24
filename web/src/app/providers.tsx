@@ -117,12 +117,10 @@ function GuideGate({ children }: { children: React.ReactNode }) {
 }
 
 function OnboardingGate({ children }: { children: React.ReactNode }) {
-  const { needsOnboarding, completeOnboarding, openOnboarding } = useOnboarding()
-
+  // Onboarding disabled — users go straight to Eye dashboard
   return (
-    <OnboardingContext.Provider value={{ needsOnboarding, openOnboarding }}>
+    <OnboardingContext.Provider value={{ needsOnboarding: false, openOnboarding: () => {} }}>
       {children}
-      {needsOnboarding && <Onboarding onComplete={completeOnboarding} />}
     </OnboardingContext.Provider>
   )
 }

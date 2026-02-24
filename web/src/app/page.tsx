@@ -16,6 +16,6 @@ export default async function Home({
     return <LandingPage isLoggedIn={!!session} />
   }
 
-  // Authenticated users without ?landing → redirect to chants
-  redirect('/chants')
+  // Authenticated users without ?landing → redirect to eye dashboard
+  redirect('/eye')
 }

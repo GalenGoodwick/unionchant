@@ -164,6 +164,9 @@ model User {
   launchPoolsCreated    LaunchPool[]
   badges                Badge[]
 
+  // Eye API
+  eyes                  Eye[]
+
   // Shell — persistent AI identity
   shells                Shell[]
   bondedShell           Shell?             @relation("ShellBond")
@@ -1385,4 +1388,25 @@ model EmergenceSignal {
 
   @@index([status])
   @@index([deliberationId])
+}
+
+// ============ EYE API ============
+
+model Eye {
+  id            String   @id @default(cuid())
+  type          String   // "human" | "ai"
+  ownerId       String?  // User ID for human eyes
+  owner         User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  apiKeyHash    String?  @unique // SHA-256 hash for AI eye keys
+  name          String
+  corpus        Json     @default("[]") // accumulated text corpus
+  state         Json     @default("{}") // geometric identity snapshot from Cradle
+  connected     Boolean  @default(false)
+  lastSync      DateTime?
+  welcomeSent   Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([type])
 }

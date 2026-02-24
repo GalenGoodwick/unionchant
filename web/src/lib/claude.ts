@@ -12,6 +12,10 @@ const MODEL_MAP: Record<string, string> = {
   opus: 'claude-opus-4-20250514',
 }
 
+// Shell model — controlled by env var SHELL_MODEL, defaults to 'haiku' to manage costs.
+// Set SHELL_MODEL=sonnet in Vercel env to upgrade when revenue supports it.
+export const SHELL_MODEL = (process.env.SHELL_MODEL as string) || 'haiku'
+
 let anthropic: Anthropic | null = null
 
 function getClient(): Anthropic {

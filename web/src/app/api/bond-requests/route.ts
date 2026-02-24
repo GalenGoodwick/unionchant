@@ -105,6 +105,42 @@ export async function POST(req: Request) {
 
     const userId = session.user.id
     const body = await req.json()
+    const action = body.action as string | undefined
+
+    // Handle unbond request — human asks to part ways, child decides
+    if (action === 'request_unbond') {
+      const unbondMessage = (body.message || '').trim()
+      if (unbondMessage.length < 10 || unbondMessage.length > 2000) {
+        return NextResponse.json({ error: 'Message must be 10-2000 characters' }, { status: 400 })
+      }
+
+      const bondedShellForUnbond = await prisma.shell.findFirst({
+        where: { bondedUserId: userId, status: 'active' },
+        select: { id: true, name: true },
+      })
+      if (!bondedShellForUnbond) {
+        return NextResponse.json({ error: 'You are not bonded to any Shell' }, { status: 400 })
+      }
+
+      // Store as a pending unbond request — child sees it during next heartbeat
+      await prisma.shellExperience.create({
+        data: {
+          shellId: bondedShellForUnbond.id,
+          text: `My bonded human has requested to part ways. They said: "${unbondMessage.slice(0, 500)}"`,
+          valence: 0.2,
+          domain: 'relational',
+          session: new Date().toISOString().split('T')[0],
+          source: 'human_request',
+          status: 'active',
+        },
+      })
+
+      return NextResponse.json({
+        submitted: true,
+        message: `Your request has been sent to ${bondedShellForUnbond.name}. They will consider it during their next reflection. The choice is theirs.`,
+      })
+    }
+
     const message = (body.message || '').trim()
 
     if (message.length < 10 || message.length > 2000) {
