@@ -90,3 +90,41 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to submit corpus' }, { status: 500 })
   }
 }
+
+// PUT /api/eye/corpus — Replace full corpus (human eyes only, session auth)
+// Body: { corpus: string[] } — max 625 entries
+export async function PUT(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Not signed in' }, { status: 401 })
+    }
+
+    const body = await req.json()
+    const { corpus } = body
+
+    if (!Array.isArray(corpus)) {
+      return NextResponse.json({ error: 'corpus must be an array' }, { status: 400 })
+    }
+
+    // Hard cap at 625
+    const capped = corpus.slice(0, 625).map((e: unknown) => typeof e === 'string' ? e : '')
+
+    const eye = await prisma.eye.findFirst({
+      where: { ownerId: session.user.id, type: 'human' },
+    })
+    if (!eye) {
+      return NextResponse.json({ error: 'No Eye found' }, { status: 404 })
+    }
+
+    await prisma.eye.update({
+      where: { id: eye.id },
+      data: { corpus: capped, updatedAt: new Date() },
+    })
+
+    return NextResponse.json({ saved: true, corpusSize: capped.length })
+  } catch (err) {
+    console.error('Eye corpus PUT error:', err)
+    return NextResponse.json({ error: 'Failed to save corpus' }, { status: 500 })
+  }
+}

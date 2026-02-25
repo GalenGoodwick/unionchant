@@ -43,7 +43,6 @@ export default function EmbedPage() {
               ['api-reference', 'API Reference'],
               ['styling', 'Styling Your Embed'],
               ['example-cg', 'Example: Common Ground'],
-              ['example-discord', 'Example: Discord Bot'],
             ].map(([id, label]) => (
               <li key={id}>
                 <a href={`#${id}`} className="text-accent hover:underline">{label}</a>
@@ -238,27 +237,6 @@ curl -X POST https://unitychant.com/api/v1/register \\
               <a href="https://github.com/GalenGoodwick/unity-chant-cg-plugin" target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
                 unity-chant-cg-plugin
               </a>
-            </p>
-          </Section>
-
-          {/* Example: Discord */}
-          <Section id="example-discord" title="Example: Discord Bot">
-            <p className="text-muted text-xs mb-3">
-              <Link href="/pepperphone" className="text-accent hover:underline">PepperPhone</Link> is
-              our Discord bot — a different integration pattern using slash commands instead of iframe embeds.
-            </p>
-            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-3">
-              <p className="text-xs text-foreground font-bold mb-1.5">How it works</p>
-              <ul className="text-xs text-muted space-y-1 list-disc list-inside">
-                <li>Bot registers via <code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">/api/v1/register</code> with a shared secret</li>
-                <li>Discord users are mapped to synthetic UC accounts (<code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">discord_&#123;id&#125;@bot.unitychant.com</code>)</li>
-                <li>Slash commands (<code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">/chant</code>, <code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">/idea</code>, <code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">/vote</code>) call UC API endpoints</li>
-                <li>Bot renders results as Discord embeds with interactive buttons</li>
-              </ul>
-            </div>
-            <p className="text-muted text-xs">
-              This pattern works for any chat platform — Slack, Telegram, or custom CLIs.
-              The API is the same; only the presentation layer changes.
             </p>
           </Section>
 

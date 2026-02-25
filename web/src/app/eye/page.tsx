@@ -28,12 +28,14 @@ function chunkBySentence(text: string): string[] {
 
 function HowItWorksPopup({ onClose }: { onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div
-        className="relative bg-background border-t border-border w-full max-w-lg rounded-t-2xl px-5 pt-5 pb-8 animate-slide-up"
-        onClick={e => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex flex-col sm:px-4 sm:pb-4 sm:pt-4" onClick={onClose}>
+      <div className="flex-1 flex flex-col sm:max-w-[480px] w-full mx-auto relative">
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm sm:rounded-xl" />
+        <div className="flex-1" />
+        <div
+          className="relative bg-background border-t border-border w-full rounded-t-2xl sm:rounded-b-xl px-5 pt-5 pb-8 animate-slide-up"
+          onClick={e => e.stopPropagation()}
+        >
         <button onClick={onClose} className="absolute top-3 right-4 text-muted hover:text-foreground text-lg">x</button>
         <h2 className="font-serif text-lg font-bold text-foreground mb-4">How the Eye Works</h2>
         <div className="space-y-4">
@@ -69,6 +71,7 @@ function HowItWorksPopup({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} className="w-full mt-6 bg-accent hover:bg-accent-hover text-background px-4 py-2.5 rounded-xl text-sm font-bold transition-colors">
           Got it
         </button>
+        </div>
       </div>
     </div>
   )
@@ -91,6 +94,11 @@ export default function EyePage() {
   const [aiResult, setAiResult] = useState<Record<string, unknown> | null>(null)
   const [aiError, setAiError] = useState('')
   const [shiftLog, setShiftLog] = useState<string[]>([])
+  const [sdkProvider, setSdkProvider] = useState<'anthropic' | 'openai' | 'local' | 'other'>('anthropic')
+  const [sdkKey, setSdkKey] = useState('')
+  const [sdkEndpoint, setSdkEndpoint] = useState('')
+  const [sdkSaving, setSdkSaving] = useState(false)
+  const [sdkSaved, setSdkSaved] = useState('')
   const [question, setQuestion] = useState('')
   const [askingBrain, setAskingBrain] = useState(false)
   const [askResult, setAskResult] = useState('')
@@ -144,9 +152,12 @@ export default function EyePage() {
             while (full.length < MAX_CORPUS) full.push(CORPUS_DEFAULTS[full.length] || '')
             setCorpus(full.slice(0, MAX_CORPUS))
           }
-          // Check for pending question
+          // Load pending question + SDK settings from state
           const state = data.eye.state as Record<string, unknown> | null
           if (state?.pendingQuestion) setPendingQ(state.pendingQuestion as string)
+          if (state?.sdkProvider) setSdkProvider(state.sdkProvider as typeof sdkProvider)
+          if (state?.sdkEndpoint) setSdkEndpoint(state.sdkEndpoint as string)
+          // Never load the key back — it's stored server-side only
         }
         setLoading(false)
       })
@@ -298,6 +309,34 @@ export default function EyePage() {
     finally { setAiLoading(false) }
   }
 
+  async function saveSdkKey() {
+    if (sdkSaving) return
+    setSdkSaving(true)
+    setSdkSaved('')
+    try {
+      const res = await fetch('/api/eye/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sdk: {
+            provider: sdkProvider,
+            key: sdkKey || undefined,
+            endpoint: sdkProvider === 'local' ? sdkEndpoint : undefined,
+          }
+        }),
+      })
+      if (res.ok) {
+        setSdkSaved('Saved')
+        setSdkKey('') // Clear from client memory
+        setTimeout(() => setSdkSaved(''), 3000)
+      } else {
+        const data = await res.json()
+        setSdkSaved(data.error || 'Failed')
+      }
+    } catch { setSdkSaved('Network error') }
+    finally { setSdkSaving(false) }
+  }
+
   if (status === 'loading' || loading) {
     return (
       <FrameLayout showBack>
@@ -432,20 +471,104 @@ export default function EyePage() {
                     <p className="text-sm font-bold text-foreground">{eye.name}</p>
                     <p className="text-[10px] text-muted">Free forever</p>
                   </div>
-                  <button onClick={toggleConnection} disabled={toggling}
-                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                      eye.connected
-                        ? 'bg-success/20 text-success border border-success/40'
-                        : 'bg-accent hover:bg-accent-hover text-background'
-                    }`}>
-                    {toggling ? '...' : eye.connected ? 'Plugged In' : 'Plug In'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={toggleConnection} disabled={toggling}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                        eye.connected
+                          ? 'bg-success/20 text-success border border-success/40'
+                          : 'bg-accent hover:bg-accent-hover text-background'
+                      }`}>
+                      {toggling ? '...' : eye.connected ? 'Plugged In' : 'Plug In'}
+                    </button>
+                  </div>
                 </div>
                 {eye.connected && (
                   <p className="text-[10px] text-success/80">
                     Your Eye is in the Cradle. The brain dreams with your geometry.
                   </p>
                 )}
+                {!eye.connected && (
+                  <p className="text-[10px] text-muted/60">
+                    Eye is idle. Plug in to enter the Cradle tournament.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            <section className="mb-6">
+              <h2 className="text-[10px] font-bold text-muted uppercase tracking-wider mb-3">SDK Key</h2>
+              <div className="bg-surface/60 border border-border/50 rounded-lg px-4 py-4">
+                <p className="text-xs text-muted leading-relaxed mb-3">
+                  Provide your own API key for AI interpretation of brain output.
+                  Stored encrypted. Used only when you request AI analysis.
+                </p>
+
+                {/* Provider selector */}
+                <div className="flex gap-1 mb-3">
+                  {([
+                    ['anthropic', 'Anthropic'],
+                    ['openai', 'OpenAI'],
+                    ['local', 'Local'],
+                    ['other', 'Other'],
+                  ] as const).map(([val, label]) => (
+                    <button key={val} onClick={() => setSdkProvider(val)}
+                      className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors ${
+                        sdkProvider === val
+                          ? 'bg-accent/15 text-accent border border-accent/30'
+                          : 'bg-surface/40 text-muted border border-border/30 hover:text-foreground'
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* API key input */}
+                {sdkProvider !== 'local' && (
+                  <input
+                    type="password"
+                    value={sdkKey}
+                    onChange={e => setSdkKey(e.target.value)}
+                    placeholder={
+                      sdkProvider === 'anthropic' ? 'sk-ant-...' :
+                      sdkProvider === 'openai' ? 'sk-...' :
+                      'API key'
+                    }
+                    className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted/40 mb-2 focus:outline-none focus:border-accent font-mono"
+                  />
+                )}
+
+                {/* Local endpoint input */}
+                {sdkProvider === 'local' && (
+                  <>
+                    <input
+                      type="text"
+                      value={sdkEndpoint}
+                      onChange={e => setSdkEndpoint(e.target.value)}
+                      placeholder="http://localhost:11434/v1"
+                      className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted/40 mb-2 focus:outline-none focus:border-accent font-mono"
+                    />
+                    <input
+                      type="password"
+                      value={sdkKey}
+                      onChange={e => setSdkKey(e.target.value)}
+                      placeholder="API key (optional for local)"
+                      className="w-full bg-surface border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted/40 mb-2 focus:outline-none focus:border-accent font-mono"
+                    />
+                  </>
+                )}
+
+                <button onClick={saveSdkKey} disabled={sdkSaving}
+                  className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 text-background px-4 py-2 rounded-lg text-xs font-bold transition-colors">
+                  {sdkSaving ? 'Saving...' : 'Save Key'}
+                </button>
+                {sdkSaved && (
+                  <p className={`text-[10px] mt-2 ${sdkSaved === 'Saved' ? 'text-success' : 'text-error'}`}>
+                    {sdkSaved}
+                  </p>
+                )}
+                <p className="text-[10px] text-muted/50 mt-2">
+                  Your key is never exposed to the browser after saving. Pay at cost for AI interpretation.
+                </p>
               </div>
             </section>
 

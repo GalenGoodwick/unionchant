@@ -1,13 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import { useSession } from 'next-auth/react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
 
-export default function AIEyePage() {
+function AIEyePageInner() {
   const { data: session } = useSession()
-  const [tab, setTab] = useState<'plug-in' | 'create'>('plug-in')
+  const searchParams = useSearchParams()
+  const initialTab = searchParams.get('tab') === 'create' ? 'create' : 'plug-in'
+  const [tab, setTab] = useState<'plug-in' | 'create'>(initialTab)
   const [name, setName] = useState('')
   const [result, setResult] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(false)
@@ -272,5 +275,13 @@ export default function AIEyePage() {
         )}
       </div>
     </FrameLayout>
+  )
+}
+
+export default function AIEyePage() {
+  return (
+    <Suspense fallback={<FrameLayout showBack><div className="flex items-center justify-center py-20"><p className="text-xs text-muted">Loading...</p></div></FrameLayout>}>
+      <AIEyePageInner />
+    </Suspense>
   )
 }

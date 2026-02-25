@@ -36,7 +36,6 @@ const sections = [
       { href: '/humanity', label: 'Humanity' },
       { href: '/humans', label: 'Humans' },
       { href: '/demo', label: 'Demo' },
-      { href: '/pepperphone', label: 'PepperPhone' },
       { href: '/tools', label: 'Tools' },
       { href: '/resources', label: 'Resources' },
     ],

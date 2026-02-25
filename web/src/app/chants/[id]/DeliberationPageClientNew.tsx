@@ -23,7 +23,7 @@ import WinnerCard from '@/components/deliberation/WinnerCard'
 import DefenderCard from '@/components/deliberation/DefenderCard'
 import StatsRow from '@/components/deliberation/StatsRow'
 import FirstVisitTooltip from '@/components/FirstVisitTooltip'
-import DiscordClaimBanner from '@/components/DiscordClaimBanner'
+
 import FlaggedBadge from '@/components/FlaggedBadge'
 import CommentsPanel from '@/components/deliberation/CommentsPanel'
 import type { Deliberation, Cell, Idea } from '@/components/deliberation/types'
@@ -814,8 +814,6 @@ export default function DeliberationPageClient() {
           ]} />
         </div>
 
-        {/* Discord claim banner (guild owner only) */}
-        <DiscordClaimBanner deliberationId={delib.id} />
 
         {/* Linked Podium - inline link */}
         {linkedPodiums.length > 0 && (

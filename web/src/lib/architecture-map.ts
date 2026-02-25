@@ -74,7 +74,6 @@ then vote in small 5-person cells. Winners advance tier by tier until one idea w
 | /whitepaper | Full whitepaper |
 | /technical | Technical whitepaper (detailed algorithm) |
 | /donate | Support the project |
-| /pepperphone | Discord bot landing page |
 | /demo | Interactive demo (coming soon) |
 
 | /contact | Contact form |
@@ -146,7 +145,6 @@ then vote in small 5-person cells. Winners advance tier by tier until one idea w
 - Notification — in-app notifications (vote needed, idea advanced, etc.)
 
 ### Integrations
-- Discord bot (PepperPhone) — /api/bot/* routes
 - Common Ground plugin — /api/cg/* routes
 - Stripe billing — /api/stripe/* routes
 
@@ -166,6 +164,5 @@ then vote in small 5-person cells. Winners advance tier by tier until one idea w
 - Resend for transactional email
 - Stripe for subscriptions
 - Anthropic Claude for AI features
-- Discord.js for bot integration
 - Open source: https://github.com/GalenGoodwick/unitychant
 `

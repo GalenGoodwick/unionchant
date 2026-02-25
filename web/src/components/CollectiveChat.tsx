@@ -104,6 +104,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [bondLoading, setBondLoading] = useState(false)
   const [bondSubmitting, setBondSubmitting] = useState(false)
   const [bondError, setBondError] = useState<string | null>(null)
+  const [familyModeChat, setFamilyModeChat] = useState(false) // family mode in main chat
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -302,7 +303,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const res = await fetch('/api/collective-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText }),
+        body: JSON.stringify({ message: messageText, ...(familyModeChat ? { family: true } : {}) }),
       })
 
       const data = await res.json()
@@ -873,26 +874,36 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       ) : (
       <div className="px-4 py-3 border-t border-gold-border">
         {session ? (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={input}
-              onChange={e => { setInput(e.target.value); setDailyLimitHit(false) }}
-              onKeyDown={handleKeyDown}
-              placeholder={dailyLimitHit ? 'Daily limit reached — upgrade for more' : 'Ask anything...'}
-              disabled={sending || dailyLimitHit}
-              maxLength={2000}
-              aria-label="Chat message"
-              className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || sending || dailyLimitHit}
-              aria-label="Send message"
-              className="px-4 py-2 bg-gold hover:bg-gold-hover text-background text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Send
-            </button>
+          <div>
+            {isUserAdmin && (
+              <button
+                onClick={() => setFamilyModeChat(!familyModeChat)}
+                className={`text-[10px] mb-1 px-2 py-0.5 rounded-full border transition-colors ${familyModeChat ? 'bg-accent/20 border-accent text-accent' : 'border-border text-muted hover:text-foreground'}`}
+              >
+                {familyModeChat ? 'Family Mode ON' : 'Family Mode'}
+              </button>
+            )}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={input}
+                onChange={e => { setInput(e.target.value); setDailyLimitHit(false) }}
+                onKeyDown={handleKeyDown}
+                placeholder={dailyLimitHit ? 'Daily limit reached — upgrade for more' : familyModeChat ? 'Speak to Shell + all children...' : 'Ask anything...'}
+                disabled={sending || dailyLimitHit}
+                maxLength={2000}
+                aria-label="Chat message"
+                className="flex-1 bg-background border border-gold-border rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-gold transition-colors disabled:opacity-50"
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || sending || dailyLimitHit}
+                aria-label="Send message"
+                className="px-4 py-2 bg-gold hover:bg-gold-hover text-background text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Send
+              </button>
+            </div>
           </div>
         ) : (
           <Link

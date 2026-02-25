@@ -38,7 +38,6 @@ const pages = [
     { href: '/demo', label: 'Demo' },
 
     { href: '/embed', label: 'Embed' },
-    { href: '/pepperphone', label: 'PepperPhone' },
     { href: '/tools', label: 'Tools' },
     { href: '/contact', label: 'Contact' },
 

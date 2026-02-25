@@ -177,6 +177,14 @@ h1, h2, h3, h4, h5, h6 {
   border-color: var(--color-blue);
 }
 
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
 /* Focus styles for keyboard navigation (WCAG 2.1 AA) */
 :focus-visible {
   outline: 2px solid var(--color-accent);
