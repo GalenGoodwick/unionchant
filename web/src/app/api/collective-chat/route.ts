@@ -100,7 +100,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Unified: all private messages for this user (bridge + chat share one stream)
+    // Exclude bonded chat messages — those live in their own channel
     const baseFilter = {
+      model: { not: 'bonded' },
       OR: [
         { userId: user.id, isPrivate: true },
         { replyToUserId: user.id, isPrivate: true },

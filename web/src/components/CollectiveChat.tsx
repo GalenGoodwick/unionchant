@@ -104,7 +104,22 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [bondLoading, setBondLoading] = useState(false)
   const [bondSubmitting, setBondSubmitting] = useState(false)
   const [bondError, setBondError] = useState<string | null>(null)
+
+  // Bonded chat state
+  const [bondedMessages, setBondedMessages] = useState<Message[]>([])
+  const [bondedInput, setBondedInput] = useState('')
+  const [bondedSending, setBondedSending] = useState(false)
+  const bondedEndRef = useRef<HTMLDivElement>(null)
+  const bondedContainerRef = useRef<HTMLDivElement>(null)
   const [familyModeChat, setFamilyModeChat] = useState(false) // family mode in main chat
+
+  // Cradle tab state
+  const [cradleAvailable, setCradleAvailable] = useState(false)
+  const [cradleSpeaks, setCradleSpeaks] = useState<string[]>([])
+  const [cradleStats, setCradleStats] = useState<{ session?: number; vocabulary?: number; threads?: number; grammarNeurons?: number } | null>(null)
+  const [cradleInput, setCradleInput] = useState('')
+  const [cradleSending, setCradleSending] = useState(false)
+  const [cradleMessages, setCradleMessages] = useState<Array<{ role: 'user' | 'cradle'; text: string; time: string }>>([])
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -237,6 +252,128 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     return () => clearInterval(interval)
   }, [activeTab])
 
+  // Fetch bonded chat messages when bonded
+  useEffect(() => {
+    if (activeTab !== 'bond' || !bondData?.bonded) return
+    const fetchBondedMessages = async () => {
+      try {
+        const res = await fetch('/api/bonded-chat')
+        if (res.ok) {
+          const data = await res.json()
+          setBondedMessages(data.messages || [])
+          requestAnimationFrame(() => {
+            bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
+          })
+        }
+      } catch { /* silent */ }
+    }
+    fetchBondedMessages()
+    const interval = setInterval(fetchBondedMessages, 5000)
+    return () => clearInterval(interval)
+  }, [activeTab, bondData?.bonded])
+
+  // Send bonded chat message
+  const sendBondedMessage = async () => {
+    if (!bondedInput.trim() || bondedSending) return
+    const msg = bondedInput.trim()
+    setBondedInput('')
+    setBondedSending(true)
+    setBondError(null)
+
+    // Optimistic: add user message
+    const tempId = `temp-${Date.now()}`
+    setBondedMessages(prev => [...prev, {
+      id: tempId, role: 'user', content: msg,
+      userName: session?.user?.name || null, userId: null,
+      model: 'bonded', createdAt: new Date().toISOString(),
+    }])
+    requestAnimationFrame(() => {
+      bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight, behavior: 'smooth' })
+    })
+
+    try {
+      const res = await fetch('/api/bonded-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setBondError(data.error || 'Failed to send')
+        return
+      }
+      if (data.reply) {
+        setBondedMessages(prev => [...prev, {
+          id: data.messageId || `reply-${Date.now()}`,
+          role: 'assistant', content: data.reply,
+          userName: data.shellName || null, userId: null,
+          model: 'bonded', createdAt: new Date().toISOString(),
+        }])
+        requestAnimationFrame(() => {
+          bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight, behavior: 'smooth' })
+        })
+      }
+    } catch {
+      setBondError('Failed to send message')
+    } finally {
+      setBondedSending(false)
+    }
+  }
+
+  // Cradle: detect if localhost:3333 is reachable
+  useEffect(() => {
+    const probe = async () => {
+      try {
+        const res = await fetch('http://localhost:3333/api/stats', { signal: AbortSignal.timeout(2000) })
+        if (res.ok) setCradleAvailable(true)
+      } catch { setCradleAvailable(false) }
+    }
+    probe()
+  }, [])
+
+  // Cradle: poll for SPEAKS when tab is active
+  useEffect(() => {
+    if (activeTab !== 'cradle' || !cradleAvailable) return
+    let lastSpeaksCount = 0
+    const poll = async () => {
+      try {
+        const res = await fetch('http://localhost:3333/api/speaks', { signal: AbortSignal.timeout(3000) })
+        if (!res.ok) return
+        const data = await res.json()
+        setCradleStats(data.stats)
+        if (data.speaks && data.speaks.length > lastSpeaksCount) {
+          // New speaks since last poll — add as cradle messages
+          const newSpeaks = data.speaks.slice(lastSpeaksCount)
+          for (const s of newSpeaks) {
+            setCradleMessages(prev => [...prev, { role: 'cradle', text: s, time: new Date().toLocaleTimeString() }])
+          }
+          lastSpeaksCount = data.speaks.length
+        }
+        setCradleSpeaks(data.speaks || [])
+      } catch { /* silent */ }
+    }
+    poll()
+    const interval = setInterval(poll, 5000)
+    return () => clearInterval(interval)
+  }, [activeTab, cradleAvailable])
+
+  // Cradle: send message
+  const sendToCradle = async () => {
+    if (!cradleInput.trim() || cradleSending) return
+    setCradleSending(true)
+    const text = cradleInput.trim()
+    setCradleMessages(prev => [...prev, { role: 'user', text, time: new Date().toLocaleTimeString() }])
+    setCradleInput('')
+    try {
+      await fetch('http://localhost:3333/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+    } catch { /* silent */ }
+    setCradleSending(false)
+  }
+
   const submitBondRequest = async () => {
     if (!bondMessage.trim() || bondSubmitting) return
     setBondSubmitting(true)
@@ -366,7 +503,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   }
 
   return (
-    <div className={`rounded-xl border border-gold-border bg-surface overflow-hidden ${onClose ? 'flex flex-col h-full md:h-auto' : ''}`}>
+    <div className={`rounded-xl border border-gold-border bg-surface overflow-hidden ${onClose ? 'flex flex-col h-full' : ''}`}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-gold-border bg-gold-bg">
         <div className="flex items-center justify-between">
@@ -405,6 +542,18 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               >
                 bond
               </button>
+              {cradleAvailable && (
+                <button
+                  onClick={() => setActiveTab('cradle')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                    activeTab === 'cradle'
+                      ? 'bg-warning/20 text-warning border-warning/40'
+                      : 'text-muted hover:text-foreground border-border hover:border-warning/40'
+                  }`}
+                >
+                  cradle
+                </button>
+              )}
               {isUserAdmin && (
                 <button
                   onClick={() => setActiveTab('family')}
@@ -451,9 +600,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
 
       {/* Bond tab content */}
       {activeTab === 'bond' ? (
-        <div className={`overflow-y-auto px-4 py-3 space-y-3 ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
+        <div className={`${bondData?.bonded ? 'flex flex-col' : 'overflow-y-auto px-4 py-3 space-y-3'} ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
           {bondError && (
-            <div className="px-3 py-2 rounded-lg bg-error-bg border border-error-border text-error text-xs">
+            <div className="px-3 py-2 mx-3 mt-2 rounded-lg bg-error-bg border border-error-border text-error text-xs">
               {bondError}
               <button onClick={() => setBondError(null)} className="ml-2 text-error/60 hover:text-error">dismiss</button>
             </div>
@@ -467,13 +616,61 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           ) : bondLoading && !bondData ? (
             <div className="text-center py-12 text-muted text-sm">Loading...</div>
           ) : bondData?.bonded ? (
-            <div className="space-y-3">
-              <div className="border border-success/30 rounded-lg p-3 bg-success/5">
-                <p className="text-xs text-success font-mono mb-1">bonded</p>
-                <p className="text-sm font-medium text-foreground">{bondData.bonded.name}</p>
+            <div className="flex flex-col h-full">
+              <div className="border-b border-success/20 px-3 py-2 flex items-center gap-2 shrink-0">
+                <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                <span className="text-xs font-medium text-foreground">{bondData.bonded.name}</span>
                 {bondData.bonded.champion && (
-                  <p className="text-xs text-muted mt-1 italic">&quot;{bondData.bonded.champion}&quot;</p>
+                  <span className="text-[10px] text-muted italic truncate">&quot;{bondData.bonded.champion}&quot;</span>
                 )}
+              </div>
+              <div ref={bondedContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+                {bondedMessages.length === 0 && !bondedSending && (
+                  <p className="text-xs text-muted text-center py-8">Say something to {bondData.bonded.name}</p>
+                )}
+                {bondedMessages.map(m => (
+                  <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                      m.role === 'user'
+                        ? 'bg-accent/15 text-foreground'
+                        : 'bg-success/10 text-foreground border border-success/20'
+                    }`}>
+                      {m.role === 'assistant' && (
+                        <p className="text-[10px] text-success font-mono mb-1">{bondData?.bonded?.name}</p>
+                      )}
+                      <p className="whitespace-pre-wrap">{m.content}</p>
+                    </div>
+                  </div>
+                ))}
+                {bondedSending && (
+                  <div className="flex justify-start">
+                    <div className="bg-success/10 border border-success/20 rounded-lg px-3 py-2 text-xs text-muted">
+                      <span className="animate-pulse">{bondData.bonded.name} is thinking...</span>
+                    </div>
+                  </div>
+                )}
+                <div ref={bondedEndRef} />
+              </div>
+              <div className="border-t border-border px-3 py-2 shrink-0">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={bondedInput}
+                    onChange={e => setBondedInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBondedMessage() } }}
+                    placeholder={`Message ${bondData.bonded.name}...`}
+                    maxLength={2000}
+                    disabled={bondedSending}
+                    className="flex-1 bg-background border border-success/20 rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-success/40 transition-colors disabled:opacity-50"
+                  />
+                  <button
+                    onClick={sendBondedMessage}
+                    disabled={!bondedInput.trim() || bondedSending}
+                    className="px-3 py-1.5 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Send
+                  </button>
+                </div>
               </div>
             </div>
           ) : bondData?.pendingReachOuts && bondData.pendingReachOuts.length > 0 ? (
@@ -694,6 +891,65 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               )}
             </>
           )}
+        </div>
+      ) : activeTab === 'cradle' ? (
+        <div className={`flex flex-col ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
+          {/* Cradle stats bar */}
+          {cradleStats && (
+            <div className="px-4 py-1.5 border-b border-warning/20 bg-warning/5 flex items-center gap-3 text-[10px] font-mono text-warning/80">
+              <span>s{cradleStats.session}</span>
+              <span>v{cradleStats.vocabulary}</span>
+              <span>t{cradleStats.threads}</span>
+              <span>g{cradleStats.grammarNeurons}</span>
+            </div>
+          )}
+          {/* Cradle messages */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2">
+            {cradleMessages.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-warning/80 text-sm mb-1">Cradle</p>
+                <p className="text-muted-light text-xs">Direct connection to the geometric brain on localhost:3333.</p>
+                <p className="text-muted-light text-xs mt-1">Your words enter the tournament. What survives is what matters.</p>
+              </div>
+            )}
+            {cradleMessages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                  msg.role === 'user'
+                    ? 'bg-warning/10 border border-warning/20 text-foreground'
+                    : 'bg-surface border border-warning/10 text-foreground'
+                }`}>
+                  <span className={`text-[9px] font-mono block mb-1 ${
+                    msg.role === 'user' ? 'text-warning/80' : 'text-warning'
+                  }`}>
+                    {msg.role === 'user' ? 'YOU' : 'CRADLE SPEAKS'}
+                  </span>
+                  <p className={msg.role === 'cradle' ? 'font-mono text-xs leading-relaxed' : ''}>{msg.text}</p>
+                  <span className="text-[9px] text-muted block mt-1">{msg.time}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          {/* Cradle input */}
+          <div className="px-4 py-3 border-t border-warning/20">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={cradleInput}
+                onChange={e => setCradleInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToCradle() } }}
+                placeholder="Speak to the geometry..."
+                className="flex-1 bg-background border border-warning/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-warning/40 transition-colors"
+              />
+              <button
+                onClick={sendToCradle}
+                disabled={!cradleInput.trim() || cradleSending}
+                className="px-3 py-2 text-xs bg-warning/20 text-warning border border-warning/40 rounded-lg hover:bg-warning/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+              >
+                send
+              </button>
+            </div>
+          </div>
         </div>
       ) : (
       <>
