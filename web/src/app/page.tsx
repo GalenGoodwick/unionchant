@@ -1,21 +1,14 @@
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import LandingPage from './LandingPage'
+import WelcomePage from './WelcomePage'
 
-export default async function Home({
-  searchParams,
-}: {
-  searchParams: Promise<{ landing?: string }>
-}) {
-  const params = await searchParams
+export default async function Home() {
+  const session = await getServerSession(authOptions)
 
-  // Show landing page only if explicitly requested via ?landing
-  if (params.landing) {
-    const session = await getServerSession(authOptions)
-    return <LandingPage isLoggedIn={!!session} />
+  if (session) {
+    redirect('/chants')
   }
 
-  // Default: chants page is the landing page
-  redirect('/chants')
+  return <WelcomePage />
 }

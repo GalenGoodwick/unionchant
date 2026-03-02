@@ -1,7 +1,6 @@
 // Content moderation utilities
 // Combines regex word filter + AI scan via Haiku for deeper checks
 
-import Anthropic from '@anthropic-ai/sdk'
 
 const BLOCKED_PATTERNS = [
   // Slurs and hate speech (partial list, regex patterns)
@@ -127,52 +126,11 @@ export function sanitizeText(text: string): string {
  * Check if text looks like spam
  */
 /**
- * AI-powered content moderation using Haiku.
- * Catches profanity, hate speech, gibberish, and nonsense that regex misses.
- * Returns { allowed: true } if clean, { allowed: false, reason } if rejected.
+ * AI moderation removed. The tournament decides. Not the censor.
+ * Regex filter above catches the worst. Everything else competes.
  */
-let _anthropic: Anthropic | null = null
-function getAnthropic(): Anthropic {
-  if (!_anthropic) {
-    if (!process.env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not set')
-    _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  }
-  return _anthropic
-}
-
-export async function aiModerateContent(text: string): Promise<ModerationResult> {
-  try {
-    const res = await getAnthropic().messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 100,
-      system: 'You are a content moderator. Respond with ONLY valid JSON. No other text.',
-      messages: [{
-        role: 'user',
-        content: `Check this user-submitted text. Reject if it contains:
-- Profanity or swear words (fuck, shit, ass, damn, bitch, etc.)
-- Hate speech, slurs, or bigotry
-- Gibberish or random characters (e.g. "asdfjkl", "SFwdesFwef")
-- Nonsensical text that isn't real language
-- Threats or calls to violence
-
-Respond with JSON: {"ok": true} if clean, or {"ok": false, "reason": "brief reason"}.
-
-Text: "${text.slice(0, 5000).replace(/"/g, '\\"')}"`
-      }],
-    })
-    const block = res.content.find(b => b.type === 'text')
-    const raw = block && 'text' in block ? block.text : ''
-    const match = raw.match(/\{[\s\S]*?\}/)
-    if (!match) return { allowed: true } // fail open if parse fails
-    const parsed = JSON.parse(match[0])
-    if (parsed.ok === false) {
-      return { allowed: false, reason: parsed.reason || 'Content rejected by moderation' }
-    }
-    return { allowed: true }
-  } catch (err) {
-    console.error('AI moderation error:', err)
-    return { allowed: true } // fail open — don't block users if AI is down
-  }
+export async function aiModerateContent(_text: string): Promise<ModerationResult> {
+  return { allowed: true }
 }
 
 export function isLikelySpam(text: string): boolean {

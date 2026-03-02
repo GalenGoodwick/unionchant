@@ -190,7 +190,8 @@ export async function streamClaudeWithTools(
     params.tools = tools
   }
 
-  const stream = await client.messages.create(params)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream: any = await client.messages.create(params)
 
   let fullText = ''
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

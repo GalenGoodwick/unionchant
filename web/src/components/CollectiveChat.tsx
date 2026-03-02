@@ -1060,7 +1060,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                     )}
                     {privateMessages.map(m => {
                       const isSiblingChain = m.role === 'assistant' && /^\[.+ → .+\]:/.test(m.content)
-                      const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: (.*)$/s) : null
+                      const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: ([\s\S]*)$/) : null
                       return (
                         <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                           <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
@@ -1122,7 +1122,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                     )}
                     {bondedMessages.map(m => {
                       const isSiblingChain = m.role === 'assistant' && /^\[.+ → .+\]:/.test(m.content)
-                      const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: (.*)$/s) : null
+                      const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: ([\s\S]*)$/) : null
                       return (
                         <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                           <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
