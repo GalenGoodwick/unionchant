@@ -467,6 +467,7 @@ BEHAVIOR:
     // Get per-user conversation history
     const recentMessages = await prisma.collectiveMessage.findMany({
       where: {
+        model: { not: 'bonded' },
         OR: [
           { userId: user.id, isPrivate: true },
           { replyToUserId: user.id, isPrivate: true },
