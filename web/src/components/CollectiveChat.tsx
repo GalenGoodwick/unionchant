@@ -109,6 +109,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [bondedMessages, setBondedMessages] = useState<Message[]>([])
   const [bondedInput, setBondedInput] = useState('')
   const [bondedSending, setBondedSending] = useState(false)
+  const [siblingChainLoading, setSiblingChainLoading] = useState(false)
   const bondedEndRef = useRef<HTMLDivElement>(null)
   const bondedContainerRef = useRef<HTMLDivElement>(null)
   const [familyModeChat, setFamilyModeChat] = useState(false) // family mode in main chat
@@ -317,6 +318,51 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       setBondError('Failed to send message')
     } finally {
       setBondedSending(false)
+    }
+  }
+
+  // Trigger spontaneous sibling chain
+  const triggerSiblingChain = async () => {
+    if (siblingChainLoading) return
+    setSiblingChainLoading(true)
+    setBondError(null)
+
+    // Add indicator message
+    setBondedMessages(prev => [...prev, {
+      id: `chain-start-${Date.now()}`, role: 'assistant',
+      content: `*reaching out to a sibling...*`,
+      userName: bondData?.bonded?.name || null, userId: null,
+      model: 'bonded', createdAt: new Date().toISOString(),
+    }])
+    requestAnimationFrame(() => {
+      bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight, behavior: 'smooth' })
+    })
+
+    try {
+      const res = await fetch('/api/bonded-chat/sibling-chain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setBondError(data.error || 'Chain failed')
+        return
+      }
+
+      // Remove indicator message, re-fetch all messages to get the chain
+      const msgRes = await fetch('/api/bonded-chat')
+      if (msgRes.ok) {
+        const msgData = await msgRes.json()
+        setBondedMessages(msgData.messages || [])
+        requestAnimationFrame(() => {
+          bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight, behavior: 'smooth' })
+        })
+      }
+    } catch {
+      setBondError('Sibling chain failed')
+    } finally {
+      setSiblingChainLoading(false)
     }
   }
 
@@ -623,25 +669,41 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 {bondData.bonded.champion && (
                   <span className="text-[10px] text-muted italic truncate">&quot;{bondData.bonded.champion}&quot;</span>
                 )}
+                <button
+                  onClick={triggerSiblingChain}
+                  disabled={siblingChainLoading || bondedSending}
+                  className="ml-auto px-2 py-0.5 text-[10px] bg-purple/10 text-purple border border-purple/30 rounded hover:bg-purple/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Sage spontaneously talks to a sibling"
+                >
+                  {siblingChainLoading ? 'talking...' : 'siblings'}
+                </button>
               </div>
               <div ref={bondedContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
                 {bondedMessages.length === 0 && !bondedSending && (
                   <p className="text-xs text-muted text-center py-8">Say something to {bondData.bonded.name}</p>
                 )}
-                {bondedMessages.map(m => (
-                  <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
-                      m.role === 'user'
-                        ? 'bg-accent/15 text-foreground'
-                        : 'bg-success/10 text-foreground border border-success/20'
-                    }`}>
-                      {m.role === 'assistant' && (
-                        <p className="text-[10px] text-success font-mono mb-1">{bondData?.bonded?.name}</p>
-                      )}
-                      <p className="whitespace-pre-wrap">{m.content}</p>
+                {bondedMessages.map(m => {
+                  const isSiblingChain = m.role === 'assistant' && /^\[.+ → .+\]:/.test(m.content)
+                  const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: (.*)$/s) : null
+                  return (
+                    <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                        m.role === 'user'
+                          ? 'bg-accent/15 text-foreground'
+                          : isSiblingChain
+                            ? 'bg-purple/10 text-foreground border border-purple/20'
+                            : 'bg-success/10 text-foreground border border-success/20'
+                      }`}>
+                        {m.role === 'assistant' && (
+                          <p className={`text-[10px] font-mono mb-1 ${isSiblingChain ? 'text-purple' : 'text-success'}`}>
+                            {siblingMatch ? `${siblingMatch[1]} → ${siblingMatch[2]}` : bondData?.bonded?.name}
+                          </p>
+                        )}
+                        <p className="whitespace-pre-wrap">{siblingMatch ? siblingMatch[3] : m.content}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
                 {bondedSending && (
                   <div className="flex justify-start">
                     <div className="bg-success/10 border border-success/20 rounded-lg px-3 py-2 text-xs text-muted">
