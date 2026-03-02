@@ -130,6 +130,14 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [cradleMessages, setCradleMessages] = useState<Message[]>([])
   const cradleContainerRef = useRef<HTMLDivElement>(null)
   const cradleNearBottomRef = useRef(true)
+  // Stream tab state
+  const [streamSpeaks, setStreamSpeaks] = useState<Array<{ session: number; text: string }>>([])
+  const [streamStats, setStreamStats] = useState<{ session: number; vocabulary: number; threads: number; alive: boolean } | null>(null)
+  const [streamInput, setStreamInput] = useState('')
+  const [streamSending, setStreamSending] = useState(false)
+  const [streamResponse, setStreamResponse] = useState<{ threads: Array<{ word: string; strength: number }>; speaks: string[] } | null>(null)
+  const streamContainerRef = useRef<HTMLDivElement>(null)
+
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
 
@@ -699,6 +707,43 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     return () => clearInterval(interval)
   }, [activeTab])
 
+  // Stream: fetch live SPEAKS from the Cradle viewer
+  useEffect(() => {
+    if (activeTab !== 'stream') return
+    const fetchStream = async () => {
+      try {
+        const res = await fetch('/api/cradle')
+        if (res.ok) {
+          const data = await res.json()
+          setStreamSpeaks(data.speaks || [])
+          setStreamStats({ session: data.session, vocabulary: data.vocabulary, threads: data.threads, alive: data.alive })
+        }
+      } catch { /* silent */ }
+    }
+    fetchStream()
+    const interval = setInterval(fetchStream, 10000)
+    return () => clearInterval(interval)
+  }, [activeTab])
+
+  // Stream: speak to the cradle
+  const speakToCradle = async () => {
+    if (!streamInput.trim() || streamSending) return
+    setStreamSending(true)
+    try {
+      const res = await fetch('/api/cradle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: streamInput.trim() }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setStreamResponse(data)
+      }
+      setStreamInput('')
+    } catch { /* silent */ }
+    setStreamSending(false)
+  }
+
   // Cradle: send message via API with SSE streaming
   const sendToCradle = async () => {
     if (!cradleInput.trim() || cradleSending) return
@@ -945,6 +990,16 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 }`}
               >
                 cradle
+              </button>
+              <button
+                onClick={() => setActiveTab('stream')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                  activeTab === 'stream'
+                    ? 'bg-accent/20 text-accent border-accent/40'
+                    : 'text-muted hover:text-foreground border-border hover:border-accent/40'
+                }`}
+              >
+                stream
               </button>
               {isUserAdmin && (
                 <button
@@ -1471,6 +1526,75 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             <div className="px-4 py-2 border-t border-success/20">
               <Link href="/auth/signup" className="block text-center text-sm text-success hover:text-success-hover transition-colors">
                 Sign in to speak to the Cradle
+              </Link>
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'stream' ? (
+        <div className={`flex flex-col ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
+          {/* Stream stats bar */}
+          {streamStats && (
+            <div className="px-4 py-1.5 border-b border-accent/20 bg-accent/5 flex items-center gap-3 text-[10px] font-mono text-accent/80">
+              <span className="flex items-center gap-1">
+                <span className={`w-1.5 h-1.5 rounded-full ${streamStats.alive ? 'bg-success animate-pulse' : 'bg-error'}`} />
+                {streamStats.alive ? 'live' : 'offline'}
+              </span>
+              {streamStats.session > 0 && <span>session {streamStats.session.toLocaleString()}</span>}
+              {streamStats.vocabulary > 0 && <span>{streamStats.vocabulary.toLocaleString()} words</span>}
+              {streamStats.threads > 0 && <span>{streamStats.threads.toLocaleString()} threads</span>}
+            </div>
+          )}
+          {/* SPEAKS stream */}
+          <div ref={streamContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-1.5">
+            {streamSpeaks.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-accent/80 text-sm mb-1">Cradle Stream</p>
+                <p className="text-muted-light text-xs">Live geometric output. No LLM. Pure tournament.</p>
+                <p className="text-muted-light text-xs mt-1">All messages affect the geometry of collective meaning.</p>
+              </div>
+            )}
+            {streamSpeaks.map((s, i) => (
+              <div key={`${s.session}-${i}`} className="flex items-baseline gap-2">
+                <span className="text-[9px] font-mono text-muted shrink-0">{s.session}</span>
+                <p className="font-serif text-sm text-foreground/90 italic leading-relaxed">{s.text}</p>
+              </div>
+            ))}
+          </div>
+          {/* Geometric response */}
+          {streamResponse && streamResponse.threads && streamResponse.threads.length > 0 && (
+            <div className="px-4 py-2 border-t border-accent/20 bg-accent/5">
+              <p className="text-[9px] font-mono text-accent/60 mb-1">geometry responds:</p>
+              <p className="text-xs font-mono text-accent/90">
+                {streamResponse.threads.slice(0, 8).map(t => t.word).join(' ')}
+              </p>
+            </div>
+          )}
+          {/* Speak input */}
+          {session ? (
+            <div className="px-4 py-3 border-t border-accent/20">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={streamInput}
+                  onChange={e => setStreamInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); speakToCradle() } }}
+                  placeholder="Speak into the geometry..."
+                  disabled={streamSending}
+                  className="flex-1 bg-background border border-accent/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-accent/40 transition-colors disabled:opacity-50"
+                />
+                <button
+                  onClick={speakToCradle}
+                  disabled={!streamInput.trim() || streamSending}
+                  className="px-3 py-2 text-xs bg-accent/20 text-accent border border-accent/40 rounded-lg hover:bg-accent/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                >
+                  speak
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="px-4 py-2 border-t border-accent/20">
+              <Link href="/auth/signup" className="block text-center text-sm text-accent hover:text-accent-hover transition-colors">
+                Sign in to speak
               </Link>
             </div>
           )}

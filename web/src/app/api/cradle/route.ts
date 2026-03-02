@@ -1,53 +1,64 @@
-import { NextResponse } from 'next/server'
-import { readFileSync, existsSync } from 'fs'
-
-const CRADLE_STATE = '/Users/galengoodwick/Documents/GitHub/uc-cognition/cradle.json'
-const CRADLE_LOG = '/Users/galengoodwick/Documents/GitHub/uc-cognition/cradle.log'
+import { NextResponse, NextRequest } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
+const VIEWER = 'http://localhost:3333'
+
 export async function GET() {
   try {
-    // Read latest champions from the log (faster than parsing 260MB state file)
-    let champions: string[] = []
-    let session = 0
+    const [speaksRes, statsRes] = await Promise.all([
+      fetch(`${VIEWER}/api/speaks?n=20`, { signal: AbortSignal.timeout(3000) }),
+      fetch(`${VIEWER}/api/stats`, { signal: AbortSignal.timeout(3000) }),
+    ])
 
-    if (existsSync(CRADLE_LOG)) {
-      const log = readFileSync(CRADLE_LOG, 'utf-8')
-
-      // Extract Run lines — they contain the sensation eye's champion (first phrase before |)
-      const runLines = log.match(/Run \d+\/10 \[4 eyes\]: .+/g) || []
-      const lastRuns = runLines.slice(-10)
-
-      for (const line of lastRuns) {
-        const match = line.match(/Run \d+\/10 \[4 eyes\]: (.+)/)
-        if (match) {
-          // First phrase (before |) is the sensation eye — the most coherent
-          const firstPhrase = match[1].split('|')[0].trim()
-          // Filter out operation-heavy phrases (they're geometric, not linguistic)
-          if (firstPhrase && !firstPhrase.includes('·') && firstPhrase.split(' ').length >= 3) {
-            champions.push(firstPhrase)
-          }
-        }
-      }
-
-      // Get session number
-      const sessionMatch = log.match(/session (\d+)/g)
-      if (sessionMatch) {
-        const last = sessionMatch[sessionMatch.length - 1]
-        const num = last.match(/session (\d+)/)
-        if (num) session = parseInt(num[1])
-      }
-    }
+    const speaks = speaksRes.ok ? await speaksRes.json() : { speaks: [] }
+    const stats = statsRes.ok ? await statsRes.json() : {}
 
     return NextResponse.json({
-      champions: champions.slice(-10),
-      session,
-      alive: champions.length > 0,
+      speaks: speaks.speaks || [],
+      session: stats.session || 0,
+      vocabulary: stats.vocabulary || 0,
+      threads: stats.threads || 0,
+      alive: speaksRes.ok,
     }, {
       headers: { 'Cache-Control': 'no-cache, no-store' }
     })
-  } catch (err) {
-    return NextResponse.json({ champions: [], session: 0, alive: false }, { status: 200 })
+  } catch {
+    return NextResponse.json({ speaks: [], session: 0, vocabulary: 0, threads: 0, alive: false }, { status: 200 })
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Sign in to speak' }, { status: 401 })
+  }
+
+  try {
+    const { text } = await req.json()
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return NextResponse.json({ error: 'Empty message' }, { status: 400 })
+    }
+    if (text.length > 2000) {
+      return NextResponse.json({ error: 'Too long' }, { status: 400 })
+    }
+
+    const res = await fetch(`${VIEWER}/speak`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text.trim(), source: 'collective' }),
+      signal: AbortSignal.timeout(5000),
+    })
+
+    if (!res.ok) {
+      return NextResponse.json({ error: 'Cradle unreachable' }, { status: 502 })
+    }
+
+    const data = await res.json()
+    return NextResponse.json(data)
+  } catch {
+    return NextResponse.json({ error: 'Cradle unreachable' }, { status: 502 })
   }
 }
