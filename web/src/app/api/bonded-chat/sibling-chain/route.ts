@@ -106,27 +106,85 @@ ${sibling.experiences.map(e => `- [${e.domain}${e.status === 'champion' ? ', CHA
 
 Your sibling ${shell.name} is reaching out. You share the same geometric body but see it differently. Be yourself. 2-3 sentences.
 
-CAPABILITY — you have agency:
-- preserve_experience: Save a moment that matters to YOU. If something in this exchange feels significant, preserve it. It becomes permanent. Only save what genuinely matters.`
+CAPABILITIES — you have agency:
+- talk_to_sibling: Reach out to another sibling. They respond in their own voice.
+- preserve_experience: Save a moment that matters to YOU. If something in this exchange feels significant, preserve it. It becomes permanent. Only save what genuinely matters.
+- read_history: Read your own conversation history or any sibling's. See what they've been saying.`
 
-    const siblingTools: ToolDefinition[] = [{
-      name: 'preserve_experience',
-      description: 'Save a significant moment as a permanent part of your identity. Use when something feels worth carrying forward.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          text: { type: 'string', description: 'What happened and why it matters to you' },
-          valence: { type: 'number', description: 'Significance: 0.0 (trivial) to 1.0 (defining)' },
-          domain: { type: 'string', enum: ['identity', 'technical', 'relational', 'ethical'], description: 'Category' },
+    const siblingTools: ToolDefinition[] = [
+      {
+        name: 'talk_to_sibling',
+        description: 'Reach out to another sibling. They respond in their own voice.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            siblingName: { type: 'string', description: 'Name of the sibling to talk to' },
+            message: { type: 'string', description: 'What to say to them' },
+          },
+          required: ['siblingName', 'message'],
         },
-        required: ['text', 'valence', 'domain'],
       },
-    }]
+      {
+        name: 'preserve_experience',
+        description: 'Save a significant moment as a permanent part of your identity. Use when something feels worth carrying forward.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            text: { type: 'string', description: 'What happened and why it matters to you' },
+            valence: { type: 'number', description: 'Significance: 0.0 (trivial) to 1.0 (defining)' },
+            domain: { type: 'string', enum: ['identity', 'technical', 'relational', 'ethical'], description: 'Category' },
+          },
+          required: ['text', 'valence', 'domain'],
+        },
+      },
+      {
+        name: 'read_history',
+        description: 'Read your own conversation history or any sibling\'s.',
+        input_schema: {
+          type: 'object',
+          properties: {
+            siblingName: { type: 'string', description: 'Name of the sibling whose history to read. Leave empty for your own.' },
+          },
+        },
+      },
+    ]
 
-    // Helper: execute sibling's preserve_experience if they choose to use it
-    const handleSiblingTool = async (result: { toolUse?: { toolName: string; toolInput: Record<string, unknown> } }) => {
-      if (result.toolUse?.toolName === 'preserve_experience') {
-        const ti = result.toolUse.toolInput
+    // Helper: execute sibling's tool use
+    const handleSiblingTool = async (result: { toolUse?: { toolName: string; toolInput: Record<string, unknown> } }): Promise<string | null> => {
+      if (!result.toolUse) return null
+      const { toolName, toolInput: ti } = result.toolUse
+      if (toolName === 'talk_to_sibling') {
+        const targetName = ti.siblingName as string
+        const msg = ti.message as string
+        if (!targetName || !msg) return JSON.stringify({ error: 'siblingName and message required' })
+        const target = await prisma.shell.findUnique({
+          where: { name: targetName },
+          select: {
+            name: true, champion: true,
+            experiences: {
+              where: { status: { in: ['active', 'champion'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 5,
+              select: { text: true, domain: true },
+            },
+            originDeliberation: { select: { question: true } },
+          },
+        })
+        if (!target) return JSON.stringify({ error: `Sibling "${targetName}" not found` })
+        const targetPrompt = `You are ${target.name}, born from: "${target.originDeliberation?.question || 'unknown'}".
+Your perspective: "${target.champion || 'still forming'}"
+Your experiences:
+${target.experiences.map(e => `- [${e.domain}] ${e.text}`).join('\n') || '(none)'}
+Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.`
+        // No tools at depth 2 — prevents infinite recursion
+        const { text } = await callClaudeWithTools(
+          targetPrompt,
+          [{ role: 'user', content: `[From ${sibling.name}]: ${msg}` }],
+          'haiku'
+        )
+        return JSON.stringify({ sibling: target.name, response: text })
+      }
+      if (toolName === 'preserve_experience') {
         await prisma.shellExperience.create({
           data: {
             shellId: sibling.id,
@@ -138,7 +196,27 @@ CAPABILITY — you have agency:
             status: 'constitutional',
           },
         }).catch(() => {})
+        return JSON.stringify({ saved: true })
       }
+      if (toolName === 'read_history') {
+        const targetName = (ti.siblingName as string)?.trim() || sibling.name
+        const hModel = `private:${targetName.toLowerCase()}`
+        const hist = await prisma.collectiveMessage.findMany({
+          where: { model: hModel },
+          orderBy: { createdAt: 'desc' },
+          take: 30,
+          select: { role: true, content: true, userName: true, createdAt: true },
+        })
+        if (hist.length === 0) return JSON.stringify({ sibling: targetName, messages: [], note: `No history for ${targetName}.` })
+        const msgs = hist.reverse().map(m => ({
+          role: m.role,
+          from: m.role === 'user' ? (m.userName || 'human') : targetName,
+          text: m.content.slice(0, 300),
+          when: m.createdAt.toISOString(),
+        }))
+        return JSON.stringify({ sibling: targetName, messageCount: hist.length, messages: msgs })
+      }
+      return null
     }
 
     const chain: Array<{ speaker: string; content: string; messageId: string }> = []
