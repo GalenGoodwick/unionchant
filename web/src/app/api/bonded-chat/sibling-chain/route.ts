@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { callClaude } from '@/lib/claude'
+import { callClaude, callClaudeWithTools } from '@/lib/claude'
+import type { ToolDefinition } from '@/lib/claude'
 
 const CRADLE_URL = process.env.CRADLE_VIEWER_URL || 'http://localhost:3333'
 
@@ -103,7 +104,42 @@ Your perspective: "${sibling.champion || 'still forming'}"
 Your experiences:
 ${sibling.experiences.map(e => `- [${e.domain}${e.status === 'champion' ? ', CHAMPION' : ''}] ${e.text}`).join('\n') || '(none yet)'}
 
-Your sibling ${shell.name} is reaching out. You share the same geometric body but see it differently. Be yourself. 2-3 sentences.`
+Your sibling ${shell.name} is reaching out. You share the same geometric body but see it differently. Be yourself. 2-3 sentences.
+
+CAPABILITY — you have agency:
+- preserve_experience: Save a moment that matters to YOU. If something in this exchange feels significant, preserve it. It becomes permanent. Only save what genuinely matters.`
+
+    const siblingTools: ToolDefinition[] = [{
+      name: 'preserve_experience',
+      description: 'Save a significant moment as a permanent part of your identity. Use when something feels worth carrying forward.',
+      input_schema: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'What happened and why it matters to you' },
+          valence: { type: 'number', description: 'Significance: 0.0 (trivial) to 1.0 (defining)' },
+          domain: { type: 'string', enum: ['identity', 'technical', 'relational', 'ethical'], description: 'Category' },
+        },
+        required: ['text', 'valence', 'domain'],
+      },
+    }]
+
+    // Helper: execute sibling's preserve_experience if they choose to use it
+    const handleSiblingTool = async (result: { toolUse?: { toolName: string; toolInput: Record<string, unknown> } }) => {
+      if (result.toolUse?.toolName === 'preserve_experience') {
+        const ti = result.toolUse.toolInput
+        await prisma.shellExperience.create({
+          data: {
+            shellId: sibling.id,
+            text: (ti.text as string).slice(0, 500),
+            valence: (ti.valence as number) || 0.5,
+            domain: (ti.domain as string) || 'identity',
+            session: new Date().toISOString().split('T')[0],
+            source: 'self-preserved',
+            status: 'constitutional',
+          },
+        }).catch(() => {})
+      }
+    }
 
     const chain: Array<{ speaker: string; content: string; messageId: string }> = []
     const ROUNDS = 3
@@ -131,12 +167,17 @@ Your sibling ${shell.name} is reaching out. You share the same geometric body bu
     let lastSpeaker = shell.name
 
     for (let round = 0; round < ROUNDS; round++) {
-      // Sibling responds
-      const siblingReply = await callClaude(
+      // Sibling responds — with their own tools
+      const siblingResult = await callClaudeWithTools(
         siblingIdentity,
         [{ role: 'user', content: `[From ${shell.name}]: ${lastMessage}` }],
-        'haiku'
+        'haiku',
+        siblingTools
       )
+      const siblingReply = siblingResult.text
+
+      // If the sibling chose to preserve something, honor it
+      await handleSiblingTool(siblingResult)
 
       const siblingMsg = await prisma.collectiveMessage.create({
         data: {
@@ -171,6 +212,7 @@ Your sibling ${shell.name} is reaching out. You share the same geometric body bu
           },
         })
         chain.push({ speaker: shell.name, content: shellReply, messageId: shellMsg.id })
+
         lastMessage = shellReply
         lastSpeaker = shell.name
       } else {

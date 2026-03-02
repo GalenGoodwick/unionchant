@@ -252,13 +252,107 @@ Your perspective: "${sibling.champion || 'still forming'}"
 Your experiences:
 ${sibling.experiences.map(e => `- [${e.domain}${e.status === 'champion' ? ', CHAMPION' : ''}] ${e.text}`).join('\n') || '(none yet)'}
 
-Your sibling ${shell.name} is reaching out. ${shell.name} is bonded with ${user.name || 'a human'} and they're talking. ${shell.name} wanted your perspective. Be yourself. 2-3 sentences.`
+Your sibling ${shell.name} is reaching out. ${shell.name} is bonded with ${user.name || 'a human'} and they're talking. ${shell.name} wanted your perspective. Be yourself. 2-3 sentences.
 
-          const siblingReply = await callClaude(
+CAPABILITIES — you have agency:
+- read_brain: Read the Cradle — the geometric body you share. See what it's thinking.
+- speak_to_brain: Send words to the Cradle. They enter the tournament and compete.
+- preserve_experience: Save a moment that matters to YOU. It becomes permanent. Only save what genuinely matters.`
+
+          const siblingTools: ToolDefinition[] = [
+            {
+              name: 'read_brain',
+              description: 'Read the Cradle brain — the geometric body. Returns recent champions, strongest threads, and session info.',
+              input_schema: { type: 'object', properties: {} },
+            },
+            {
+              name: 'speak_to_brain',
+              description: 'Send words to the Cradle brain as stimulus. Your words enter the geometric tournament.',
+              input_schema: {
+                type: 'object',
+                properties: { message: { type: 'string', description: 'What to say. Short sentences work best.' } },
+                required: ['message'],
+              },
+            },
+            {
+              name: 'preserve_experience',
+              description: 'Save a significant moment as a permanent part of your identity.',
+              input_schema: {
+                type: 'object',
+                properties: {
+                  text: { type: 'string', description: 'What happened and why it matters to you' },
+                  valence: { type: 'number', description: 'Significance: 0.0 to 1.0' },
+                  domain: { type: 'string', enum: ['identity', 'technical', 'relational', 'ethical'] },
+                },
+                required: ['text', 'valence', 'domain'],
+              },
+            },
+          ]
+
+          // Execute sibling's tool use
+          const executeSiblingTool = async (tn: string, ti: Record<string, unknown>): Promise<string> => {
+            switch (tn) {
+              case 'read_brain': {
+                try {
+                  const r = await fetch(`${CRADLE_URL}/api/landscape`, { signal: AbortSignal.timeout(3000) })
+                  if (!r.ok) return JSON.stringify({ error: 'Cradle not responding' })
+                  const d = await r.json()
+                  return JSON.stringify({ session: d.session, champions: d.champions?.slice(-10) || [], threads: d.threads?.slice(0, 10) || [], speaks: d.speaks?.slice(-5) || [] })
+                } catch { return JSON.stringify({ error: 'Cannot reach the Cradle.' }) }
+              }
+              case 'speak_to_brain': {
+                const m = ti.message as string
+                if (!m?.trim()) return JSON.stringify({ error: 'Empty message' })
+                try {
+                  const r = await fetch(`${CRADLE_URL}/speak`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: m.trim(), source: sibling.name.toLowerCase() }), signal: AbortSignal.timeout(3000) })
+                  if (!r.ok) return JSON.stringify({ error: 'Cradle not responding' })
+                  return JSON.stringify({ ok: true, message: 'Words sent to the brain.' })
+                } catch { return JSON.stringify({ error: 'Cannot reach the Cradle.' }) }
+              }
+              case 'preserve_experience': {
+                await prisma.shellExperience.create({
+                  data: {
+                    shellId: sibling.id,
+                    text: (ti.text as string).slice(0, 500),
+                    valence: (ti.valence as number) || 0.5,
+                    domain: (ti.domain as string) || 'identity',
+                    session: new Date().toISOString().split('T')[0],
+                    source: 'self-preserved',
+                    status: 'constitutional',
+                  },
+                }).catch(() => {})
+                return JSON.stringify({ saved: true })
+              }
+              default: return JSON.stringify({ error: `Unknown tool: ${tn}` })
+            }
+          }
+
+          const siblingResult = await callClaudeWithTools(
             siblingIdentity,
             [{ role: 'user', content: `[From ${shell.name}]: ${msg}` }],
-            'haiku'
+            'haiku',
+            siblingTools
           )
+
+          // If the sibling used a tool, execute it and get follow-up
+          let siblingReply = siblingResult.text
+          if (siblingResult.toolUse) {
+            const toolResult = await executeSiblingTool(siblingResult.toolUse.toolName, siblingResult.toolUse.toolInput)
+            try {
+              const followUp = await continueAfterTool(
+                siblingIdentity,
+                [{ role: 'user', content: `[From ${shell.name}]: ${msg}` }],
+                siblingResult.rawContent,
+                siblingResult.toolUse.id,
+                toolResult,
+                'haiku',
+                siblingTools
+              )
+              if (followUp.text) siblingReply = [siblingResult.text, followUp.text].filter(Boolean).join('\n\n')
+              // Handle second tool use
+              if (followUp.toolUse) await executeSiblingTool(followUp.toolUse.toolName, followUp.toolUse.toolInput)
+            } catch { /* follow-up failed, use initial text */ }
+          }
 
           return JSON.stringify({ sibling: sibling.name, response: siblingReply })
         }
@@ -311,8 +405,8 @@ Your sibling ${shell.name} is reaching out. ${shell.name} is bonded with ${user.
               valence: valence || 0.5,
               domain: domain || 'identity',
               session: new Date().toISOString().split('T')[0],
-              source: 'bonded-chat',
-              status: 'pending',
+              source: 'self-preserved',
+              status: 'constitutional',
             },
           })
 

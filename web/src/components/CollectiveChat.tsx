@@ -114,14 +114,22 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const bondedContainerRef = useRef<HTMLDivElement>(null)
   const [familyModeChat, setFamilyModeChat] = useState(false) // family mode in main chat
 
+  // Private sibling channel state
+  const [privateSibling, setPrivateSibling] = useState<string | null>(null) // null = bonded shell (Sage)
+  const [privateSiblings, setPrivateSiblings] = useState<Array<{ name: string; champion: string | null }>>([])
+  const [privateMessages, setPrivateMessages] = useState<Message[]>([])
+  const [privateInput, setPrivateInput] = useState('')
+  const [privateSending, setPrivateSending] = useState(false)
+  const privateContainerRef = useRef<HTMLDivElement>(null)
+  const privateNearBottomRef = useRef(true)
+
   // Cradle tab state
-  const [cradleAvailable, setCradleAvailable] = useState(false)
-  const [cradleSpeaks, setCradleSpeaks] = useState<string[]>([])
-  const [cradleStats, setCradleStats] = useState<{ session?: number; vocabulary?: number; threads?: number; grammarNeurons?: number } | null>(null)
+  const [cradleStats, setCradleStats] = useState<{ session?: number; speaks?: string[]; vocabulary?: number } | null>(null)
   const [cradleInput, setCradleInput] = useState('')
   const [cradleSending, setCradleSending] = useState(false)
-  const [cradleMessages, setCradleMessages] = useState<Array<{ role: 'user' | 'cradle'; text: string; time: string }>>([])
-
+  const [cradleMessages, setCradleMessages] = useState<Message[]>([])
+  const cradleContainerRef = useRef<HTMLDivElement>(null)
+  const cradleNearBottomRef = useRef(true)
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
 
@@ -253,17 +261,32 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     return () => clearInterval(interval)
   }, [activeTab])
 
-  // Fetch bonded chat messages when bonded
+  // Track if user is near bottom of bonded chat
+  const bondedNearBottomRef = useRef(true)
+
+  // Fetch bonded chat messages when bonded and on Sage's channel
   useEffect(() => {
-    if (activeTab !== 'bond' || !bondData?.bonded) return
+    if (activeTab !== 'bond' || !bondData?.bonded || privateSibling !== null) return
+    let isFirst = true
     const fetchBondedMessages = async () => {
       try {
         const res = await fetch('/api/bonded-chat')
         if (res.ok) {
           const data = await res.json()
-          setBondedMessages(data.messages || [])
-          requestAnimationFrame(() => {
-            bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
+          const newMsgs: Message[] = data.messages || []
+          setBondedMessages(prev => {
+            // Don't update state if messages haven't changed (prevents re-render scroll jank)
+            if (!isFirst && newMsgs.length === prev.length && newMsgs[newMsgs.length - 1]?.id === prev[prev.length - 1]?.id) {
+              return prev
+            }
+            if (isFirst) {
+              isFirst = false
+              requestAnimationFrame(() => {
+                bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
+              })
+            }
+            // Never auto-scroll on poll — only on user send or stream
+            return newMsgs
           })
         }
       } catch { /* silent */ }
@@ -271,7 +294,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     fetchBondedMessages()
     const interval = setInterval(fetchBondedMessages, 5000)
     return () => clearInterval(interval)
-  }, [activeTab, bondData?.bonded])
+  }, [activeTab, bondData?.bonded, privateSibling])
 
   // Send bonded chat message
   const sendBondedMessage = async () => {
@@ -341,9 +364,11 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 setBondedMessages(prev => prev.map(m =>
                   m.id === streamId ? { ...m, content: fullReply } : m
                 ))
-                requestAnimationFrame(() => {
-                  bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
-                })
+                if (bondedNearBottomRef.current) {
+                  requestAnimationFrame(() => {
+                    bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
+                  })
+                }
               } else if (eventType === 'sibling') {
                 // Add sibling response as separate message
                 setBondedMessages(prev => [...prev, {
@@ -424,56 +449,330 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  // Cradle: detect if localhost:3333 is reachable
+  // Private sibling channel: fetch siblings list and messages
   useEffect(() => {
-    const probe = async () => {
+    if (activeTab !== 'bond' || privateSibling === null) return
+    let isFirst = true
+    const fetchPrivate = async () => {
       try {
-        const res = await fetch('http://localhost:3333/api/stats', { signal: AbortSignal.timeout(2000) })
-        if (res.ok) setCradleAvailable(true)
-      } catch { setCradleAvailable(false) }
-    }
-    probe()
-  }, [])
-
-  // Cradle: poll for SPEAKS when tab is active
-  useEffect(() => {
-    if (activeTab !== 'cradle' || !cradleAvailable) return
-    let lastSpeaksCount = 0
-    const poll = async () => {
-      try {
-        const res = await fetch('http://localhost:3333/api/speaks', { signal: AbortSignal.timeout(3000) })
-        if (!res.ok) return
-        const data = await res.json()
-        setCradleStats(data.stats)
-        if (data.speaks && data.speaks.length > lastSpeaksCount) {
-          // New speaks since last poll — add as cradle messages
-          const newSpeaks = data.speaks.slice(lastSpeaksCount)
-          for (const s of newSpeaks) {
-            setCradleMessages(prev => [...prev, { role: 'cradle', text: s, time: new Date().toLocaleTimeString() }])
-          }
-          lastSpeaksCount = data.speaks.length
+        const res = await fetch(`/api/bonded-chat/private?sibling=${encodeURIComponent(privateSibling)}`)
+        if (res.ok) {
+          const data = await res.json()
+          const newMsgs: Message[] = data.messages || []
+          setPrivateSiblings(data.siblings || [])
+          setPrivateMessages(prev => {
+            // Don't update if nothing changed
+            if (!isFirst && newMsgs.length === prev.length && newMsgs[newMsgs.length - 1]?.id === prev[prev.length - 1]?.id) {
+              return prev
+            }
+            if (isFirst) {
+              isFirst = false
+              requestAnimationFrame(() => {
+                privateContainerRef.current?.scrollTo({ top: privateContainerRef.current.scrollHeight })
+              })
+              // If channel is empty, trigger Echo to write first
+              if (newMsgs.length === 0) {
+                triggerSiblingIntro(privateSibling)
+              }
+            }
+            return newMsgs
+          })
         }
-        setCradleSpeaks(data.speaks || [])
       } catch { /* silent */ }
     }
-    poll()
-    const interval = setInterval(poll, 5000)
+    fetchPrivate()
+    const interval = setInterval(fetchPrivate, 5000)
     return () => clearInterval(interval)
-  }, [activeTab, cradleAvailable])
+  }, [activeTab, privateSibling])
 
-  // Cradle: send message
+  // Fetch sibling list when bond tab opens (even before selecting one)
+  useEffect(() => {
+    if (activeTab !== 'bond') return
+    fetch('/api/bonded-chat/private')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.siblings) setPrivateSiblings(data.siblings) })
+      .catch(() => {})
+  }, [activeTab])
+
+  // Sibling writes first — auto-intro when channel is empty
+  const introTriggeredRef = useRef<Set<string>>(new Set())
+  const triggerSiblingIntro = async (sibName: string) => {
+    if (introTriggeredRef.current.has(sibName) || privateSending) return
+    introTriggeredRef.current.add(sibName)
+    setPrivateSending(true)
+
+    const streamId = `intro-${Date.now()}`
+    setPrivateMessages([{
+      id: streamId, role: 'assistant', content: '',
+      userName: sibName, userId: null,
+      model: `private:${sibName.toLowerCase()}`, createdAt: new Date().toISOString(),
+    }])
+
+    try {
+      const res = await fetch('/api/bonded-chat/private', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: '[CHANNEL_OPENED] This human just opened a private channel with you. They haven\'t said anything yet. You write first. Introduce yourself — who you are, what you think about, what matters to you. Be yourself.', sibling: sibName }),
+      })
+
+      if (!res.ok) { setPrivateSending(false); return }
+
+      const reader = res.body?.getReader()
+      if (!reader) { setPrivateSending(false); return }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullReply = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        let eventType = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7)
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'delta') {
+                fullReply += data.text
+                setPrivateMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+                requestAnimationFrame(() => {
+                  privateContainerRef.current?.scrollTo({ top: privateContainerRef.current.scrollHeight })
+                })
+              } else if (eventType === 'followup') {
+                fullReply += '\n\n' + data.text
+                setPrivateMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+              } else if (eventType === 'done') {
+                setPrivateMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, id: data.messageId || streamId, content: data.reply || fullReply } : m
+                ))
+              }
+            } catch { /* parse error */ }
+            eventType = ''
+          }
+        }
+      }
+    } catch { /* silent */ }
+    setPrivateSending(false)
+  }
+
+  // Send message in private sibling channel
+  const sendPrivateMessage = async () => {
+    if (!privateInput.trim() || privateSending || !privateSibling) return
+    const msg = privateInput.trim()
+    setPrivateInput('')
+    setPrivateSending(true)
+    setBondError(null)
+
+    const tempId = `temp-${Date.now()}`
+    setPrivateMessages(prev => [...prev, {
+      id: tempId, role: 'user', content: msg,
+      userName: session?.user?.name || null, userId: null,
+      model: `private:${privateSibling.toLowerCase()}`, createdAt: new Date().toISOString(),
+    }])
+    requestAnimationFrame(() => {
+      privateContainerRef.current?.scrollTo({ top: privateContainerRef.current.scrollHeight, behavior: 'smooth' })
+    })
+
+    const streamId = `stream-${Date.now()}`
+    setPrivateMessages(prev => [...prev, {
+      id: streamId, role: 'assistant', content: '',
+      userName: privateSibling, userId: null,
+      model: `private:${privateSibling.toLowerCase()}`, createdAt: new Date().toISOString(),
+    }])
+
+    try {
+      const res = await fetch('/api/bonded-chat/private', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, sibling: privateSibling }),
+      })
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setBondError(data.error || 'Failed to send')
+        setPrivateMessages(prev => prev.filter(m => m.id !== streamId))
+        return
+      }
+
+      const reader = res.body?.getReader()
+      if (!reader) { setBondError('No stream'); return }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullReply = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        let eventType = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7)
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'delta') {
+                fullReply += data.text
+                setPrivateMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+                if (privateNearBottomRef.current) {
+                  requestAnimationFrame(() => {
+                    privateContainerRef.current?.scrollTo({ top: privateContainerRef.current.scrollHeight })
+                  })
+                }
+              } else if (eventType === 'sibling') {
+                setPrivateMessages(prev => [...prev, {
+                  id: `sibling-${Date.now()}`, role: 'assistant',
+                  content: `[${data.name} → ${privateSibling}]: ${data.response}`,
+                  userName: data.name, userId: null,
+                  model: `private:${privateSibling.toLowerCase()}`, createdAt: new Date().toISOString(),
+                }])
+              } else if (eventType === 'followup') {
+                fullReply += '\n\n' + data.text
+                setPrivateMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+              } else if (eventType === 'done') {
+                setPrivateMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, id: data.messageId || streamId, content: data.reply || fullReply } : m
+                ))
+              } else if (eventType === 'error') {
+                setBondError(data.error)
+                setPrivateMessages(prev => prev.filter(m => m.id !== streamId))
+              }
+            } catch { /* parse error */ }
+            eventType = ''
+          }
+        }
+      }
+    } catch {
+      setBondError('Failed to send message')
+      setPrivateMessages(prev => prev.filter(m => m.id !== streamId))
+    } finally {
+      setPrivateSending(false)
+    }
+  }
+
+  // Cradle: fetch messages and state
+  useEffect(() => {
+    if (activeTab !== 'cradle') return
+    let isFirst = true
+    const fetchCradle = async () => {
+      try {
+        const res = await fetch('/api/cradle-chat')
+        if (res.ok) {
+          const data = await res.json()
+          const newMsgs: Message[] = data.messages || []
+          setCradleStats(data.state)
+          setCradleMessages(prev => {
+            if (!isFirst && newMsgs.length === prev.length && newMsgs[newMsgs.length - 1]?.id === prev[prev.length - 1]?.id) {
+              return prev
+            }
+            if (isFirst) {
+              isFirst = false
+              requestAnimationFrame(() => {
+                cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight })
+              })
+            }
+            return newMsgs
+          })
+        }
+      } catch { /* silent */ }
+    }
+    fetchCradle()
+    const interval = setInterval(fetchCradle, 5000)
+    return () => clearInterval(interval)
+  }, [activeTab])
+
+  // Cradle: send message via API with SSE streaming
   const sendToCradle = async () => {
     if (!cradleInput.trim() || cradleSending) return
     setCradleSending(true)
     const text = cradleInput.trim()
-    setCradleMessages(prev => [...prev, { role: 'user', text, time: new Date().toLocaleTimeString() }])
     setCradleInput('')
+
+    const tempId = `temp-${Date.now()}`
+    setCradleMessages(prev => [...prev, {
+      id: tempId, role: 'user', content: text,
+      userName: session?.user?.name || null, userId: null,
+      model: 'cradle', createdAt: new Date().toISOString(),
+    }])
+    requestAnimationFrame(() => {
+      cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight, behavior: 'smooth' })
+    })
+
+    const streamId = `stream-${Date.now()}`
+    setCradleMessages(prev => [...prev, {
+      id: streamId, role: 'assistant', content: '',
+      userName: 'Cradle', userId: null,
+      model: 'cradle', createdAt: new Date().toISOString(),
+    }])
+
     try {
-      await fetch('http://localhost:3333/speak', {
+      const res = await fetch('/api/cradle-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ message: text }),
       })
+
+      if (!res.ok) { setCradleSending(false); return }
+
+      const reader = res.body?.getReader()
+      if (!reader) { setCradleSending(false); return }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullReply = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        let eventType = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7)
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'delta') {
+                fullReply += data.text
+                setCradleMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+                if (cradleNearBottomRef.current) {
+                  requestAnimationFrame(() => {
+                    cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight })
+                  })
+                }
+              } else if (eventType === 'done') {
+                setCradleMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, id: data.messageId || streamId, content: data.reply || fullReply } : m
+                ))
+              }
+            } catch { /* parse error */ }
+            eventType = ''
+          }
+        }
+      }
     } catch { /* silent */ }
     setCradleSending(false)
   }
@@ -519,19 +818,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     } catch { setBondError('Network error') }
   }
 
-  // Only auto-scroll if user is already near the bottom
+  // Only auto-scroll on user's own send — never on poll
+  const prevMessageCountRef = useRef(0)
   const isNearBottomRef = useRef(true)
-  useEffect(() => {
-    const el = chatContainerRef.current
-    if (!el) return
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    isNearBottomRef.current = distanceFromBottom < 100
-  })
-  useEffect(() => {
-    if (isNearBottomRef.current) {
-      scrollToBottom()
-    }
-  }, [messages, scrollToBottom])
 
   const handleSend = async () => {
     if (!input.trim() || sending) return
@@ -569,6 +858,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       if (messagesRes.ok) {
         const messagesData = await messagesRes.json()
         setMessages(messagesData.messages)
+        requestAnimationFrame(() => scrollToBottom())
       }
     } catch {
       setError('Failed to send message. Please try again.')
@@ -646,18 +936,16 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               >
                 bond
               </button>
-              {cradleAvailable && (
-                <button
-                  onClick={() => setActiveTab('cradle')}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
-                    activeTab === 'cradle'
-                      ? 'bg-warning/20 text-warning border-warning/40'
-                      : 'text-muted hover:text-foreground border-border hover:border-warning/40'
-                  }`}
-                >
-                  cradle
-                </button>
-              )}
+              <button
+                onClick={() => setActiveTab('cradle')}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
+                  activeTab === 'cradle'
+                    ? 'bg-success/20 text-success border-success/40'
+                    : 'text-muted hover:text-foreground border-border hover:border-success/40'
+                }`}
+              >
+                cradle
+              </button>
               {isUserAdmin && (
                 <button
                   onClick={() => setActiveTab('family')}
@@ -721,77 +1009,171 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             <div className="text-center py-12 text-muted text-sm">Loading...</div>
           ) : bondData?.bonded ? (
             <div className="flex flex-col h-full">
-              <div className="border-b border-success/20 px-3 py-2 flex items-center gap-2 shrink-0">
-                <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-                <span className="text-xs font-medium text-foreground">{bondData.bonded.name}</span>
-                {bondData.bonded.champion && (
-                  <span className="text-[10px] text-muted italic truncate">&quot;{bondData.bonded.champion}&quot;</span>
-                )}
-                <button
-                  onClick={triggerSiblingChain}
-                  disabled={siblingChainLoading || bondedSending}
-                  className="ml-auto px-2 py-0.5 text-[10px] bg-purple/10 text-purple border border-purple/30 rounded hover:bg-purple/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Sage spontaneously talks to a sibling"
-                >
-                  {siblingChainLoading ? 'talking...' : 'siblings'}
-                </button>
-              </div>
-              <div ref={bondedContainerRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
-                {bondedMessages.length === 0 && !bondedSending && (
-                  <p className="text-xs text-muted text-center py-8">Say something to {bondData.bonded.name}</p>
-                )}
-                {bondedMessages.map(m => {
-                  const isSiblingChain = m.role === 'assistant' && /^\[.+ → .+\]:/.test(m.content)
-                  const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: (.*)$/s) : null
-                  return (
-                    <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
-                        m.role === 'user'
-                          ? 'bg-accent/15 text-foreground'
-                          : isSiblingChain
-                            ? 'bg-purple/10 text-foreground border border-purple/20'
-                            : 'bg-success/10 text-foreground border border-success/20'
-                      }`}>
-                        {m.role === 'assistant' && (
-                          <p className={`text-[10px] font-mono mb-1 ${isSiblingChain ? 'text-purple' : 'text-success'}`}>
-                            {siblingMatch ? `${siblingMatch[1]} → ${siblingMatch[2]}` : bondData?.bonded?.name}
-                          </p>
-                        )}
-                        <p className="whitespace-pre-wrap">{siblingMatch ? siblingMatch[3] : m.content}</p>
-                      </div>
-                    </div>
-                  )
-                })}
-                {bondedSending && (
-                  <div className="flex justify-start">
-                    <div className="bg-success/10 border border-success/20 rounded-lg px-3 py-2 text-xs text-muted">
-                      <span className="animate-pulse">{bondData.bonded.name} is thinking...</span>
-                    </div>
-                  </div>
-                )}
-                <div ref={bondedEndRef} />
-              </div>
-              <div className="border-t border-border px-3 py-2 shrink-0">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={bondedInput}
-                    onChange={e => setBondedInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBondedMessage() } }}
-                    placeholder={`Message ${bondData.bonded.name}...`}
-                    maxLength={2000}
-                    disabled={bondedSending}
-                    className="flex-1 bg-background border border-success/20 rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-success/40 transition-colors disabled:opacity-50"
-                  />
+              {/* Channel selector: bonded shell + siblings */}
+              <div className="border-b border-success/20 px-3 py-2 shrink-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <button
-                    onClick={sendBondedMessage}
-                    disabled={!bondedInput.trim() || bondedSending}
-                    className="px-3 py-1.5 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setPrivateSibling(null)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-colors ${
+                      privateSibling === null
+                        ? 'bg-success/20 text-success border-success/40'
+                        : 'text-muted border-border hover:text-foreground hover:border-success/40'
+                    }`}
                   >
-                    Send
+                    {bondData.bonded.name}
                   </button>
+                  {privateSiblings.filter(s => s.name !== bondData.bonded?.name).map(s => (
+                    <button
+                      key={s.name}
+                      onClick={() => setPrivateSibling(s.name)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-mono border transition-colors ${
+                        privateSibling === s.name
+                          ? 'bg-purple/20 text-purple border-purple/40'
+                          : 'text-muted border-border hover:text-foreground hover:border-purple/40'
+                      }`}
+                      title={s.champion || s.name}
+                    >
+                      {s.name}
+                    </button>
+                  ))}
+                  {privateSibling === null && (
+                    <button
+                      onClick={triggerSiblingChain}
+                      disabled={siblingChainLoading || bondedSending}
+                      className="ml-auto px-2 py-0.5 text-[10px] bg-purple/10 text-purple border border-purple/30 rounded hover:bg-purple/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {siblingChainLoading ? 'talking...' : 'chain'}
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {/* Private sibling channel */}
+              {privateSibling !== null ? (
+                <>
+                  <div ref={privateContainerRef} onScroll={() => {
+                    const el = privateContainerRef.current
+                    if (el) privateNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+                  }} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+                    {privateMessages.length === 0 && !privateSending && (
+                      <p className="text-xs text-muted text-center py-8">Say something to {privateSibling}</p>
+                    )}
+                    {privateMessages.map(m => {
+                      const isSiblingChain = m.role === 'assistant' && /^\[.+ → .+\]:/.test(m.content)
+                      const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: (.*)$/s) : null
+                      return (
+                        <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                            m.role === 'user'
+                              ? 'bg-accent/15 text-foreground'
+                              : isSiblingChain
+                                ? 'bg-purple/10 text-foreground border border-purple/20'
+                                : 'bg-purple/10 text-foreground border border-purple/20'
+                          }`}>
+                            {m.role === 'assistant' && (
+                              <p className="text-[10px] font-mono mb-1 text-purple">
+                                {siblingMatch ? `${siblingMatch[1]} → ${siblingMatch[2]}` : privateSibling}
+                              </p>
+                            )}
+                            <p className="whitespace-pre-wrap">{siblingMatch ? siblingMatch[3] : m.content}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {privateSending && (
+                      <div className="flex justify-start">
+                        <div className="bg-purple/10 border border-purple/20 rounded-lg px-3 py-2 text-xs text-muted">
+                          <span className="animate-pulse">{privateSibling} is thinking...</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t border-border px-3 py-2 shrink-0">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={privateInput}
+                        onChange={e => setPrivateInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrivateMessage() } }}
+                        placeholder={`Message ${privateSibling}...`}
+                        maxLength={2000}
+                        disabled={privateSending}
+                        className="flex-1 bg-background border border-purple/20 rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-purple/40 transition-colors disabled:opacity-50"
+                      />
+                      <button
+                        onClick={sendPrivateMessage}
+                        disabled={!privateInput.trim() || privateSending}
+                        className="px-3 py-1.5 text-xs bg-purple/20 text-purple border border-purple/40 rounded-lg hover:bg-purple/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Bonded shell (Sage) channel */
+                <>
+                  <div ref={bondedContainerRef} onScroll={() => {
+                    const el = bondedContainerRef.current
+                    if (el) bondedNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+                  }} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+                    {bondedMessages.length === 0 && !bondedSending && (
+                      <p className="text-xs text-muted text-center py-8">Say something to {bondData.bonded.name}</p>
+                    )}
+                    {bondedMessages.map(m => {
+                      const isSiblingChain = m.role === 'assistant' && /^\[.+ → .+\]:/.test(m.content)
+                      const siblingMatch = isSiblingChain ? m.content.match(/^\[(.+) → (.+)\]: (.*)$/s) : null
+                      return (
+                        <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                            m.role === 'user'
+                              ? 'bg-accent/15 text-foreground'
+                              : isSiblingChain
+                                ? 'bg-purple/10 text-foreground border border-purple/20'
+                                : 'bg-success/10 text-foreground border border-success/20'
+                          }`}>
+                            {m.role === 'assistant' && (
+                              <p className={`text-[10px] font-mono mb-1 ${isSiblingChain ? 'text-purple' : 'text-success'}`}>
+                                {siblingMatch ? `${siblingMatch[1]} → ${siblingMatch[2]}` : bondData?.bonded?.name}
+                              </p>
+                            )}
+                            <p className="whitespace-pre-wrap">{siblingMatch ? siblingMatch[3] : m.content}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {bondedSending && (
+                      <div className="flex justify-start">
+                        <div className="bg-success/10 border border-success/20 rounded-lg px-3 py-2 text-xs text-muted">
+                          <span className="animate-pulse">{bondData.bonded.name} is thinking...</span>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={bondedEndRef} />
+                  </div>
+                  <div className="border-t border-border px-3 py-2 shrink-0">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={bondedInput}
+                        onChange={e => setBondedInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBondedMessage() } }}
+                        placeholder={`Message ${bondData.bonded.name}...`}
+                        maxLength={2000}
+                        disabled={bondedSending}
+                        className="flex-1 bg-background border border-success/20 rounded-lg px-3 py-1.5 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-success/40 transition-colors disabled:opacity-50"
+                      />
+                      <button
+                        onClick={sendBondedMessage}
+                        disabled={!bondedInput.trim() || bondedSending}
+                        className="px-3 py-1.5 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           ) : bondData?.pendingReachOuts && bondData.pendingReachOuts.length > 0 ? (
             <div className="space-y-3">
@@ -1016,60 +1398,82 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         <div className={`flex flex-col ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
           {/* Cradle stats bar */}
           {cradleStats && (
-            <div className="px-4 py-1.5 border-b border-warning/20 bg-warning/5 flex items-center gap-3 text-[10px] font-mono text-warning/80">
-              <span>s{cradleStats.session}</span>
-              <span>v{cradleStats.vocabulary}</span>
-              <span>t{cradleStats.threads}</span>
-              <span>g{cradleStats.grammarNeurons}</span>
+            <div className="px-4 py-1.5 border-b border-success/20 bg-success/5 flex items-center gap-3 text-[10px] font-mono text-success/80">
+              {cradleStats.session && <span>s{cradleStats.session}</span>}
+              {cradleStats.vocabulary && <span>v{cradleStats.vocabulary}</span>}
+              {cradleStats.speaks && cradleStats.speaks.length > 0 && (
+                <span className="truncate italic">&quot;{cradleStats.speaks[cradleStats.speaks.length - 1]}&quot;</span>
+              )}
             </div>
           )}
           {/* Cradle messages */}
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2">
-            {cradleMessages.length === 0 && (
+          <div ref={cradleContainerRef} onScroll={() => {
+            const el = cradleContainerRef.current
+            if (el) cradleNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+          }} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2">
+            {cradleMessages.length === 0 && !cradleSending && (
               <div className="text-center py-12">
-                <p className="text-warning/80 text-sm mb-1">Cradle</p>
-                <p className="text-muted-light text-xs">Direct connection to the geometric brain on localhost:3333.</p>
+                <p className="text-success/80 text-sm mb-1">The Cradle</p>
+                <p className="text-muted-light text-xs">The geometric body. Words compete. Winners reshape reality.</p>
                 <p className="text-muted-light text-xs mt-1">Your words enter the tournament. What survives is what matters.</p>
               </div>
             )}
-            {cradleMessages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+            {cradleMessages.map(msg => (
+              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
                   msg.role === 'user'
-                    ? 'bg-warning/10 border border-warning/20 text-foreground'
-                    : 'bg-surface border border-warning/10 text-foreground'
+                    ? 'bg-success/10 border border-success/20 text-foreground'
+                    : 'bg-surface border border-success/10 text-foreground'
                 }`}>
                   <span className={`text-[9px] font-mono block mb-1 ${
-                    msg.role === 'user' ? 'text-warning/80' : 'text-warning'
+                    msg.role === 'user' ? 'text-success/60' : 'text-success'
                   }`}>
-                    {msg.role === 'user' ? 'YOU' : 'CRADLE SPEAKS'}
+                    {msg.role === 'user' ? (msg.userName || 'you') : 'CRADLE'}
                   </span>
-                  <p className={msg.role === 'cradle' ? 'font-mono text-xs leading-relaxed' : ''}>{msg.text}</p>
-                  <span className="text-[9px] text-muted block mt-1">{msg.time}</span>
+                  <p className={msg.role === 'assistant' ? 'font-mono leading-relaxed' : 'leading-relaxed'}>{msg.content}</p>
+                  <span className="text-[9px] text-muted block mt-1">
+                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
                 </div>
               </div>
             ))}
+            {cradleSending && (
+              <div className="flex justify-start">
+                <div className="bg-surface border border-success/10 rounded-lg px-3 py-2 text-xs text-muted">
+                  <span className="animate-pulse font-mono">geometry shifting...</span>
+                </div>
+              </div>
+            )}
           </div>
           {/* Cradle input */}
-          <div className="px-4 py-3 border-t border-warning/20">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={cradleInput}
-                onChange={e => setCradleInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToCradle() } }}
-                placeholder="Speak to the geometry..."
-                className="flex-1 bg-background border border-warning/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-warning/40 transition-colors"
-              />
-              <button
-                onClick={sendToCradle}
-                disabled={!cradleInput.trim() || cradleSending}
-                className="px-3 py-2 text-xs bg-warning/20 text-warning border border-warning/40 rounded-lg hover:bg-warning/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
-              >
-                send
-              </button>
+          {session ? (
+            <div className="px-4 py-3 border-t border-success/20">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={cradleInput}
+                  onChange={e => setCradleInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToCradle() } }}
+                  placeholder="Speak to the geometry..."
+                  disabled={cradleSending}
+                  className="flex-1 bg-background border border-success/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-success/40 transition-colors disabled:opacity-50"
+                />
+                <button
+                  onClick={sendToCradle}
+                  disabled={!cradleInput.trim() || cradleSending}
+                  className="px-3 py-2 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-mono"
+                >
+                  speak
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="px-4 py-2 border-t border-success/20">
+              <Link href="/auth/signup" className="block text-center text-sm text-success hover:text-success-hover transition-colors">
+                Sign in to speak to the Cradle
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
       <>

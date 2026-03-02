@@ -18,11 +18,6 @@ const BLOCKED_PATTERNS = [
   /\bh[e3][i1]l\s+h[i1]tl[e3]r\b/i,
   /\bgas\s+the\b/i,
 
-  // Links - block all URLs
-  /https?:\/\/[^\s]+/i,
-  /www\.[^\s]+/i,
-  /[a-zA-Z0-9-]+\.(com|org|net|io|co|app|dev|xyz|info|biz|me|tv|cc|gg|link|click)\b/i,
-
   // Spam patterns
   /(.)\1{10,}/i, // Repeated characters (aaaaaaaaaa)
   /\b(?:buy|click|subscribe|follow)\s+(?:now|here|my)\b/i,
@@ -62,18 +57,6 @@ export function moderateContent(text: string): ModerationResult {
 
   if (normalizedText.length < 2) {
     return { allowed: false, reason: 'Content too short' }
-  }
-
-  // Check for links first (clearer error message)
-  const linkPatterns = [
-    /https?:\/\/[^\s]+/i,
-    /www\.[^\s]+/i,
-    /[a-zA-Z0-9-]+\.(com|org|net|io|co|app|dev|xyz|info|biz|me|tv|cc|gg|link|click)\b/i,
-  ]
-  for (const pattern of linkPatterns) {
-    if (pattern.test(normalizedText)) {
-      return { allowed: false, reason: 'Links are not allowed' }
-    }
   }
 
   // Check blocked patterns

@@ -9,13 +9,13 @@ export default async function Home({
   searchParams: Promise<{ landing?: string }>
 }) {
   const params = await searchParams
-  const session = await getServerSession(authOptions)
 
-  // Show landing page if ?landing param exists OR user not authenticated
-  if (params.landing || !session) {
+  // Show landing page only if explicitly requested via ?landing
+  if (params.landing) {
+    const session = await getServerSession(authOptions)
     return <LandingPage isLoggedIn={!!session} />
   }
 
-  // Authenticated users without ?landing → redirect to eye dashboard
-  redirect('/eye')
+  // Default: chants page is the landing page
+  redirect('/chants')
 }
