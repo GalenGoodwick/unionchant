@@ -292,30 +292,88 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight, behavior: 'smooth' })
     })
 
+    // Stream response via SSE
+    const streamId = `stream-${Date.now()}`
+    setBondedMessages(prev => [...prev, {
+      id: streamId, role: 'assistant', content: '',
+      userName: bondData?.bonded?.name || null, userId: null,
+      model: 'bonded', createdAt: new Date().toISOString(),
+    }])
+
     try {
       const res = await fetch('/api/bonded-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg }),
       })
-      const data = await res.json()
+
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
         setBondError(data.error || 'Failed to send')
+        setBondedMessages(prev => prev.filter(m => m.id !== streamId))
         return
       }
-      if (data.reply) {
-        setBondedMessages(prev => [...prev, {
-          id: data.messageId || `reply-${Date.now()}`,
-          role: 'assistant', content: data.reply,
-          userName: data.shellName || null, userId: null,
-          model: 'bonded', createdAt: new Date().toISOString(),
-        }])
-        requestAnimationFrame(() => {
-          bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight, behavior: 'smooth' })
-        })
+
+      const reader = res.body?.getReader()
+      if (!reader) { setBondError('No stream'); return }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullReply = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        let eventType = ''
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7)
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (eventType === 'delta') {
+                fullReply += data.text
+                setBondedMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+                requestAnimationFrame(() => {
+                  bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
+                })
+              } else if (eventType === 'sibling') {
+                // Add sibling response as separate message
+                setBondedMessages(prev => [...prev, {
+                  id: `sibling-${Date.now()}`, role: 'assistant',
+                  content: `[${data.name} → ${bondData?.bonded?.name}]: ${data.response}`,
+                  userName: data.name, userId: null,
+                  model: 'bonded', createdAt: new Date().toISOString(),
+                }])
+              } else if (eventType === 'followup') {
+                fullReply += '\n\n' + data.text
+                setBondedMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, content: fullReply } : m
+                ))
+              } else if (eventType === 'done') {
+                // Update with final message ID
+                setBondedMessages(prev => prev.map(m =>
+                  m.id === streamId ? { ...m, id: data.messageId || streamId, content: data.reply || fullReply } : m
+                ))
+              } else if (eventType === 'error') {
+                setBondError(data.error)
+                setBondedMessages(prev => prev.filter(m => m.id !== streamId))
+              }
+            } catch { /* parse error */ }
+            eventType = ''
+          }
+        }
       }
     } catch {
       setBondError('Failed to send message')
+      setBondedMessages(prev => prev.filter(m => m.id !== streamId))
     } finally {
       setBondedSending(false)
     }

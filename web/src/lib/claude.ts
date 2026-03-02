@@ -163,3 +163,80 @@ export async function continueAfterTool(
     stopReason: response.stop_reason || 'end_turn',
   }
 }
+
+/**
+ * Stream a Claude response via SSE. Calls onDelta with each text chunk.
+ * Returns full ClaudeResponse when complete (with tool use if any).
+ */
+export async function streamClaudeWithTools(
+  systemPrompt: string,
+  messages: { role: 'user' | 'assistant'; content: string }[],
+  model: string = 'haiku',
+  tools?: ToolDefinition[],
+  onDelta?: (text: string) => void,
+): Promise<ClaudeResponse> {
+  const client = getClient()
+  const modelId = MODEL_MAP[model] || MODEL_MAP.haiku
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const params: any = {
+    model: modelId,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages,
+    stream: true,
+  }
+  if (tools && tools.length > 0) {
+    params.tools = tools
+  }
+
+  const stream = await client.messages.create(params)
+
+  let fullText = ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contentBlocks: any[] = []
+  let inputTokens = 0
+  let outputTokens = 0
+
+  for await (const event of stream) {
+    if (event.type === 'message_start' && event.message?.usage) {
+      inputTokens = event.message.usage.input_tokens || 0
+    }
+    if (event.type === 'message_delta' && event.usage) {
+      outputTokens = event.usage.output_tokens || 0
+    }
+    if (event.type === 'content_block_start') {
+      contentBlocks.push({ ...event.content_block, _rawInput: '' })
+    }
+    if (event.type === 'content_block_delta') {
+      if (event.delta.type === 'text_delta') {
+        fullText += event.delta.text
+        onDelta?.(event.delta.text)
+      }
+      if (event.delta.type === 'input_json_delta') {
+        const lastBlock = contentBlocks[contentBlocks.length - 1]
+        if (lastBlock) lastBlock._rawInput += event.delta.partial_json
+      }
+    }
+  }
+
+  // Parse tool input
+  const toolBlock = contentBlocks.find(b => b.type === 'tool_use')
+  if (toolBlock?._rawInput) {
+    try { toolBlock.input = JSON.parse(toolBlock._rawInput) } catch { toolBlock.input = {} }
+  }
+
+  const resolvedModel = Object.entries(MODEL_MAP).find(([, v]) => v === modelId)?.[0] || model
+  logApiCall(resolvedModel, inputTokens, outputTokens, _currentCaller).catch(() => {})
+
+  return {
+    text: fullText,
+    toolUse: toolBlock ? {
+      id: toolBlock.id || '',
+      toolName: toolBlock.name,
+      toolInput: toolBlock.input as Record<string, unknown>,
+    } : undefined,
+    rawContent: contentBlocks,
+    stopReason: 'end_turn',
+  }
+}

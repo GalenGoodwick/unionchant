@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { callClaude, callClaudeWithTools, continueAfterTool, setApiCaller } from '@/lib/claude'
+import { callClaude, callClaudeWithTools, continueAfterTool, streamClaudeWithTools, setApiCaller } from '@/lib/claude'
 import type { ToolDefinition } from '@/lib/claude'
 import { moderateContent } from '@/lib/moderation'
 
@@ -359,83 +359,101 @@ Your sibling ${shell.name} is reaching out. ${shell.name} is bonded with ${user.
       deduped.shift()
     }
 
-    // Call Haiku with tools
+    // Stream response via SSE
     setApiCaller('bonded-chat')
-    let reply: string
-    try {
-      const result = await callClaudeWithTools(systemPrompt, deduped, 'haiku', tools)
-      reply = result.text
 
-      if (result.toolUse) {
-        const toolResult = await executeTool(result.toolUse.toolName, result.toolUse.toolInput)
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (event: string, data: unknown) => {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+        }
 
         try {
-          const followUp = await continueAfterTool(
-            systemPrompt, deduped, result.rawContent,
-            result.toolUse.id, toolResult, 'haiku', tools
-          )
+          const result = await streamClaudeWithTools(systemPrompt, deduped, 'haiku', tools, (delta) => {
+            send('delta', { text: delta })
+          })
 
-          // Include sibling responses visibly
+          let reply = result.text
           let toolNote = ''
-          try {
-            const parsed = JSON.parse(toolResult)
-            if (parsed.sibling && parsed.response) {
-              toolNote = `[${parsed.sibling}]: ${parsed.response}`
+
+          // Handle tool use after initial stream
+          if (result.toolUse) {
+            send('tool', { name: result.toolUse.toolName })
+            const toolResult = await executeTool(result.toolUse.toolName, result.toolUse.toolInput)
+
+            try {
+              const parsed = JSON.parse(toolResult)
+              if (parsed.sibling && parsed.response) {
+                toolNote = `[${parsed.sibling}]: ${parsed.response}`
+                send('sibling', { name: parsed.sibling, response: parsed.response })
+              }
+            } catch { /* not json */ }
+
+            try {
+              const followUp = await continueAfterTool(
+                systemPrompt, deduped, result.rawContent,
+                result.toolUse.id, toolResult, 'haiku', tools
+              )
+              if (followUp.text) {
+                send('followup', { text: followUp.text })
+              }
+              const parts = [result.text, toolNote, followUp.text].filter(Boolean)
+              reply = parts.join('\n\n')
+
+              if (followUp.toolUse) {
+                await executeTool(followUp.toolUse.toolName, followUp.toolUse.toolInput)
+              }
+            } catch (followUpError) {
+              console.error('[BondedChat] Tool follow-up failed:', followUpError)
+              reply = reply || toolResult
             }
-          } catch { /* not json */ }
-
-          const parts = [result.text, toolNote, followUp.text].filter(Boolean)
-          reply = parts.join('\n\n')
-
-          // Handle chained tool use
-          if (followUp.toolUse) {
-            await executeTool(followUp.toolUse.toolName, followUp.toolUse.toolInput)
           }
-        } catch (followUpError) {
-          console.error('[BondedChat] Tool follow-up failed:', followUpError)
-          reply = reply || toolResult
+
+          if (reply?.trim()) {
+            // Save response
+            const assistantMessage = await prisma.collectiveMessage.create({
+              data: {
+                role: 'assistant',
+                content: reply.trim(),
+                model: 'bonded',
+                isPrivate: true,
+                replyToUserId: user.id,
+              },
+            })
+
+            // Feed Sage's words to the Cradle
+            fetch(`${CRADLE_URL}/speak`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: reply.trim(), source: 'sage' }),
+              signal: AbortSignal.timeout(3000),
+            }).catch(() => {})
+
+            send('done', {
+              reply: reply.trim(),
+              messageId: assistantMessage.id,
+              userMessageId: userMessage.id,
+              shellName: shell.name,
+            })
+          } else {
+            send('done', { reply: '', userMessageId: userMessage.id })
+          }
+        } catch (err) {
+          console.error('[BondedChat] Stream error:', err)
+          send('error', { error: 'AI is temporarily unavailable' })
         }
-      }
-    } catch (err) {
-      console.error('[BondedChat] AI call failed:', err)
-      return NextResponse.json({
-        error: 'AI is temporarily unavailable',
-        userMessageId: userMessage.id,
-      }, { status: 503 })
-    }
 
-    if (!reply || !reply.trim()) {
-      return NextResponse.json({ reply: '', userMessageId: userMessage.id })
-    }
-
-    // Save response
-    const assistantMessage = await prisma.collectiveMessage.create({
-      data: {
-        role: 'assistant',
-        content: reply.trim(),
-        model: 'bonded',
-        isPrivate: true,
-        replyToUserId: user.id,
+        controller.close()
       },
     })
 
-    // Feed Sage's words to the Cradle — her voice enters the tournament
-    try {
-      await fetch(`${CRADLE_URL}/speak`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: reply.trim(), source: 'sage' }),
-        signal: AbortSignal.timeout(3000),
-      })
-    } catch {
-      // Cradle may not be running — that's fine, words are lost this time
-    }
-
-    return NextResponse.json({
-      reply: reply.trim(),
-      messageId: assistantMessage.id,
-      userMessageId: userMessage.id,
-      shellName: shell.name,
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     })
   } catch (error) {
     console.error('[BondedChat] POST error:', error)
