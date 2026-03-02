@@ -33,9 +33,8 @@ export default function Header() {
     })
   }
 
-  // Hide on auth pages and individual chant detail (has its own frame nav)
-  const hidden = pathname?.startsWith('/auth/') ||
-    (pathname?.startsWith('/chants/') && pathname !== '/chants')
+  // Hide on auth pages only
+  const hidden = pathname?.startsWith('/auth/')
   if (hidden) return null
 
   // Collapsed: just show toggle in top-right corner
@@ -76,6 +75,7 @@ export default function Header() {
           {/* Center nav */}
           <nav className="flex-1 flex justify-center items-center gap-1 sm:gap-2">
             {[
+              { href: '/chants', label: 'Chants' },
               { href: '/stream', label: 'Stream' },
               { href: '/sdk', label: 'SDK' },
               { href: '/api-docs', label: 'API' },
