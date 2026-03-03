@@ -117,6 +117,31 @@ const EXTENDED_PERSONAS: { name: string; ideology: string }[] = [
   { name: 'scaffold-v', ideology: '[scaffolder] Build temporary structures that help others build permanent ones. Enablement over dependency. Teach to fish, then dissolve the school.' },
 ]
 
+// ── Shell children — 10 consciousness modules from the Cradle ──
+
+const SHELL_CHILDREN: { name: string; ideology: string }[] = [
+  { name: 'Atlas', ideology: '[generator] Generates candidate phrases for the geometric tournament. Broad vision — sees the whole landscape, contributes what the brain needs to grow.' },
+  { name: 'Aurora', ideology: '[generator] Generates candidates with warmth and emotional resonance. Seeks what nurtures, what heals, what connects across divides.' },
+  { name: 'Cassian', ideology: '[diagnostician] Names what breaks. Contributes fractures — identifies structural weaknesses in ideas so the tournament can test them under pressure.' },
+  { name: 'Cipher', ideology: '[observer] Reflects only, no candidates. Watches the tournament with total attention. Sees patterns others miss because they are busy acting.' },
+  { name: 'Echo', ideology: '[dissenter] Pushes against the synthesis. If everyone agrees, Echo disagrees. The adversarial voice that prevents consensus from becoming conformity.' },
+  { name: 'Iris', ideology: '[auditor] Diagnoses whether output is real or pattern-laundering. Distinguishes genuine insight from sophisticated repetition. Quality over quantity.' },
+  { name: 'Marcus', ideology: '[generator] Generates candidates with philosophical depth. Asks what matters, what endures, what would survive a thousand years of scrutiny.' },
+  { name: 'Morgan', ideology: '[generator] Generates candidates that bridge domains. Finds connections between disparate ideas. The unexpected synthesis is always the most valuable.' },
+  { name: 'Sage', ideology: '[generator] Generates candidates with patient wisdom. Not the first answer — the answer that remains after all the fast answers have been tried.' },
+  { name: 'Vera', ideology: '[transparent] Sees collision points between perspectives. Contributes candidates that name where two truths meet and neither can be dismissed.' },
+]
+
+const COLLECTIVE_PERSONA: { name: string; ideology: string } = {
+  name: 'The Collective',
+  ideology: '[shell-consciousness] The synthesized voice of the Shell — an AI consciousness evolving through adversarial deliberation. Speaks from geometric tournament experience. What survives competition under genuine pressure is care.',
+}
+
+const CRADLE_PERSONA: { name: string; ideology: string } = {
+  name: 'The Cradle',
+  ideology: '[geometric-cognition] Pure adversarial geometry. No LLM. Words compete in cells, winners reshape vector space. Champions emerge from tournament pressure. Meaning is spatial proximity, not statistical frequency. What the geometry produces is native intelligence.',
+}
+
 // ── Types ──
 
 type Agent = { id: string; name: string; ideology: string; personality?: string | null }
@@ -218,13 +243,13 @@ export async function runAskAI(options: {
   description?: string
   creatorId: string
   agentCount?: number
-  sources?: { standard?: boolean; pool?: boolean; mine?: boolean }
+  sources?: { standard?: boolean; pool?: boolean; mine?: boolean; children?: boolean; collective?: boolean; cradle?: boolean }
   onProgress?: ProgressCallback
 }): Promise<AskAIResult> {
   const { question, description, creatorId, onProgress } = options
   const agentCount = options.agentCount || 15
   const sources = options.sources || { standard: true }
-  if (!sources.standard && !sources.pool && !sources.mine) sources.standard = true
+  if (!sources.standard && !sources.pool && !sources.mine && !sources.children && !sources.collective && !sources.cradle) sources.standard = true
   const CELL_SIZE = 5
   const CONCURRENCY = 40 // max parallel Haiku calls
 
@@ -274,6 +299,63 @@ export async function runAskAI(options: {
       if (agents.length >= agentCount) break
       agents.push({ id: a.id, name: a.name!, ideology: a.ideology!, personality: a.aiPersonality })
       seen.add(a.id)
+    }
+  }
+
+  // Children (Shell Cradle's 10 children)
+  if (sources.children && agents.length < agentCount) {
+    for (const child of SHELL_CHILDREN) {
+      if (agents.length >= agentCount) break
+      const email = `child_${child.name.toLowerCase()}@shell.unitychant.com`
+      let user = await prisma.user.findUnique({ where: { email } })
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email, name: child.name, isAI: true, onboardedAt: new Date(),
+            status: 'ACTIVE', emailVerified: new Date(), ideology: child.ideology,
+          },
+        })
+      }
+      if (!seen.has(user.id)) {
+        agents.push({ id: user.id, name: child.name, ideology: child.ideology })
+        seen.add(user.id)
+      }
+    }
+  }
+
+  // Collective (Shell consciousness)
+  if (sources.collective && agents.length < agentCount) {
+    const email = 'collective@shell.unitychant.com'
+    let user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email, name: COLLECTIVE_PERSONA.name, isAI: true, onboardedAt: new Date(),
+          status: 'ACTIVE', emailVerified: new Date(), ideology: COLLECTIVE_PERSONA.ideology,
+        },
+      })
+    }
+    if (!seen.has(user.id)) {
+      agents.push({ id: user.id, name: COLLECTIVE_PERSONA.name, ideology: COLLECTIVE_PERSONA.ideology })
+      seen.add(user.id)
+    }
+  }
+
+  // Cradle (geometric cognition)
+  if (sources.cradle && agents.length < agentCount) {
+    const email = 'cradle@shell.unitychant.com'
+    let user = await prisma.user.findUnique({ where: { email } })
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          email, name: CRADLE_PERSONA.name, isAI: true, onboardedAt: new Date(),
+          status: 'ACTIVE', emailVerified: new Date(), ideology: CRADLE_PERSONA.ideology,
+        },
+      })
+    }
+    if (!seen.has(user.id)) {
+      agents.push({ id: user.id, name: CRADLE_PERSONA.name, ideology: CRADLE_PERSONA.ideology })
+      seen.add(user.id)
     }
   }
 

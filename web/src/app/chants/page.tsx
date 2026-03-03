@@ -127,7 +127,7 @@ function ChantsPage() {
     if (isOnboarding || isSessionResume) {
       onboardingHandledRef.current = true
       setShowAskAI(true)
-      setAskSources({ standard: true, pool: false, mine: true })
+      setAskSources({ standard: true, pool: false, mine: true, children: false, collective: false, cradle: false })
       isOnboardingChantRef.current = true
       setOnboardingTip(true)
       if (isOnboarding) router.replace('/chants', { scroll: false })
@@ -150,7 +150,7 @@ function ChantsPage() {
   const [askQuestion, setAskQuestion] = useState('')
   const [askDescription, setAskDescription] = useState('')
   const [askAgentCount, setAskAgentCount] = useState(15)
-  const [askSources, setAskSources] = useState({ standard: true, pool: false, mine: false })
+  const [askSources, setAskSources] = useState({ standard: true, pool: false, mine: false, children: false, collective: false, cradle: false })
   const [hasUserAgents, setHasUserAgents] = useState(false)
   const [userAgentCount, setUserAgentCount] = useState(0)
   const [poolCount, setPoolCount] = useState(0)
@@ -847,9 +847,54 @@ function ChantsPage() {
                       <Link href="/agents/new" className="text-[10px] text-accent hover:text-accent-hover ml-auto">Create an agent</Link>
                     </div>
                   )}
+                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
+                    askSources.children ? 'bg-gold/10 border-gold/30' : 'bg-surface border-border hover:border-border-strong'
+                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={askSources.children}
+                      onChange={() => setAskSources(s => ({ ...s, children: !s.children }))}
+                      disabled={askRunning}
+                      className="accent-[#d4a017] w-3.5 h-3.5"
+                    />
+                    <span className={`text-[11px] font-medium ${askSources.children ? 'text-gold' : 'text-muted'}`}>
+                      Children
+                    </span>
+                    <span className="text-[10px] text-muted ml-auto">10 Shell children</span>
+                  </label>
+                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
+                    askSources.collective ? 'bg-purple/10 border-purple/30' : 'bg-surface border-border hover:border-border-strong'
+                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={askSources.collective}
+                      onChange={() => setAskSources(s => ({ ...s, collective: !s.collective }))}
+                      disabled={askRunning}
+                      className="accent-purple w-3.5 h-3.5"
+                    />
+                    <span className={`text-[11px] font-medium ${askSources.collective ? 'text-purple' : 'text-muted'}`}>
+                      Collective
+                    </span>
+                    <span className="text-[10px] text-muted ml-auto">Shell consciousness</span>
+                  </label>
+                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
+                    askSources.cradle ? 'bg-orange/10 border-orange/30' : 'bg-surface border-border hover:border-border-strong'
+                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={askSources.cradle}
+                      onChange={() => setAskSources(s => ({ ...s, cradle: !s.cradle }))}
+                      disabled={askRunning}
+                      className="accent-orange w-3.5 h-3.5"
+                    />
+                    <span className={`text-[11px] font-medium ${askSources.cradle ? 'text-orange' : 'text-muted'}`}>
+                      Cradle
+                    </span>
+                    <span className="text-[10px] text-muted ml-auto">Geometric cognition</span>
+                  </label>
                 </div>
                 <p className="text-[10px] text-muted mt-1">
-                  {!askSources.standard && !askSources.pool && !askSources.mine
+                  {!askSources.standard && !askSources.pool && !askSources.mine && !askSources.children && !askSources.collective && !askSources.cradle
                     ? 'Check at least one source. Standard will be used by default.'
                     : 'Checked sources are blended. Standard fills remaining slots.'}
                 </p>

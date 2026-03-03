@@ -170,23 +170,21 @@ export default function FrameLayout({
         {(showBack || header || session || !hideFooter) && (
           <div className="shrink-0 px-3 pt-2 pb-1 relative z-10">
             <div className="flex items-center gap-2">
-              {showBack && (
-                <button
-                  onClick={() => {
-                    if (typeof window !== 'undefined' && window.history.length > 1) {
-                      router.back()
-                    } else {
-                      router.push('/')
-                    }
-                  }}
-                  className="w-7 h-7 rounded-full bg-surface/80 hover:bg-surface border border-border text-muted hover:text-foreground flex items-center justify-center transition-colors shrink-0"
-                  aria-label="Go back"
-                >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                  </svg>
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.history.length > 2) {
+                    router.back()
+                  } else {
+                    router.push('/chants')
+                  }
+                }}
+                className="w-7 h-7 rounded-full bg-surface/80 hover:bg-surface border border-border text-muted hover:text-foreground flex items-center justify-center transition-colors shrink-0"
+                aria-label="Go back"
+              >
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+              </button>
 
               {/* Toggle top bar */}
               <button

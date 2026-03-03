@@ -124,9 +124,12 @@ export async function POST(req: NextRequest) {
       standard: sources?.standard === true,
       pool: sources?.pool === true,
       mine: sources?.mine === true,
+      children: sources?.children === true,
+      collective: sources?.collective === true,
+      cradle: sources?.cradle === true,
     }
     // Default to standard if nothing checked
-    if (!validSources.standard && !validSources.pool && !validSources.mine) {
+    if (!validSources.standard && !validSources.pool && !validSources.mine && !validSources.children && !validSources.collective && !validSources.cradle) {
       validSources.standard = true
     }
 
