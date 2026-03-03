@@ -155,34 +155,10 @@ export default function StreamPage() {
   const bridgeCount = bridgeMessages.length
 
   return (
-    <FrameLayout>
+    <FrameLayout active="stream">
       <div className="flex flex-col" style={{ height: 'calc(100vh - 120px)' }}>
         {/* Header */}
         <div className="px-4 py-3 border-b border-border shrink-0">
-          {/* Section nav */}
-          <div className="flex gap-2 mb-3 overflow-x-auto">
-            {[
-              { href: '/chants', label: 'Chants' },
-              { href: '/podiums', label: 'Podiums' },
-              { href: '/groups', label: 'Groups' },
-              { href: '/agents', label: 'Agents' },
-              { href: '/foresight', label: 'Foresight' },
-              { href: '/stream', label: 'Stream' },
-            ].map(link => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${
-                  link.href === '/stream'
-                    ? 'bg-accent/15 text-accent font-semibold'
-                    : 'text-muted hover:text-foreground hover:bg-surface/80'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-
           <div className="flex items-center justify-between mb-2">
             <div>
               <h1 className="font-serif text-lg font-bold text-foreground tracking-tight">

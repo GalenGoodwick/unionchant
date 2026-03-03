@@ -577,30 +577,6 @@ function ChantsPage() {
       contentClassName=""
       header={!showCreate && !showAskAI ? (
         <div className="space-y-2 pb-3">
-          {/* Section nav */}
-          <div className="flex gap-2 overflow-x-auto">
-            {[
-              { href: '/chants', label: 'Chants' },
-              { href: '/podiums', label: 'Podiums' },
-              { href: '/groups', label: 'Groups' },
-              { href: '/agents', label: 'Agents' },
-              { href: '/foresight', label: 'Foresight' },
-              { href: '/stream', label: 'Stream' },
-            ].map(link => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap transition-colors ${
-                  link.href === '/chants'
-                    ? 'bg-accent/15 text-accent font-semibold'
-                    : 'text-muted hover:text-foreground hover:bg-surface/80'
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </div>
-          {/* Filter tabs */}
           <div className="flex gap-1.5 overflow-x-auto">
             {(['all', 'SUBMISSION', 'VOTING', 'PAUSED', 'COMPLETED'] as const).map(f => (
               <button
