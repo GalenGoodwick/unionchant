@@ -604,47 +604,65 @@ function ChantsPage() {
         </div>
       ) : undefined}
       footerRight={session ? (
-        <>
-          <button
-            onClick={() => {
-              if (showAskAI) {
-                setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
-              } else {
-                setShowCreate(false); setShowAskAI(true)
-              }
-            }}
-            disabled={askRunning}
-            className={`h-9 rounded-full text-xs font-medium shadow-sm flex items-center transition-all ${
-              showAskAI
-                ? 'bg-warning text-white px-2.5'
-                : 'bg-warning/15 text-warning hover:bg-warning/25 border border-warning/30 px-2.5 sm:px-3'
-            }`}
-          >
-            <svg className="w-4 h-4 sm:w-3.5 sm:h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-            </svg>
-            <span className="hidden sm:inline ml-1.5">Ask AI</span>
-          </button>
-          <button
-            onClick={() => {
-              if (showCreate) {
-                resetCreateForm(); setShowCreate(false)
-              } else {
-                setShowAskAI(false); setShowCreate(true)
-              }
-            }}
-            disabled={askRunning}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
-          >
-            <svg className={`w-5 h-5 transition-transform ${showCreate ? 'rotate-45' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-        </>
+        <button
+          onClick={() => {
+            if (showCreate || showAskAI) {
+              resetCreateForm(); setShowCreate(false); setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
+            } else {
+              setShowCreate(true)
+            }
+          }}
+          disabled={askRunning}
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
+        >
+          <svg className={`w-5 h-5 transition-transform ${showCreate || showAskAI ? 'rotate-45' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
       ) : undefined}
     >
       {showCreate || showAskAI ? (
         <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
+          {/* Mode selector — always visible at top */}
+          <div className="mb-4">
+            <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
+            <div className="flex gap-2">
+              {([
+                { value: 'event', label: 'Event' },
+                { value: 'ask_ai', label: 'Ask AI' },
+                { value: 'endless', label: 'Endless' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    if (opt.value === 'ask_ai') {
+                      setShowAskAI(true); setShowCreate(false)
+                    } else {
+                      setMode(opt.value === 'event' ? 'event' : 'endless')
+                      setShowAskAI(false); setShowCreate(true)
+                    }
+                  }}
+                  disabled={askRunning}
+                  className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
+                    (opt.value === 'ask_ai' && showAskAI) || (opt.value !== 'ask_ai' && !showAskAI && mode === opt.value)
+                      ? opt.value === 'ask_ai'
+                        ? 'bg-warning/15 border-warning/40 text-warning'
+                        : 'bg-accent/15 border-accent/40 text-accent'
+                      : 'bg-surface border-border text-muted hover:border-border-strong'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted mt-1.5 leading-relaxed">
+              {showAskAI && 'AI agents brainstorm, discuss, and vote on your question.'}
+              {!showAskAI && mode === 'event' && 'Facilitator controls phases. Collect ideas first, then start voting.'}
+              {!showAskAI && mode === 'endless' && 'Cells form as ideas arrive. Runs forever.'}
+            </p>
+          </div>
+
           {showAskAI ? (
             <form onSubmit={handleAskAI}>
               {onboardingTip && !askRunning && (
@@ -1016,35 +1034,6 @@ function ChantsPage() {
 
           {showSettings && (
             <div className="mb-3 p-3 bg-background rounded-lg border border-border space-y-3">
-              <div>
-                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
-                <div className="flex gap-2">
-                  {([
-                    { value: 'event' as const, label: 'Event' },
-                    { value: 'idea_goal' as const, label: 'Idea Goal' },
-                    { value: 'endless' as const, label: 'Endless' },
-                  ]).map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setMode(opt.value)}
-                      className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                        mode === opt.value
-                          ? 'bg-accent/15 border-accent/40 text-accent'
-                          : 'bg-surface border-border text-muted hover:border-border-strong'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                  {mode === 'event' && 'Facilitator controls phases. Collect ideas first, then start voting.'}
-                  {mode === 'idea_goal' && 'Voting auto-starts when the idea goal is reached. Submissions capped.'}
-                  {mode === 'endless' && 'Cells form as ideas arrive. Runs forever.'}
-                </p>
-              </div>
-
               {mode === 'event' && (
                 <p className="text-xs text-muted leading-relaxed">
                   Start voting from the facilitator panel when your group is ready.
@@ -1095,39 +1084,6 @@ function ChantsPage() {
                 </div>
               </div>
 
-              {mode === 'idea_goal' && (
-                <div>
-                  <label className="text-xs text-foreground/80 block mb-1.5 font-medium">
-                    {mode === 'idea_goal' ? 'Idea Goal (hard cap)' : 'Ideas per batch'}
-                  </label>
-                  <div className="flex gap-2">
-                    {[
-                      { value: 5, label: '5' },
-                      { value: 10, label: '10' },
-                      { value: 15, label: '15' },
-                      { value: 25, label: '25' },
-                    ].map(opt => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => updateIdeaGoal(opt.value)}
-                        className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                          ideaGoal === opt.value
-                            ? 'bg-accent/15 border-accent/40 text-accent'
-                            : 'bg-surface border-border text-muted hover:border-border-strong'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                    {mode === 'idea_goal'
-                      ? `Voting starts at ${ideaGoal} ideas. No more submissions after that.`
-                      : `Cells form every ${ideaGoal} ideas.`}
-                  </p>
-                </div>
-              )}
             </div>
           )}
 
