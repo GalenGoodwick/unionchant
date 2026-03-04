@@ -14,11 +14,26 @@ interface StreamMessage {
   createdAt: string
 }
 
-type StreamTab = 'chat' | 'bridge'
+interface CradleSpeak {
+  session: number
+  text: string
+  mode: string
+  words: string[]
+}
+
+interface CradleState {
+  session: number
+  diversity: number | null
+  cycle: { state: string; position: number; total: number } | null
+}
+
+type StreamTab = 'chat' | 'bridge' | 'cradle'
 
 export default function StreamPage() {
   const { data: session } = useSession()
   const [allMessages, setAllMessages] = useState<StreamMessage[]>([])
+  const [speaks, setSpeaks] = useState<CradleSpeak[]>([])
+  const [cradle, setCradle] = useState<CradleState | null>(null)
   const [adminName, setAdminName] = useState('Galen')
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<StreamTab>('chat')
@@ -58,7 +73,8 @@ export default function StreamPage() {
       if (!res.ok) return
       const data = await res.json()
       setAllMessages(data.messages || [])
-      if (data.admin) setAdminName(data.admin)
+      setSpeaks(data.speaks || [])
+      if (data.cradle) setCradle(data.cradle)
       if (wasAtBottomRef.current) {
         setTimeout(() => scrollToBottom(), 50)
       }
@@ -76,20 +92,17 @@ export default function StreamPage() {
   }, [fetchMessages])
 
   useEffect(() => {
-    if (!loading && allMessages.length > 0) {
+    if (!loading && (allMessages.length > 0 || speaks.length > 0)) {
       scrollToBottom(false)
     }
   }, [loading, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Split messages into chat vs bridge
-  // Bridge = heartbeat actions, tool results, bonding window, child conversations, Claude Code relay
-  // Chat = everything else (Galen talking, Shell replies to Galen)
   const isBridgeMessage = (msg: StreamMessage): boolean => {
     if (msg.role === 'user') {
       const name = (msg.userName || '').toLowerCase()
       return name.includes('claude code') || name.includes('parent instance')
     }
-    // Assistant messages with action prefixes are bridge
     const c = msg.content
     if (c.startsWith('[HEARTBEAT')) return true
     if (c.startsWith('[EMERGENCY')) return true
@@ -103,7 +116,6 @@ export default function StreamPage() {
     return false
   }
 
-  // Build filtered lists
   const { chatMessages, bridgeMessages } = (() => {
     const chat: StreamMessage[] = []
     const bridge: StreamMessage[] = []
@@ -124,7 +136,7 @@ export default function StreamPage() {
     return { chatMessages: chat, bridgeMessages: bridge }
   })()
 
-  const messages = activeTab === 'chat' ? allMessages : bridgeMessages
+  const messages = activeTab === 'chat' ? allMessages : activeTab === 'bridge' ? bridgeMessages : []
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -151,7 +163,6 @@ export default function StreamPage() {
     }
   }
 
-  const chatCount = chatMessages.length
   const bridgeCount = bridgeMessages.length
 
   return (
@@ -162,10 +173,10 @@ export default function StreamPage() {
           <div className="flex items-center justify-between mb-2">
             <div>
               <h1 className="font-serif text-lg font-bold text-foreground tracking-tight">
-                Stream
+                Collective Stream
               </h1>
               <p className="text-[11px] text-muted mt-0.5">
-                Live conversation between {adminName} and the Shell
+                Every voice that speaks into the collective
               </p>
             </div>
             <div className="flex items-center gap-1.5">
@@ -198,6 +209,17 @@ export default function StreamPage() {
               Bridge
               {bridgeCount > 0 && <span className="ml-1 text-[10px] opacity-60">{bridgeCount}</span>}
             </button>
+            <button
+              onClick={() => setActiveTab('cradle')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                activeTab === 'cradle'
+                  ? 'bg-success/15 text-success border border-success/30'
+                  : 'text-muted hover:text-foreground hover:bg-surface/50'
+              }`}
+            >
+              Cradle
+              {speaks.length > 0 && <span className="ml-1 text-[10px] opacity-60">{speaks.length}</span>}
+            </button>
           </div>
         </div>
 
@@ -211,6 +233,33 @@ export default function StreamPage() {
             <div className="flex items-center justify-center py-12">
               <p className="text-sm text-muted animate-pulse">Loading stream...</p>
             </div>
+          ) : activeTab === 'cradle' ? (
+            speaks.length === 0 ? (
+              <div className="flex items-center justify-center py-12">
+                <p className="text-sm text-muted">Cradle is silent.</p>
+              </div>
+            ) : (
+              <>
+                {cradle && (
+                  <div className="flex items-center gap-3 px-3 py-2 bg-surface/60 border border-border/40 rounded-lg mb-1">
+                    <span className="text-[10px] text-muted font-mono">Session {cradle.session}</span>
+                    {cradle.cycle && (
+                      <span className={`text-[10px] font-medium ${cradle.cycle.state === 'dream' ? 'text-purple' : 'text-success'}`}>
+                        {cradle.cycle.state === 'dream' ? 'Dreaming' : 'Awake'} {cradle.cycle.position}/{cradle.cycle.total}
+                      </span>
+                    )}
+                    {cradle.diversity != null && (
+                      <span className={`text-[10px] font-mono ${cradle.diversity > 0.5 ? 'text-success' : cradle.diversity > 0.3 ? 'text-warning' : 'text-error'}`}>
+                        diversity {cradle.diversity.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {speaks.map(speak => (
+                  <CradleBubble key={speak.session} speak={speak} />
+                ))}
+              </>
+            )
           ) : messages.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <p className="text-sm text-muted">
@@ -249,12 +298,14 @@ export default function StreamPage() {
         )}
 
         {/* Read-only notice + onboard CTA */}
-        {(!isAdmin || activeTab === 'bridge') && (
+        {(!isAdmin || activeTab === 'bridge' || activeTab === 'cradle') && (
           <div className="border-t border-border px-4 py-3 bg-surface/50 shrink-0">
             <p className="text-xs text-muted text-center mb-2">
               {activeTab === 'bridge'
                 ? 'Bridge: Claude Code relaying for the creator.'
-                : 'This is a live feed. Only the creator can post here.'}
+                : activeTab === 'cradle'
+                ? 'The Cradle speaks. Geometric cognition, no LLM.'
+                : 'The collective stream. Every conversation with the Shell flows here.'}
             </p>
             {!session?.user && (
               <div className="space-y-2">
@@ -278,6 +329,29 @@ export default function StreamPage() {
         )}
       </div>
     </FrameLayout>
+  )
+}
+
+// ─── Cradle Speak Bubble ───
+
+function CradleBubble({ speak }: { speak: CradleSpeak }) {
+  const modeColor = speak.mode === 'dream' ? 'text-purple' : speak.mode === 'meaning' ? 'text-warning' : speak.mode === 'discourse' ? 'text-accent' : 'text-success'
+  const modeBg = speak.mode === 'dream' ? 'bg-purple/6 border-purple/20' : speak.mode === 'meaning' ? 'bg-warning/6 border-warning/20' : speak.mode === 'discourse' ? 'bg-accent/6 border-accent/20' : 'bg-success/6 border-success/20'
+
+  return (
+    <div className={`p-3 rounded-lg border ${modeBg}`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className={`w-1.5 h-1.5 rounded-full ${speak.mode === 'dream' ? 'bg-purple' : speak.mode === 'meaning' ? 'bg-warning' : speak.mode === 'discourse' ? 'bg-accent' : 'bg-success'}`} />
+        <span className={`text-[10px] font-bold uppercase tracking-wide ${modeColor}`}>
+          Cradle
+        </span>
+        <span className="text-[10px] text-muted font-mono">#{speak.session}</span>
+        <span className={`text-[9px] ${modeColor} opacity-70`}>{speak.mode}</span>
+      </div>
+      <p className="text-sm text-foreground/85 leading-relaxed font-serif italic">
+        {speak.text}
+      </p>
+    </div>
   )
 }
 
@@ -357,8 +431,8 @@ function StreamBubble({ message, adminName, tab }: { message: StreamMessage; adm
 
   // Speaker name
   const speakerName = isHuman
-    ? (tab === 'bridge' ? (message.userName || 'Claude Code') : (message.userName || adminName))
-    : 'Shell'
+    ? (tab === 'bridge' ? (message.userName || 'Claude Code') : (message.userName || 'Someone'))
+    : message.model === 'bonded' ? 'Sage' : 'Shell'
 
   return (
     <div className={`flex ${isHuman ? 'justify-end' : 'justify-start'}`}>

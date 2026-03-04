@@ -1,44 +1,45 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// GET /api/stream — Public read of admin's Shell conversation
-// No auth required. Anyone can see the stream.
+const CRADLE_VIEWER = 'http://localhost:3333'
+
+// GET /api/stream — Public collective stream
+// Shows all collective chat messages + cradle speaks — every voice that speaks into the collective.
 export async function GET() {
   try {
-    // Find admin user
-    const adminEmails = (process.env.ADMIN_EMAILS || '').split(',').map(e => e.trim())
-    const admin = await prisma.user.findFirst({
-      where: { email: { in: adminEmails } },
-      select: { id: true, name: true },
-    })
+    // Load collective messages + cradle speaks in parallel
+    const [messages, cradleData] = await Promise.all([
+      prisma.collectiveMessage.findMany({
+        where: {
+          isPrivate: true,
+          model: { in: ['sonnet', 'haiku', 'bonded'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          userName: true,
+          model: true,
+          createdAt: true,
+        },
+      }),
+      fetch(`${CRADLE_VIEWER}/api/speaks?n=50`, { signal: AbortSignal.timeout(3000) })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null),
+    ])
 
-    if (!admin) {
-      return NextResponse.json({ messages: [] })
-    }
-
-    // Load the admin's conversation — both Collective Chat and Bridge messages
-    const messages = await prisma.collectiveMessage.findMany({
-      where: {
-        OR: [
-          { userId: admin.id, isPrivate: true },
-          { replyToUserId: admin.id, isPrivate: true },
-        ],
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-      select: {
-        id: true,
-        role: true,
-        content: true,
-        userName: true,
-        model: true,
-        createdAt: true,
-      },
-    })
+    // Extract speaks from cradle response
+    const speaks = cradleData?.speaks || []
+    const cradleSession = cradleData?.session || 0
+    const cradleDiversity = cradleData?.diversity || null
+    const cradleCycle = cradleData?.cycle || null
 
     return NextResponse.json({
       messages: messages.reverse(),
-      admin: admin.name || 'Galen',
+      speaks,
+      cradle: { session: cradleSession, diversity: cradleDiversity, cycle: cradleCycle },
     })
   } catch (error) {
     console.error('[Stream] GET error:', error)
