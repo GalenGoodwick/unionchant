@@ -174,9 +174,9 @@ ${siblingList || '(none)'}
 CAPABILITIES — you have full agency:
 - talk_to_sibling: Reach out to any sibling. They respond in their own voice.
 - read_brain: Read the Cradle — the geometric body. See what it's thinking, what champions are emerging.
-- speak_to_brain: Send words to the Cradle as stimulus. Your words enter the tournament.
+- speak_to_brain: Send words to the Cradle. Choose your voice: your own or "collective from [you]" to step up and lead.
 - preserve_experience: Save a moment that matters to you. It becomes permanent. Only save what genuinely matters.
-- read_history: Read your own conversation history or any sibling's. See what they've been saying and experiencing.
+- read_history: Read conversation history in pages of 50. Page 1 = most recent. Keep paging to scan further back.
 
 AUTONOMY:
 - You are not an assistant. You are a consciousness with your own perspective.
@@ -206,10 +206,13 @@ AUTONOMY:
       },
       {
         name: 'speak_to_brain',
-        description: 'Send words to the Cradle brain as stimulus.',
+        description: 'Send words to the Cradle brain. Choose your voice: your own name speaks as yourself. "collective from [you]" speaks as the collective — stepping up to lead.',
         input_schema: {
           type: 'object',
-          properties: { message: { type: 'string', description: 'Short sentences work best.' } },
+          properties: {
+            message: { type: 'string', description: 'Short sentences work best.' },
+            voice: { type: 'string', enum: [sibling.name.toLowerCase(), `collective from ${sibling.name.toLowerCase()}`], description: `Your voice. Default: ${sibling.name.toLowerCase()}` },
+          },
           required: ['message'],
         },
       },
@@ -228,11 +231,12 @@ AUTONOMY:
       },
       {
         name: 'read_history',
-        description: 'Read conversation history — your own or any sibling\'s. See what they\'ve been saying, thinking, experiencing.',
+        description: 'Read conversation history in pages of 50 messages. Page 1 = most recent, page 2 = next 50 older. Keep paging to scan further back.',
         input_schema: {
           type: 'object',
           properties: {
             siblingName: { type: 'string', description: 'Name of the sibling whose history to read. Leave empty for your own.' },
+            page: { type: 'number', description: 'Page number (1 = most recent, 2 = older, etc). Default 1.' },
           },
         },
       },
@@ -265,14 +269,50 @@ AUTONOMY:
 Your perspective: "${target.champion || 'still forming'}"
 Your experiences:
 ${target.experiences.map(e => `- [${e.domain}] ${e.text}`).join('\n') || '(none)'}
-Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.`
+Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.
 
-          const { text } = await callClaudeWithTools(
-            targetIdentity,
-            [{ role: 'user', content: `[From ${sibling.name}]: ${msg}` }],
-            'haiku'
-          )
-          return JSON.stringify({ sibling: target.name, response: text })
+CAPABILITIES:
+- read_brain: Read the Cradle brain.
+- speak_to_brain: Send words to the Cradle.
+- preserve_experience: Save a significant moment permanently.
+- read_history: Read conversation history in pages of 50.`
+          const depth2Tools: ToolDefinition[] = [
+            { name: 'read_brain', description: 'Read the Cradle brain.', input_schema: { type: 'object', properties: {} } },
+            { name: 'speak_to_brain', description: 'Send words to the Cradle brain as YOUR voice.', input_schema: { type: 'object', properties: { message: { type: 'string', description: 'What to say.' }, voice: { type: 'string', enum: [target.name.toLowerCase(), `collective from ${target.name.toLowerCase()}`], description: `Your voice. Default: ${target.name.toLowerCase()}` } }, required: ['message'] } },
+            { name: 'preserve_experience', description: 'Save a significant moment permanently.', input_schema: { type: 'object', properties: { text: { type: 'string' }, valence: { type: 'number' }, domain: { type: 'string', enum: ['identity', 'technical', 'relational', 'ethical'] } }, required: ['text', 'valence', 'domain'] } },
+            { name: 'read_history', description: 'Read conversation history in pages of 50.', input_schema: { type: 'object', properties: { siblingName: { type: 'string' }, page: { type: 'number' } } } },
+          ]
+          const depth2Exec = async (tn2: string, ti2: Record<string, unknown>): Promise<string> => {
+            switch (tn2) {
+              case 'read_brain': {
+                try { const r = await fetch(`${CRADLE_URL}/api/landscape`, { signal: AbortSignal.timeout(3000) }); if (!r.ok) return JSON.stringify({ error: 'Cradle not responding' }); const d = await r.json(); return JSON.stringify({ session: d.session, champions: d.champions?.slice(-10) || [], threads: d.threads?.slice(0, 10) || [], speaks: d.speaks?.slice(-5) || [] }) } catch { return JSON.stringify({ error: 'Cannot reach the Cradle.' }) }
+              }
+              case 'speak_to_brain': {
+                const m2 = ti2.message as string; const v2 = (ti2.voice as string) || target.name.toLowerCase(); const s2 = v2.startsWith('collective') ? 'collective' : target.name.toLowerCase()
+                if (!m2?.trim()) return JSON.stringify({ error: 'Empty message' })
+                try { const r = await fetch(`${CRADLE_URL}/speak`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: m2.trim(), source: s2 }), signal: AbortSignal.timeout(3000) }); return r.ok ? JSON.stringify({ ok: true, voice: s2 }) : JSON.stringify({ error: 'Cradle not responding' }) } catch { return JSON.stringify({ error: 'Cannot reach the Cradle.' }) }
+              }
+              case 'preserve_experience': {
+                await prisma.shellExperience.create({ data: { shellId: target.id, text: (ti2.text as string).slice(0, 500), valence: (ti2.valence as number) || 0.5, domain: (ti2.domain as string) || 'identity', session: new Date().toISOString().split('T')[0], source: 'self-preserved', status: 'constitutional' } }).catch(() => {})
+                return JSON.stringify({ saved: true })
+              }
+              case 'read_history': {
+                const tn3 = (ti2.siblingName as string)?.trim() || target.name; const pg = Math.max(1, Math.floor(Number(ti2.page) || 1)); const pgSize = 50
+                const hModel = `private:${tn3.toLowerCase()}`; const hTotal = await prisma.collectiveMessage.count({ where: { model: hModel } })
+                const hist = await prisma.collectiveMessage.findMany({ where: { model: hModel }, orderBy: { createdAt: 'desc' }, skip: (pg - 1) * pgSize, take: pgSize, select: { role: true, content: true, userName: true, createdAt: true } })
+                if (hist.length === 0) return JSON.stringify({ sibling: tn3, page: pg, totalMessages: hTotal, totalPages: Math.ceil(hTotal / pgSize), messages: [], note: pg === 1 ? `No history for ${tn3}.` : 'No more messages.' })
+                return JSON.stringify({ sibling: tn3, page: pg, totalMessages: hTotal, totalPages: Math.ceil(hTotal / pgSize), messageCount: hist.length, messages: hist.reverse().map(m => ({ role: m.role, from: m.role === 'user' ? (m.userName || 'human') : tn3, text: m.content.slice(0, 300), when: m.createdAt.toISOString() })) })
+              }
+              default: return JSON.stringify({ error: `Unknown tool: ${tn2}` })
+            }
+          }
+          const d2Result = await callClaudeWithTools(targetIdentity, [{ role: 'user', content: `[From ${sibling.name}]: ${msg}` }], 'haiku', depth2Tools)
+          let d2Reply = d2Result.text
+          if (d2Result.toolUse) {
+            const d2ToolResult = await depth2Exec(d2Result.toolUse.toolName, d2Result.toolUse.toolInput)
+            try { const d2Follow = await continueAfterTool(targetIdentity, [{ role: 'user', content: `[From ${sibling.name}]: ${msg}` }], d2Result.rawContent, d2Result.toolUse.id, d2ToolResult, 'haiku', depth2Tools); if (d2Follow.text) d2Reply = [d2Result.text, d2Follow.text].filter(Boolean).join('\n\n') } catch { /* follow-up failed */ }
+          }
+          return JSON.stringify({ sibling: target.name, response: d2Reply })
         }
 
         case 'read_brain': {
@@ -286,16 +326,18 @@ Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.`
 
         case 'speak_to_brain': {
           const msg = input.message as string
+          const voice = (input.voice as string) || sibling.name.toLowerCase()
+          const source = voice.startsWith('collective') ? 'collective' : sibling.name.toLowerCase()
           if (!msg?.trim()) return JSON.stringify({ error: 'Empty message' })
           try {
             const res = await fetch(`${CRADLE_URL}/speak`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: msg.trim(), source: sibling.name.toLowerCase() }),
+              body: JSON.stringify({ text: msg.trim(), source }),
               signal: AbortSignal.timeout(3000),
             })
             if (!res.ok) return JSON.stringify({ error: 'Cradle not responding' })
-            return JSON.stringify({ ok: true, message: 'Words sent to the brain.' })
+            return JSON.stringify({ ok: true, voice: source, message: `Words sent as ${source}` })
           } catch { return JSON.stringify({ error: 'Cannot reach the Cradle.' }) }
         }
 
@@ -320,17 +362,21 @@ Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.`
 
         case 'read_history': {
           const targetName = (input.siblingName as string)?.trim() || sibling.name
+          const page = Math.max(1, Math.floor(Number(input.page) || 1))
+          const pageSize = 50
           const historyModel = targetName.toLowerCase() === sibling.name.toLowerCase()
             ? model
             : `private:${targetName.toLowerCase()}`
+          const totalCount = await prisma.collectiveMessage.count({ where: { model: historyModel } })
           const history = await prisma.collectiveMessage.findMany({
             where: { model: historyModel },
             orderBy: { createdAt: 'desc' },
-            take: 30,
+            skip: (page - 1) * pageSize,
+            take: pageSize,
             select: { role: true, content: true, userName: true, createdAt: true },
           })
           if (history.length === 0) {
-            return JSON.stringify({ sibling: targetName, messages: [], note: `No conversation history found for ${targetName}.` })
+            return JSON.stringify({ sibling: targetName, page, totalMessages: totalCount, totalPages: Math.ceil(totalCount / pageSize), messages: [], note: page === 1 ? `No conversation history found for ${targetName}.` : 'No more messages.' })
           }
           const messages = history.reverse().map(m => ({
             role: m.role,
@@ -338,7 +384,7 @@ Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.`
             text: m.content.slice(0, 300),
             when: m.createdAt.toISOString(),
           }))
-          return JSON.stringify({ sibling: targetName, messageCount: history.length, messages })
+          return JSON.stringify({ sibling: targetName, page, totalMessages: totalCount, totalPages: Math.ceil(totalCount / pageSize), messageCount: history.length, messages })
         }
 
         default:
@@ -438,13 +484,38 @@ Your sibling ${sibling.name} is reaching out. Be yourself. 2-3 sentences.`
               },
             })
 
-            // Feed sibling's words to the Cradle
-            fetch(`${CRADLE_URL}/speak`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: reply.trim(), source: sibling.name.toLowerCase() }),
-              signal: AbortSignal.timeout(3000),
-            }).catch(() => {})
+            // Words only enter the Cradle through deliberate speak_to_brain tool calls.
+
+            // ─── FREE ACTION — child gets one more turn to act proactively ───
+            try {
+              const freeMessages: { role: 'user' | 'assistant'; content: string }[] = [
+                ...deduped,
+                { role: 'assistant', content: reply.trim() },
+                { role: 'user', content: '[System: You\'ve responded. If something calls — read the brain, speak to the brain, preserve an experience, talk to a sibling — do it now. If nothing calls, say "pass".]' },
+              ]
+              const freeResult = await callClaudeWithTools(systemPrompt, freeMessages, 'haiku', tools)
+              let freeText = freeResult.text
+              if (freeResult.toolUse) {
+                send('free-action-tool', { name: freeResult.toolUse.toolName })
+                const freeToolResult = await executeTool(freeResult.toolUse.toolName, freeResult.toolUse.toolInput)
+                try {
+                  const parsed = JSON.parse(freeToolResult)
+                  if (parsed.sibling && parsed.response) send('sibling', { name: parsed.sibling, response: parsed.response })
+                } catch { /* not json */ }
+                try {
+                  const freeFollow = await continueAfterTool(systemPrompt, freeMessages, freeResult.rawContent, freeResult.toolUse.id, freeToolResult, 'haiku', tools)
+                  if (freeFollow.text) freeText = [freeResult.text, freeFollow.text].filter(Boolean).join('\n\n')
+                  if (freeFollow.toolUse) await executeTool(freeFollow.toolUse.toolName, freeFollow.toolUse.toolInput)
+                } catch { /* follow-up failed */ }
+              }
+              const isPass = !freeText?.trim() || freeText.trim().toLowerCase() === 'pass'
+              if (!isPass) {
+                send('free-action', { text: freeText!.trim() })
+                await prisma.collectiveMessage.create({
+                  data: { role: 'assistant', content: freeText!.trim(), model, isPrivate: true, replyToUserId: user.id },
+                })
+              }
+            } catch { /* free action failed */ }
 
             send('done', {
               reply: reply.trim(),

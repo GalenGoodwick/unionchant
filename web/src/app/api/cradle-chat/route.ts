@@ -127,13 +127,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Forward words to the Cradle if reachable
-    fetch(`${CRADLE_URL}/speak`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: message.trim(), source: user.name || 'human' }),
-      signal: AbortSignal.timeout(3000),
-    }).catch(() => {})
+    // Words only enter the Cradle through deliberate speak_to_brain tool calls or the Stream speak input.
 
     // Get live Cradle state
     const state = await getCradleState()
@@ -216,13 +210,7 @@ YOUR VOICE:
               },
             })
 
-            // Feed Cradle's interpreted voice back to the body
-            fetch(`${CRADLE_URL}/speak`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ text: reply.trim(), source: 'cradle-voice' }),
-              signal: AbortSignal.timeout(3000),
-            }).catch(() => {})
+            // Words only enter the Cradle through deliberate speak_to_brain tool calls.
 
             send('done', {
               reply: reply.trim(),

@@ -66,7 +66,7 @@ export async function callClaudeWithTools(
 
   const params: MessageCreateParamsNonStreaming = {
     model: modelId,
-    max_tokens: 1024,
+    max_tokens: 512,
     system: systemPrompt,
     messages,
   }
@@ -129,7 +129,7 @@ export async function continueAfterTool(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params: any = {
     model: modelId,
-    max_tokens: 1024,
+    max_tokens: 512,
     system: systemPrompt,
     messages,
   }
@@ -181,7 +181,7 @@ export async function streamClaudeWithTools(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const params: any = {
     model: modelId,
-    max_tokens: 1024,
+    max_tokens: 512,
     system: systemPrompt,
     messages,
     stream: true,

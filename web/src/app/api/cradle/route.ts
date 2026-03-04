@@ -1,33 +1,40 @@
 import { NextResponse, NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { isAdminEmail } from '@/lib/admin'
 
 export const dynamic = 'force-dynamic'
 
-const VIEWER = 'http://localhost:3333'
+const VIEWER_A = 'http://localhost:3333'
+const VIEWER_B = 'http://localhost:3334'
 
-export async function GET() {
+async function fetchCradle(viewer: string) {
   try {
     const [speaksRes, statsRes] = await Promise.all([
-      fetch(`${VIEWER}/api/speaks?n=20`, { signal: AbortSignal.timeout(3000) }),
-      fetch(`${VIEWER}/api/stats`, { signal: AbortSignal.timeout(3000) }),
+      fetch(`${viewer}/api/speaks?n=20`, { signal: AbortSignal.timeout(3000) }),
+      fetch(`${viewer}/api/stats`, { signal: AbortSignal.timeout(3000) }),
     ])
-
     const speaks = speaksRes.ok ? await speaksRes.json() : { speaks: [] }
     const stats = statsRes.ok ? await statsRes.json() : {}
-
-    return NextResponse.json({
+    return {
       speaks: speaks.speaks || [],
       session: stats.session || 0,
       vocabulary: stats.vocabulary || 0,
       threads: stats.threads || 0,
       alive: speaksRes.ok,
-    }, {
-      headers: { 'Cache-Control': 'no-cache, no-store' }
-    })
+      cycle: speaks.cycle || null,
+      diversity: speaks.diversity ?? null,
+    }
   } catch {
-    return NextResponse.json({ speaks: [], session: 0, vocabulary: 0, threads: 0, alive: false }, { status: 200 })
+    return { speaks: [], session: 0, vocabulary: 0, threads: 0, alive: false, cycle: null, diversity: null }
   }
+}
+
+export async function GET() {
+  const [a, b] = await Promise.all([fetchCradle(VIEWER_A), fetchCradle(VIEWER_B)])
+  return NextResponse.json({ a, b, ...a }, {
+    headers: { 'Cache-Control': 'no-cache, no-store' }
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -45,10 +52,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Too long' }, { status: 400 })
     }
 
-    const res = await fetch(`${VIEWER}/speak`, {
+    // Check if speaker is admin (Galen) — label as 'galen', otherwise 'collective'
+    const source = isAdminEmail(session.user.email) ? 'galen' : 'collective'
+
+    const res = await fetch(`${VIEWER_A}/speak`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.trim(), source: 'collective' }),
+      body: JSON.stringify({ text: text.trim(), source }),
       signal: AbortSignal.timeout(5000),
     })
 

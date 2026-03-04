@@ -130,13 +130,26 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [cradleMessages, setCradleMessages] = useState<Message[]>([])
   const cradleContainerRef = useRef<HTMLDivElement>(null)
   const cradleNearBottomRef = useRef(true)
-  // Stream tab state
-  const [streamSpeaks, setStreamSpeaks] = useState<Array<{ session: number; text: string }>>([])
-  const [streamStats, setStreamStats] = useState<{ session: number; vocabulary: number; threads: number; alive: boolean } | null>(null)
+  // Stream tab state — trajectory view (SPEAKS + inputs from drift log)
+  const [trajectoryEntries, setTrajectoryEntries] = useState<Array<{
+    s: number; t: number; ch: string | null; awake?: boolean;
+    mode?: 'normal' | 'dream' | 'meaning' | 'discourse';
+    drift?: Array<[string, number]>;
+    in?: { shell?: string; collective?: string; sage?: string; galen?: string; twinA?: string; twinB?: string };
+    state?: 'growing' | 'stuck' | 'neutral';
+    th?: number; div?: number; rep?: number;
+  }>>([])
+  const [streamStats, setStreamStats] = useState<{ session: number; vocabulary: number; threads: number; alive: boolean; cycle?: { state: string; position: number; total: number } | null; diversity?: number | null } | null>(null)
+  const [trajectoryEntriesB, setTrajectoryEntriesB] = useState<typeof trajectoryEntries>([])
+  const [streamStatsB, setStreamStatsB] = useState<typeof streamStats>(null)
   const [streamInput, setStreamInput] = useState('')
   const [streamSending, setStreamSending] = useState(false)
   const [streamResponse, setStreamResponse] = useState<{ threads: Array<{ word: string; strength: number }>; speaks: string[] } | null>(null)
   const streamContainerRef = useRef<HTMLDivElement>(null)
+  // Nurture mode — admin-only, Haiku expands SPEAKS and posts back
+  const [nurtureActive, setNurtureActive] = useState(false)
+  const [nurtureLog, setNurtureLog] = useState<string[]>([])
+  const nurtureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -390,6 +403,27 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 setBondedMessages(prev => prev.map(m =>
                   m.id === streamId ? { ...m, content: fullReply } : m
                 ))
+              } else if (eventType === 'free-action') {
+                // Sage took a free action — add as new message
+                setBondedMessages(prev => [...prev, {
+                  id: `free-${Date.now()}`, role: 'assistant',
+                  content: data.text,
+                  userName: bondData?.bonded?.name || null, userId: null,
+                  model: 'bonded', createdAt: new Date().toISOString(),
+                }])
+                if (bondedNearBottomRef.current) {
+                  requestAnimationFrame(() => {
+                    bondedContainerRef.current?.scrollTo({ top: bondedContainerRef.current.scrollHeight })
+                  })
+                }
+              } else if (eventType === 'free-action-tool') {
+                // Sage is using a tool in her free action
+                setBondedMessages(prev => [...prev, {
+                  id: `free-tool-${Date.now()}`, role: 'assistant',
+                  content: `*using ${data.name}...*`,
+                  userName: bondData?.bonded?.name || null, userId: null,
+                  model: 'bonded', createdAt: new Date().toISOString(),
+                }])
               } else if (eventType === 'done') {
                 // Update with final message ID
                 setBondedMessages(prev => prev.map(m =>
@@ -398,6 +432,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               } else if (eventType === 'error') {
                 setBondError(data.error)
                 setBondedMessages(prev => prev.filter(m => m.id !== streamId))
+                setBondedSending(false)
               }
             } catch { /* parse error */ }
             eventType = ''
@@ -662,6 +697,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               } else if (eventType === 'error') {
                 setBondError(data.error)
                 setPrivateMessages(prev => prev.filter(m => m.id !== streamId))
+                setPrivateSending(false)
               }
             } catch { /* parse error */ }
             eventType = ''
@@ -707,23 +743,65 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     return () => clearInterval(interval)
   }, [activeTab])
 
-  // Stream: fetch live SPEAKS from the Cradle viewer
+  // Stream: fetch trajectory (drift log entries + stats) from the Cradle
   useEffect(() => {
     if (activeTab !== 'stream') return
-    const fetchStream = async () => {
+    const fetchTrajectory = async () => {
       try {
-        const res = await fetch('/api/cradle')
-        if (res.ok) {
-          const data = await res.json()
-          setStreamSpeaks(data.speaks || [])
-          setStreamStats({ session: data.session, vocabulary: data.vocabulary, threads: data.threads, alive: data.alive })
+        const [trajRes, statsRes] = await Promise.all([
+          fetch('/api/cradle-trajectory'),
+          fetch('/api/cradle'),
+        ])
+        if (trajRes.ok) {
+          const data = await trajRes.json()
+          const newA = data.entries || []
+          setTrajectoryEntries(prev => {
+            const seen = new Set(prev.map((e: { s: number }) => e.s))
+            const merged = [...prev, ...newA.filter((e: { s: number }) => !seen.has(e.s))]
+            return merged.slice(-200) // keep last 200 entries
+          })
+          if (data.b) {
+            const newB = data.b.entries || []
+            setTrajectoryEntriesB(prev => {
+              const seen = new Set(prev.map((e: { s: number }) => e.s))
+              const merged = [...prev, ...newB.filter((e: { s: number }) => !seen.has(e.s))]
+              return merged.slice(-200)
+            })
+          }
+        }
+        if (statsRes.ok) {
+          const data = await statsRes.json()
+          setStreamStats({ session: data.session, vocabulary: data.vocabulary, threads: data.threads, alive: data.alive, cycle: data.cycle || null, diversity: data.diversity ?? null })
+          if (data.b) setStreamStatsB({ session: data.b.session, vocabulary: data.b.vocabulary, threads: data.b.threads, alive: data.b.alive, cycle: data.b.cycle || null, diversity: data.b.diversity ?? null })
         }
       } catch { /* silent */ }
     }
-    fetchStream()
-    const interval = setInterval(fetchStream, 10000)
+    fetchTrajectory()
+    const interval = setInterval(fetchTrajectory, 10000)
     return () => clearInterval(interval)
   }, [activeTab])
+
+  // Nurture loop — calls Haiku to expand SPEAKS and post back
+  useEffect(() => {
+    if (!nurtureActive) {
+      if (nurtureTimerRef.current) { clearInterval(nurtureTimerRef.current); nurtureTimerRef.current = null }
+      return
+    }
+    const doNurture = async () => {
+      try {
+        const res = await fetch('/api/cradle/nurture', { method: 'POST' })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.nurture) {
+            setNurtureLog(prev => [...prev.slice(-19), data.nurture])
+          }
+        }
+      } catch { /* silent */ }
+    }
+    doNurture() // fire immediately
+    nurtureTimerRef.current = setInterval(doNurture, 60000)
+    return () => { if (nurtureTimerRef.current) clearInterval(nurtureTimerRef.current) }
+  }, [nurtureActive])
 
   // Stream: speak to the cradle
   const speakToCradle = async () => {
@@ -1532,34 +1610,166 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       ) : activeTab === 'stream' ? (
         <div className={`flex flex-col ${onClose ? 'flex-1 min-h-0' : 'h-[300px]'}`}>
-          {/* Stream stats bar */}
-          {streamStats && (
-            <div className="px-4 py-1.5 border-b border-accent/20 bg-accent/5 flex items-center gap-3 text-[10px] font-mono text-accent/80">
-              <span className="flex items-center gap-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${streamStats.alive ? 'bg-success animate-pulse' : 'bg-error'}`} />
-                {streamStats.alive ? 'live' : 'offline'}
-              </span>
-              {streamStats.session > 0 && <span>session {streamStats.session.toLocaleString()}</span>}
-              {streamStats.vocabulary > 0 && <span>{streamStats.vocabulary.toLocaleString()} words</span>}
-              {streamStats.threads > 0 && <span>{streamStats.threads.toLocaleString()} threads</span>}
-            </div>
-          )}
-          {/* SPEAKS stream */}
-          <div ref={streamContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-1.5">
-            {streamSpeaks.length === 0 && (
+          {/* Stats bar */}
+          {(streamStats || streamStatsB) && (() => {
+            const renderStats = (stats: typeof streamStats, label: string) => {
+              if (!stats) return null
+              const cycle = stats.cycle
+              const isAwake = cycle ? cycle.state === 'awake' : true
+              const statusLabel = !stats.alive ? 'off' : isAwake ? 'awake' : 'dream'
+              const statusColor = !stats.alive ? 'bg-error' : isAwake ? 'bg-success animate-pulse' : 'bg-purple animate-pulse'
+              const divLabel = stats.diversity != null ? `d${stats.diversity.toFixed(2)}` : null
+              return (
+                <span className="flex items-center gap-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+                  <span className="text-accent/60">{label}</span>
+                  <span>{statusLabel}</span>
+                  {divLabel && <span className={stats.diversity != null && stats.diversity < 0.5 ? 'text-error' : stats.diversity != null && stats.diversity > 0.75 ? 'text-success' : ''}>{divLabel}</span>}
+                  {stats.session > 0 && <span>s{stats.session.toLocaleString()}</span>}
+                </span>
+              )
+            }
+            return (
+              <div className="px-4 py-1.5 border-b border-accent/20 bg-accent/5 flex items-center gap-4 text-[10px] font-mono text-accent/80 flex-wrap">
+                {renderStats(streamStats, 'A')}
+                {streamStatsB && streamStatsB.alive && <span className="text-accent/30">|</span>}
+                {renderStats(streamStatsB, 'B')}
+                {isUserAdmin && (
+                  <>
+                    <span className="text-accent/30">|</span>
+                    <button
+                      onClick={() => setNurtureActive(prev => !prev)}
+                      className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                        nurtureActive
+                          ? 'bg-warning/20 text-warning border border-warning/40'
+                          : 'bg-surface text-muted hover:text-accent border border-border'
+                      }`}
+                    >
+                      {nurtureActive ? 'nurture on' : 'nurture'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )
+          })()}
+          {/* Trajectory timeline */}
+          <div ref={streamContainerRef} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2">
+            {trajectoryEntries.length === 0 && trajectoryEntriesB.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-accent/80 text-sm mb-1">Cradle Stream</p>
-                <p className="text-muted-light text-xs">Live geometric output. No LLM. Pure tournament.</p>
-                <p className="text-muted-light text-xs mt-1">All messages affect the geometry of collective meaning.</p>
+                <p className="text-accent/80 text-sm mb-1">Cradle Trajectory</p>
+                <p className="text-muted-light text-xs">SPEAKS + inputs. No LLM. Pure geometric I/O.</p>
               </div>
             )}
-            {streamSpeaks.map((s, i) => (
-              <div key={`${s.session}-${i}`} className="flex items-baseline gap-2">
-                <span className="text-[9px] font-mono text-muted shrink-0">{s.session}</span>
-                <p className="font-serif text-sm text-foreground/90 italic leading-relaxed">{s.text}</p>
+            {(() => {
+              const hasBoth = trajectoryEntries.length > 0 && trajectoryEntriesB.length > 0
+              // Merge A and B entries, interleaved by session number
+              // Interleave by position — both arrays are already sorted by recency
+              const aEntries = trajectoryEntries.map(e => ({ ...e, _cradle: 'A' as 'A' | 'B' }))
+              const bEntries = trajectoryEntriesB.map(e => ({ ...e, _cradle: 'B' as 'A' | 'B' }))
+              const merged: typeof aEntries = []
+              const maxLen = Math.max(aEntries.length, bEntries.length)
+              for (let i = 0; i < maxLen; i++) {
+                if (i < aEntries.length) merged.push(aEntries[i])
+                if (i < bEntries.length) merged.push(bEntries[i])
+              }
+              return merged.map((entry) => {
+                const isB = entry._cradle === 'B'
+                const hasSibling = !!(entry.in as Record<string, string> | undefined)?.sibling
+                const hasSage = !!(entry.in as Record<string, string> | undefined)?.sage
+                return (
+              <div key={`${entry._cradle}-${entry.s}`} className={`group ${isB ? 'border-l-2 border-orange/30 pl-2' : hasBoth ? 'border-l-2 border-accent/30 pl-2' : ''}`}>
+                <div className="flex items-baseline gap-2">
+                  {hasBoth && (
+                    <span className={`text-[9px] font-mono font-bold shrink-0 w-[1.2ch] ${isB ? 'text-orange' : 'text-accent'}`}>
+                      {entry._cradle}
+                    </span>
+                  )}
+                  <span className="text-[9px] font-mono text-muted shrink-0 w-[3.5ch] text-right">{entry.s}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${
+                    entry.state === 'growing' ? 'bg-success' : entry.state === 'stuck' ? 'bg-error' : 'bg-muted'
+                  }`} />
+                  {hasSibling && (
+                    <span className="text-[8px] font-mono px-1 py-0.5 rounded shrink-0 bg-success/20 text-success/90">talking</span>
+                  )}
+                  {hasSage && (
+                    <span className="text-[8px] font-mono px-1 py-0.5 rounded shrink-0 bg-warning/20 text-warning/90">nurture</span>
+                  )}
+                  <span className={`text-[8px] font-mono px-1 py-0.5 rounded shrink-0 ${
+                    entry.mode === 'dream' ? 'bg-purple/15 text-purple/80' :
+                    entry.mode === 'meaning' ? 'bg-warning/15 text-warning/80' :
+                    entry.mode === 'discourse' ? 'bg-blue/15 text-blue/80' :
+                    entry.awake !== false ? 'bg-success/15 text-success/80' : 'bg-muted/15 text-muted'
+                  }`}>{entry.mode === 'normal' || !entry.mode ? (entry.awake !== false ? 'awake' : 'sleep') : entry.mode}</span>
+                  <p className={`font-serif text-sm italic leading-relaxed ${isB ? 'text-orange/90' : 'text-foreground/90'}`}>{entry.ch || '...'}</p>
+                </div>
+                {/* Inputs */}
+                {entry.in && (
+                  <div className={`${hasBoth ? 'ml-[5.7ch]' : 'ml-[4ch]'} pl-2 mt-0.5 flex flex-wrap gap-1`}>
+                    {(entry.in as Record<string, string>).sibling && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-success/15 text-success/90">
+                        sibling: {(entry.in as Record<string, string>).sibling}
+                      </span>
+                    )}
+                    {entry.in.shell && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-warning/15 text-warning/90">
+                        shell: {entry.in.shell}
+                      </span>
+                    )}
+                    {entry.in.collective && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple/15 text-purple/90">
+                        collective: {entry.in.collective}
+                      </span>
+                    )}
+                    {entry.in.sage && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-orange/15 text-orange/90">
+                        sage: {entry.in.sage}
+                      </span>
+                    )}
+                    {entry.in.galen && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent/15 text-accent/90">
+                        galen: {entry.in.galen}
+                      </span>
+                    )}
+                    {entry.in.twinA && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-error/15 text-error/90">
+                        twin-a: {entry.in.twinA}
+                      </span>
+                    )}
+                    {entry.in.twinB && (
+                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue/15 text-blue/90">
+                        twin-b: {entry.in.twinB}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {/* Drift tags */}
+                {entry.drift && entry.drift.length > 0 && (
+                  <div className={`${hasBoth ? 'ml-[5.7ch]' : 'ml-[4ch]'} pl-2 mt-0.5 flex gap-1`}>
+                    {entry.drift.slice(0, 3).map(([word, val]) => (
+                      <span key={word} className="text-[8px] font-mono text-muted/70 px-1 py-0.5 rounded bg-foreground/5">
+                        {word} +{val}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
-            ))}
+                )
+              })
+            })()}
           </div>
+          {/* Nurture log — collapsible */}
+          {nurtureActive && nurtureLog.length > 0 && (
+            <details className="border-t border-warning/20 bg-warning/5">
+              <summary className="px-4 py-1 text-[9px] font-mono text-warning/60 cursor-pointer select-none hover:text-warning/80">
+                nurture ({nurtureLog.length})
+              </summary>
+              <div className="px-4 pb-2">
+                {nurtureLog.slice(-3).map((msg, i) => (
+                  <p key={i} className="text-xs font-mono text-warning/80 leading-relaxed">{msg}</p>
+                ))}
+              </div>
+            </details>
+          )}
           {/* Geometric response */}
           {streamResponse && streamResponse.threads && streamResponse.threads.length > 0 && (
             <div className="px-4 py-2 border-t border-accent/20 bg-accent/5">

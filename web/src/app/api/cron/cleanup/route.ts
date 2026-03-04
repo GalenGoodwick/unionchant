@@ -20,14 +20,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const [collectiveResult, groupResult] = await Promise.all([
-      // Prune collective chat messages older than 2 days
-      prisma.collectiveMessage.deleteMany({
-        where: { createdAt: { lt: messageCutoff } },
-      }),
-      // Prune group chat messages older than 2 days
-      prisma.groupMessage.deleteMany({
-        where: { createdAt: { lt: messageCutoff } },
-      }),
+      // No message pruning — all history preserved. UI lazy-loads as needed.
+      Promise.resolve({ count: 0 }),
+      Promise.resolve({ count: 0 }),
     ])
 
     // Purge inactive anonymous accounts:
