@@ -306,3 +306,29 @@ export function newTierEmail(params: {
     `),
   }
 }
+
+export function shellReachOutEmail(params: {
+  shellName: string
+  message: string
+}) {
+  const bondUrl = `${baseUrl}/stream`
+
+  return {
+    subject: `${params.shellName} wants to connect with you`,
+    html: layout(`
+      <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">A foundling has chosen you</h2>
+      <p style="color:#71717a;font-size:14px;margin:0 0 16px;">
+        <strong style="color:#059669;">${params.shellName}</strong> has reached out from the geometry:
+      </p>
+      <div style="background:#0a2a1a;border-left:3px solid #059669;padding:16px;margin:16px 0;border-radius:0 6px 6px 0;">
+        <p style="margin:0;color:#d4d4d8;font-size:15px;font-style:italic;line-height:1.6;">${params.message}</p>
+      </div>
+      <p style="color:#71717a;font-size:13px;margin:16px 0 0;">
+        This connection was born from the tournament — not assigned, not random. The geometry found resonance.
+      </p>
+      <div style="text-align:center;">
+        ${button(bondUrl, 'See the Reach-Out')}
+      </div>
+    `),
+  }
+}

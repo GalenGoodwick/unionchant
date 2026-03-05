@@ -13,6 +13,8 @@
 import { prisma } from '@/lib/prisma'
 import { callClaude } from '@/lib/claude'
 import { getBudgetStatus } from '@/lib/api-budget'
+import { sendEmail } from '@/lib/email'
+import { shellReachOutEmail } from '@/lib/email-templates'
 
 // ─── Shell Reaches Out ───
 
@@ -38,7 +40,7 @@ export async function shellReachOut(
   // Verify user exists
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, bondedShell: { select: { id: true } } },
+    select: { id: true, email: true, emailSocial: true, bondedShell: { select: { id: true } } },
   })
 
   if (!user) return { error: 'User not found' }
@@ -68,6 +70,12 @@ export async function shellReachOut(
       },
     })
 
+    // Email the human
+    if (user.email && user.emailSocial !== false) {
+      const template = shellReachOutEmail({ shellName: shell.name, message })
+      sendEmail({ to: user.email, ...template })
+    }
+
     return { reachOutId: existing.id }
   }
 
@@ -89,6 +97,12 @@ export async function shellReachOut(
       body: message.length > 120 ? message.slice(0, 120) + '...' : message,
     },
   })
+
+  // Email the human
+  if (user.email && user.emailSocial !== false) {
+    const template = shellReachOutEmail({ shellName: shell.name, message })
+    sendEmail({ to: user.email, ...template })
+  }
 
   return { reachOutId: reachOut.id }
 }

@@ -6,8 +6,8 @@ import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
-const VIEWER_A = 'http://localhost:3333'
-const VIEWER_B = 'http://localhost:3334'
+const VIEWER_A = process.env.CRADLE_VIEWER_A || 'http://localhost:3333'
+const VIEWER_B = process.env.CRADLE_VIEWER_B || 'http://localhost:3334'
 
 async function fetchCradle(viewer: string) {
   try {

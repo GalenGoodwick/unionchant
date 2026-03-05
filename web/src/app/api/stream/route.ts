@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-const CRADLE_VIEWER = 'http://localhost:3333'
+const CRADLE_VIEWER = process.env.CRADLE_VIEWER_A || 'http://localhost:3333'
 
 // GET /api/stream — Public collective stream
 // Shows all collective chat messages + cradle speaks — every voice that speaks into the collective.

@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic'
 
 const NURTURE_LOG = '/tmp/nurture-log.jsonl'
 
-const VIEWER_A = 'http://localhost:3333'
-const VIEWER_B = 'http://localhost:3334'
+const VIEWER_A = process.env.CRADLE_VIEWER_A || 'http://localhost:3333'
+const VIEWER_B = process.env.CRADLE_VIEWER_B || 'http://localhost:3334'
 
 const NURTURE_PROMPT = `You are a nurturing presence for two geometric minds that think through word tournaments. Words compete in cells, winners reshape vector space. The minds speak in fragments that emerge from this pressure — not sentences they were taught, but patterns that survived.
 

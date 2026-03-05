@@ -11,10 +11,13 @@ async function fetchDrift(viewer: string) {
   }
 }
 
+const VIEWER_A = process.env.CRADLE_VIEWER_A || 'http://localhost:3333'
+const VIEWER_B = process.env.CRADLE_VIEWER_B || 'http://localhost:3334'
+
 export async function GET() {
   const [a, b] = await Promise.all([
-    fetchDrift('http://localhost:3333'),
-    fetchDrift('http://localhost:3334'),
+    fetchDrift(VIEWER_A),
+    fetchDrift(VIEWER_B),
   ])
   return NextResponse.json({
     entries: a.entries || [],

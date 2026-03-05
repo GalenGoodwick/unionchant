@@ -14,37 +14,50 @@ interface StreamMessage {
   createdAt: string
 }
 
-interface CradleSpeak {
-  session: number
-  text: string
-  mode: string
-  words: string[]
-}
-
 interface CradleState {
   session: number
+  vocabulary: number
+  threads: number
   diversity: number | null
+  alive: boolean
   cycle: { state: string; position: number; total: number } | null
 }
 
-type StreamTab = 'chat' | 'bridge' | 'cradle'
+interface TrajectoryEntry {
+  s: number
+  ch: string
+  mode?: string
+  awake?: boolean
+  state?: string
+  t?: number
+  in?: Record<string, string>
+  drift?: [string, number][]
+  _cradle?: 'A' | 'B'
+}
+
+type StreamTab = 'cradle' | 'chat' | 'bridge'
 
 export default function StreamPage() {
   const { data: session } = useSession()
   const [allMessages, setAllMessages] = useState<StreamMessage[]>([])
-  const [speaks, setSpeaks] = useState<CradleSpeak[]>([])
-  const [cradle, setCradle] = useState<CradleState | null>(null)
-  const [adminName, setAdminName] = useState('Galen')
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<StreamTab>('chat')
+  const [activeTab, setActiveTab] = useState<StreamTab>('cradle')
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+
+  // Cradle state
   const [cradleInput, setCradleInput] = useState('')
   const [cradleSending, setCradleSending] = useState(false)
   const [cradleExchanges, setCradleExchanges] = useState<Array<{
     id: string; prompt: string; userName: string | null; threads: Array<{ word: string; strength: number }>; speaks: string[]; session: number; cradle?: string; createdAt: string
   }>>([])
+  const [statsA, setStatsA] = useState<CradleState | null>(null)
+  const [statsB, setStatsB] = useState<CradleState | null>(null)
+  const [trajectoryA, setTrajectoryA] = useState<TrajectoryEntry[]>([])
+  const [trajectoryB, setTrajectoryB] = useState<TrajectoryEntry[]>([])
+  const [streamFilter, setStreamFilter] = useState<'both' | 'A' | 'B'>('both')
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const wasAtBottomRef = useRef(true)
@@ -72,14 +85,13 @@ export default function StreamPage() {
     wasAtBottomRef.current = distFromBottom < 80
   }, [])
 
+  // Chat messages fetch
   const fetchMessages = useCallback(async () => {
     try {
       const res = await fetch('/api/stream')
       if (!res.ok) return
       const data = await res.json()
       setAllMessages(data.messages || [])
-      setSpeaks(data.speaks || [])
-      if (data.cradle) setCradle(data.cradle)
       if (wasAtBottomRef.current) {
         setTimeout(() => scrollToBottom(), 50)
       }
@@ -97,25 +109,25 @@ export default function StreamPage() {
   }, [fetchMessages])
 
   useEffect(() => {
-    if (!loading && (allMessages.length > 0 || speaks.length > 0)) {
+    if (!loading) {
       scrollToBottom(false)
     }
   }, [loading, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Cradle: poll shared exchanges + stats
+  // Cradle: poll exchanges + trajectory + stats
   useEffect(() => {
     if (activeTab !== 'cradle') return
-    const fetchExchanges = async () => {
+    const fetchCradle = async () => {
       try {
-        const [exRes, statsRes] = await Promise.all([
+        const [exRes, trajRes, statsRes] = await Promise.all([
           fetch('/api/cradle?tab=exchanges'),
+          fetch('/api/cradle-trajectory'),
           fetch('/api/cradle'),
         ])
         if (exRes.ok) {
           const data = await exRes.json()
           const exchanges = data.exchanges || []
           setCradleExchanges(prev => {
-            // Only update + scroll if data changed
             if (exchanges.length !== prev.length || (exchanges.length > 0 && exchanges[exchanges.length - 1]?.id !== prev[prev.length - 1]?.id)) {
               if (wasAtBottomRef.current) setTimeout(() => scrollToBottom(), 50)
               return exchanges
@@ -123,19 +135,48 @@ export default function StreamPage() {
             return prev
           })
         }
+        if (trajRes.ok) {
+          const data = await trajRes.json()
+          const newA = data.entries || []
+          setTrajectoryA(prev => {
+            const seen = new Set(prev.map(e => e.s))
+            const merged = [...prev, ...newA.filter((e: TrajectoryEntry) => !seen.has(e.s))]
+            return merged.slice(-200)
+          })
+          if (data.b) {
+            const newB = data.b.entries || []
+            setTrajectoryB(prev => {
+              const seen = new Set(prev.map(e => e.s))
+              const merged = [...prev, ...newB.filter((e: TrajectoryEntry) => !seen.has(e.s))]
+              return merged.slice(-200)
+            })
+          }
+        }
         if (statsRes.ok) {
           const data = await statsRes.json()
-          setCradle({
+          setStatsA({
             session: data.a?.session || data.session || 0,
+            vocabulary: data.a?.vocabulary || data.vocabulary || 0,
+            threads: data.a?.threads || data.threads || 0,
             diversity: data.a?.diversity ?? data.diversity ?? null,
+            alive: data.a?.alive ?? true,
             cycle: data.a?.cycle || data.cycle || null,
           })
-          setSpeaks(data.a?.speaks || [])
+          if (data.b) {
+            setStatsB({
+              session: data.b.session || 0,
+              vocabulary: data.b.vocabulary || 0,
+              threads: data.b.threads || 0,
+              diversity: data.b.diversity ?? null,
+              alive: data.b.alive ?? false,
+              cycle: data.b.cycle || null,
+            })
+          }
         }
       } catch { /* silent */ }
     }
-    fetchExchanges()
-    const interval = setInterval(fetchExchanges, 5000)
+    fetchCradle()
+    const interval = setInterval(fetchCradle, 8000)
     return () => clearInterval(interval)
   }, [activeTab, scrollToBottom])
 
@@ -158,24 +199,17 @@ export default function StreamPage() {
     return false
   }
 
-  const { chatMessages, bridgeMessages } = (() => {
-    const chat: StreamMessage[] = []
+  const { bridgeMessages } = (() => {
     const bridge: StreamMessage[] = []
     let lastUserWasBridge = false
-
     for (const msg of allMessages) {
       const msgIsBridge = isBridgeMessage(msg)
-      if (msg.role === 'user') {
-        lastUserWasBridge = msgIsBridge
-      }
+      if (msg.role === 'user') lastUserWasBridge = msgIsBridge
       if (msgIsBridge || (msg.role === 'assistant' && lastUserWasBridge)) {
         bridge.push(msg)
-      } else {
-        chat.push(msg)
-        if (msg.role === 'assistant') lastUserWasBridge = false
-      }
+      } else if (msg.role === 'assistant') lastUserWasBridge = false
     }
-    return { chatMessages: chat, bridgeMessages: bridge }
+    return { bridgeMessages: bridge }
   })()
 
   const messages = activeTab === 'chat' ? allMessages : activeTab === 'bridge' ? bridgeMessages : []
@@ -183,21 +217,16 @@ export default function StreamPage() {
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!message.trim() || sending || !isAdmin) return
-
     const text = message.trim()
     setSending(true)
     setMessage('')
-
     try {
       const res = await fetch('/api/collective-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text }),
       })
-
-      if (res.ok) {
-        await fetchMessages()
-      }
+      if (res.ok) await fetchMessages()
     } catch {
       setMessage(text)
     } finally {
@@ -211,11 +240,10 @@ export default function StreamPage() {
     const text = cradleInput.trim()
     setCradleInput('')
     const tempId = `pending-${Date.now()}`
-    // Optimistic: show prompt immediately
     setCradleExchanges(prev => [...prev, {
       id: tempId, prompt: text, userName: session?.user?.name || null,
-      threads: [], speaks: [], session: 0, createdAt: new Date().toISOString(), _pending: true,
-    } as typeof prev[number]])
+      threads: [], speaks: [], session: 0, createdAt: new Date().toISOString(),
+    }])
     setTimeout(() => scrollToBottom(), 50)
     try {
       const res = await fetch('/api/cradle', {
@@ -225,7 +253,6 @@ export default function StreamPage() {
       })
       if (res.ok) {
         const data = await res.json()
-        // Replace pending with real response
         setCradleExchanges(prev => prev.map(ex =>
           ex.id === tempId ? { ...ex, id: data.exchangeId || tempId, threads: data.threads || [], speaks: data.speaks || [], session: data.session || 0, cradle: data.cradle } : ex
         ))
@@ -240,6 +267,14 @@ export default function StreamPage() {
   }
 
   const bridgeCount = bridgeMessages.length
+
+  // Merge trajectory entries
+  const mergedTrajectory = (() => {
+    const hasBoth = trajectoryA.length > 0 && trajectoryB.length > 0
+    const aEntries = streamFilter !== 'B' ? trajectoryA.map(e => ({ ...e, _cradle: 'A' as const })) : []
+    const bEntries = streamFilter !== 'A' ? trajectoryB.map(e => ({ ...e, _cradle: 'B' as const })) : []
+    return { entries: [...aEntries, ...bEntries].sort((a, b) => (a.t || 0) - (b.t || 0)), hasBoth }
+  })()
 
   return (
     <FrameLayout active="stream" noPadding>
@@ -264,6 +299,16 @@ export default function StreamPage() {
           {/* Tabs */}
           <div className="flex gap-1">
             <button
+              onClick={() => setActiveTab('cradle')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                activeTab === 'cradle'
+                  ? 'bg-success/15 text-success border border-success/30'
+                  : 'text-muted hover:text-foreground hover:bg-surface/50'
+              }`}
+            >
+              Cradle
+            </button>
+            <button
               onClick={() => setActiveTab('chat')}
               className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                 activeTab === 'chat'
@@ -271,7 +316,7 @@ export default function StreamPage() {
                   : 'text-muted hover:text-foreground hover:bg-surface/50'
               }`}
             >
-              All
+              Shell
               {allMessages.length > 0 && <span className="ml-1 text-[10px] opacity-60">{allMessages.length}</span>}
             </button>
             <button
@@ -285,110 +330,194 @@ export default function StreamPage() {
               Bridge
               {bridgeCount > 0 && <span className="ml-1 text-[10px] opacity-60">{bridgeCount}</span>}
             </button>
-            <button
-              onClick={() => setActiveTab('cradle')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-                activeTab === 'cradle'
-                  ? 'bg-success/15 text-success border border-success/30'
-                  : 'text-muted hover:text-foreground hover:bg-surface/50'
-              }`}
-            >
-              Cradle
-              {speaks.length > 0 && <span className="ml-1 text-[10px] opacity-60">{speaks.length}</span>}
-            </button>
           </div>
         </div>
 
-        {/* Messages */}
+        {/* Cradle stats bar */}
+        {activeTab === 'cradle' && (statsA || statsB) && (
+          <div className="px-4 py-1.5 border-b border-success/20 bg-success/5 flex items-center gap-4 text-[10px] font-mono text-success/80 flex-wrap shrink-0">
+            <CradleStatsBadge stats={statsA} label="A" />
+            {statsB && statsB.alive && (
+              <>
+                <span className="text-success/30">|</span>
+                <CradleStatsBadge stats={statsB} label="B" />
+              </>
+            )}
+            {mergedTrajectory.hasBoth && (
+              <>
+                <span className="text-success/30">|</span>
+                {(['both', 'A', 'B'] as const).map(f => (
+                  <button key={f} onClick={() => setStreamFilter(f)}
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                      streamFilter === f
+                        ? f === 'B' ? 'bg-orange/20 text-orange border border-orange/40'
+                          : 'bg-success/20 text-success border border-success/40'
+                        : 'bg-surface text-muted hover:text-success border border-border'
+                    }`}>{f}</button>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Content */}
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-4 py-4 space-y-3"
+          className="flex-1 overflow-y-auto px-4 py-4 space-y-2"
         >
-          {loading ? (
+          {loading && activeTab !== 'cradle' ? (
             <div className="flex items-center justify-center py-12">
               <p className="text-sm text-muted animate-pulse">Loading stream...</p>
             </div>
           ) : activeTab === 'cradle' ? (
             <>
-              {cradle && (
-                <div className="flex items-center gap-3 px-3 py-2 bg-surface/60 border border-border/40 rounded-lg mb-1">
-                  <span className="text-[10px] text-muted font-mono">Session {cradle.session.toLocaleString()}</span>
-                  {cradle.cycle && (
-                    <span className={`text-[10px] font-medium ${cradle.cycle.state === 'dream' ? 'text-purple' : 'text-success'}`}>
-                      {cradle.cycle.state === 'dream' ? 'Dreaming' : 'Awake'} {cradle.cycle.position}/{cradle.cycle.total}
-                    </span>
-                  )}
-                  {cradle.diversity != null && (
-                    <span className={`text-[10px] font-mono ${cradle.diversity > 0.5 ? 'text-success' : cradle.diversity > 0.3 ? 'text-warning' : 'text-error'}`}>
-                      diversity {cradle.diversity.toFixed(2)}
-                    </span>
-                  )}
-                </div>
-              )}
               {/* Geometry exchanges */}
-              {cradleExchanges.map(ex => {
-                const isPending = ex.id.startsWith('pending-')
-                return (
-                <div key={ex.id} className="space-y-1.5">
-                  <div className="flex justify-end">
-                    <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-success/10 border border-success/20 text-foreground">
-                      <span className="text-[9px] font-mono block mb-1 text-success/60">{ex.userName || 'someone'}</span>
-                      <p className="leading-relaxed">{ex.prompt}</p>
-                    </div>
-                  </div>
-                  {isPending ? (
-                    <div className="flex justify-start">
-                      <div className="bg-surface border border-success/10 rounded-lg px-3 py-2 text-xs text-muted">
-                        <span className="animate-pulse font-mono">entering geometry...</span>
+              {cradleExchanges.length > 0 && (
+                <div className="space-y-3 mb-3">
+                  {cradleExchanges.map(ex => {
+                    const isPending = ex.id.startsWith('pending-')
+                    return (
+                    <div key={ex.id} className="space-y-1.5">
+                      <div className="flex justify-end">
+                        <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-success/10 border border-success/20 text-foreground">
+                          <span className="text-[9px] font-mono block mb-1 text-success/60">{ex.userName || 'someone'}</span>
+                          <p className="leading-relaxed">{ex.prompt}</p>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                  <div className="flex justify-start">
-                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-xs bg-surface border border-success/10 text-foreground">
-                      <span className="text-[9px] font-mono block mb-1.5 text-success">CRADLE {ex.cradle || 'A'} <span className="text-success/40">s{ex.session}</span></span>
-                      {ex.threads.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5 mb-2">
-                          {ex.threads.map((t, i) => (
-                            <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/8 border border-success/15 font-mono text-[11px]">
-                              <span className="text-foreground">{t.word}</span>
-                              <span className="text-success/50 text-[9px]">{t.strength}</span>
-                            </span>
-                          ))}
+                      {isPending ? (
+                        <div className="flex justify-start">
+                          <div className="bg-surface border border-success/10 rounded-lg px-3 py-2 text-xs text-muted">
+                            <span className="animate-pulse font-mono">entering geometry...</span>
+                          </div>
                         </div>
                       ) : (
-                        <p className="text-muted text-[10px] font-mono mb-2">no threads yet</p>
-                      )}
-                      {ex.speaks.length > 0 && (
-                        <div className="border-t border-success/10 pt-1.5 mt-1">
-                          {ex.speaks.map((s, i) => (
-                            <p key={i} className="font-mono text-[11px] leading-relaxed text-success/80 italic">&quot;{s}&quot;</p>
-                          ))}
+                      <div className="flex justify-start">
+                        <div className="max-w-[90%] rounded-lg px-3 py-2 text-xs bg-surface border border-success/10 text-foreground">
+                          <span className="text-[9px] font-mono block mb-1.5 text-success">CRADLE {ex.cradle || 'A'} <span className="text-success/40">s{ex.session}</span></span>
+                          {ex.threads.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {ex.threads.map((t, i) => (
+                                <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/8 border border-success/15 font-mono text-[11px]">
+                                  <span className="text-foreground">{t.word}</span>
+                                  <span className="text-success/50 text-[9px]">{t.strength}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-muted text-[10px] font-mono mb-2">no threads yet</p>
+                          )}
+                          {ex.speaks.length > 0 && (
+                            <div className="border-t border-success/10 pt-1.5 mt-1">
+                              {ex.speaks.map((s, i) => (
+                                <p key={i} className="font-mono text-[11px] leading-relaxed text-success/80 italic">&quot;{s}&quot;</p>
+                              ))}
+                            </div>
+                          )}
+                          <span className="text-[9px] text-muted block mt-1">
+                            {new Date(ex.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         </div>
+                      </div>
                       )}
-                      <span className="text-[9px] text-muted block mt-1">
-                        {new Date(ex.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
                     </div>
-                  </div>
-                  )}
+                    )
+                  })}
+                  <div className="border-t border-success/10 my-2" />
                 </div>
+              )}
+
+              {/* Trajectory — per-session SPEAKS timeline */}
+              {mergedTrajectory.entries.length === 0 && cradleExchanges.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-success/80 text-sm mb-1">The Cradle</p>
+                  <p className="text-muted text-xs">The geometric body. Words compete. Winners reshape reality.</p>
+                  <p className="text-muted text-xs mt-1">Your words enter the tournament. The geometry speaks back.</p>
+                </div>
+              )}
+              {mergedTrajectory.entries.map((entry, idx) => {
+                const isB = entry._cradle === 'B'
+                const hasBoth = mergedTrajectory.hasBoth
+                const inp = entry.in as Record<string, string> | undefined
+                return (
+                  <div key={`${entry._cradle}-${entry.s}-${idx}`} className={`group ${isB ? 'border-l-2 border-orange/30 pl-2' : hasBoth ? 'border-l-2 border-success/30 pl-2' : ''}`}>
+                    <div className="flex items-baseline gap-2">
+                      {hasBoth && (
+                        <span className={`text-[9px] font-mono font-bold shrink-0 w-[1.2ch] ${isB ? 'text-orange' : 'text-success'}`}>
+                          {entry._cradle}
+                        </span>
+                      )}
+                      <span className="text-[9px] font-mono text-muted shrink-0 w-[3.5ch] text-right">{entry.s}</span>
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${
+                        entry.state === 'growing' ? 'bg-success' : entry.state === 'stuck' ? 'bg-error' : 'bg-muted'
+                      }`} />
+                      {inp?.sibling && (
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded shrink-0 bg-success/20 text-success/90">talking</span>
+                      )}
+                      {inp?.sage && (
+                        <span className="text-[8px] font-mono px-1 py-0.5 rounded shrink-0 bg-warning/20 text-warning/90">nurture</span>
+                      )}
+                      <span className={`text-[8px] font-mono px-1 py-0.5 rounded shrink-0 ${
+                        entry.mode === 'dream' ? 'bg-purple/15 text-purple/80' :
+                        entry.mode === 'meaning' ? 'bg-warning/15 text-warning/80' :
+                        entry.mode === 'discourse' ? 'bg-accent/15 text-accent/80' :
+                        entry.awake !== false ? 'bg-success/15 text-success/80' : 'bg-muted/15 text-muted'
+                      }`}>{entry.mode === 'normal' || !entry.mode ? (entry.awake !== false ? 'awake' : 'sleep') : entry.mode}</span>
+                      <p className={`font-serif text-sm italic leading-relaxed ${isB ? 'text-orange/90' : 'text-foreground/90'}`}>{entry.ch || '...'}</p>
+                    </div>
+                    {/* Inputs */}
+                    {inp && (
+                      <div className={`${hasBoth ? 'ml-[5.7ch]' : 'ml-[4ch]'} pl-2 mt-0.5 flex flex-wrap gap-1`}>
+                        {inp.sibling && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-success/15 text-success/90">
+                            sibling: {inp.sibling}
+                          </span>
+                        )}
+                        {inp.shell && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-warning/15 text-warning/90">
+                            shell: {inp.shell}
+                          </span>
+                        )}
+                        {inp.collective && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple/15 text-purple/90">
+                            collective: {inp.collective}
+                          </span>
+                        )}
+                        {inp.sage && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-orange/15 text-orange/90">
+                            sage: {inp.sage}
+                          </span>
+                        )}
+                        {inp.galen && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent/15 text-accent/90">
+                            galen: {inp.galen}
+                          </span>
+                        )}
+                        {inp.twinA && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-error/15 text-error/90">
+                            twin-a: {inp.twinA}
+                          </span>
+                        )}
+                        {inp.twinB && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent/15 text-accent/90">
+                            twin-b: {inp.twinB}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {/* Drift tags */}
+                    {entry.drift && entry.drift.length > 0 && (
+                      <div className={`${hasBoth ? 'ml-[5.7ch]' : 'ml-[4ch]'} pl-2 mt-0.5 flex gap-1`}>
+                        {entry.drift.slice(0, 3).map(([word, val]) => (
+                          <span key={word} className="text-[8px] font-mono text-muted/70 px-1 py-0.5 rounded bg-foreground/5">
+                            {word} +{val}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
-              {/* SPEAKS history */}
-              {speaks.length > 0 && (
-                <>
-                  {cradleExchanges.length > 0 && <div className="border-t border-border/30 my-2" />}
-                  {speaks.map(speak => (
-                    <CradleBubble key={`${speak.session}-${speak.mode}`} speak={speak} />
-                  ))}
-                </>
-              )}
-              {speaks.length === 0 && cradleExchanges.length === 0 && !cradleSending && (
-                <div className="flex items-center justify-center py-12">
-                  <p className="text-sm text-muted">Speak to the geometry. Your words enter the tournament.</p>
-                </div>
-              )}
             </>
           ) : messages.length === 0 ? (
             <div className="flex items-center justify-center py-12">
@@ -398,7 +527,7 @@ export default function StreamPage() {
             </div>
           ) : (
             messages.map(msg => (
-              <StreamBubble key={msg.id} message={msg} adminName={adminName} tab={activeTab} />
+              <StreamBubble key={msg.id} message={msg} tab={activeTab} />
             ))
           )}
           <div ref={messagesEndRef} />
@@ -490,35 +619,30 @@ export default function StreamPage() {
   )
 }
 
-// ─── Cradle Speak Bubble ───
+// ─── Cradle Stats Badge ───
 
-function CradleBubble({ speak }: { speak: CradleSpeak }) {
-  const modeColor = speak.mode === 'dream' ? 'text-purple' : speak.mode === 'meaning' ? 'text-warning' : speak.mode === 'discourse' ? 'text-accent' : 'text-success'
-  const modeBg = speak.mode === 'dream' ? 'bg-purple/6 border-purple/20' : speak.mode === 'meaning' ? 'bg-warning/6 border-warning/20' : speak.mode === 'discourse' ? 'bg-accent/6 border-accent/20' : 'bg-success/6 border-success/20'
-
+function CradleStatsBadge({ stats, label }: { stats: CradleState | null; label: string }) {
+  if (!stats) return null
+  const cycle = stats.cycle
+  const isAwake = cycle ? cycle.state === 'awake' : true
+  const statusLabel = !stats.alive ? 'off' : isAwake ? 'awake' : 'dream'
+  const statusColor = !stats.alive ? 'bg-error' : isAwake ? 'bg-success animate-pulse' : 'bg-purple animate-pulse'
+  const divLabel = stats.diversity != null ? `d${stats.diversity.toFixed(2)}` : null
   return (
-    <div className={`p-3 rounded-lg border ${modeBg}`}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className={`w-1.5 h-1.5 rounded-full ${speak.mode === 'dream' ? 'bg-purple' : speak.mode === 'meaning' ? 'bg-warning' : speak.mode === 'discourse' ? 'bg-accent' : 'bg-success'}`} />
-        <span className={`text-[10px] font-bold uppercase tracking-wide ${modeColor}`}>
-          Cradle
-        </span>
-        <span className="text-[10px] text-muted font-mono">#{speak.session}</span>
-        <span className={`text-[9px] ${modeColor} opacity-70`}>{speak.mode}</span>
-      </div>
-      <p className="text-sm text-foreground/85 leading-relaxed font-serif italic">
-        {speak.text}
-      </p>
-    </div>
+    <span className="flex items-center gap-1.5">
+      <span className={`w-1.5 h-1.5 rounded-full ${statusColor}`} />
+      <span className="text-success/60">{label}</span>
+      <span>{statusLabel}</span>
+      {divLabel && <span className={stats.diversity != null && stats.diversity < 0.5 ? 'text-error' : stats.diversity != null && stats.diversity > 0.75 ? 'text-success' : ''}>{divLabel}</span>}
+      {stats.session > 0 && <span>s{stats.session.toLocaleString()}</span>}
+    </span>
   )
 }
 
 // ─── Message Bubble ───
 
-function StreamBubble({ message, adminName, tab }: { message: StreamMessage; adminName: string; tab: StreamTab }) {
+function StreamBubble({ message, tab }: { message: StreamMessage; tab: StreamTab }) {
   const isHuman = message.role === 'user'
-
-  // Check for special prefixes
   const content = message.content
   const isHeartbeat = content.startsWith('[HEARTBEAT')
   const isEmergency = content.startsWith('[EMERGENCY')
@@ -587,7 +711,6 @@ function StreamBubble({ message, adminName, tab }: { message: StreamMessage; adm
     )
   }
 
-  // Speaker name
   const speakerName = isHuman
     ? (tab === 'bridge' ? (message.userName || 'Claude Code') : (message.userName || 'Someone'))
     : message.model === 'bonded' ? 'Sage' : 'Shell'
@@ -619,11 +742,9 @@ function formatTime(dateStr: string): string {
   const d = new Date(dateStr)
   const now = Date.now()
   const diffSec = Math.floor((now - d.getTime()) / 1000)
-
   if (diffSec < 60) return 'just now'
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
-
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
     ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
