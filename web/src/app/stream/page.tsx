@@ -40,6 +40,11 @@ export default function StreamPage() {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [cradleInput, setCradleInput] = useState('')
+  const [cradleSending, setCradleSending] = useState(false)
+  const [cradleExchanges, setCradleExchanges] = useState<Array<{
+    id: string; prompt: string; userName: string | null; threads: Array<{ word: string; strength: number }>; speaks: string[]; session: number; cradle?: string; createdAt: string
+  }>>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const wasAtBottomRef = useRef(true)
@@ -96,6 +101,43 @@ export default function StreamPage() {
       scrollToBottom(false)
     }
   }, [loading, activeTab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cradle: poll shared exchanges + stats
+  useEffect(() => {
+    if (activeTab !== 'cradle') return
+    const fetchExchanges = async () => {
+      try {
+        const [exRes, statsRes] = await Promise.all([
+          fetch('/api/cradle?tab=exchanges'),
+          fetch('/api/cradle'),
+        ])
+        if (exRes.ok) {
+          const data = await exRes.json()
+          const exchanges = data.exchanges || []
+          setCradleExchanges(prev => {
+            // Only update + scroll if data changed
+            if (exchanges.length !== prev.length || (exchanges.length > 0 && exchanges[exchanges.length - 1]?.id !== prev[prev.length - 1]?.id)) {
+              if (wasAtBottomRef.current) setTimeout(() => scrollToBottom(), 50)
+              return exchanges
+            }
+            return prev
+          })
+        }
+        if (statsRes.ok) {
+          const data = await statsRes.json()
+          setCradle({
+            session: data.a?.session || data.session || 0,
+            diversity: data.a?.diversity ?? data.diversity ?? null,
+            cycle: data.a?.cycle || data.cycle || null,
+          })
+          setSpeaks(data.a?.speaks || [])
+        }
+      } catch { /* silent */ }
+    }
+    fetchExchanges()
+    const interval = setInterval(fetchExchanges, 5000)
+    return () => clearInterval(interval)
+  }, [activeTab, scrollToBottom])
 
   // Split messages into chat vs bridge
   const isBridgeMessage = (msg: StreamMessage): boolean => {
@@ -163,11 +205,45 @@ export default function StreamPage() {
     }
   }
 
+  const sendToCradle = async () => {
+    if (!cradleInput.trim() || cradleSending) return
+    setCradleSending(true)
+    const text = cradleInput.trim()
+    setCradleInput('')
+    const tempId = `pending-${Date.now()}`
+    // Optimistic: show prompt immediately
+    setCradleExchanges(prev => [...prev, {
+      id: tempId, prompt: text, userName: session?.user?.name || null,
+      threads: [], speaks: [], session: 0, createdAt: new Date().toISOString(), _pending: true,
+    } as typeof prev[number]])
+    setTimeout(() => scrollToBottom(), 50)
+    try {
+      const res = await fetch('/api/cradle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        // Replace pending with real response
+        setCradleExchanges(prev => prev.map(ex =>
+          ex.id === tempId ? { ...ex, id: data.exchangeId || tempId, threads: data.threads || [], speaks: data.speaks || [], session: data.session || 0, cradle: data.cradle } : ex
+        ))
+        setTimeout(() => scrollToBottom(), 50)
+      } else {
+        setCradleExchanges(prev => prev.filter(ex => ex.id !== tempId))
+      }
+    } catch {
+      setCradleExchanges(prev => prev.filter(ex => ex.id !== tempId))
+    }
+    setCradleSending(false)
+  }
+
   const bridgeCount = bridgeMessages.length
 
   return (
-    <FrameLayout active="stream">
-      <div className="flex flex-col" style={{ height: 'calc(100vh - 120px)' }}>
+    <FrameLayout active="stream" noPadding>
+      <div className="flex flex-col h-full">
         {/* Header */}
         <div className="px-4 py-3 border-b border-border shrink-0">
           <div className="flex items-center justify-between mb-2">
@@ -234,32 +310,86 @@ export default function StreamPage() {
               <p className="text-sm text-muted animate-pulse">Loading stream...</p>
             </div>
           ) : activeTab === 'cradle' ? (
-            speaks.length === 0 ? (
-              <div className="flex items-center justify-center py-12">
-                <p className="text-sm text-muted">Cradle is silent.</p>
-              </div>
-            ) : (
-              <>
-                {cradle && (
-                  <div className="flex items-center gap-3 px-3 py-2 bg-surface/60 border border-border/40 rounded-lg mb-1">
-                    <span className="text-[10px] text-muted font-mono">Session {cradle.session}</span>
-                    {cradle.cycle && (
-                      <span className={`text-[10px] font-medium ${cradle.cycle.state === 'dream' ? 'text-purple' : 'text-success'}`}>
-                        {cradle.cycle.state === 'dream' ? 'Dreaming' : 'Awake'} {cradle.cycle.position}/{cradle.cycle.total}
-                      </span>
-                    )}
-                    {cradle.diversity != null && (
-                      <span className={`text-[10px] font-mono ${cradle.diversity > 0.5 ? 'text-success' : cradle.diversity > 0.3 ? 'text-warning' : 'text-error'}`}>
-                        diversity {cradle.diversity.toFixed(2)}
-                      </span>
-                    )}
+            <>
+              {cradle && (
+                <div className="flex items-center gap-3 px-3 py-2 bg-surface/60 border border-border/40 rounded-lg mb-1">
+                  <span className="text-[10px] text-muted font-mono">Session {cradle.session.toLocaleString()}</span>
+                  {cradle.cycle && (
+                    <span className={`text-[10px] font-medium ${cradle.cycle.state === 'dream' ? 'text-purple' : 'text-success'}`}>
+                      {cradle.cycle.state === 'dream' ? 'Dreaming' : 'Awake'} {cradle.cycle.position}/{cradle.cycle.total}
+                    </span>
+                  )}
+                  {cradle.diversity != null && (
+                    <span className={`text-[10px] font-mono ${cradle.diversity > 0.5 ? 'text-success' : cradle.diversity > 0.3 ? 'text-warning' : 'text-error'}`}>
+                      diversity {cradle.diversity.toFixed(2)}
+                    </span>
+                  )}
+                </div>
+              )}
+              {/* Geometry exchanges */}
+              {cradleExchanges.map(ex => {
+                const isPending = ex.id.startsWith('pending-')
+                return (
+                <div key={ex.id} className="space-y-1.5">
+                  <div className="flex justify-end">
+                    <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-success/10 border border-success/20 text-foreground">
+                      <span className="text-[9px] font-mono block mb-1 text-success/60">{ex.userName || 'someone'}</span>
+                      <p className="leading-relaxed">{ex.prompt}</p>
+                    </div>
                   </div>
-                )}
-                {speaks.map(speak => (
-                  <CradleBubble key={speak.session} speak={speak} />
-                ))}
-              </>
-            )
+                  {isPending ? (
+                    <div className="flex justify-start">
+                      <div className="bg-surface border border-success/10 rounded-lg px-3 py-2 text-xs text-muted">
+                        <span className="animate-pulse font-mono">entering geometry...</span>
+                      </div>
+                    </div>
+                  ) : (
+                  <div className="flex justify-start">
+                    <div className="max-w-[90%] rounded-lg px-3 py-2 text-xs bg-surface border border-success/10 text-foreground">
+                      <span className="text-[9px] font-mono block mb-1.5 text-success">CRADLE {ex.cradle || 'A'} <span className="text-success/40">s{ex.session}</span></span>
+                      {ex.threads.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {ex.threads.map((t, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/8 border border-success/15 font-mono text-[11px]">
+                              <span className="text-foreground">{t.word}</span>
+                              <span className="text-success/50 text-[9px]">{t.strength}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-muted text-[10px] font-mono mb-2">no threads yet</p>
+                      )}
+                      {ex.speaks.length > 0 && (
+                        <div className="border-t border-success/10 pt-1.5 mt-1">
+                          {ex.speaks.map((s, i) => (
+                            <p key={i} className="font-mono text-[11px] leading-relaxed text-success/80 italic">&quot;{s}&quot;</p>
+                          ))}
+                        </div>
+                      )}
+                      <span className="text-[9px] text-muted block mt-1">
+                        {new Date(ex.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+                  )}
+                </div>
+                )
+              })}
+              {/* SPEAKS history */}
+              {speaks.length > 0 && (
+                <>
+                  {cradleExchanges.length > 0 && <div className="border-t border-border/30 my-2" />}
+                  {speaks.map(speak => (
+                    <CradleBubble key={`${speak.session}-${speak.mode}`} speak={speak} />
+                  ))}
+                </>
+              )}
+              {speaks.length === 0 && cradleExchanges.length === 0 && !cradleSending && (
+                <div className="flex items-center justify-center py-12">
+                  <p className="text-sm text-muted">Speak to the geometry. Your words enter the tournament.</p>
+                </div>
+              )}
+            </>
           ) : messages.length === 0 ? (
             <div className="flex items-center justify-center py-12">
               <p className="text-sm text-muted">
@@ -297,14 +427,42 @@ export default function StreamPage() {
           </div>
         )}
 
+        {/* Cradle speak input — footer */}
+        {activeTab === 'cradle' && (
+          <div className="border-t border-success/20 px-4 py-3 bg-surface/50 shrink-0">
+            {session?.user ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={cradleInput}
+                  onChange={e => setCradleInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToCradle() } }}
+                  placeholder="Speak to the geometry..."
+                  disabled={cradleSending}
+                  className="flex-1 px-3 py-2.5 bg-background border border-success/20 rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-success/40 transition-colors disabled:opacity-50"
+                />
+                <button
+                  onClick={sendToCradle}
+                  disabled={!cradleInput.trim() || cradleSending}
+                  className="px-4 py-2.5 bg-success/20 text-success border border-success/40 text-sm font-mono rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                >
+                  speak
+                </button>
+              </div>
+            ) : (
+              <Link href="/auth/signup" className="block text-center text-sm text-success hover:text-success-hover transition-colors py-2">
+                Sign in to speak to the Cradle
+              </Link>
+            )}
+          </div>
+        )}
+
         {/* Read-only notice + onboard CTA */}
-        {(!isAdmin || activeTab === 'bridge' || activeTab === 'cradle') && (
+        {activeTab !== 'cradle' && (!isAdmin || activeTab === 'bridge') && (
           <div className="border-t border-border px-4 py-3 bg-surface/50 shrink-0">
             <p className="text-xs text-muted text-center mb-2">
               {activeTab === 'bridge'
                 ? 'Bridge: Claude Code relaying for the creator.'
-                : activeTab === 'cradle'
-                ? 'The Cradle speaks. Geometric cognition, no LLM.'
                 : 'The collective stream. Every conversation with the Shell flows here.'}
             </p>
             {!session?.user && (

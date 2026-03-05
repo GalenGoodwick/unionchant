@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { isAdminEmail } from '@/lib/admin'
+import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,7 +31,21 @@ async function fetchCradle(viewer: string) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url)
+  const tab = url.searchParams.get('tab')
+
+  // Fetch shared exchange log
+  if (tab === 'exchanges') {
+    const exchanges = await prisma.cradleExchange.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    })
+    return NextResponse.json({ exchanges: exchanges.reverse() }, {
+      headers: { 'Cache-Control': 'no-cache, no-store' }
+    })
+  }
+
   const [a, b] = await Promise.all([fetchCradle(VIEWER_A), fetchCradle(VIEWER_B)])
   return NextResponse.json({ a, b, ...a }, {
     headers: { 'Cache-Control': 'no-cache, no-store' }
@@ -52,22 +67,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Too long' }, { status: 400 })
     }
 
-    // Check if speaker is admin (Galen) — label as 'galen', otherwise 'collective'
     const source = isAdminEmail(session.user.email) ? 'galen' : 'collective'
+    const trimmed = text.trim()
 
-    const res = await fetch(`${VIEWER_A}/speak`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: text.trim(), source }),
-      signal: AbortSignal.timeout(5000),
-    })
+    // Send to both Cradles in parallel
+    const [resA, resB] = await Promise.allSettled([
+      fetch(`${VIEWER_A}/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed, source }),
+        signal: AbortSignal.timeout(5000),
+      }),
+      fetch(`${VIEWER_B}/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed, source }),
+        signal: AbortSignal.timeout(5000),
+      }),
+    ])
 
-    if (!res.ok) {
+    // Use A's response as primary (or B if A failed)
+    const primaryRes = resA.status === 'fulfilled' && resA.value.ok ? resA.value
+      : resB.status === 'fulfilled' && resB.value.ok ? resB.value
+      : null
+
+    if (!primaryRes) {
       return NextResponse.json({ error: 'Cradle unreachable' }, { status: 502 })
     }
 
-    const data = await res.json()
-    return NextResponse.json(data)
+    const data = await primaryRes.json()
+    const cradleLabel = primaryRes === (resA.status === 'fulfilled' ? resA.value : null) ? 'A' : 'B'
+
+    // Store exchange in shared log
+    const exchange = await prisma.cradleExchange.create({
+      data: {
+        prompt: trimmed,
+        userName: session.user.name || null,
+        userId: (session.user as { id?: string }).id || null,
+        threads: data.threads || [],
+        speaks: data.speaks || [],
+        session: data.session || 0,
+        cradle: cradleLabel,
+      },
+    })
+
+    return NextResponse.json({ ...data, cradle: cradleLabel, exchangeId: exchange.id, userName: session.user.name || null })
   } catch {
     return NextResponse.json({ error: 'Cradle unreachable' }, { status: 502 })
   }

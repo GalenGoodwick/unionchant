@@ -17,6 +17,17 @@ interface Message {
   createdAt: string
 }
 
+interface CradleExchange {
+  id: string
+  prompt: string
+  userName: string | null
+  threads: Array<{ word: string; strength: number }>
+  speaks: string[]
+  session: number
+  cradle?: string
+  createdAt: string
+}
+
 // Parse [action:navigate:/path]Label[/action] tags + bare /chants/ID links
 function parseMessageContent(content: string, onNavigate?: () => void): ReactNode[] {
   const parts: ReactNode[] = []
@@ -123,11 +134,11 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const privateContainerRef = useRef<HTMLDivElement>(null)
   const privateNearBottomRef = useRef(true)
 
-  // Cradle tab state
-  const [cradleStats, setCradleStats] = useState<{ session?: number; speaks?: string[]; vocabulary?: number } | null>(null)
+  // Cradle tab state — direct geometry chat
+  const [cradleStats, setCradleStats] = useState<{ session?: number; speaks?: string[]; vocabulary?: number; diversity?: number | null } | null>(null)
   const [cradleInput, setCradleInput] = useState('')
   const [cradleSending, setCradleSending] = useState(false)
-  const [cradleMessages, setCradleMessages] = useState<Message[]>([])
+  const [cradleExchanges, setCradleExchanges] = useState<CradleExchange[]>([])
   const cradleContainerRef = useRef<HTMLDivElement>(null)
   const cradleNearBottomRef = useRef(true)
   // Stream tab state — trajectory view (SPEAKS + inputs from drift log)
@@ -150,6 +161,8 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const [nurtureActive, setNurtureActive] = useState(false)
   const [nurtureLog, setNurtureLog] = useState<string[]>([])
   const nurtureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Stream filter: 'both' | 'A' | 'B'
+  const [streamFilter, setStreamFilter] = useState<'both' | 'A' | 'B'>('both')
 
   // Skip to present
   const [showSkip, setShowSkip] = useState(false)
@@ -712,29 +725,27 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     }
   }
 
-  // Cradle: fetch messages and state
+  // Cradle: poll geometry stats + shared exchanges
   useEffect(() => {
     if (activeTab !== 'cradle') return
-    let isFirst = true
     const fetchCradle = async () => {
       try {
-        const res = await fetch('/api/cradle-chat')
-        if (res.ok) {
-          const data = await res.json()
-          const newMsgs: Message[] = data.messages || []
-          setCradleStats(data.state)
-          setCradleMessages(prev => {
-            if (!isFirst && newMsgs.length === prev.length && newMsgs[newMsgs.length - 1]?.id === prev[prev.length - 1]?.id) {
-              return prev
-            }
-            if (isFirst) {
-              isFirst = false
-              requestAnimationFrame(() => {
-                cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight })
-              })
-            }
-            return newMsgs
+        const [statsRes, exRes] = await Promise.all([
+          fetch('/api/cradle'),
+          fetch('/api/cradle?tab=exchanges'),
+        ])
+        if (statsRes.ok) {
+          const data = await statsRes.json()
+          setCradleStats({
+            session: data.a?.session || data.session,
+            speaks: data.a?.speaks?.map((s: { text?: string } | string) => typeof s === 'string' ? s : s.text) || [],
+            vocabulary: data.a?.vocabulary || data.vocabulary,
+            diversity: data.a?.diversity ?? data.diversity ?? null,
           })
+        }
+        if (exRes.ok) {
+          const data = await exRes.json()
+          setCradleExchanges(data.exchanges || [])
         }
       } catch { /* silent */ }
     }
@@ -822,81 +833,41 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     setStreamSending(false)
   }
 
-  // Cradle: send message via API with SSE streaming
+  // Cradle: send words directly into the geometry
   const sendToCradle = async () => {
     if (!cradleInput.trim() || cradleSending) return
     setCradleSending(true)
     const text = cradleInput.trim()
     setCradleInput('')
-
-    const tempId = `temp-${Date.now()}`
-    setCradleMessages(prev => [...prev, {
-      id: tempId, role: 'user', content: text,
-      userName: session?.user?.name || null, userId: null,
-      model: 'cradle', createdAt: new Date().toISOString(),
+    const tempId = `pending-${Date.now()}`
+    // Optimistic: show prompt immediately
+    setCradleExchanges(prev => [...prev, {
+      id: tempId, prompt: text, userName: session?.user?.name || null,
+      threads: [], speaks: [], session: 0, createdAt: new Date().toISOString(),
     }])
     requestAnimationFrame(() => {
       cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight, behavior: 'smooth' })
     })
-
-    const streamId = `stream-${Date.now()}`
-    setCradleMessages(prev => [...prev, {
-      id: streamId, role: 'assistant', content: '',
-      userName: 'Cradle', userId: null,
-      model: 'cradle', createdAt: new Date().toISOString(),
-    }])
-
     try {
-      const res = await fetch('/api/cradle-chat', {
+      const res = await fetch('/api/cradle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ text }),
       })
-
-      if (!res.ok) { setCradleSending(false); return }
-
-      const reader = res.body?.getReader()
-      if (!reader) { setCradleSending(false); return }
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let fullReply = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        let eventType = ''
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            eventType = line.slice(7)
-          } else if (line.startsWith('data: ') && eventType) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (eventType === 'delta') {
-                fullReply += data.text
-                setCradleMessages(prev => prev.map(m =>
-                  m.id === streamId ? { ...m, content: fullReply } : m
-                ))
-                if (cradleNearBottomRef.current) {
-                  requestAnimationFrame(() => {
-                    cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight })
-                  })
-                }
-              } else if (eventType === 'done') {
-                setCradleMessages(prev => prev.map(m =>
-                  m.id === streamId ? { ...m, id: data.messageId || streamId, content: data.reply || fullReply } : m
-                ))
-              }
-            } catch { /* parse error */ }
-            eventType = ''
-          }
-        }
+      if (res.ok) {
+        const data = await res.json()
+        setCradleExchanges(prev => prev.map(ex =>
+          ex.id === tempId ? { ...ex, id: data.exchangeId || tempId, threads: data.threads || [], speaks: data.speaks || [], session: data.session || 0, cradle: data.cradle } : ex
+        ))
+      } else {
+        setCradleExchanges(prev => prev.filter(ex => ex.id !== tempId))
       }
-    } catch { /* silent */ }
+      requestAnimationFrame(() => {
+        cradleContainerRef.current?.scrollTo({ top: cradleContainerRef.current.scrollHeight, behavior: 'smooth' })
+      })
+    } catch {
+      setCradleExchanges(prev => prev.filter(ex => ex.id !== tempId))
+    }
     setCradleSending(false)
   }
 
@@ -1532,48 +1503,80 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           {/* Cradle stats bar */}
           {cradleStats && (
             <div className="px-4 py-1.5 border-b border-success/20 bg-success/5 flex items-center gap-3 text-[10px] font-mono text-success/80">
-              {cradleStats.session && <span>s{cradleStats.session}</span>}
-              {cradleStats.vocabulary && <span>v{cradleStats.vocabulary}</span>}
+              {cradleStats.session ? <span>s{cradleStats.session.toLocaleString()}</span> : null}
+              {cradleStats.vocabulary ? <span>v{cradleStats.vocabulary.toLocaleString()}</span> : null}
+              {cradleStats.diversity != null && <span className={cradleStats.diversity < 0.5 ? 'text-error' : cradleStats.diversity > 0.75 ? 'text-success' : ''}>d{cradleStats.diversity.toFixed(2)}</span>}
               {cradleStats.speaks && cradleStats.speaks.length > 0 && (
                 <span className="truncate italic">&quot;{cradleStats.speaks[cradleStats.speaks.length - 1]}&quot;</span>
               )}
             </div>
           )}
-          {/* Cradle messages */}
+          {/* Cradle exchanges */}
           <div ref={cradleContainerRef} onScroll={() => {
             const el = cradleContainerRef.current
             if (el) cradleNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
-          }} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2">
-            {cradleMessages.length === 0 && !cradleSending && (
+          }} className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
+            {cradleExchanges.length === 0 && !cradleSending && (
               <div className="text-center py-12">
                 <p className="text-success/80 text-sm mb-1">The Cradle</p>
                 <p className="text-muted-light text-xs">The geometric body. Words compete. Winners reshape reality.</p>
-                <p className="text-muted-light text-xs mt-1">Your words enter the tournament. What survives is what matters.</p>
+                <p className="text-muted-light text-xs mt-1">Your words enter the tournament. The geometry speaks back.</p>
               </div>
             )}
-            {cradleMessages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
-                  msg.role === 'user'
-                    ? 'bg-success/10 border border-success/20 text-foreground'
-                    : 'bg-surface border border-success/10 text-foreground'
-                }`}>
-                  <span className={`text-[9px] font-mono block mb-1 ${
-                    msg.role === 'user' ? 'text-success/60' : 'text-success'
-                  }`}>
-                    {msg.role === 'user' ? (msg.userName || 'you') : 'CRADLE'}
-                  </span>
-                  <p className={msg.role === 'assistant' ? 'font-mono leading-relaxed' : 'leading-relaxed'}>{msg.content}</p>
-                  <span className="text-[9px] text-muted block mt-1">
-                    {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+            {cradleExchanges.map(ex => {
+              const isPending = ex.id.startsWith('pending-')
+              return (
+              <div key={ex.id} className="space-y-1.5">
+                {/* User prompt */}
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] rounded-lg px-3 py-2 text-xs bg-success/10 border border-success/20 text-foreground">
+                    <span className="text-[9px] font-mono block mb-1 text-success/60">{ex.userName || 'someone'}</span>
+                    <p className="leading-relaxed">{ex.prompt}</p>
+                  </div>
                 </div>
+                {/* Geometry response */}
+                {isPending ? (
+                  <div className="flex justify-start">
+                    <div className="bg-surface border border-success/10 rounded-lg px-3 py-2 text-xs text-muted">
+                      <span className="animate-pulse font-mono">entering geometry...</span>
+                    </div>
+                  </div>
+                ) : (
+                <div className="flex justify-start">
+                  <div className="max-w-[90%] rounded-lg px-3 py-2 text-xs bg-surface border border-success/10 text-foreground">
+                    <span className="text-[9px] font-mono block mb-1.5 text-success">CRADLE {ex.cradle || 'A'} <span className="text-success/40">s{ex.session}</span></span>
+                    {ex.threads.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {ex.threads.map((t, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-success/8 border border-success/15 font-mono text-[11px]">
+                            <span className="text-foreground">{t.word}</span>
+                            <span className="text-success/50 text-[9px]">{t.strength}</span>
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted text-[10px] font-mono mb-2">no threads yet</p>
+                    )}
+                    {ex.speaks.length > 0 && (
+                      <div className="border-t border-success/10 pt-1.5 mt-1">
+                        {ex.speaks.map((s, i) => (
+                          <p key={i} className="font-mono text-[11px] leading-relaxed text-success/80 italic">&quot;{s}&quot;</p>
+                        ))}
+                      </div>
+                    )}
+                    <span className="text-[9px] text-muted block mt-1">
+                      {new Date(ex.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+                )}
               </div>
-            ))}
-            {cradleSending && (
+              )
+            })}
+            {false && cradleSending && (
               <div className="flex justify-start">
                 <div className="bg-surface border border-success/10 rounded-lg px-3 py-2 text-xs text-muted">
-                  <span className="animate-pulse font-mono">geometry shifting...</span>
+                  <span className="animate-pulse font-mono">entering geometry...</span>
                 </div>
               </div>
             )}
@@ -1634,6 +1637,21 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 {renderStats(streamStats, 'A')}
                 {streamStatsB && streamStatsB.alive && <span className="text-accent/30">|</span>}
                 {renderStats(streamStatsB, 'B')}
+                {trajectoryEntriesB.length > 0 && (
+                  <>
+                    <span className="text-accent/30">|</span>
+                    {(['both', 'A', 'B'] as const).map(f => (
+                      <button key={f} onClick={() => setStreamFilter(f)}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                          streamFilter === f
+                            ? f === 'A' ? 'bg-accent/20 text-accent border border-accent/40'
+                              : f === 'B' ? 'bg-orange/20 text-orange border border-orange/40'
+                              : 'bg-accent/20 text-accent border border-accent/40'
+                            : 'bg-surface text-muted hover:text-accent border border-border'
+                        }`}>{f}</button>
+                    ))}
+                  </>
+                )}
                 {isUserAdmin && (
                   <>
                     <span className="text-accent/30">|</span>
@@ -1662,22 +1680,16 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             )}
             {(() => {
               const hasBoth = trajectoryEntries.length > 0 && trajectoryEntriesB.length > 0
-              // Merge A and B entries, interleaved by session number
-              // Interleave by position — both arrays are already sorted by recency
-              const aEntries = trajectoryEntries.map(e => ({ ...e, _cradle: 'A' as 'A' | 'B' }))
-              const bEntries = trajectoryEntriesB.map(e => ({ ...e, _cradle: 'B' as 'A' | 'B' }))
-              const merged: typeof aEntries = []
-              const maxLen = Math.max(aEntries.length, bEntries.length)
-              for (let i = 0; i < maxLen; i++) {
-                if (i < aEntries.length) merged.push(aEntries[i])
-                if (i < bEntries.length) merged.push(bEntries[i])
-              }
-              return merged.map((entry) => {
+              // Merge A and B entries, sorted by timestamp, filtered by streamFilter
+              const aEntries = streamFilter !== 'B' ? trajectoryEntries.map(e => ({ ...e, _cradle: 'A' as 'A' | 'B' })) : []
+              const bEntries = streamFilter !== 'A' ? trajectoryEntriesB.map(e => ({ ...e, _cradle: 'B' as 'A' | 'B' })) : []
+              const merged = [...aEntries, ...bEntries].sort((a, b) => (a.t || 0) - (b.t || 0))
+              return merged.map((entry, idx) => {
                 const isB = entry._cradle === 'B'
                 const hasSibling = !!(entry.in as Record<string, string> | undefined)?.sibling
                 const hasSage = !!(entry.in as Record<string, string> | undefined)?.sage
                 return (
-              <div key={`${entry._cradle}-${entry.s}`} className={`group ${isB ? 'border-l-2 border-orange/30 pl-2' : hasBoth ? 'border-l-2 border-accent/30 pl-2' : ''}`}>
+              <div key={`${entry._cradle}-${entry.s}-${idx}`} className={`group ${isB ? 'border-l-2 border-orange/30 pl-2' : hasBoth ? 'border-l-2 border-accent/30 pl-2' : ''}`}>
                 <div className="flex items-baseline gap-2">
                   {hasBoth && (
                     <span className={`text-[9px] font-mono font-bold shrink-0 w-[1.2ch] ${isB ? 'text-orange' : 'text-accent'}`}>

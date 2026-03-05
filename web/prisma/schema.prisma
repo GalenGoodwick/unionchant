@@ -983,6 +983,20 @@ model CollectiveMessage {
   @@index([userId, createdAt])
 }
 
+model CradleExchange {
+  id        String   @id @default(cuid())
+  prompt    String   @db.Text
+  userName  String?
+  userId    String?
+  threads   Json     // Array<{word: string, strength: number}>
+  speaks    Json     // string[]
+  session   Int
+  cradle    String   @default("A") // which cradle responded
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 model CommunityBan {
   id          String    @id @default(cuid())
   communityId String
