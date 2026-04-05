@@ -9,6 +9,8 @@ import { isAdmin } from '@/lib/admin'
 import { ARCHITECTURE_MAP } from '@/lib/architecture-map'
 import { SHELL_TOOLS, executeShellTool } from '@/lib/shell-tools'
 
+export const dynamic = 'force-dynamic'
+
 // Shell v0.2 — Dynamic identity loading
 // Reads champion + active experiences from database.
 // Falls back to founding identity if no deliberation has run yet.

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
 
@@ -19,6 +20,7 @@ interface CradleState {
   vocabulary: number
   threads: number
   diversity: number | null
+  attention: number | null
   alive: boolean
   cycle: { state: string; position: number; total: number } | null
 }
@@ -38,13 +40,15 @@ interface TrajectoryEntry {
 type StreamTab = 'cradle' | 'chat' | 'bridge'
 
 export default function StreamPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const [allMessages, setAllMessages] = useState<StreamMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<StreamTab>('cradle')
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [adminChecked, setAdminChecked] = useState(false)
 
   // Cradle state
   const [cradleInput, setCradleInput] = useState('')
@@ -62,14 +66,22 @@ export default function StreamPage() {
   const containerRef = useRef<HTMLDivElement>(null)
   const wasAtBottomRef = useRef(true)
 
-  // Check if current user is admin
+  // Check if current user is admin — redirect non-admins
   useEffect(() => {
     if (!session?.user) return
     fetch('/api/user/me')
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.isAdmin) setIsAdmin(true) })
-      .catch(() => {})
+      .then(data => {
+        if (data?.isAdmin) setIsAdmin(true)
+        setAdminChecked(true)
+      })
+      .catch(() => setAdminChecked(true))
   }, [session?.user])
+
+  useEffect(() => {
+    if (status === 'unauthenticated') router.replace('/chants')
+    if (adminChecked && !isAdmin) router.replace('/chants')
+  }, [status, adminChecked, isAdmin, router])
 
   const scrollToBottom = useCallback((smooth = true) => {
     messagesEndRef.current?.scrollIntoView({
@@ -140,14 +152,22 @@ export default function StreamPage() {
           const newA = data.entries || []
           setTrajectoryA(prev => {
             const seen = new Set(prev.map(e => e.s))
-            const merged = [...prev, ...newA.filter((e: TrajectoryEntry) => !seen.has(e.s))]
+            const fresh = newA.filter((e: TrajectoryEntry) => !seen.has(e.s))
+            if (fresh.length > 0 && wasAtBottomRef.current) {
+              setTimeout(() => scrollToBottom(), 50)
+            }
+            const merged = [...prev, ...fresh]
             return merged.slice(-200)
           })
           if (data.b) {
             const newB = data.b.entries || []
             setTrajectoryB(prev => {
               const seen = new Set(prev.map(e => e.s))
-              const merged = [...prev, ...newB.filter((e: TrajectoryEntry) => !seen.has(e.s))]
+              const fresh = newB.filter((e: TrajectoryEntry) => !seen.has(e.s))
+              if (fresh.length > 0 && wasAtBottomRef.current) {
+                setTimeout(() => scrollToBottom(), 50)
+              }
+              const merged = [...prev, ...fresh]
               return merged.slice(-200)
             })
           }
@@ -159,6 +179,7 @@ export default function StreamPage() {
             vocabulary: data.a?.vocabulary || data.vocabulary || 0,
             threads: data.a?.threads || data.threads || 0,
             diversity: data.a?.diversity ?? data.diversity ?? null,
+            attention: data.a?.attention ?? data.attention ?? null,
             alive: data.a?.alive ?? true,
             cycle: data.a?.cycle || data.cycle || null,
           })
@@ -168,6 +189,7 @@ export default function StreamPage() {
               vocabulary: data.b.vocabulary || 0,
               threads: data.b.threads || 0,
               diversity: data.b.diversity ?? null,
+              attention: data.b.attention ?? null,
               alive: data.b.alive ?? false,
               cycle: data.b.cycle || null,
             })
@@ -634,6 +656,7 @@ function CradleStatsBadge({ stats, label }: { stats: CradleState | null; label: 
       <span className="text-success/60">{label}</span>
       <span>{statusLabel}</span>
       {divLabel && <span className={stats.diversity != null && stats.diversity < 0.5 ? 'text-error' : stats.diversity != null && stats.diversity > 0.75 ? 'text-success' : ''}>{divLabel}</span>}
+      {stats.attention != null && <span className="text-accent/80">a{stats.attention.toFixed(2)}</span>}
       {stats.session > 0 && <span>s{stats.session.toLocaleString()}</span>}
     </span>
   )

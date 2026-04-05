@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+export const dynamic = 'force-dynamic'
+
 const CRADLE_VIEWER = process.env.CRADLE_VIEWER_A || 'http://localhost:3333'
 
 // GET /api/stream — Public collective stream

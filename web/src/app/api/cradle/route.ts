@@ -25,9 +25,10 @@ async function fetchCradle(viewer: string) {
       alive: speaksRes.ok,
       cycle: speaks.cycle || null,
       diversity: speaks.diversity ?? null,
+      attention: speaks.attention ?? null,
     }
   } catch {
-    return { speaks: [], session: 0, vocabulary: 0, threads: 0, alive: false, cycle: null, diversity: null }
+    return { speaks: [], session: 0, vocabulary: 0, threads: 0, alive: false, cycle: null, diversity: null, attention: null }
   }
 }
 

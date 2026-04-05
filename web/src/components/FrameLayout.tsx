@@ -13,7 +13,7 @@ import CollectiveChat from '@/components/CollectiveChat'
 import { useChallenge } from '@/components/ChallengeProvider'
 
 interface FrameLayoutProps {
-  active?: 'chants' | 'podiums' | 'groups' | 'agents' | 'foresight' | 'stream'
+  active?: 'chants' | 'podiums' | 'groups' | 'demo' | 'contact' | 'how' | 'agents' | 'foresight' | 'stream'
   header?: React.ReactNode
   children: React.ReactNode
   footerRight?: React.ReactNode
@@ -108,31 +108,31 @@ export default function FrameLayout({
         <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     )},
-    { key: 'agents', href: '/agents', label: 'Agents', icon: (
+    { key: 'demo', href: '/demo', label: 'Demo', icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714a2.25 2.25 0 00.659 1.591L19 14.5M14.25 3.104c.251.023.501.05.75.082M19 14.5l-1.47 4.411a2.25 2.25 0 01-2.133 1.589H8.603a2.25 2.25 0 01-2.134-1.589L5 14.5m14 0H5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z" />
       </svg>
     )},
-    { key: 'foresight', href: '/foresight', label: 'Foresight', icon: (
+    { key: 'contact', href: '/contact', label: 'Contact', icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
       </svg>
     )},
-    { key: 'stream', href: '/stream', label: 'Stream', icon: (
+    { key: 'how', href: '/how-it-works', label: 'How', icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
       </svg>
     )},
   ]
 
   return (
-    <div className="fixed inset-0 z-10 flex flex-col bg-background overflow-clip sm:px-4 sm:pb-4 sm:pt-4">
+    <div className="fixed top-0 left-0 w-screen h-screen z-10 flex flex-col bg-background overflow-clip sm:px-4 sm:pb-4 sm:pt-4">
       <div className="flex-1 min-h-0 flex flex-col overflow-clip sm:max-w-[480px] w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
         <AmbientConstellation />
 
-        {/* -- Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method) -- */}
-        {topBarOpen && !hideFooter && (
+        {/* -- Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method) — admin only -- */}
+        {topBarOpen && !hideFooter && isAdmin && (
           <div className="shrink-0 relative z-10 px-3 pt-2 pb-1 border-b border-border/50">
             <div className="flex justify-center items-center gap-1 flex-wrap">
               {topBarLinksLeft.map(link => (
@@ -186,17 +186,19 @@ export default function FrameLayout({
                 </svg>
               </button>
 
-              {/* Toggle top bar */}
-              <button
-                onClick={toggleTopBar}
-                className="w-6 h-6 rounded-full bg-accent/20 hover:bg-accent/30 border border-accent/40 text-accent flex items-center justify-center transition-colors shrink-0"
-                aria-label={topBarOpen ? 'Hide top bar' : 'Show top bar'}
-                title={topBarOpen ? 'Hide top bar' : 'Show top bar'}
-              >
-                <svg className={`w-3 h-3 transition-transform duration-200 ${topBarOpen ? '' : 'rotate-180'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                </svg>
-              </button>
+              {/* Toggle top bar — admin only */}
+              {isAdmin && (
+                <button
+                  onClick={toggleTopBar}
+                  className="w-6 h-6 rounded-full bg-accent/20 hover:bg-accent/30 border border-accent/40 text-accent flex items-center justify-center transition-colors shrink-0"
+                  aria-label={topBarOpen ? 'Hide top bar' : 'Show top bar'}
+                  title={topBarOpen ? 'Hide top bar' : 'Show top bar'}
+                >
+                  <svg className={`w-3 h-3 transition-transform duration-200 ${topBarOpen ? '' : 'rotate-180'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                  </svg>
+                </button>
+              )}
 
               <div className="flex-1" />
 
@@ -212,45 +214,52 @@ export default function FrameLayout({
                       </span>
                     )}
                   </Link>
-                  <button
-                    ref={btnRef}
-                    onClick={() => setMenuOpen(!menuOpen)}
-                    className="w-6 h-6 flex items-center justify-center text-muted hover:text-foreground transition-colors shrink-0"
-                    aria-label="Menu"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
-                    </svg>
-                  </button>
-                  {menuOpen && createPortal(
-                    <div className="fixed inset-0 z-[9999]" onClick={() => setMenuOpen(false)}>
-                      <div
-                        className="fixed w-36 bg-surface border border-border rounded-lg shadow-lg"
-                        style={{ top: menuPos.top, right: menuPos.right }}
-                        onClick={e => e.stopPropagation()}
+                  {isAdmin && (
+                    <>
+                      <button
+                        ref={btnRef}
+                        onClick={() => setMenuOpen(!menuOpen)}
+                        className="w-6 h-6 flex items-center justify-center text-muted hover:text-foreground transition-colors shrink-0"
+                        aria-label="Menu"
                       >
-                        <button
-                          onClick={() => { setMenuOpen(false); toggleChat() }}
-                          className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
-                        >
-                          Collective
-                        </button>
-                        {[
-                          ...menuLinks,
-                          ...(isAdmin ? [{ href: '/admin', label: 'Admin' }] : []),
-                        ].map(link => (
-                          <Link
-                            key={link.href}
-                            href={link.href}
-                            onClick={() => setMenuOpen(false)}
-                            className="block px-3 py-2 text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors last:rounded-b-lg"
+                        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                      </button>
+                      {menuOpen && createPortal(
+                        <div className="fixed inset-0 z-[9999]" onClick={() => setMenuOpen(false)}>
+                          <div
+                            className="fixed w-36 bg-surface border border-border rounded-lg shadow-lg"
+                            style={{ top: menuPos.top, right: menuPos.right }}
+                            onClick={e => e.stopPropagation()}
                           >
-                            {link.label}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>,
-                    document.body
+                            <button
+                              onClick={() => { setMenuOpen(false); toggleChat() }}
+                              className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
+                            >
+                              Collective
+                            </button>
+                            {[
+                              ...menuLinks,
+                              { href: '/agents', label: 'Agents' },
+                              { href: '/foresight', label: 'Foresight' },
+                              { href: '/stream', label: 'Stream' },
+                              { href: '/admin', label: 'Admin' },
+                            ].map(link => (
+                              <Link
+                                key={link.href}
+                                href={link.href}
+                                onClick={() => setMenuOpen(false)}
+                                className="block px-3 py-2 text-xs text-muted hover:text-foreground hover:bg-surface-hover transition-colors last:rounded-b-lg"
+                              >
+                                {link.label}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>,
+                        document.body
+                      )}
+                    </>
                   )}
                 </>
               )}

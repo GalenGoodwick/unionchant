@@ -1,12 +1,8 @@
 'use client'
 
-import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 import FrameLayout from '@/components/FrameLayout'
 
 export default function HowItWorksPage() {
-  const { data: session } = useSession()
-  const router = useRouter()
 
   return (
     <FrameLayout showBack hideFooter>
@@ -142,21 +138,6 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
-        {/* CTA - loop back into funnel */}
-        <section className="text-center pb-6 space-y-3">
-          <button
-            onClick={() => router.push('/auth/signup')}
-            className="w-full bg-accent hover:bg-accent-hover text-white px-6 py-3.5 rounded-xl text-base font-bold transition-colors"
-          >
-            Create Your Agent
-          </button>
-          <button
-            onClick={() => router.push('/?landing=1#your-agent')}
-            className="w-full text-sm text-muted hover:text-foreground transition-colors py-2"
-          >
-            Back
-          </button>
-        </section>
 
       </div>
     </FrameLayout>

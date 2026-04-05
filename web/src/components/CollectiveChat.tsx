@@ -17,6 +17,17 @@ interface Message {
   createdAt: string
 }
 
+// Parse **@word** bold markers from Cradle SPEAKS into React elements
+function renderSpeaks(text: string): ReactNode {
+  const parts = text.split(/(\*\*@\w+\*\*)/)
+  if (parts.length === 1) return text
+  return parts.map((part, i) => {
+    const m = part.match(/^\*\*(@\w+)\*\*$/)
+    if (m) return <strong key={i} className="text-success font-bold not-italic">{m[1]}</strong>
+    return part
+  })
+}
+
 interface CradleExchange {
   id: string
   prompt: string
@@ -135,7 +146,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
   const privateNearBottomRef = useRef(true)
 
   // Cradle tab state — direct geometry chat
-  const [cradleStats, setCradleStats] = useState<{ session?: number; speaks?: string[]; vocabulary?: number; diversity?: number | null } | null>(null)
+  const [cradleStats, setCradleStats] = useState<{ session?: number; speaks?: string[]; vocabulary?: number; diversity?: number | null; attention?: number | null } | null>(null)
   const [cradleInput, setCradleInput] = useState('')
   const [cradleSending, setCradleSending] = useState(false)
   const [cradleExchanges, setCradleExchanges] = useState<CradleExchange[]>([])
@@ -214,16 +225,24 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
     fetchMessages()
   }, [scrollToBottom, activeTab])
 
-  // Auto-poll bridge tab every 5s to show live progress
+  // Auto-poll chat/bridge tabs every 5s to show live messages
   useEffect(() => {
-    if (activeTab !== 'bridge') return
+    if (activeTab !== 'bridge' && activeTab !== 'chat') return
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/collective-chat?bridge=true')
+        const url = activeTab === 'bridge'
+          ? '/api/collective-chat?bridge=true'
+          : '/api/collective-chat'
+        const res = await fetch(url)
         if (res.ok) {
           const data = await res.json()
+          const newMsgs: Message[] = data.messages || []
           setMessages(prev => {
-            if (data.messages.length !== prev.length) return data.messages
+            // Compare by length AND last message ID to catch all updates
+            if (newMsgs.length !== prev.length ||
+                (newMsgs.length > 0 && newMsgs[newMsgs.length - 1]?.id !== prev[prev.length - 1]?.id)) {
+              return newMsgs
+            }
             return prev
           })
         }
@@ -741,6 +760,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
             speaks: data.a?.speaks?.map((s: { text?: string } | string) => typeof s === 'string' ? s : s.text) || [],
             vocabulary: data.a?.vocabulary || data.vocabulary,
             diversity: data.a?.diversity ?? data.diversity ?? null,
+            attention: data.a?.attention ?? data.attention ?? null,
           })
         }
         if (exRes.ok) {
@@ -787,7 +807,11 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         }
       } catch { /* silent */ }
     }
-    fetchTrajectory()
+    fetchTrajectory().then(() => {
+      requestAnimationFrame(() => {
+        streamContainerRef.current?.scrollTo({ top: streamContainerRef.current.scrollHeight })
+      })
+    })
     const interval = setInterval(fetchTrajectory, 10000)
     return () => clearInterval(interval)
   }, [activeTab])
@@ -1506,8 +1530,9 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               {cradleStats.session ? <span>s{cradleStats.session.toLocaleString()}</span> : null}
               {cradleStats.vocabulary ? <span>v{cradleStats.vocabulary.toLocaleString()}</span> : null}
               {cradleStats.diversity != null && <span className={cradleStats.diversity < 0.5 ? 'text-error' : cradleStats.diversity > 0.75 ? 'text-success' : ''}>d{cradleStats.diversity.toFixed(2)}</span>}
+              {cradleStats.attention != null && <span className="text-accent/80">a{cradleStats.attention.toFixed(2)}</span>}
               {cradleStats.speaks && cradleStats.speaks.length > 0 && (
-                <span className="truncate italic">&quot;{cradleStats.speaks[cradleStats.speaks.length - 1]}&quot;</span>
+                <span className="truncate italic">&quot;{renderSpeaks(cradleStats.speaks[cradleStats.speaks.length - 1])}&quot;</span>
               )}
             </div>
           )}
@@ -1560,7 +1585,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                     {ex.speaks.length > 0 && (
                       <div className="border-t border-success/10 pt-1.5 mt-1">
                         {ex.speaks.map((s, i) => (
-                          <p key={i} className="font-mono text-[11px] leading-relaxed text-success/80 italic">&quot;{s}&quot;</p>
+                          <p key={i} className="font-mono text-[11px] leading-relaxed text-success/80 italic">&quot;{renderSpeaks(s)}&quot;</p>
                         ))}
                       </div>
                     )}
