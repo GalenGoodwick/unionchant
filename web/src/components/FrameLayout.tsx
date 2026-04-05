@@ -127,7 +127,7 @@ export default function FrameLayout({
   ]
 
   return (
-    <div className="fixed top-0 left-0 w-screen h-screen z-10 flex flex-col bg-background overflow-clip sm:px-4 sm:pb-4 sm:pt-4">
+    <div className="fixed top-0 left-0 w-screen h-[100dvh] z-10 flex flex-col bg-background overflow-clip sm:px-4 sm:pb-4 sm:pt-4">
       <div className="flex-1 min-h-0 flex flex-col overflow-clip sm:max-w-[480px] w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
         <AmbientConstellation />
 
