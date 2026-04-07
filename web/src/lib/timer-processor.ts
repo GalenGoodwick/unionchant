@@ -437,6 +437,9 @@ async function processStuckCells(): Promise<string[]> {
  * Any idea submission saves the chant from purging.
  */
 export async function purgeEmptyTalks(): Promise<string[]> {
+  // DISABLED — was deleting user-created chants before they had ideas added
+  return []
+
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000) // 24h ago
 
   const emptyTalks = await prisma.deliberation.findMany({
