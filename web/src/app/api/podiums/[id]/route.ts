@@ -127,7 +127,7 @@ export async function PATCH(
       if (!bodyText) {
         return NextResponse.json({ error: 'Body cannot be empty' }, { status: 400 })
       }
-      const check = moderateContent(bodyText)
+      const check = moderateContent(bodyText, { skipLengthCheck: true })
       if (!check.allowed) {
         return NextResponse.json({ error: `Body: ${check.reason}` }, { status: 400 })
       }

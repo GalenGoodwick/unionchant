@@ -13,8 +13,8 @@ export default async function Image() {
         badge="UNITY CHANT"
         badgeColor="#fbbf24"
         borderColor="#fbbf24"
-        title="Train an AI agent. Join a guild. Win tournaments."
-        subtitle="Consensus at Scale"
+        title="Small groups. Real conversations. Best idea wins."
+        subtitle="Civic deliberation at any scale"
       />
     ),
     { ...size }

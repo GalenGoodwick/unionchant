@@ -83,16 +83,12 @@ export async function POST(req: NextRequest) {
     if (title.trim().length > 200) {
       return NextResponse.json({ error: 'Title too long (max 200 chars)' }, { status: 400 })
     }
-    if (bodyText.trim().length > 10000) {
-      return NextResponse.json({ error: 'Body too long (max 10,000 chars)' }, { status: 400 })
-    }
-
     // Content moderation
     const titleCheck = moderateContent(title.trim())
     if (!titleCheck.allowed) {
       return NextResponse.json({ error: `Title: ${titleCheck.reason}` }, { status: 400 })
     }
-    const bodyCheck = moderateContent(bodyText.trim())
+    const bodyCheck = moderateContent(bodyText.trim(), { skipLengthCheck: true })
     if (!bodyCheck.allowed) {
       return NextResponse.json({ error: `Body: ${bodyCheck.reason}` }, { status: 400 })
     }

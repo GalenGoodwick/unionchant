@@ -42,7 +42,7 @@ export type ModerationResult = {
  * Returns { allowed: false, reason: "..." } if blocked
  * Returns { allowed: true, flagged: true, flagReason: "..." } if suspicious but allowed
  */
-export function moderateContent(text: string): ModerationResult {
+export function moderateContent(text: string, opts?: { skipLengthCheck?: boolean }): ModerationResult {
   if (!text || typeof text !== 'string') {
     return { allowed: true }
   }
@@ -50,7 +50,7 @@ export function moderateContent(text: string): ModerationResult {
   const normalizedText = text.trim()
 
   // Check length
-  if (normalizedText.length > 5000) {
+  if (!opts?.skipLengthCheck && normalizedText.length > 5000) {
     return { allowed: false, reason: 'Content too long (max 5000 characters)' }
   }
 

@@ -8,7 +8,6 @@ import { useToast } from '@/components/Toast'
 import FrameLayout from '@/components/FrameLayout'
 
 const TITLE_MAX = 200
-const BODY_MAX = 10000
 
 type DelibOption = {
   id: string
@@ -86,11 +85,6 @@ function NewPodiumPageInner() {
       showToast('Write something before publishing', 'error')
       return
     }
-    if (body.trim().length > BODY_MAX) {
-      showToast(`Body too long (max ${BODY_MAX.toLocaleString()} chars)`, 'error')
-      return
-    }
-
     setSubmitting(true)
     try {
       const res = await fetch('/api/podiums', {
@@ -165,11 +159,10 @@ function NewPodiumPageInner() {
           value={body}
           onChange={e => setBody(e.target.value)}
           placeholder="Write your post..."
-          maxLength={BODY_MAX}
           className="w-full bg-transparent text-xs text-muted placeholder-border outline-none leading-relaxed resize-none min-h-[300px]"
         />
-        <div className={`text-xs mt-1 ${body.length > BODY_MAX * 0.9 ? 'text-warning' : 'text-muted'}`}>
-          {body.length.toLocaleString()}/{BODY_MAX.toLocaleString()}
+        <div className="text-xs mt-1 text-muted">
+          {body.length.toLocaleString()} chars
         </div>
 
         {/* Admin: Send as news */}
