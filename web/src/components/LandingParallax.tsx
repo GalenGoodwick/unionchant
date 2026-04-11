@@ -162,9 +162,14 @@ export default function LandingParallax() {
           <p className="text-white/90 font-medium text-sm mb-10">
             Find out what your community actually agrees on.
           </p>
-          <Link href="/how-it-works" className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
-            See How It Works
-          </Link>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/how-it-works" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+              How It Works
+            </Link>
+            <Link href="/demo" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
+              Watch the Demo
+            </Link>
+          </div>
           <TierTab>so many individuals &mdash; good ideas flare<br />and are lost to disconnection and chaos</TierTab>
         </div>
       </section>
