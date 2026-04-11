@@ -23,10 +23,9 @@ export async function GET(req: NextRequest) {
     if (authorId) where.authorId = authorId
     if (deliberationId) where.deliberationId = deliberationId
 
-    // Non-admins only see published posts from non-AI authors
+    // Non-admins only see published posts
     if (!adminUser) {
       where.published = true
-      where.author = { isAI: false }
     }
 
     const podiums = await prisma.podium.findMany({

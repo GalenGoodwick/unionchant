@@ -36,10 +36,10 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
-    // Non-admins can't view unpublished or AI-authored podiums
+    // Non-admins can't view unpublished podiums
     const session = await getServerSession(authOptions)
     const adminUser = session?.user?.email ? isAdminEmail(session.user.email) : false
-    if (!adminUser && (!podium.published || podium.author.isAI)) {
+    if (!adminUser && !podium.published) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
