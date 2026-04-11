@@ -192,7 +192,7 @@ function JoinBody({ d, onSwitchTab }: { d: ReturnType<typeof useDeliberation>; o
 
       {/* Join action */}
       {!d.session ? (
-        <Link href="/auth/signin" className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+        <Link href={`/auth/signin?callbackUrl=/chants/${delib.id}`} className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium">
           Sign in to join
         </Link>
       ) : !delib.isMember ? (
@@ -256,36 +256,46 @@ function SubmissionBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
       </div>
 
       {/* Submit idea form */}
-      {delib.isMember && (
-        delib.userSubmittedIdea ? (
-          <div className="bg-success-bg border border-success rounded-[10px] p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <svg className="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              <span className="text-success font-medium text-sm">Your idea submitted</span>
-            </div>
-            <p className="text-foreground text-sm italic">"{delib.userSubmittedIdea.text}"</p>
+      {!d.session ? (
+        <Link href={`/auth/signin?callbackUrl=/chants/${delib.id}`} className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+          Sign in to submit an idea
+        </Link>
+      ) : !delib.isMember ? (
+        <button
+          onClick={d.handleJoin}
+          disabled={d.joining}
+          className="w-full bg-success hover:bg-success-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+        >
+          {d.joining ? 'Joining...' : 'Join to submit an idea'}
+        </button>
+      ) : delib.userSubmittedIdea ? (
+        <div className="bg-success-bg border border-success rounded-[10px] p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <svg className="w-4 h-4 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+            <span className="text-success font-medium text-sm">Your idea submitted</span>
           </div>
-        ) : (
-          <form onSubmit={d.handleSubmitIdea} className="bg-surface border border-border rounded-[10px] p-4">
-            <label className="text-sm font-medium text-foreground mb-2 block">Submit your idea</label>
-            <textarea
-              placeholder="What's your answer to this question?"
-              value={d.newIdea}
-              onChange={(e) => d.setNewIdea(e.target.value)}
-              rows={3}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent resize-none"
-            />
-            <button
-              type="submit"
-              disabled={d.submitting || !d.newIdea.trim()}
-              className="mt-2 w-full bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
-            >
-              {d.submitting ? 'Submitting...' : 'Submit Idea'}
-            </button>
-          </form>
-        )
+          <p className="text-foreground text-sm italic">"{delib.userSubmittedIdea.text}"</p>
+        </div>
+      ) : (
+        <form onSubmit={d.handleSubmitIdea} className="bg-surface border border-border rounded-[10px] p-4">
+          <label className="text-sm font-medium text-foreground mb-2 block">Submit your idea</label>
+          <textarea
+            placeholder="What's your answer to this question?"
+            value={d.newIdea}
+            onChange={(e) => d.setNewIdea(e.target.value)}
+            rows={3}
+            className="w-full bg-background border border-border rounded-lg px-3 py-2 text-foreground placeholder-muted text-sm focus:outline-none focus:border-accent resize-none"
+          />
+          <button
+            type="submit"
+            disabled={d.submitting || !d.newIdea.trim()}
+            className="mt-2 w-full bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+          >
+            {d.submitting ? 'Submitting...' : 'Submit Idea'}
+          </button>
+        </form>
       )}
 
       {/* Ideas list */}
@@ -439,8 +449,19 @@ function AccumulatingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
       )}
 
       {/* Challenger form */}
-      {delib.isMember && (
-        delib.userSubmittedChallenger ? (
+      {!d.session ? (
+        <Link href={`/auth/signin?callbackUrl=/chants/${delib.id}`} className="block text-center bg-purple hover:bg-purple-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium">
+          Sign in to submit a challenger
+        </Link>
+      ) : !delib.isMember ? (
+        <button
+          onClick={d.handleJoin}
+          disabled={d.joining}
+          className="w-full bg-success hover:bg-success-hover text-white px-4 py-2.5 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+        >
+          {d.joining ? 'Joining...' : 'Join to submit a challenger'}
+        </button>
+      ) : delib.userSubmittedChallenger ? (
           <div className="bg-purple-bg border border-purple rounded-[10px] p-4">
             <div className="flex items-center gap-2 mb-1">
               <svg className="w-4 h-4 text-purple" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -469,7 +490,7 @@ function AccumulatingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
             </button>
           </form>
         )
-      )}
+      }
 
       {/* Challengers list */}
       <div>

@@ -144,17 +144,25 @@ export default function InvitePageClient() {
             {status === 'loading' ? (
               <div className="text-muted text-xs">Loading...</div>
             ) : (
-              <button
-                onClick={handleJoin}
-                disabled={joining}
-                className="w-full bg-accent hover:bg-accent-hover text-white py-2.5 px-4 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
-              >
-                {joining ? 'Joining...' : session ? 'Join Chant' : 'Sign in to Join'}
-              </button>
+              <div className="space-y-2">
+                <Link
+                  href={`/chants/${deliberation.id}`}
+                  className="block w-full bg-accent hover:bg-accent-hover text-white py-2.5 px-4 rounded-lg text-xs font-semibold transition-colors text-center"
+                >
+                  View Chant
+                </Link>
+                <button
+                  onClick={handleJoin}
+                  disabled={joining}
+                  className="w-full bg-success hover:bg-success-hover text-white py-2.5 px-4 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50"
+                >
+                  {joining ? 'Joining...' : session ? 'Join & Participate' : 'Sign in to Join'}
+                </button>
+              </div>
             )}
 
             <p className="text-muted text-[10px] mt-3">
-              By joining, you&apos;ll be able to submit ideas and vote
+              View the chant first, or join now to submit ideas and vote
             </p>
           </div>
         </div>
