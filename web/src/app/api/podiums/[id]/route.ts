@@ -36,6 +36,13 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
+    // Non-admins can't view unpublished or AI-authored podiums
+    const session = await getServerSession(authOptions)
+    const adminUser = session?.user?.email ? isAdminEmail(session.user.email) : false
+    if (!adminUser && (!podium.published || podium.author.isAI)) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
     // Increment view count (fire and forget)
     prisma.podium.update({
       where: { id },
@@ -105,6 +112,11 @@ export async function PATCH(
     // Admin-only: toggle pinned
     if (body.pinned !== undefined && isAdmin) {
       data.pinned = !!body.pinned
+    }
+
+    // Admin-only: toggle published
+    if (body.published !== undefined && isAdmin) {
+      data.published = !!body.published
     }
 
     if (body.title !== undefined) {

@@ -11,6 +11,9 @@ import { podiumNewsEmail } from '@/lib/email-templates'
 // GET /api/podiums - List podium posts
 export async function GET(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    const adminUser = session?.user?.email ? await isAdmin(session.user.email) : false
+
     const authorId = req.nextUrl.searchParams.get('authorId')
     const deliberationId = req.nextUrl.searchParams.get('deliberationId')
     const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') || '20'), 50)
@@ -19,6 +22,12 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {}
     if (authorId) where.authorId = authorId
     if (deliberationId) where.deliberationId = deliberationId
+
+    // Non-admins only see published posts from non-AI authors
+    if (!adminUser) {
+      where.published = true
+      where.author = { isAI: false }
+    }
 
     const podiums = await prisma.podium.findMany({
       where,

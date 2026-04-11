@@ -105,7 +105,7 @@ export default function PodiumPageClient() {
 
   if (loading) {
     return (
-      <FrameLayout active="podiums">
+      <FrameLayout active="podiums" hideHeart>
         <div className="flex items-center justify-center py-12">
           <div className="text-muted text-xs">Loading...</div>
         </div>
@@ -115,7 +115,7 @@ export default function PodiumPageClient() {
 
   if (!podium) {
     return (
-      <FrameLayout active="podiums">
+      <FrameLayout active="podiums" hideHeart>
         <div className="flex flex-col items-center justify-center gap-4 py-12">
           <div className="text-sm font-bold text-foreground">Post not found</div>
         </div>
@@ -129,7 +129,7 @@ export default function PodiumPageClient() {
   const bodyBlocks = parseMarkdown(podium.body)
 
   return (
-    <FrameLayout active="podiums">
+    <FrameLayout active="podiums" hideHeart>
       <div className="py-4">
         {/* Author */}
         <div className="flex items-center gap-3 mb-4">

@@ -1,4 +1,4 @@
-// Union Chant Service Worker
+// Unity Chant Service Worker
 const CACHE_NAME = 'union-chant-v2'
 
 // Install event - cache essential assets
@@ -45,7 +45,7 @@ self.addEventListener('push', (event) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Union Chant', options)
+    self.registration.showNotification(data.title || 'Unity Chant', options)
   )
 })
 

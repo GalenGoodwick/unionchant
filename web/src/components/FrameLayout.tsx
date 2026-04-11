@@ -23,11 +23,11 @@ interface FrameLayoutProps {
   scrollRef?: React.Ref<HTMLDivElement>
   contentClassName?: string
   noPadding?: boolean
+  hideHeart?: boolean
 }
 
 const menuLinks = [
-  { href: '/?landing=1', label: 'Landing' },
-  { href: '/tools', label: 'Tools' },
+{ href: '/tools', label: 'Tools' },
   { href: '/resources', label: 'Resources' },
   { href: '/dashboard', label: 'Manage' },
   { href: '/settings', label: 'Settings' },
@@ -58,6 +58,7 @@ export default function FrameLayout({
   scrollRef,
   contentClassName = '',
   noPadding,
+  hideHeart,
 }: FrameLayoutProps) {
   const pathname = usePathname()
   const { data: session } = useSession()
@@ -131,7 +132,7 @@ export default function FrameLayout({
   return (
     <div className="fixed top-0 left-0 w-screen h-[100dvh] z-10 flex flex-col bg-background overflow-clip sm:px-4 sm:pb-4 sm:pt-4">
       <div className="flex-1 min-h-0 flex flex-col overflow-clip sm:max-w-[480px] w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
-        <AmbientConstellation />
+        <AmbientConstellation hideHeart={hideHeart} />
 
         {/* -- Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method) — admin only -- */}
         {topBarOpen && !hideFooter && isAdmin && (

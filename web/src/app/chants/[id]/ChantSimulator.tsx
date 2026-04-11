@@ -552,7 +552,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           <div className="mb-3">
             {!userId ? (
               <Link
-                href="/auth/signin"
+                href={`/auth/signin?callbackUrl=/chants/${id}`}
                 className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
               >
                 Sign in to join
@@ -744,7 +744,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             {/* Join action */}
             {!userId ? (
               <Link
-                href="/auth/signin"
+                href={`/auth/signin?callbackUrl=/chants/${id}`}
                 className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
               >
                 Sign in to join
@@ -1031,32 +1031,41 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             </div>
 
             {!status.submissionsClosed && (status.multipleIdeasAllowed || userIdeas.length === 0) && (
-              <form onSubmit={handleSubmitIdea} className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
-                <h2 className="text-sm font-semibold mb-1 text-foreground">Submit Your Idea</h2>
-                <p className="text-xs text-muted mb-3 leading-relaxed">
-                  Answer the question with your best idea.
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Your idea..."
-                    value={ideaText}
-                    onChange={(e) => setIdeaText(e.target.value)}
-                    disabled={submitting}
-                    maxLength={500}
-                    className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={submitting || !ideaText.trim()}
-                    className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shadow-sm"
-                  >
-                    {submitting ? 'Submitting...' : 'Submit'}
-                  </button>
-                </div>
-                {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
-                {submitSuccess && <p className="text-success text-xs mt-2">Idea submitted!</p>}
-              </form>
+              !userId ? (
+                <Link
+                  href={`/auth/signin?callbackUrl=/chants/${id}`}
+                  className="block text-center p-4 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                >
+                  Sign in to submit an idea
+                </Link>
+              ) : (
+                <form onSubmit={handleSubmitIdea} className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
+                  <h2 className="text-sm font-semibold mb-1 text-foreground">Submit Your Idea</h2>
+                  <p className="text-xs text-muted mb-3 leading-relaxed">
+                    Answer the question with your best idea.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Your idea..."
+                      value={ideaText}
+                      onChange={(e) => setIdeaText(e.target.value)}
+                      disabled={submitting}
+                      maxLength={500}
+                      className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={submitting || !ideaText.trim()}
+                      className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shadow-sm"
+                    >
+                      {submitting ? 'Submitting...' : 'Submit'}
+                    </button>
+                  </div>
+                  {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
+                  {submitSuccess && <p className="text-success text-xs mt-2">Idea submitted!</p>}
+                </form>
+              )
             )}
 
             {userIdeas.length > 0 && (

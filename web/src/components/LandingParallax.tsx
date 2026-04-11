@@ -378,7 +378,7 @@ export default function LandingParallax() {
             They emerge from conversation&mdash;given the right form.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/auth/signin?callbackUrl=%2Fchants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+            <Link href="/chants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
               Go to Chants
             </Link>
             <Link href="/auth/signin?callbackUrl=%2Fchants%3Fcreate%3D1" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
@@ -411,7 +411,7 @@ export default function LandingParallax() {
       {/* ── FOOTER ── */}
       <footer className="relative z-[2] bg-header text-white/25 py-6">
         <div className="max-w-[800px] mx-auto px-6 text-center text-sm">
-          &copy; 2026 Unity Chant LLC. Licensed under the <a href="https://github.com/GalenGoodwick/unionchant/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">Union Chant License v1.0</a>.
+          &copy; 2026 Unity Chant LLC. Licensed under the <a href="https://github.com/GalenGoodwick/unionchant/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">Unity Chant License v1.0</a>.
         </div>
       </footer>
     </>

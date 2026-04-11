@@ -171,7 +171,7 @@ export default function AdminPage() {
 
   // Podiums state
   const [podiums, setPodiums] = useState<Array<{
-    id: string; title: string; pinned: boolean; views: number; createdAt: string
+    id: string; title: string; pinned: boolean; published: boolean; views: number; createdAt: string
     author: { id: string; name: string | null; image: string | null; isAI?: boolean }
     deliberation: { id: string; question: string } | null
   }>>([])
@@ -271,6 +271,24 @@ export default function AdminPage() {
       }
     } catch {
       console.error('Failed to pin/unpin podium')
+    } finally {
+      setPodiumActioning(null)
+    }
+  }
+
+  const handlePodiumPublish = async (podiumId: string, published: boolean) => {
+    setPodiumActioning(podiumId)
+    try {
+      const res = await fetch(`/api/podiums/${podiumId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ published }),
+      })
+      if (res.ok) {
+        setPodiums(prev => prev.map(p => p.id === podiumId ? { ...p, published } : p))
+      }
+    } catch {
+      console.error('Failed to publish/unpublish podium')
     } finally {
       setPodiumActioning(null)
     }
@@ -1131,6 +1149,9 @@ export default function AdminPage() {
                             {p.pinned && (
                               <span className="text-xs bg-warning-bg text-warning px-1.5 py-0.5 rounded border border-warning">Pinned</span>
                             )}
+                            {!p.published && (
+                              <span className="text-xs bg-error-light text-error px-1.5 py-0.5 rounded border border-error/30">Hidden</span>
+                            )}
                             <Link href={`/podium/${p.id}`} className="text-foreground hover:text-accent font-medium text-sm">
                               {p.title.length > 50 ? p.title.slice(0, 50) + '...' : p.title}
                             </Link>
@@ -1158,6 +1179,13 @@ export default function AdminPage() {
                         </td>
                         <td className="p-4">
                           <div className="flex gap-2">
+                            <button
+                              onClick={() => handlePodiumPublish(p.id, !p.published)}
+                              disabled={podiumActioning === p.id}
+                              className={`text-sm disabled:opacity-50 ${p.published ? 'text-success hover:text-success-hover' : 'text-muted hover:text-foreground'}`}
+                            >
+                              {p.published ? 'Hide' : 'Publish'}
+                            </button>
                             <button
                               onClick={() => handlePodiumPin(p.id, !p.pinned)}
                               disabled={podiumActioning === p.id}

@@ -368,7 +368,7 @@ export function AmbientConstellationWaveform({ className }: AmbientProps) {
 
 // ─── Ambient filled fire + small heart (DEFAULT) ───
 
-export function AmbientConstellation({ className }: AmbientProps) {
+export function AmbientConstellation({ className, hideHeart }: AmbientProps & { hideHeart?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const glowRef = useRef<HTMLCanvasElement | null>(null)
   const animRef = useRef<number>(0)
@@ -534,31 +534,33 @@ export function AmbientConstellation({ className }: AmbientProps) {
 
       // Heart
       const cx = w / 2, cy = h / 2
-      const beatPeriod = 1.0
-      const beatPhase = (time % beatPeriod) / beatPeriod
-      const thump = beatPhase < 0.08
-        ? beatPhase / 0.08
-        : beatPhase < 0.15
-        ? 1 - (beatPhase - 0.08) / 0.07 * 0.6
-        : beatPhase < 0.22
-        ? 0.4 + (beatPhase - 0.15) / 0.07 * 0.3
-        : beatPhase < 0.35
-        ? 0.7 * (1 - (beatPhase - 0.22) / 0.13)
-        : 0
-      const heartScale = 1 + thump * 0.1
-      const heartSize = Math.min(w, h) * 0.12
+      if (!hideHeart) {
+        const beatPeriod = 1.0
+        const beatPhase = (time % beatPeriod) / beatPeriod
+        const thump = beatPhase < 0.08
+          ? beatPhase / 0.08
+          : beatPhase < 0.15
+          ? 1 - (beatPhase - 0.08) / 0.07 * 0.6
+          : beatPhase < 0.22
+          ? 0.4 + (beatPhase - 0.15) / 0.07 * 0.3
+          : beatPhase < 0.35
+          ? 0.7 * (1 - (beatPhase - 0.22) / 0.13)
+          : 0
+        const heartScale = 1 + thump * 0.1
+        const heartSize = Math.min(w, h) * 0.12
 
-      ctx.save(); ctx.translate(cx, cy); ctx.scale(heartScale, heartScale)
-      heartPath(ctx, heartSize)
-      ctx.fillStyle = `rgba(252,252,252,${0.65 + thump * 0.35})`; ctx.fill()
-      ctx.shadowColor = `rgba(252,252,252,${0.12 + thump * 0.25})`; ctx.shadowBlur = 18 + thump * 14; ctx.fill()
-      ctx.shadowBlur = 0; ctx.restore()
+        ctx.save(); ctx.translate(cx, cy); ctx.scale(heartScale, heartScale)
+        heartPath(ctx, heartSize)
+        ctx.fillStyle = `rgba(252,252,252,${0.65 + thump * 0.35})`; ctx.fill()
+        ctx.shadowColor = `rgba(252,252,252,${0.12 + thump * 0.25})`; ctx.shadowBlur = 18 + thump * 14; ctx.fill()
+        ctx.shadowBlur = 0; ctx.restore()
 
-      if (thump > 0.1) {
-        const ringR = heartSize * 0.5 + (1 - thump) * heartSize * 0.35
-        ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2)
-        ctx.strokeStyle = `rgba(252,252,252,${thump * 0.05})`
-        ctx.lineWidth = 1; ctx.stroke()
+        if (thump > 0.1) {
+          const ringR = heartSize * 0.5 + (1 - thump) * heartSize * 0.35
+          ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2)
+          ctx.strokeStyle = `rgba(252,252,252,${thump * 0.05})`
+          ctx.lineWidth = 1; ctx.stroke()
+        }
       }
 
       // Constellation
