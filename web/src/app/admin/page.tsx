@@ -72,6 +72,7 @@ interface Deliberation {
   question: string
   phase: string
   isPublic: boolean
+  isPinned: boolean
   organization: string | null
   tags: string[]
   createdAt: string
@@ -418,7 +419,7 @@ export default function AdminPage() {
     } finally {
       setUsersLoading(false)
     }
-  }, [usersSearch, usersStatus, usersPage])
+  }, [usersSearch, usersStatus]) // eslint-disable-line react-hooks/exhaustive-deps -- usersPage excluded to prevent page-change triggering debounced search reset
 
   // Debounced search for users
   useEffect(() => {
@@ -1447,6 +1448,23 @@ export default function AdminPage() {
                           className={`text-sm ${d.isPublic ? 'text-success' : 'text-error'} hover:opacity-70`}
                         >
                           {d.isPublic ? 'Public' : 'Private'}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(`/api/admin/deliberation/${d.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ isPinned: !d.isPinned }),
+                              })
+                              if (res.ok) fetchDeliberations()
+                            } catch (err) {
+                              console.error('Failed to toggle pin:', err)
+                            }
+                          }}
+                          className={`text-sm ${d.isPinned ? 'text-warning' : 'text-muted'} hover:opacity-70`}
+                        >
+                          {d.isPinned ? 'Pinned' : 'Pin'}
                         </button>
                         <button
                           onClick={() => handleDelete(d.id, d.question)}

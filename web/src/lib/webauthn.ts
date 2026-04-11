@@ -1,56 +1,47 @@
 /**
  * WebAuthn configuration, challenge store, and passkey token helpers.
+ * Challenge store uses database (not in-memory) to work across Vercel serverless instances.
  */
 import crypto from 'crypto'
+import { prisma } from '@/lib/prisma'
 
 export const rpName = 'Unity Chant'
 export const rpID = process.env.WEBAUTHN_RP_ID || 'unitychant.com'
 export const origin = process.env.WEBAUTHN_ORIGIN || `https://${rpID}`
 
-// In-memory challenge store with 5-minute TTL.
-// Use globalThis to survive module reloads in dev mode (same pattern as Prisma client).
 const CHALLENGE_TTL_MS = 5 * 60 * 1000
-const globalForWebAuthn = globalThis as typeof globalThis & {
-  __webauthnChallenges?: Map<string, { userId: string; createdAt: number }>
-}
-if (!globalForWebAuthn.__webauthnChallenges) {
-  globalForWebAuthn.__webauthnChallenges = new Map()
-}
-const challenges = globalForWebAuthn.__webauthnChallenges
 
-export function storeChallenge(challenge: string, userId: string) {
+export async function storeChallenge(challenge: string, userId: string) {
   // Clean expired entries
-  const now = Date.now()
-  for (const [key, val] of challenges) {
-    if (now - val.createdAt > CHALLENGE_TTL_MS) challenges.delete(key)
-  }
-  challenges.set(challenge, { userId, createdAt: now })
+  const cutoff = new Date(Date.now() - CHALLENGE_TTL_MS)
+  await prisma.webAuthnChallenge.deleteMany({ where: { createdAt: { lt: cutoff } } })
+  await prisma.webAuthnChallenge.create({ data: { challenge, userId } })
 }
 
-export function consumeChallenge(challenge: string, userId: string): boolean {
-  const entry = challenges.get(challenge)
+export async function consumeChallenge(challenge: string, userId: string): Promise<boolean> {
+  const entry = await prisma.webAuthnChallenge.findUnique({ where: { challenge } })
   if (!entry) return false
-  challenges.delete(challenge)
-  if (Date.now() - entry.createdAt > CHALLENGE_TTL_MS) return false
+  await prisma.webAuthnChallenge.delete({ where: { challenge } })
+  if (Date.now() - entry.createdAt.getTime() > CHALLENGE_TTL_MS) return false
   if (entry.userId !== userId) return false
   return true
 }
 
 // For discoverable credential auth (signin), userId isn't known upfront
-export function consumeChallengeNoUser(challenge: string): string | null {
-  const entry = challenges.get(challenge)
+export async function consumeChallengeNoUser(challenge: string): Promise<string | null> {
+  const entry = await prisma.webAuthnChallenge.findUnique({ where: { challenge } })
   if (!entry) return null
-  challenges.delete(challenge)
-  if (Date.now() - entry.createdAt > CHALLENGE_TTL_MS) return null
+  await prisma.webAuthnChallenge.delete({ where: { challenge } })
+  if (Date.now() - entry.createdAt.getTime() > CHALLENGE_TTL_MS) return null
   return entry.userId
 }
 
 // Accept any valid challenge regardless of userId (for discoverable credential signin)
-export function consumeChallengeAny(challenge: string): boolean {
-  const entry = challenges.get(challenge)
+export async function consumeChallengeAny(challenge: string): Promise<boolean> {
+  const entry = await prisma.webAuthnChallenge.findUnique({ where: { challenge } })
   if (!entry) return false
-  challenges.delete(challenge)
-  if (Date.now() - entry.createdAt > CHALLENGE_TTL_MS) return false
+  await prisma.webAuthnChallenge.delete({ where: { challenge } })
+  if (Date.now() - entry.createdAt.getTime() > CHALLENGE_TTL_MS) return false
   return true
 }
 

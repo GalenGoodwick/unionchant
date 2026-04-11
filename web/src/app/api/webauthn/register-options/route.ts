@@ -26,7 +26,7 @@ export async function GET() {
     },
   })
 
-  storeChallenge(options.challenge, userId)
+  await storeChallenge(options.challenge, userId)
 
   return NextResponse.json({ ...options, hints: ['client-device'] })
 }

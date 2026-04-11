@@ -133,12 +133,11 @@ export default function SectionNav({ active }: { active: 'chants' | 'podiums' | 
               <NotificationBell />
               <Link href={`/user/${session.user?.id}`} className="shrink-0">
                 {session.user?.image ? (
-                  <img src={session.user.image} alt="" className="w-6 h-6 rounded-full" />
-                ) : (
-                  <span className="w-6 h-6 rounded-full bg-accent/30 flex items-center justify-center text-[10px] font-medium text-accent">
-                    {(session.user?.name || 'U').charAt(0).toUpperCase()}
-                  </span>
-                )}
+                  <img src={session.user.image} alt="" className="w-6 h-6 rounded-full" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }} />
+                ) : null}
+                <span className={`w-6 h-6 rounded-full bg-accent/30 flex items-center justify-center text-[10px] font-medium text-accent ${session.user?.image ? 'hidden' : ''}`}>
+                  {(session.user?.name || 'U').charAt(0).toUpperCase()}
+                </span>
               </Link>
               <button
                 ref={btnRef}

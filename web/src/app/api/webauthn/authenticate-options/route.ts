@@ -15,7 +15,7 @@ export async function GET() {
     userVerification: 'required',
   })
 
-  storeChallenge(options.challenge, placeholderId)
+  await storeChallenge(options.challenge, placeholderId)
 
   return NextResponse.json({ ...options, hints: ['client-device'] })
 }

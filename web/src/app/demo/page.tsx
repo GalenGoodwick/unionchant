@@ -946,12 +946,12 @@ export default function DemoPage() {
 
           {/* Bottom CTA */}
           {phase === 'completed' && (
-            <div className="text-center py-4">
+            <div className="flex justify-center py-4">
               <Link
-                href="/talks/new"
-                className="inline-block bg-accent hover:bg-accent-hover text-white px-6 py-2.5 rounded-lg font-semibold transition-colors text-sm"
+                href="/chants"
+                className="bg-accent hover:bg-accent-hover text-white px-6 py-2.5 rounded-lg font-semibold transition-colors text-sm"
               >
-                Start a Talk
+                Go to Chants
               </Link>
             </div>
           )}

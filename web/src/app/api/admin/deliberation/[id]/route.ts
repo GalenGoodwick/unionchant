@@ -104,7 +104,7 @@ export async function PATCH(
     const { id } = await params
     const body = await req.json()
 
-    const allowedFields: Record<string, boolean> = { isPublic: true }
+    const allowedFields: Record<string, boolean> = { isPublic: true, isPinned: true }
     const data: Record<string, unknown> = {}
     for (const key of Object.keys(body)) {
       if (allowedFields[key]) data[key] = body[key]

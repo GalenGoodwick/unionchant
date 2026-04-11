@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   try {
     const verification = await verifyRegistrationResponse({
       response: credential,
-      expectedChallenge: (challenge: string) => consumeChallenge(challenge, userId),
+      expectedChallenge: async (challenge: string) => consumeChallenge(challenge, userId),
       expectedOrigin: origin,
       expectedRPID: rpID,
       requireUserVerification: true,

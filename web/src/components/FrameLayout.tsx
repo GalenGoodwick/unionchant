@@ -19,6 +19,7 @@ interface FrameLayoutProps {
   footerRight?: React.ReactNode
   hideFooter?: boolean
   showBack?: boolean
+  onBack?: () => void
   scrollRef?: React.Ref<HTMLDivElement>
   contentClassName?: string
   noPadding?: boolean
@@ -53,6 +54,7 @@ export default function FrameLayout({
   footerRight,
   hideFooter,
   showBack,
+  onBack,
   scrollRef,
   contentClassName = '',
   noPadding,
@@ -172,7 +174,9 @@ export default function FrameLayout({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => {
-                  if (typeof window !== 'undefined' && window.history.length > 2) {
+                  if (onBack) {
+                    onBack()
+                  } else if (typeof window !== 'undefined' && window.history.length > 2) {
                     router.back()
                   } else {
                     router.push('/chants')
@@ -207,12 +211,11 @@ export default function FrameLayout({
                   <NotificationBell />
                   <Link href={`/user/${session.user?.id}`} className="shrink-0">
                     {session.user?.image ? (
-                      <img src={session.user.image} alt="" className="w-6 h-6 rounded-full" />
-                    ) : (
-                      <span className="w-6 h-6 rounded-full bg-accent/30 flex items-center justify-center text-[10px] font-medium text-accent">
-                        {(session.user?.name || 'U').charAt(0).toUpperCase()}
-                      </span>
-                    )}
+                      <img src={session.user.image} alt="" className="w-6 h-6 rounded-full" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }} />
+                    ) : null}
+                    <span className={`w-6 h-6 rounded-full bg-accent/30 flex items-center justify-center text-[10px] font-medium text-accent ${session.user?.image ? 'hidden' : ''}`}>
+                      {(session.user?.name || 'U').charAt(0).toUpperCase()}
+                    </span>
                   </Link>
                   {isAdmin && (
                     <>

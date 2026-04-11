@@ -129,9 +129,10 @@ export async function processExpiredTiers(): Promise<string[]> {
     const votingCells = currentTierCells.filter(c => c.status === 'VOTING')
     const completedCells = currentTierCells.filter(c => c.status === 'COMPLETED')
 
-    // No-timer deliberations: supermajority auto-advance if enabled
+    // No-timer deliberations: supermajority auto-advance (online mode only)
+    // Event mode: facilitator uses manual "Advance Tier" button instead
     if (deliberation.votingTimeoutMs === 0) {
-      if (!deliberation.supermajorityEnabled) continue
+      if (!deliberation.supermajorityEnabled || !deliberation.continuousFlow) continue
       // Supermajority: 80%+ cells done + 10min grace → auto-complete stragglers
       if (currentTierCells.length >= 3 && votingCells.length > 0) {
         const completionRate = completedCells.length / currentTierCells.length
@@ -231,6 +232,7 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
       currentTierStartedAt: true,
       votingTimeoutMs: true,
       supermajorityEnabled: true,
+      continuousFlow: true,
       _count: { select: { ideas: true } },
       cells: {
         select: { id: true, status: true, tier: true, discussionEndsAt: true, completedAt: true }
@@ -334,8 +336,9 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
       }
     }
 
-    // Supermajority auto-advance (no-timer mode only, if enabled): 80%+ cells done, 10min grace
-    if (deliberation.votingTimeoutMs === 0 && deliberation.supermajorityEnabled && currentTierCells.length >= 3 && votingCells.length > 0 && !transitioned) {
+    // Supermajority auto-advance (online mode only, no-timer): 80%+ cells done, 10min grace
+    // Event mode: facilitator uses manual "Advance Tier" button instead
+    if (deliberation.votingTimeoutMs === 0 && deliberation.supermajorityEnabled && deliberation.continuousFlow && currentTierCells.length >= 3 && votingCells.length > 0 && !transitioned) {
       const completionRate = completedCells.length / currentTierCells.length
       if (completionRate >= 0.8) {
         const lastCompleted = completedCells

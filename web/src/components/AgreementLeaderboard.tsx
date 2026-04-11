@@ -38,12 +38,11 @@ export default function AgreementLeaderboard() {
             className="flex items-center gap-3 p-4 hover:bg-surface transition-colors"
           >
             {match.user.image ? (
-              <img src={match.user.image} alt="" className="w-10 h-10 rounded-full" />
-            ) : (
-              <div className="w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center">
-                <span className="text-accent font-semibold">{match.user.name.charAt(0).toUpperCase()}</span>
-              </div>
-            )}
+              <img src={match.user.image} alt="" className="w-10 h-10 rounded-full" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }} />
+            ) : null}
+            <div className={`w-10 h-10 rounded-full bg-accent/20 flex items-center justify-center ${match.user.image ? 'hidden' : ''}`}>
+              <span className="text-accent font-semibold">{match.user.name.charAt(0).toUpperCase()}</span>
+            </div>
             <div className="flex-1 min-w-0">
               <p className="text-foreground font-medium truncate">{match.user.name}</p>
               <p className="text-muted text-xs">{match.totalCells} shared cells</p>

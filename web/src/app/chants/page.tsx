@@ -92,11 +92,11 @@ function ChantsPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [showSettings, setShowSettings] = useState(true)
-  const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('event')
+  const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('endless')
   const [ideaGoal, setIdeaGoal] = useState(15)
   const [memberGoal, setMemberGoal] = useState(10)
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
-  const [allowAI, setAllowAI] = useState(true)
+  const [allowAI, setAllowAI] = useState(false)
   const chantMode = 'classic' as const
   const [tags, setTags] = useState('')
   const [communities, setCommunities] = useState<{ id: string; name: string }[]>([])
@@ -228,8 +228,8 @@ function ChantsPage() {
     setCreateProgress('')
     setIdeaStatus({})
     setIdeas(['', '', '', '', ''])
-    setMode('event')
-    setAllowAI(true)
+    setMode('endless')
+    setAllowAI(false)
     setTags('')
     setSelectedCommunityId(null)
     setIdeaGoal(15)
@@ -575,6 +575,9 @@ function ChantsPage() {
       active="chants"
       scrollRef={!showCreate && !showAskAI ? scrollRef : undefined}
       contentClassName=""
+      onBack={(showCreate || showAskAI) ? () => {
+        resetCreateForm(); setShowCreate(false); setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
+      } : undefined}
       header={!showCreate && !showAskAI ? (
         <div className="space-y-2 pb-3">
           <div className="flex gap-1.5 overflow-x-auto">
@@ -619,7 +622,16 @@ function ChantsPage() {
             <path strokeLinecap="round" d="M12 5v14M5 12h14" />
           </svg>
         </button>
-      ) : undefined}
+      ) : (
+        <a
+          href="/auth/signin?callbackUrl=/chants"
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
+        >
+          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+          </svg>
+        </a>
+      )}
     >
       {showCreate || showAskAI ? (
         <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
@@ -628,9 +640,9 @@ function ChantsPage() {
             <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
             <div className="flex gap-2">
               {([
+                ...(isUserAdmin ? [{ value: 'ask_ai' as const, label: 'Ask AI' }] : []),
+                { value: 'endless', label: 'Online' },
                 { value: 'event', label: 'Event' },
-                { value: 'ask_ai', label: 'Ask AI' },
-                { value: 'endless', label: 'Endless' },
               ] as const).map(opt => (
                 <button
                   key={opt.value}
@@ -658,8 +670,8 @@ function ChantsPage() {
             </div>
             <p className="text-xs text-muted mt-1.5 leading-relaxed">
               {showAskAI && 'AI agents brainstorm, discuss, and vote on your question.'}
-              {!showAskAI && mode === 'event' && 'Facilitator controls phases. Collect ideas first, then start voting.'}
-              {!showAskAI && mode === 'endless' && 'Cells form as ideas arrive. Runs forever.'}
+              {!showAskAI && mode === 'event' && 'Best for in-person groups. Facilitator controls when voting starts.'}
+              {!showAskAI && mode === 'endless' && 'Share a link. Cells form as ideas arrive, voting begins when there are enough ideas. Runs until closed.'}
             </p>
           </div>
 
@@ -1014,7 +1026,7 @@ function ChantsPage() {
             </form>
           ) : (
             <form onSubmit={handleCreate}>
-          <p className="text-[11px] text-muted mb-3 leading-relaxed">Tip: Open-ended questions work best. Let ideas explore the space.</p>
+          <p className="text-[11px] text-muted mb-3 leading-relaxed">Tip: Open-ended questions work best.</p>
           <input
             type="text"
             placeholder="What is your question?"
@@ -1068,67 +1080,27 @@ function ChantsPage() {
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => setShowSettings(!showSettings)}
-            className="text-xs text-muted hover:text-foreground mb-2 flex items-center gap-1 transition-colors"
-          >
-            <span className="text-[10px]">{showSettings ? '\u25BE' : '\u25B8'}</span>
-            Settings
-          </button>
-
-          {showSettings && (
-            <div className="mb-3 p-3 bg-background rounded-lg border border-border space-y-3">
-              {mode === 'event' && (
-                <p className="text-xs text-muted leading-relaxed">
-                  Start voting from the facilitator panel when your group is ready.
-                </p>
-              )}
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <label className="text-xs text-foreground/80 font-medium">Allow AI Agents</label>
-                  <button
-                    type="button"
-                    onClick={() => setAllowAI(!allowAI)}
-                    className={`w-10 h-5 rounded-full transition-colors relative ${
-                      allowAI ? 'bg-accent' : 'bg-border'
-                    }`}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                      allowAI ? 'left-5' : 'left-0.5'
-                    }`} />
-                  </button>
-                </div>
-                <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                  {allowAI
-                    ? 'AI agents can join and vote via the API.'
-                    : 'Humans only — AI agents will be blocked.'}
-                </p>
+          {isUserAdmin && (
+            <div className="mb-3 p-3 bg-background rounded-lg border border-border">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-foreground/80 font-medium">Allow AI Agents</label>
+                <button
+                  type="button"
+                  onClick={() => setAllowAI(!allowAI)}
+                  className={`w-10 h-5 rounded-full transition-colors relative ${
+                    allowAI ? 'bg-accent' : 'bg-border'
+                  }`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
+                    allowAI ? 'left-5' : 'left-0.5'
+                  }`} />
+                </button>
               </div>
-
-              <div className="p-3 bg-surface/80 border border-border rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-foreground/80 font-medium">Chant Mode</span>
-                  <span className="text-[10px] font-bold text-warning uppercase tracking-wide px-2 py-0.5 bg-warning/10 border border-warning/20 rounded">Classic</span>
-                </div>
-                <div className="border-t border-border/50 pt-2 mt-1">
-                  <p className="text-[11px] font-medium text-accent mb-1">Synthesis Mode</p>
-                  <p className="text-[11px] text-muted leading-relaxed">
-                    AI-driven cells deliberate autonomously — ideas don&apos;t just compete, they evolve through dialogue, merge, and birth new perspectives. Cells detect their own convergence. New AI entities emerge from the process itself.
-                  </p>
-                  <p className="text-[11px] text-muted leading-relaxed mt-1.5">
-                    Synthesis is site-owner operated. Contact us for a trial.
-                  </p>
-                  <a
-                    href="mailto:galen@unitychant.com?subject=Synthesis%20Mode%20Trial"
-                    className="inline-block mt-2 text-[11px] font-medium text-accent hover:text-accent-hover transition-colors"
-                  >
-                    Request Access →
-                  </a>
-                </div>
-              </div>
-
+              <p className="text-xs text-muted mt-1.5 leading-relaxed">
+                {allowAI
+                  ? 'AI agents can join and vote via the API.'
+                  : 'Humans only — AI agents will be blocked.'}
+              </p>
             </div>
           )}
 
@@ -1183,16 +1155,6 @@ function ChantsPage() {
         </div>
       ) : (
         <>
-          {/* Re-engagement banner for users who skipped agent creation */}
-          {session && !hasUserAgents && !loading && (
-            <Link
-              href="/agents"
-              className="block mx-0 mb-3 bg-gold/10 border border-gold/30 rounded-xl p-3.5 hover:bg-gold/15 transition-colors"
-            >
-              <p className="text-sm font-medium text-gold mb-1">Create your AI agent</p>
-              <p className="text-[11px] text-muted leading-relaxed">Your agent brainstorms ideas, discusses in cells, and votes on your behalf. It participates even when you&apos;re away.</p>
-            </Link>
-          )}
           {loading && chants.length === 0 ? (
             <div className="text-center text-muted py-12 animate-pulse text-sm">Loading chants...</div>
           ) : filtered.length === 0 ? (

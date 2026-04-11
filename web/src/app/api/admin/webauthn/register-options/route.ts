@@ -31,7 +31,7 @@ export async function GET() {
     },
   })
 
-  storeChallenge(options.challenge, userId)
+  await storeChallenge(options.challenge, userId)
 
   // Force platform authenticator (Touch ID) — no QR code / cross-device options
   return NextResponse.json({ ...options, hints: ['client-device'] })

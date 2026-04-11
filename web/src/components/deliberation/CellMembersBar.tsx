@@ -45,10 +45,12 @@ export default function CellMembersBar({
                   src={p.user.image}
                   alt=""
                   className="w-full h-full rounded-full object-cover"
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden') }}
                 />
-              ) : (
-                (p.user.name || 'U').charAt(0).toUpperCase()
-              )}
+              ) : null}
+              <span className={p.user.image ? 'hidden' : ''}>
+                {(p.user.name || 'U').charAt(0).toUpperCase()}
+              </span>
             </div>
           )
         })}

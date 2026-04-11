@@ -563,9 +563,24 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         where: { id: cellId },
         select: {
           completedByTimeout: true,
-          deliberation: { select: { votingTimeoutMs: true } },
+          deliberation: { select: { votingTimeoutMs: true, continuousFlow: true } },
         },
       })
+
+      // Continuous flow: NEVER force-complete empty cells — they cascade into
+      // phantom tiers (all ideas advance → next tier forms → also empty → repeat).
+      // Just keep extending indefinitely until someone actually votes.
+      if (cell?.deliberation?.continuousFlow) {
+        const timeoutMs = cell?.deliberation?.votingTimeoutMs
+        const newDeadline = timeoutMs ? new Date(Date.now() + timeoutMs) : null
+        await prisma.cell.update({
+          where: { id: cellId },
+          data: { votingDeadline: newDeadline },
+        })
+        console.log(`Cell ${cellId}: zero votes in continuous flow, re-extending deadline to ${newDeadline?.toISOString() ?? 'null'}`)
+        return null
+      }
+
       // If cell hasn't been extended yet, give it one more timeout period
       // completedByTimeout is repurposed here as "already extended once" flag
       if (!cell?.completedByTimeout) {

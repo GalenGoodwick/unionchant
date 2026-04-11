@@ -168,18 +168,18 @@ export default function WhitepaperPage() {
 
         <hr className="border-border my-8" />
 
-        <div className="text-center">
+        <div className="flex justify-center gap-4 flex-wrap">
           <Link
-            href="/demo"
-            className="inline-block bg-purple hover:bg-purple-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors mr-4"
+            href="/technical"
+            className="bg-purple hover:bg-purple-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
           >
-            Watch Demo
+            Read the Technical Paper
           </Link>
           <Link
             href="/chants"
-            className="inline-block bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
+            className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors"
           >
-            Start a Chant
+            Go to Chants
           </Link>
         </div>
       </article>

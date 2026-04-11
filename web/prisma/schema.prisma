@@ -227,6 +227,12 @@ model WebAuthnCredential {
   @@index([userId])
 }
 
+model WebAuthnChallenge {
+  challenge  String   @id
+  userId     String
+  createdAt  DateTime @default(now())
+}
+
 // ============ DELIBERATION (ROOM) ============
 
 model Deliberation {

@@ -133,6 +133,15 @@ export default function LandingParallax() {
         @media (max-width: 640px) { .lp-viz-gap { height: 350px; } .lp-tier-tab { font-size: 0.55rem; letter-spacing: 1px; padding: 6px 12px; white-space: normal; max-width: 90vw; } }
       `}</style>
 
+      {/* ── HEADER ── */}
+      <header className="relative z-[3] bg-header">
+        <div className="max-w-[800px] mx-auto px-6 py-4 flex justify-end">
+          <Link href="/auth/signin" className="text-sm text-muted hover:text-foreground transition-colors font-medium">
+            Sign In
+          </Link>
+        </div>
+      </header>
+
       {/* ── HERO ── */}
       <section className="relative z-[2] bg-header text-white">
         <div className="max-w-[800px] mx-auto px-6 py-24 md:py-28 text-center" style={{ paddingTop: '100px', paddingBottom: '100px' }}>
@@ -369,10 +378,10 @@ export default function LandingParallax() {
             They emerge from conversation&mdash;given the right form.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/chants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+            <Link href="/auth/signin?callbackUrl=%2Fchants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
               Go to Chants
             </Link>
-            <Link href="/chants/new" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
+            <Link href="/auth/signin?callbackUrl=%2Fchants%3Fcreate%3D1" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
               Start a Chant
             </Link>
           </div>

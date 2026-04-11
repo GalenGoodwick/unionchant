@@ -138,6 +138,14 @@ export default function HowItWorksPage() {
           </div>
         </section>
 
+        <div className="border-t border-border pt-6 flex justify-center gap-4 flex-wrap">
+          <a href="/whitepaper" className="bg-purple hover:bg-purple-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+            Read the Whitepaper
+          </a>
+          <a href="/chants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+            Go to Chants
+          </a>
+        </div>
 
       </div>
     </FrameLayout>

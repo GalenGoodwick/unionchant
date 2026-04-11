@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     // For discoverable credentials, verify the challenge with the placeholder userId
     const verification = await verifyAuthenticationResponse({
       response: credential,
-      expectedChallenge: (challenge: string) => consumeChallengeAny(challenge),
+      expectedChallenge: async (challenge: string) => consumeChallengeAny(challenge),
       expectedOrigin: origin,
       expectedRPID: rpID,
       credential: {
