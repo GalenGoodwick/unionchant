@@ -3,7 +3,6 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isAdminEmail } from '@/lib/admin'
-import { moderateContent } from '@/lib/moderation'
 import { invalidatePodiumCache } from '@/lib/podium-cache'
 
 // GET /api/podiums/[id] - Get a single podium post
@@ -127,10 +126,6 @@ export async function PATCH(
       if (title.length > 200) {
         return NextResponse.json({ error: 'Title too long (max 200 chars)' }, { status: 400 })
       }
-      const check = moderateContent(title)
-      if (!check.allowed) {
-        return NextResponse.json({ error: `Title: ${check.reason}` }, { status: 400 })
-      }
       data.title = title
     }
 
@@ -138,10 +133,6 @@ export async function PATCH(
       const bodyText = body.body.trim()
       if (!bodyText) {
         return NextResponse.json({ error: 'Body cannot be empty' }, { status: 400 })
-      }
-      const check = moderateContent(bodyText, { skipLengthCheck: true })
-      if (!check.allowed) {
-        return NextResponse.json({ error: `Body: ${check.reason}` }, { status: 400 })
       }
       data.body = bodyText
     }

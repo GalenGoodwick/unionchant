@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { moderateContent } from '@/lib/moderation'
 import { invalidatePodiumCache } from '@/lib/podium-cache'
 import { isAdmin } from '@/lib/admin'
 import { sendEmail } from '@/lib/email'
@@ -91,16 +90,6 @@ export async function POST(req: NextRequest) {
     if (title.trim().length > 200) {
       return NextResponse.json({ error: 'Title too long (max 200 chars)' }, { status: 400 })
     }
-    // Content moderation
-    const titleCheck = moderateContent(title.trim())
-    if (!titleCheck.allowed) {
-      return NextResponse.json({ error: `Title: ${titleCheck.reason}` }, { status: 400 })
-    }
-    const bodyCheck = moderateContent(bodyText.trim(), { skipLengthCheck: true })
-    if (!bodyCheck.allowed) {
-      return NextResponse.json({ error: `Body: ${bodyCheck.reason}` }, { status: 400 })
-    }
-
     // Validate deliberation exists if linked
     if (deliberationId) {
       const delib = await prisma.deliberation.findUnique({

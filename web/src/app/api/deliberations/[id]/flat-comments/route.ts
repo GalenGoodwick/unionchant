@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { resolveSimulatorUser } from '@/lib/simulator-auth'
 import { prisma } from '@/lib/prisma'
-import { moderateContent } from '@/lib/moderation'
 
 // GET /api/deliberations/[id]/flat-comments — Flat comment list (ChantSimulator format)
 // Auth: NextAuth session OR CG signed token
@@ -82,11 +81,6 @@ export async function POST(
 
     if (!ideaId) {
       return NextResponse.json({ error: 'ideaId is required' }, { status: 400 })
-    }
-
-    const moderation = moderateContent(text)
-    if (!moderation.allowed) {
-      return NextResponse.json({ error: moderation.reason }, { status: 400 })
     }
 
     const deliberation = await prisma.deliberation.findUnique({
