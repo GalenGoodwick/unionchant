@@ -38,8 +38,8 @@ export default function ChampionBox({ winner, phase, ideas, creatorId, currentUs
               : 'text-muted'
           }`}>
             {hasWinner
-              ? isAccumulating ? 'CURRENT CHAMPION' : 'CHAMPION'
-              : 'CHAMPION TBD'}
+              ? isAccumulating ? 'CURRENT PRIORITY' : 'PRIORITY'
+              : 'PRIORITY TBD'}
           </div>
           <div className={`font-medium ${hasWinner ? 'text-foreground' : 'text-muted'}`}>
             {hasWinner ? winner.text : 'Deliberation in progress...'}
@@ -51,9 +51,9 @@ export default function ChampionBox({ winner, phase, ideas, creatorId, currentUs
                   {getDisplayName(winner.author)}
                 </span>
                 {currentUserId === winner.author.id ? (
-                  <span className="text-xs text-muted">(You are the winner)</span>
+                  <span className="text-xs text-muted">(Your idea was selected)</span>
                 ) : (
-                  <FollowButton userId={winner.author.id} initialFollowing={followedUserIds.includes(winner.author.id)} followLabel="Follow Winner" followingLabel="Winner Followed" />
+                  <FollowButton userId={winner.author.id} initialFollowing={followedUserIds.includes(winner.author.id)} followLabel="Follow Author" followingLabel="Following" />
                 )}
               </div>
               <div className="text-xs text-muted">{winner.totalXP || winner.totalVotes} VP</div>

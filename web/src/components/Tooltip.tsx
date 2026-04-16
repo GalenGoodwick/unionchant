@@ -5,13 +5,13 @@ import { useState, useRef, useEffect } from 'react'
 const GLOSSARY: Record<string, string> = {
   'Deliberation': 'A structured group vote on a question',
   'Cell': 'A small group of 5 people voting on 5 ideas',
-  'Tier': 'A round of voting — winners advance to the next tier',
-  'Priority': 'The winning idea after all rounds of voting',
-  'Defending Priority': 'The current winner being challenged by new ideas',
+  'Tier': 'A round of voting — top ideas advance to the next tier',
+  'Priority': 'The strongest idea after all rounds of deliberation',
+  'Defending Priority': 'The current priority being challenged by new ideas',
   'Round 2': 'A new vote where challenger ideas compete against the priority',
   'Accepting New Ideas': 'Waiting period where new challenger ideas can be submitted',
   'Advancing': 'This idea won its round and moves to the next tier',
-  'Up-pollinate': 'Every 2 upvotes on an idea-linked comment spread it to one more cell voting on that idea. Top comments follow winning ideas to the next tier.',
+  'Up-pollinate': 'Every 2 upvotes on an idea-linked comment spread it to one more cell voting on that idea. Top comments follow advancing ideas to the next tier.',
 }
 
 export function GlossaryTerm({ term, children }: { term: string; children?: React.ReactNode }) {

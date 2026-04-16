@@ -256,8 +256,8 @@ function getTypeLabel(type: string) {
     case 'COMMENT_REPLY': return 'Reply'
     case 'COMMENT_UP_POLLINATE': return 'Up-Pollinated'
     case 'IDEA_ADVANCING': return 'Advancing'
-    case 'IDEA_WON': return 'Won'
-    case 'IDEA_ELIMINATED': return 'Eliminated'
+    case 'IDEA_WON': return 'Priority'
+    case 'IDEA_ELIMINATED': return 'Did Not Advance'
     case 'VOTE_NEEDED':
     case 'CELL_READY': return 'Vote Ready'
     case 'DELIBERATION_UPDATE':

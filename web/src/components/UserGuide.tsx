@@ -23,9 +23,9 @@ const steps = [
     body: 'Drag the sliders to distribute 10 Vote Points across the ideas you support. Go all-in on one, or spread them around. All 10 must be allocated to submit.',
   },
   {
-    title: 'Winners Advance',
+    title: 'Strongest Ideas Advance',
     icon: '🏆',
-    body: 'The top idea in each cell advances to the next tier. New cells form, and it repeats. In the final round, everyone votes together. The winner becomes the priority.',
+    body: 'The top idea in each cell advances to the next tier. New cells form, and it repeats. In the final round, everyone votes together. The top idea becomes the priority.',
   },
   {
     title: 'Your Feed',

@@ -48,7 +48,7 @@ export default function TierFunnel({
 
   return (
     <div className="bg-background rounded-lg border border-border p-4 mb-4">
-      <h3 className="text-sm font-medium text-muted mb-3">Tournament Progress</h3>
+      <h3 className="text-sm font-medium text-muted mb-3">Deliberation Progress</h3>
       <div className="space-y-2">
         {tiers.map((t, i, arr) => (
           <div key={t.tier} className="relative">

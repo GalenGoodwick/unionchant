@@ -28,7 +28,7 @@ export default function HowItWorksPage() {
               They talk about them and pick the best one.
             </p>
             <p>
-              The winning ideas from each group move on. New groups form. Same thing happens again.
+              The strongest ideas from each group move on. New groups form. Same thing happens again.
               Talk, discuss, pick the best.
             </p>
             <p className="text-accent font-medium">
@@ -104,7 +104,7 @@ export default function HowItWorksPage() {
           </div>
           <p className="text-sm text-muted mt-3 leading-relaxed">
             It doesn&apos;t matter how many people show up. The process stays the same.
-            Small groups, real conversations, best idea wins.
+            Small groups, real conversations, the strongest idea emerges.
           </p>
         </section>
 

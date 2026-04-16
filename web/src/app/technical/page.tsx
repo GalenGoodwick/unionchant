@@ -35,13 +35,13 @@ export default function TechnicalWhitepaperPage() {
           <p className="text-subtle leading-relaxed mb-4">
             Everyone submits one idea. The ideas are shuffled and dealt into small groups
             of 5 called <strong className="text-foreground">cells</strong>&mdash;5 ideas
-            per cell, 5 voters per cell. Each cell votes. One idea wins. The other four
-            are eliminated.
+            per cell, 5 voters per cell. Each cell votes. One idea advances. The other four
+            do not.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
-            The winning ideas from every cell are collected and dealt into <em>new</em> cells
-            of 5. Now each idea faces winners from other cells&mdash;ideas that already survived
-            one round of scrutiny. New voters evaluate them. One wins. Four are eliminated.
+            The top ideas from every cell are collected and dealt into <em>new</em> cells
+            of 5. Now each idea faces top ideas from other cells&mdash;ideas that already survived
+            one round of scrutiny. New voters evaluate them. One advances. Four do not.
           </p>
           <p className="text-subtle leading-relaxed">
             This repeats. Each round cuts the field by 5x, and each round the competition
@@ -61,7 +61,7 @@ export default function TechnicalWhitepaperPage() {
             Every round, surviving ideas are grouped into <strong className="text-foreground">batches</strong> of
             5. All 50,000 residents vote every round&mdash;they&apos;re distributed across batches, split
             into cells of 5 within each batch. Every cell in a batch votes on the same 5 ideas. Votes
-            are summed across all cells in the batch. One winner per batch. The rest are eliminated.
+            are summed across all cells in the batch. One idea advances per batch. The rest do not.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
             As the field narrows, the number of batches shrinks&mdash;but the number of voters
@@ -75,7 +75,7 @@ export default function TechnicalWhitepaperPage() {
                   <th className="px-4 py-2 text-right text-muted font-medium">Ideas</th>
                   <th className="px-4 py-2 text-right text-muted font-medium">Batches</th>
                   <th className="px-4 py-2 text-right text-muted font-medium">Voters per batch</th>
-                  <th className="px-4 py-2 text-right text-muted font-medium">Winners</th>
+                  <th className="px-4 py-2 text-right text-muted font-medium">Advancing</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -111,13 +111,13 @@ export default function TechnicalWhitepaperPage() {
             same 5 ideas and every vote counts toward the result.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
-            After Round 6, only 3 ideas remain. The 2 strongest eliminated ideas from
+            After Round 6, only 3 ideas remain. The 2 strongest non-advancing ideas from
             Round 6 are brought back to fill the field to 5. Then all 50,000 residents vote
             on the same 5 finalists. The idea with the most total support becomes the Priority.
           </p>
           <p className="text-subtle leading-relaxed font-medium text-foreground">
             Seven rounds. 50,000 people. Every person participated every round. Every idea
-            got a fair hearing. The winner didn&apos;t just get the most clicks&mdash;it convinced
+            got a fair hearing. The priority didn&apos;t just get the most clicks&mdash;it convinced
             the most people in the most conversations.
           </p>
         </section>
@@ -182,7 +182,7 @@ export default function TechnicalWhitepaperPage() {
           </p>
           <p className="text-subtle leading-relaxed mb-4">
             When voting closes, points are summed per idea across all voters in the cell.
-            Highest total wins and advances. The rest are eliminated.
+            Highest total advances. The rest do not.
           </p>
           <p className="text-subtle leading-relaxed">
             If ideas tie, all tied ideas advance. If a cell has only one voter, an idea
@@ -195,7 +195,7 @@ export default function TechnicalWhitepaperPage() {
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">The Final</h2>
           <p className="text-subtle leading-relaxed mb-4">
-            When 5 or fewer ideas remain, the tournament enters
+            When 5 or fewer ideas remain, the process enters
             its <strong className="text-foreground">final round</strong>.
             This works differently from earlier rounds:
           </p>
@@ -211,11 +211,11 @@ export default function TechnicalWhitepaperPage() {
             </li>
           </ul>
           <p className="text-subtle leading-relaxed mb-4">
-            This is important. In earlier rounds, each cell picks its own winner independently.
+            This is important. In earlier rounds, each cell picks its own top idea independently.
             In the final, the entire population determines the outcome together.
           </p>
           <p className="text-subtle leading-relaxed">
-            If fewer than 5 ideas reach the final, the strongest eliminated ideas from the
+            If fewer than 5 ideas reach the final, the strongest non-advancing ideas from the
             previous round are brought back to fill the field to 5. Strong runners-up get a
             second chance&mdash;the final always has real competition.
           </p>
@@ -238,12 +238,12 @@ export default function TechnicalWhitepaperPage() {
             </li>
             <li>
               <strong className="text-foreground">Rounds advance automatically.</strong> As
-              soon as 5 winners accumulate at any round, they form a new cell at the next
+              soon as 5 advancing ideas accumulate at any round, they form a new cell at the next
               round. A Round 2 cell can be voting while Round 1 cells are still forming.
             </li>
           </ul>
           <p className="text-subtle leading-relaxed">
-            The facilitator closes submissions when ready. The tournament runs itself to completion.
+            The facilitator closes submissions when ready. The process runs itself to completion.
           </p>
         </section>
 
@@ -267,7 +267,7 @@ export default function TechnicalWhitepaperPage() {
             Groups are random. You don&apos;t know who you&apos;ll be with. An idea has to win in
             every round to survive&mdash;not once, but in cell after cell, evaluated by different
             people each time. Coordinating enough voters to control the outcome would require
-            controlling a majority in every cell at every round across the entire tournament.
+            controlling a majority in every cell at every round across the entire process.
           </p>
 
           <h3 className="text-lg font-semibold text-foreground mb-3 mt-6">Sybil resistance</h3>
@@ -278,7 +278,7 @@ export default function TechnicalWhitepaperPage() {
           <p className="text-subtle leading-relaxed mb-4">
             In Unity Chant, fake accounts are distributed randomly across cells. To guarantee
             an outcome in a single cell, you need 3 of the 5 voters. But your idea has to win in
-            every round. In a 50,000-person tournament with 7 rounds, an attacker would need to
+            every round. In a 50,000-person deliberation with 7 rounds, an attacker would need to
             control a majority in the right cells at every tier&mdash;an exponentially growing
             number of accounts for diminishing influence. 100 fake voters in a pool of 50,000
             have a negligible chance of landing together in the same cells round after round.
@@ -292,7 +292,7 @@ export default function TechnicalWhitepaperPage() {
           <h3 className="text-lg font-semibold text-foreground mb-3 mt-6">Additional safeguards</h3>
           <ul className="list-disc list-inside text-subtle leading-relaxed space-y-2 ml-2">
             <li>You are never placed in a cell with your own idea</li>
-            <li>Cells with zero votes keep waiting&mdash;no ideas are eliminated without human input</li>
+            <li>Cells with zero votes keep waiting&mdash;no ideas are removed without human input</li>
             <li>A grace period after the last vote lets others reconsider before a cell finalizes</li>
           </ul>
         </section>
@@ -325,7 +325,7 @@ export default function TechnicalWhitepaperPage() {
                   ['Final round threshold', '5 or fewer ideas remaining'],
                   ['Final round scoring', 'All votes summed across cells'],
                   ['Online: new cell every', '5 ideas submitted'],
-                  ['Online: next round every', '5 winners accumulated'],
+                  ['Online: next round every', '5 ideas advance'],
                   ['50,000 participants', '~7 rounds'],
                   ['1,000,000 participants', '~9 rounds'],
                   ['8 billion participants', '~14 rounds'],

@@ -512,7 +512,7 @@ function IdeaStatus({ status, isChampion }: { status: string; isChampion: boolea
   const map: Record<string, { label: string; color: string }> = {
     ADVANCING: { label: 'Advancing', color: 'text-accent' },
     IN_VOTING: { label: 'In Cell', color: 'text-success' },
-    ELIMINATED: { label: 'Eliminated', color: 'text-muted' },
+    ELIMINATED: { label: 'Did Not Advance', color: 'text-muted' },
     PENDING: { label: 'Waiting', color: 'text-muted' },
   }
   const badge = map[status]

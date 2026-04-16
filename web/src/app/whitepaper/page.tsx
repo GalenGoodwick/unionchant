@@ -92,10 +92,10 @@ export default function WhitepaperPage() {
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">Decisions That Evolve</h2>
           <p className="text-subtle leading-relaxed mb-4">
-            Unity Chant does not treat decisions as permanent endpoints. Once a winning idea emerges, it becomes the standing position—but it remains open to challenge.
+            Unity Chant does not treat decisions as permanent endpoints. Once a top idea emerges, it becomes the standing position—but it remains open to challenge.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
-            Over time, new participants can join and new ideas can be submitted. When enough new proposals accumulate, another round of deliberation is triggered. The previous winner must defend its position against fresh challengers. Because it has already survived scrutiny, it enters the new process at a later stage, preserving the advantage of having been vetted. But if a stronger idea emerges, the collective position updates.
+            Over time, new participants can join and new ideas can be submitted. When enough new proposals accumulate, another round of deliberation is triggered. The previous priority must defend its position against fresh challengers. Because it has already survived scrutiny, it enters the new process at a later stage, preserving the advantage of having been vetted. But if a stronger idea emerges, the collective position updates.
           </p>
           <p className="text-subtle leading-relaxed">
             Good ideas persist. Better ideas can replace them. The conversation never fully closes—it evolves as circumstances and understanding change.

@@ -454,7 +454,7 @@ export default function DemoPage() {
       setStatusMessage(`Tallying votes across all ${tierCells.length} cells...`)
       await sleep(800)
 
-      await waitForContinue('Votes tallied. The winning idea from each cell advances to the next tier. The rest are eliminated.')
+      await waitForContinue('Votes tallied. The strongest idea from each cell advances to the next tier. The rest do not advance.')
 
       // Determine winners (no random tiebreaker - just pick highest votes, first alphabetically)
       let advancingIdeas: string[] = []
@@ -597,7 +597,7 @@ export default function DemoPage() {
                   <p><strong>1.</strong> {participantCount} participants each submit one idea</p>
                   <p><strong>2.</strong> Ideas are grouped into cells of 5 ideas, 5 people each</p>
                   <p><strong>3.</strong> Each cell deliberates (discusses trade-offs) then votes</p>
-                  <p><strong>4.</strong> Winners advance to the next tier, losers are eliminated</p>
+                  <p><strong>4.</strong> Strongest ideas advance to the next tier</p>
                   <p><strong>5.</strong> Process repeats until one priority emerges</p>
                 </div>
                 <button
@@ -632,14 +632,14 @@ export default function DemoPage() {
               <div className="mt-2 pt-2 border-t border-success/30">
                 <div className="text-success text-xs font-semibold uppercase tracking-wide mb-1">Priority</div>
                 <div className="text-foreground font-bold text-sm">{champion.text}</div>
-                <div className="text-muted text-xs mt-1">From {ideas.length} ideas to 1 winner through {currentTier} tiers</div>
+                <div className="text-muted text-xs mt-1">From {ideas.length} ideas to 1 priority through {currentTier} tiers</div>
               </div>
             )}
           </div>
 
           {/* Tier Funnel */}
           <div className="bg-surface/90 backdrop-blur-sm rounded-lg p-3 border border-border">
-            <h3 className="text-xs font-medium text-muted mb-3">Tournament Progress</h3>
+            <h3 className="text-xs font-medium text-muted mb-3">Deliberation Progress</h3>
             <div className="space-y-1.5">
               {tierSummaries.filter(t => t.status !== 'pending').map((t, i, arr) => (
                 <div key={t.tier} className="relative">
@@ -697,13 +697,13 @@ export default function DemoPage() {
                 <div className="text-xl font-bold text-muted font-mono">
                   {ideas.filter(i => i.status === 'eliminated').length}
                 </div>
-                <div className="text-muted text-[10px]">Eliminated</div>
+                <div className="text-muted text-[10px]">Did Not Advance</div>
               </div>
               <div className="bg-success-bg rounded p-2">
                 <div className="text-xl font-bold text-success font-mono">
                   {ideas.filter(i => i.status === 'winner').length}
                 </div>
-                <div className="text-success text-[10px]">Winner</div>
+                <div className="text-success text-[10px]">Priority</div>
               </div>
             </div>
           </div>

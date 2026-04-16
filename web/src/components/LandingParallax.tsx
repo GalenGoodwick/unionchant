@@ -154,8 +154,8 @@ export default function LandingParallax() {
           <div className="max-w-[560px] mx-auto mb-10 space-y-5 text-white/70 text-lg leading-relaxed">
             <p>
               Ideas compete so communities don&apos;t have to shout. Small groups of five
-              read, discuss, and choose the strongest answer. Winners advance to face
-              winners. What survives genuine deliberation is what stands.
+              read, discuss, and choose the strongest answer. Top ideas advance to face
+              top ideas. What survives genuine deliberation is what stands.
             </p>
             <p>
               Every participant gets the same experience &mdash; whether 50 people
@@ -174,6 +174,9 @@ export default function LandingParallax() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/how-it-works" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
               How It Works
+            </Link>
+            <Link href="/whitepaper" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
+              Read the Whitepaper
             </Link>
             <Link href="/demo" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
               Watch the Demo
@@ -202,9 +205,9 @@ export default function LandingParallax() {
             everyone in one noisy room, we create{' '}
             <em className="text-foreground">thousands</em> of small
             conversations happening in parallel&mdash;then connect them
-            through a clear, repeatable tournament.
+            through a clear, repeatable process.
           </p>
-          <TierTab>each person writes 1 idea &mdash; they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks a winner</TierTab>
+          <TierTab>each person writes 1 idea &mdash; they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks the strongest</TierTab>
         </div>
       </section>
 
@@ -229,15 +232,15 @@ export default function LandingParallax() {
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-warning flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-warning">2</div>
               <h3 className="text-lg font-semibold text-foreground mb-2">Small groups deliberate</h3>
-              <p className="text-muted text-sm">Groups of 5 discuss, debate, and vote. Each group picks one winner. Thousands deliberate in parallel.</p>
+              <p className="text-muted text-sm">Groups of 5 discuss, debate, and vote. Each group picks the strongest idea. Thousands deliberate in parallel.</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-success flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-success">3</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Winners advance</h3>
-              <p className="text-muted text-sm">Winning ideas enter new groups with other winners. The process repeats until one consensus emerges.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Strongest ideas advance</h3>
+              <p className="text-muted text-sm">Top ideas enter new groups with other top ideas. The process repeats until one consensus emerges.</p>
             </div>
           </div>
-          <TierTab>winning ideas advance &mdash; each cell<br />joins with 4 others &mdash; 5 ideas from the<br />previous round are debated and scrutinized</TierTab>
+          <TierTab>strongest ideas advance &mdash; each cell<br />joins with 4 others &mdash; 5 ideas from the<br />previous round are debated and scrutinized</TierTab>
         </div>
       </section>
 
@@ -264,14 +267,14 @@ export default function LandingParallax() {
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
               <h3 className="text-lg font-semibold text-foreground mb-2">Decisions evolve</h3>
-              <p className="text-muted text-sm">Champions can be challenged. New ideas can dethrone old ones. The collective position updates.</p>
+              <p className="text-muted text-sm">Priorities can be challenged. New ideas can replace old ones. The collective position updates.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
               <h3 className="text-lg font-semibold text-foreground mb-2">A stronger mandate</h3>
-              <p className="text-muted text-sm">The winner has been evaluated across multiple contexts. That&apos;s legitimacy based on durability.</p>
+              <p className="text-muted text-sm">The result has been evaluated across multiple contexts. That&apos;s legitimacy based on durability.</p>
             </div>
           </div>
-          <TierTab>the winner advances &mdash; the pattern repeats<br />each layer distills further and the<br />most collectively durable ideas emerge</TierTab>
+          <TierTab>the strongest idea advances &mdash; the pattern repeats<br />each layer distills further and the<br />most collectively durable ideas emerge</TierTab>
         </div>
       </section>
 
@@ -327,15 +330,6 @@ export default function LandingParallax() {
             That is collective will made tangible.&rdquo;
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
-            <Link href="/whitepaper" className="text-accent hover:text-accent-hover font-medium transition-colors">
-              Read the Whitepaper &rarr;
-            </Link>
-            <Link href="/technical" className="text-muted hover:text-foreground font-medium transition-colors">
-              Technical Whitepaper &rarr;
-            </Link>
-            <Link href="/podiums" className="text-muted hover:text-foreground font-medium transition-colors">
-              Read Articles &rarr;
-            </Link>
           </div>
           <TierTab>consensus &mdash; not a slim majority<br />but a million conversations arriving at the same answer</TierTab>
         </div>
@@ -395,7 +389,7 @@ export default function LandingParallax() {
             Ready to participate?
           </h3>
           <p className="text-muted mb-8 max-w-[600px] mx-auto">
-            Join a deliberation. Submit your idea. Let the tournament decide.
+            Join a deliberation. Submit your idea. Let the community decide.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth/signup" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">

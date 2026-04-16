@@ -77,7 +77,7 @@ export default function PredictionsPanel({ deliberationId, currentTier }: {
 
   return (
     <Section
-      title="Predict Winner"
+      title="Predict the Priority"
       badge={
         <span className="text-xs bg-purple text-white px-2 py-0.5 rounded">
           {tierInfo.stats.votingProgress}% voted

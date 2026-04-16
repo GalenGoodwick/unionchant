@@ -51,7 +51,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
       {isFinalShowdown && (
         <div className="bg-purple-bg border border-purple rounded-lg p-3 mb-4 text-center">
           <div className="text-purple font-semibold text-sm">All {stats.totalCells} cells voting on the same {ideas?.length} ideas!</div>
-          <div className="text-xs text-muted mt-1">Cross-cell tallying determines the champion</div>
+          <div className="text-xs text-muted mt-1">Cross-cell tallying determines the priority</div>
         </div>
       )}
 
@@ -71,7 +71,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
       {isBatch && liveTally && liveTally.length > 0 && (
         <div className="mb-4">
           <p className="text-xs text-muted uppercase tracking-wide mb-2">
-            {isFinalShowdown ? 'Live Championship Tally' : 'Live Vote Tally'}
+            {isFinalShowdown ? 'Live Final Tally' : 'Live Vote Tally'}
           </p>
           <div className="space-y-1">
             {liveTally.map((item, index) => {
@@ -251,7 +251,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
               </div>
               {selectedCell.status === 'COMPLETED' && selectedCell.winner && (
                 <div className="bg-success-bg border border-success rounded-lg p-3">
-                  <p className="text-success text-xs font-semibold uppercase mb-1">Winner</p>
+                  <p className="text-success text-xs font-semibold uppercase mb-1">Top Idea</p>
                   <p className="text-foreground">{selectedCell.winner.text}</p>
                   <p className="text-muted text-sm">by {selectedCell.winner.author}</p>
                 </div>
