@@ -94,16 +94,21 @@ export async function POST(
     const isContinuousFlowTier1 = isContinuousFlow // Ideas always enter at tier 1 in continuous flow
 
     // Check if user has already submitted an idea in this phase
+    // Creator can seed up to 5 ideas during submission phase
+    const isCreator = user.id === deliberation.creatorId
     if (deliberation.phase === 'SUBMISSION' || isContinuousFlowTier1) {
-      // Regular idea submission — one per user
-      const existingIdea = await prisma.idea.findFirst({
+      const existingIdeas = await prisma.idea.count({
         where: {
           deliberationId: id,
           authorId: user.id,
-          isNew: false, // Regular submissions, not challengers
+          isNew: false,
         },
       })
-      if (existingIdea) {
+      if (isCreator && deliberation.phase === 'SUBMISSION') {
+        if (existingIdeas >= 5) {
+          return NextResponse.json({ error: 'Creators can seed up to 5 ideas' }, { status: 400 })
+        }
+      } else if (existingIdeas > 0) {
         return NextResponse.json({ error: 'You have already submitted an idea' }, { status: 400 })
       }
     } else if (isContinuousFlow && deliberation.currentTier > 1) {

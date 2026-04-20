@@ -94,7 +94,7 @@ function ChantsPage() {
   const [createError, setCreateError] = useState('')
   const [showSettings, setShowSettings] = useState(true)
   const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('endless')
-  const [ideaGoal, setIdeaGoal] = useState(15)
+  const [ideaGoal, setIdeaGoal] = useState(5)
   const [memberGoal, setMemberGoal] = useState(10)
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
   const [allowAI, setAllowAI] = useState(false)
@@ -233,7 +233,7 @@ function ChantsPage() {
     setAllowAI(false)
     setTags('')
     setSelectedCommunityId(null)
-    setIdeaGoal(15)
+    setIdeaGoal(5)
     setMemberGoal(10)
   }
 

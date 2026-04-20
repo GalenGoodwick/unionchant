@@ -458,8 +458,7 @@ export default function DashboardDetailPage() {
               {/* PHASE: PAUSED */}
               {deliberation.phase === 'PAUSED' && (
                 <div className="bg-error-bg border border-error rounded-lg p-2">
-                  <p className="text-xs text-error font-medium">Chant Paused</p>
-                  <p className="text-xs text-foreground mt-0.5">The heartbeat and all Shell actions are blocked while paused. Click Resume to continue.</p>
+                  <p className="text-xs text-error font-medium">Paused</p>
                 </div>
               )}
 
