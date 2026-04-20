@@ -51,6 +51,36 @@ function CollectiveChatLink({ createdAt }: { createdAt: string }) {
   )
 }
 
+// ─── Share Link Copy ───
+
+function ShareLinkCopy({ deliberationId }: { deliberationId: string }) {
+  const [copied, setCopied] = useState(false)
+  const url = typeof window !== 'undefined'
+    ? `${window.location.origin}/chants/${deliberationId}`
+    : `/chants/${deliberationId}`
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-xs text-muted truncate font-mono">
+        {url}
+      </div>
+      <button
+        onClick={handleCopy}
+        className="shrink-0 px-3 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors"
+      >
+        {copied ? 'Copied!' : 'Copy'}
+      </button>
+    </div>
+  )
+}
+
 // ─── Helpers ───
 
 function buildProgressNodes(delib: Deliberation, effectivePhase: string): ProgressNode[] {
@@ -276,7 +306,9 @@ function SubmissionBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
             </svg>
             <span className="text-success font-medium text-sm">Your idea submitted</span>
           </div>
-          <p className="text-foreground text-sm italic">"{delib.userSubmittedIdea.text}"</p>
+          <p className="text-foreground text-sm italic mb-3">&ldquo;{delib.userSubmittedIdea.text}&rdquo;</p>
+          <p className="text-xs text-muted mb-2">Share so your idea can get voted on:</p>
+          <ShareLinkCopy deliberationId={delib.id} />
         </div>
       ) : (
         <form onSubmit={d.handleSubmitIdea} className="bg-surface border border-border rounded-[10px] p-4">
@@ -696,9 +728,6 @@ export default function DeliberationPageClient() {
     <div className="min-h-screen bg-background flex flex-col">
 
       <div className={`max-w-2xl mx-auto px-4 py-4 flex-1 flex flex-col w-full `}>
-        <FirstVisitTooltip id="chant-detail">
-          Ideas compete in small groups of 5. Winners advance to the next tier until a priority emerges.
-        </FirstVisitTooltip>
         {/* Top bar: Back + Manage + Share */}
         <div className="flex items-center justify-between mb-3">
           <button

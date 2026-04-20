@@ -14,6 +14,7 @@ import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
+import { useFirstVisit } from '@/hooks/useFirstVisit'
 
 type Chant = {
   id: string
@@ -1256,6 +1257,9 @@ function ChantsPage() {
       )}
 
 
+      {/* Welcome popup — shows once for new users on chants page */}
+      <WelcomePopup />
+
       {/* Onboarding chant narration — explains each phase as the chant runs */}
       {currentNarration && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
@@ -1281,6 +1285,59 @@ function ChantsPage() {
         document.body
       )}
     </FrameLayout>
+  )
+}
+
+function WelcomePopup() {
+  const { data: session } = useSession()
+  const [show, dismiss] = useFirstVisit('chants-welcome')
+
+  if (!show || !session) return null
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
+      <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg">
+        <h2 className="text-base font-bold text-foreground mb-3">Welcome to Unity Chant</h2>
+        <p className="text-sm text-muted mb-4">Here&apos;s how to participate:</p>
+        <ol className="space-y-3 mb-5">
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">1</span>
+            <div>
+              <p className="text-sm font-medium text-foreground">Click a chant</p>
+              <p className="text-xs text-muted">Pick any question that interests you from the list.</p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">2</span>
+            <div>
+              <p className="text-sm font-medium text-foreground">Join</p>
+              <p className="text-xs text-muted">Tap the join button to enter the deliberation.</p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-warning/15 text-warning flex items-center justify-center text-xs font-bold shrink-0">3</span>
+            <div>
+              <p className="text-sm font-medium text-foreground">Submit your idea</p>
+              <p className="text-xs text-muted">Go to the Submit tab and write your answer in your own words.</p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">4</span>
+            <div>
+              <p className="text-sm font-medium text-foreground">Discuss &amp; Vote</p>
+              <p className="text-xs text-muted">When your group forms, read the ideas and attach comments to them. Like a comment to boost its visibility. Then vote for the strongest idea. You will get additional ideas to vote on as the chant progresses through rounds.</p>
+            </div>
+          </li>
+        </ol>
+        <button
+          onClick={dismiss}
+          className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
+        >
+          Got it
+        </button>
+      </div>
+    </div>,
+    document.body
   )
 }
 

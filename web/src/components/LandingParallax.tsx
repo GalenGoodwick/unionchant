@@ -149,27 +149,28 @@ export default function LandingParallax() {
             Unity Chant
           </h1>
           <p className="text-xl text-accent-light font-medium mb-10 font-serif italic opacity-80">
-            Structured deliberation at any scale.
+            Of all the ideas each of us could submit &mdash; what do we collectively agree on?
           </p>
           <div className="max-w-[560px] mx-auto mb-10 space-y-5 text-white/70 text-lg leading-relaxed">
             <p>
-              Ideas compete so communities don&apos;t have to shout. Small groups of five
-              read, discuss, and choose the strongest answer. Top ideas advance to face
-              top ideas. What survives genuine deliberation is what stands.
+              Not a poll. Not a survey. Not a list of options someone else wrote.
+              Everyone proposes their own answer. Then small groups of five read,
+              discuss, and choose the strongest. What survives rises. What doesn&apos;t, falls away.
             </p>
             <p>
-              Every participant gets the same experience &mdash; whether 50 people
-              join or 50,000. No microphones. No three-minute windows. No loudest
-              voice wins. Fair is fair.
+              The answer was always there &mdash; latent in the group, waiting
+              to be found. Unity Chant is the process that finds it.
+              Whether 50 people participate or 50,000, everyone gets
+              the same fair experience. No microphones. No loudest voice.
             </p>
             <p>
-              The result is traceable. Every round, every vote, every comment
-              documented. Not a poll. Not a petition. A consensus built through
-              real conversation.
+              The result isn&apos;t manufactured. It&apos;s discovered &mdash; through
+              real conversation, documented at every step. What emerges is
+              what the community already believed but had no way to say together.
             </p>
           </div>
           <p className="text-white/90 font-medium text-sm mb-10">
-            Find out what your community actually agrees on.
+            Discover what your community already agrees on.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/how-it-works" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
@@ -193,19 +194,20 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-header">
         <div className="max-w-[800px] mx-auto px-6 py-20">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-6">
-            How? The best conversations<br />happen in small groups
+            Agreement hides in small rooms
           </h2>
           <p className="text-lg text-subtle leading-relaxed mb-5">
-            Think about the best discussions you&apos;ve ever experienced. They
-            probably weren&apos;t in a stadium or a comment section. They were
-            around a table, with a few people who had time to actually listen.
+            Think about the best discussions you&apos;ve ever had. They
+            weren&apos;t in a stadium or a comment section. They were
+            around a table, with a few people who actually listened &mdash;
+            and you discovered you agreed on more than you expected.
           </p>
           <p className="text-lg text-subtle leading-relaxed">
-            Unity Chant provides this insight and scales it. Instead of putting
+            Unity Chant scales that moment. Instead of putting
             everyone in one noisy room, we create{' '}
-            <em className="text-foreground">thousands</em> of small
-            conversations happening in parallel&mdash;then connect them
-            through a clear, repeatable process.
+            <em className="text-foreground">thousands</em> of those
+            conversations in parallel. Each one uncovers a small piece
+            of hidden consensus. Connected together, they reveal the whole.
           </p>
           <TierTab>each person writes 1 idea &mdash; they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks the strongest</TierTab>
         </div>
@@ -218,26 +220,26 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-header">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Three steps to consensus
+            How latent consensus surfaces
           </h2>
           <p className="text-muted text-lg mb-10">
-            From a million ideas to one answer&mdash;and everyone had a voice.
+            Nobody knows the answer in advance. The process finds it.
           </p>
           <div className="grid md:grid-cols-3 gap-8">
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-accent flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-accent">1</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Everyone submits ideas</h3>
-              <p className="text-muted text-sm">Not choosing from a preset list. Everyone proposes their own solution to the question.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Everyone proposes</h3>
+              <p className="text-muted text-sm">No preset options. Each person submits their own answer to the question. The collective doesn&apos;t know what it thinks yet.</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-warning flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-warning">2</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Small groups deliberate</h3>
-              <p className="text-muted text-sm">Groups of 5 discuss, debate, and vote. Each group picks the strongest idea. Thousands deliberate in parallel.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Small groups discover</h3>
+              <p className="text-muted text-sm">Groups of 5 read every idea, discuss, and choose. In conversation, people find they agree on things they didn&apos;t know they shared.</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-success flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-success">3</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Strongest ideas advance</h3>
-              <p className="text-muted text-sm">Top ideas enter new groups with other top ideas. The process repeats until one consensus emerges.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">The answer emerges</h3>
+              <p className="text-muted text-sm">Strongest ideas meet other strong ideas. Layer by layer, what the group actually agrees on reveals itself.</p>
             </div>
           </div>
           <TierTab>strongest ideas advance &mdash; each cell<br />joins with 4 others &mdash; 5 ideas from the<br />previous round are debated and scrutinized</TierTab>
@@ -251,27 +253,27 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-header">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Not a poll. Not a vote. Deliberation.
+            Discovery, not measurement
           </h2>
           <p className="text-muted text-lg max-w-[560px] mx-auto mb-8">
-            Traditional voting counts existing preferences. Unity Chant lets preferences evolve through discussion.
+            A poll measures what people already think. Unity Chant reveals what they didn&apos;t know they shared.
           </p>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">Every voice is heard</h3>
-              <p className="text-muted text-sm">In a group of 5, you can&apos;t be drowned out. Your perspective gets genuine consideration.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">No one is drowned out</h3>
+              <p className="text-muted text-sm">In a group of 5, every perspective gets genuine consideration. Hidden agreement needs every voice to surface.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">Ideas win on merit</h3>
-              <p className="text-muted text-sm">To become consensus, an idea must survive scrutiny from many independent groups.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Consensus earns its place</h3>
+              <p className="text-muted text-sm">An idea must survive independent scrutiny from many groups. What emerges isn&apos;t popular &mdash; it&apos;s durable.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">Decisions evolve</h3>
-              <p className="text-muted text-sm">Priorities can be challenged. New ideas can replace old ones. The collective position updates.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">The answer can change</h3>
+              <p className="text-muted text-sm">New ideas can challenge old ones. The collective understanding updates as the group evolves.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">A stronger mandate</h3>
-              <p className="text-muted text-sm">The result has been evaluated across multiple contexts. That&apos;s legitimacy based on durability.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">A genuine mandate</h3>
+              <p className="text-muted text-sm">The result was found, not imposed. That&apos;s legitimacy you can stand behind.</p>
             </div>
           </div>
           <TierTab>the strongest idea advances &mdash; the pattern repeats<br />each layer distills further and the<br />most collectively durable ideas emerge</TierTab>
@@ -285,10 +287,10 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-header">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            The math is remarkable
+            It works at any scale
           </h2>
           <p className="text-muted text-lg mb-10">
-            Each tier reduces ideas by 80%. The same process handles 25 people or 8 billion.
+            The same process that finds consensus among 25 people can find it among 8 billion.
           </p>
           <div className="flex gap-8 md:gap-10 justify-center mb-10">
             <div className="text-center">
@@ -322,12 +324,11 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-header">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <p className="font-serif italic text-lg text-foreground/70 leading-[1.8] mb-8">
-            &ldquo;Imagine a million people reaching genuine consensus on a difficult issue.
-            Not a slim majority outvoting a frustrated minority, but a million individuals
-            who each participated in real conversations, heard different perspectives,
-            and arrived together at a decision they collectively shaped.
-            That is not just a vote count. That is a mandate.
-            That is collective will made tangible.&rdquo;
+            &ldquo;Imagine asking a million people: what should we do? Not giving them
+            options &mdash; letting them propose. Then watching as, through thousands
+            of honest conversations, a single answer surfaces that nobody wrote
+            but everyone recognizes. Not a majority outvoting a minority.
+            A million people discovering they already agreed.&rdquo;
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
           </div>
@@ -341,21 +342,24 @@ export default function LandingParallax() {
       {/* ── USE CASES ── */}
       <section className="relative z-[2] bg-background">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-10">
-            For any group, at any scale
+          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
+            Every group has something it already agrees on
           </h2>
+          <p className="text-muted text-lg mb-10">
+            They just haven&apos;t had a way to find it yet.
+          </p>
           <div className="grid md:grid-cols-3 gap-8">
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-2">Organizations</h3>
-              <p className="text-muted text-sm">The mailroom clerk&apos;s brilliant insight gets the same fair hearing as the VP&apos;s pet project. Ideas evaluated on merit, not rank.</p>
+              <p className="text-muted text-sm">What does the whole company actually think we should do? Not what leadership assumes. Not what the loudest team says. The real answer.</p>
             </div>
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-2">Communities</h3>
-              <p className="text-muted text-sm">Participate from your phone, on your own time. More voices lead to better decisions. No more town halls dominated by the usual few.</p>
+              <p className="text-muted text-sm">What does the neighborhood actually want? Not the three people who show up to every meeting. Everyone, on their own time, discovering shared ground.</p>
             </div>
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-2">Governance</h3>
-              <p className="text-muted text-sm">Give citizens a structured way to deliberate on specific issues&mdash;not just vote for representatives every few years.</p>
+              <p className="text-muted text-sm">What do citizens actually agree on? Not what polls predict. Not what campaigns promise. The answer that emerges when people deliberate for real.</p>
             </div>
           </div>
         </div>
@@ -365,11 +369,11 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-header text-white">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            The world has never had a tool that could do this.
+            The question no one could answer before.
           </h2>
           <p className="text-white/60 text-lg mb-8 max-w-[500px] mx-auto">
-            Good decisions don&apos;t emerge from silence or noise.
-            They emerge from conversation&mdash;given the right form.
+            What do we collectively agree on? Until now, there was no
+            way to ask &mdash; and no way to trust the answer.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/chants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
@@ -386,10 +390,10 @@ export default function LandingParallax() {
       <section className="relative z-[2] bg-background border-t border-border">
         <div className="max-w-[800px] mx-auto px-6 py-16 text-center">
           <h3 className="text-2xl font-bold text-foreground mb-4">
-            Ready to participate?
+            What does your group already agree on?
           </h3>
           <p className="text-muted mb-8 max-w-[600px] mx-auto">
-            Join a deliberation. Submit your idea. Let the community decide.
+            Ask the question. Submit your idea. Find out together.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth/signup" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
