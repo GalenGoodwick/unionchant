@@ -10,6 +10,7 @@ import CountdownTimer from '@/components/CountdownTimer'
 import FollowButton from '@/components/FollowButton'
 import { useDeliberation } from '@/hooks/useDeliberation'
 import { useCollectiveChat } from '@/app/providers'
+import { useToast } from '@/components/Toast'
 import { getDisplayName } from '@/lib/user'
 
 import ProgressTrail from '@/components/deliberation/ProgressTrail'
@@ -26,7 +27,7 @@ import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 
 import FlaggedBadge from '@/components/FlaggedBadge'
 import CommentsPanel from '@/components/deliberation/CommentsPanel'
-import type { Deliberation, Cell, Idea } from '@/components/deliberation/types'
+import type { Deliberation, Cell, Idea, CommentWithUpvote } from '@/components/deliberation/types'
 
 // ─── Collective Chat Link ───
 
@@ -615,6 +616,289 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
   )
 }
 
+// ─── Discuss Tab ───
+
+function DiscussBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
+  const delib = d.deliberation!
+  const [openCellId, setOpenCellId] = useState<string | null>(null)
+  const [openIdeaId, setOpenIdeaId] = useState<string | null>(null)
+  const [comments, setComments] = useState<CommentWithUpvote[]>([])
+  const [upPollinatedComments, setUpPollinatedComments] = useState<CommentWithUpvote[]>([])
+  const [newComment, setNewComment] = useState('')
+  const [submittingComment, setSubmittingComment] = useState(false)
+  const [upvoting, setUpvoting] = useState<string | null>(null)
+  const [commentsLoaded, setCommentsLoaded] = useState(false)
+  const { showToast } = useToast()
+
+  // Sort cells by tier (highest first = most recent)
+  const sortedCells = [...d.cells].sort((a, b) => b.tier - a.tier)
+
+  // Auto-open first cell
+  useEffect(() => {
+    if (!openCellId && sortedCells.length > 0) {
+      setOpenCellId(sortedCells[0].id)
+    }
+  }, [sortedCells.length])
+
+  // Fetch comments when cell changes
+  const fetchComments = async (cellId: string) => {
+    try {
+      const res = await fetch(`/api/cells/${cellId}/comments`)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data)) {
+          setComments(data)
+          setUpPollinatedComments([])
+        } else {
+          setComments(data.local || [])
+          setUpPollinatedComments(data.upPollinated || [])
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch comments:', err)
+    } finally {
+      setCommentsLoaded(true)
+    }
+  }
+
+  useEffect(() => {
+    if (openCellId) {
+      setCommentsLoaded(false)
+      fetchComments(openCellId)
+    }
+  }, [openCellId])
+
+  // Poll for new comments
+  useEffect(() => {
+    if (!openCellId) return
+    const cell = d.cells.find(c => c.id === openCellId)
+    if (cell?.status === 'COMPLETED') return
+    const interval = setInterval(() => fetchComments(openCellId), 10000)
+    return () => clearInterval(interval)
+  }, [openCellId])
+
+  const allComments = [...comments, ...upPollinatedComments]
+
+  const getIdeaComments = (ideaId: string) => {
+    return allComments
+      .filter(c => (c.linkedIdea?.id || c.ideaId) === ideaId)
+      .sort((a, b) => {
+        if (a.isUpPollinated && !b.isUpPollinated) return -1
+        if (!a.isUpPollinated && b.isUpPollinated) return 1
+        return (b.upvoteCount || 0) - (a.upvoteCount || 0)
+      })
+  }
+
+  const getIdeaCommentCount = (ideaId: string) => {
+    return allComments.filter(c => (c.linkedIdea?.id || c.ideaId) === ideaId).length
+  }
+
+  const handleCommentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newComment.trim() || !openIdeaId || !openCellId) return
+    setSubmittingComment(true)
+    try {
+      const res = await fetch(`/api/cells/${openCellId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newComment, ideaId: openIdeaId }),
+      })
+      if (res.ok) {
+        setNewComment('')
+        fetchComments(openCellId)
+      } else {
+        const data = await res.json()
+        showToast(data.error || 'Failed to post comment', 'error')
+      }
+    } catch {
+      showToast('Failed to post comment', 'error')
+    } finally {
+      setSubmittingComment(false)
+    }
+  }
+
+  const handleUpvote = async (commentId: string) => {
+    setUpvoting(commentId)
+    try {
+      const res = await fetch(`/api/comments/${commentId}/upvote`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.upPollinated) {
+          showToast(
+            data.spreadCount >= 3 ? 'Comment spreading to all cells!' : 'Comment spreading to more cells!',
+            'success'
+          )
+        }
+        if (openCellId) fetchComments(openCellId)
+      }
+    } catch {
+      console.error('Failed to upvote')
+    } finally {
+      setUpvoting(null)
+    }
+  }
+
+  const timeAgo = (dateString: string) => {
+    const diff = Date.now() - new Date(dateString).getTime()
+    const mins = Math.floor(diff / 60000)
+    if (mins < 1) return 'now'
+    if (mins < 60) return `${mins}m`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h`
+    return `${Math.floor(hours / 24)}d`
+  }
+
+  const activeCell = d.cells.find(c => c.id === openCellId)
+  const tierFinalized = activeCell && delib.currentTier !== undefined && activeCell.tier < delib.currentTier
+
+  return (
+    <div className="space-y-4">
+      {/* Cell selector */}
+      {sortedCells.length > 1 && (
+        <div className="flex gap-2 flex-wrap">
+          {sortedCells.map(cell => (
+            <button
+              key={cell.id}
+              onClick={() => { setOpenCellId(cell.id); setOpenIdeaId(null) }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                openCellId === cell.id
+                  ? 'bg-blue text-white'
+                  : 'bg-surface border border-border text-muted hover:text-foreground'
+              }`}
+            >
+              Tier {cell.tier} {cell.status === 'COMPLETED' ? '✓' : cell.status === 'VOTING' ? '•' : ''}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Ideas in selected cell */}
+      {activeCell && (
+        <div className="space-y-2">
+          {activeCell.ideas.map(({ idea }) => {
+            const commentCount = getIdeaCommentCount(idea.id)
+            const isSelected = openIdeaId === idea.id
+
+            return (
+              <div key={idea.id}>
+                <button
+                  onClick={() => setOpenIdeaId(isSelected ? null : idea.id)}
+                  className={`w-full text-left rounded-lg border p-3 transition-colors ${
+                    isSelected
+                      ? 'border-blue bg-blue/5'
+                      : 'border-border bg-surface hover:border-blue/50'
+                  }`}
+                >
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">{idea.text}</p>
+                      <p className="text-xs text-muted mt-0.5">{getDisplayName(idea.author)}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <svg className="w-3.5 h-3.5 text-blue" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+                      </svg>
+                      <span className="text-xs text-muted font-mono">{commentCount}</span>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Expanded comment thread */}
+                {isSelected && (
+                  <div className="mt-2 ml-3 border-l-2 border-blue/30 pl-3 space-y-2">
+                    {!commentsLoaded ? (
+                      <p className="text-muted text-sm py-3">Loading...</p>
+                    ) : getIdeaComments(idea.id).length === 0 ? (
+                      <p className="text-muted text-sm py-3">No comments yet — be the first</p>
+                    ) : (
+                      getIdeaComments(idea.id).map(c => (
+                        <div
+                          key={c.id}
+                          className={`rounded p-2 text-sm flex justify-between items-start gap-2 ${
+                            c.isUpPollinated
+                              ? 'bg-purple-bg border-l-2 border-purple'
+                              : 'bg-background'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-foreground text-sm leading-snug">{c.text}</p>
+                            <div className="flex items-center gap-2 mt-1 text-[10px] flex-wrap">
+                              {c.isUpPollinated ? (
+                                <span className="text-purple">From another cell</span>
+                              ) : (
+                                <>
+                                  <Link href={`/user/${c.user.id}`} className="text-accent font-medium hover:underline">{getDisplayName(c.user)}</Link>
+                                  <span className="text-muted">{timeAgo(c.createdAt)}</span>
+                                </>
+                              )}
+                              {!c.isUpPollinated && (c.spreadCount || 0) > 0 && (
+                                <span className="text-purple">
+                                  {(c.spreadCount || 0) >= 3 ? 'In all cells' : 'Spreading'}
+                                </span>
+                              )}
+                              {(c.upvoteCount || 0) > 0 && !c.isUpPollinated && (
+                                <span className="text-muted">{c.upvoteCount} upvote{(c.upvoteCount || 0) !== 1 ? 's' : ''}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleUpvote(c.id)}
+                            disabled={upvoting === c.id || !!c.userHasUpvoted}
+                            className={`group relative shrink-0 flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                              c.userHasUpvoted
+                                ? 'bg-purple-bg text-purple'
+                                : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
+                            }`}
+                          >
+                            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-44 rounded bg-surface-hover px-2 py-1 text-[10px] text-foreground text-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg border border-border z-10">
+                              {c.userHasUpvoted ? 'You upvoted this' : 'Upvote to spread to other cells'}
+                            </span>
+                            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 19V5" />
+                              <path d="M5 12l7-7 7 7" />
+                            </svg>
+                            <span className="font-mono">{c.upvoteCount || 0}</span>
+                          </button>
+                        </div>
+                      ))
+                    )}
+
+                    {/* Compose */}
+                    {!tierFinalized && (
+                      <form onSubmit={handleCommentSubmit} className="flex gap-2 pt-1">
+                        <input
+                          type="text"
+                          placeholder="Add a comment..."
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          maxLength={2000}
+                          className="flex-1 min-w-0 bg-background rounded border border-border px-3 py-1.5 text-sm text-foreground placeholder-muted focus:outline-none focus:border-blue"
+                        />
+                        <button
+                          type="submit"
+                          disabled={submittingComment || !newComment.trim()}
+                          className="shrink-0 bg-blue hover:bg-blue-hover disabled:opacity-50 text-white px-3 py-1.5 rounded text-sm"
+                        >
+                          {submittingComment ? '...' : 'Send'}
+                        </button>
+                      </form>
+                    )}
+                    <p className="text-[10px] text-muted">Upvoted comments spread to other cells</p>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {sortedCells.length === 0 && (
+        <p className="text-muted text-sm text-center py-6">No cells yet — discussion starts when voting begins.</p>
+      )}
+    </div>
+  )
+}
+
 // ─── Phase Router ───
 
 function PhaseBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
@@ -807,6 +1091,18 @@ export default function DeliberationPageClient() {
           </button>
           {d.effectivePhase !== 'SUBMISSION' && (
             <button
+              onClick={() => setActiveTab('discuss')}
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'discuss'
+                  ? 'border-blue text-blue'
+                  : 'border-transparent text-muted hover:text-foreground'
+              }`}
+            >
+              Discuss
+            </button>
+          )}
+          {d.effectivePhase !== 'SUBMISSION' && (
+            <button
               onClick={() => setActiveTab('vote')}
               className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'vote'
@@ -881,6 +1177,8 @@ export default function DeliberationPageClient() {
           <JoinBody d={d} onSwitchTab={setActiveTab} />
         ) : activeTab === 'submit' ? (
           <SubmissionBody d={d} />
+        ) : activeTab === 'discuss' ? (
+          <DiscussBody d={d} />
         ) : (
           <PhaseBody d={d} />
         )}

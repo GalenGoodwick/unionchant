@@ -161,7 +161,7 @@ export default function LandingParallax() {
               The answer was always there &mdash; latent in the group, waiting
               to be found. Unity Chant is the process that finds it.
               Whether 50 people participate or 50,000, everyone gets
-              the same fair experience. No microphones. No loudest voice.
+              the same fair experience. No megaphones. No loudest voice.
             </p>
             <p>
               The result isn&apos;t manufactured. It&apos;s discovered &mdash; through

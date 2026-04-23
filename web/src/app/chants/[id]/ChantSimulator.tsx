@@ -9,7 +9,7 @@
 'use client'
 
 import { useSession } from 'next-auth/react'
-import { ChantStatus, CommentInfo, IdeaInfo, VoteResult } from '@/types/chant-simulator'
+import { ChantStatus, CellInfo, CommentInfo, IdeaInfo, VoteResult } from '@/types/chant-simulator'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -20,7 +20,7 @@ import FrameLayout from '@/components/FrameLayout'
 import ShareMenu from '@/components/ShareMenu'
 import SynthesisView from './SynthesisView'
 
-type Tab = 'join' | 'vote' | 'ideas' | 'submit' | 'cells' | 'manage'
+type Tab = 'join' | 'vote' | 'ideas' | 'submit' | 'discuss' | 'cells' | 'manage'
 
 export default function ChantSimulator({ id, authToken }: { id: string; authToken?: string | null }) {
   const { data: session } = useSession()
@@ -65,7 +65,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const [copiedInvite, setCopiedInvite] = useState(false)
 
   // Tabs
-  const [activeTab, setActiveTab] = useState<Tab>('join')
+  const [activeTab, setActiveTab] = useState<Tab>('submit')
   const [tabInitialized, setTabInitialized] = useState(false)
 
   // Cells
@@ -128,7 +128,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         // Switch to appropriate tab
         if (status?.phase === 'SUBMISSION') setActiveTab('submit')
         else if (status?.phase === 'VOTING') setActiveTab('vote')
-        else setActiveTab('ideas')
+        else setActiveTab('discuss')
       }
     } catch { /* silent */ }
     finally { setJoining(false) }
@@ -175,7 +175,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           // Already a member — go to phase tab
           if (data.phase === 'VOTING' && !data.hasVoted) setActiveTab('vote')
           else if (data.phase === 'SUBMISSION') setActiveTab('submit')
-          else if (data.phase === 'COMPLETED') setActiveTab('ideas')
+          else if (data.phase === 'COMPLETED') setActiveTab('discuss')
         }
         // else stay on 'join' tab (default)
         setTabInitialized(true)
@@ -206,7 +206,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   }, [fetchStatus])
 
   useEffect(() => {
-    if (activeTab === 'ideas' || activeTab === 'submit') {
+    if (activeTab === 'ideas' || activeTab === 'submit' || activeTab === 'discuss') {
       setCommentsLoading(true)
       fetchComments().finally(() => setCommentsLoading(false))
       const interval = setInterval(fetchComments, 15000)
@@ -521,11 +521,12 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const totalXP = status.ideas.reduce((sum, idea) => sum + (idea.totalXP || 0), 0)
 
   const tabs: { key: Tab; label: string; badge?: number; show: boolean }[] = [
-    { key: 'join', label: joined ? 'Overview' : 'Join', show: true },
+    { key: 'join', label: 'Join', show: false },
     { key: 'submit', label: 'Submit', show: true },
+    { key: 'discuss', label: 'Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' },
     { key: 'vote', label: 'Vote', show: true },
-    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: true },
-    { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: true },
+    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: false },
+    { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: false },
     { key: 'manage', label: 'Manage', show: !!isCreator },
   ]
 
@@ -769,7 +770,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   onClick={() => {
                     if (status.phase === 'SUBMISSION') setActiveTab('submit')
                     else if (status.phase === 'VOTING') setActiveTab('vote')
-                    else setActiveTab('ideas')
+                    else setActiveTab('discuss')
                   }}
                   className="text-success text-xs font-semibold hover:underline"
                 >
@@ -884,7 +885,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             )}
 
             {status.phase === 'COMPLETED' && status.champion && (
-              <EmptyState icon={'\u2605'} title="Priority Declared" bold subtitle={<>Check <button onClick={() => setActiveTab('ideas')} className="text-accent hover:underline font-medium">Results</button> for full rankings.</>} />
+              <EmptyState icon={'\u2605'} title="Priority Declared" bold subtitle={<>Check <button onClick={() => setActiveTab('discuss')} className="text-accent hover:underline font-medium">Discuss</button> to see all ideas and comments.</>} />
             )}
 
             {status.phase === 'VOTING' && (status.votedTiers?.includes(effectiveTier) || localVotedTiers.has(effectiveTier)) && !status.multipleIdeasAllowed && !tierVoteResults[effectiveTier] && (() => {
@@ -1104,6 +1105,42 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             )}
 
             <p className="text-xs text-muted text-center">{status.ideaCount} idea{status.ideaCount !== 1 ? 's' : ''} submitted so far</p>
+          </div>
+        )}
+
+        {/* ─── DISCUSS TAB ─── */}
+        {activeTab === 'discuss' && (
+          <div className="space-y-3">
+            {status.phase === 'SUBMISSION' ? (
+              <EmptyState icon={'💬'} title="Discussion opens when voting starts" subtitle="Submit your idea first — discussion begins once enough ideas are collected." />
+            ) : status.ideas.length === 0 ? (
+              <EmptyState icon={'💬'} title="No ideas to discuss" subtitle="Ideas will appear here once submitted." />
+            ) : (() => {
+              const tiers = [...new Set(status.cells.map(c => c.tier))].sort((a, b) => a - b)
+              const defaultTier = tiers.length > 0 ? tiers[tiers.length - 1] : 1
+
+              return (
+                <DiscussTab
+                  tiers={tiers}
+                  defaultTier={defaultTier}
+                  status={status}
+                  cells={status.cells}
+                  commentsByIdea={commentsByIdea}
+                  expandedIdea={expandedIdea}
+                  setExpandedIdea={setExpandedIdea}
+                  handleUpvote={handleUpvote}
+                  upvoting={upvoting}
+                  userId={userId}
+                  commentText={commentText}
+                  setCommentText={setCommentText}
+                  handlePostComment={handlePostComment}
+                  postingComment={postingComment}
+                  commentError={commentError}
+                  commentsLoading={commentsLoading}
+                  comments={comments}
+                />
+              )
+            })()}
           </div>
         )}
 
@@ -1721,6 +1758,158 @@ function CommentThread({ comments, onUpvote, upvoting }: {
         </div>
       ))}
     </div>
+  )
+}
+
+function DiscussTab({
+  tiers, defaultTier, status, cells, commentsByIdea, expandedIdea, setExpandedIdea,
+  handleUpvote, upvoting, userId, commentText, setCommentText, handlePostComment,
+  postingComment, commentError, commentsLoading, comments,
+}: {
+  tiers: number[]
+  defaultTier: number
+  status: ChantStatus
+  cells: CellInfo[]
+  commentsByIdea: Record<string, CommentInfo[]>
+  expandedIdea: string | null
+  setExpandedIdea: (id: string | null) => void
+  handleUpvote: (id: string) => void
+  upvoting: string | null
+  userId: string | null | undefined
+  commentText: Record<string, string>
+  setCommentText: (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  handlePostComment: (ideaId: string) => void
+  postingComment: string | null
+  commentError: string
+  commentsLoading: boolean
+  comments: CommentInfo[]
+}) {
+  const [selectedTier, setSelectedTier] = useState(defaultTier)
+
+  // Get ideas for the selected tier from cells
+  const tierCells = cells.filter(c => c.tier === selectedTier)
+  const tierIdeaIds = new Set(tierCells.flatMap(c => (c.ideas || []).map(i => i.id)))
+  // Fall back to ideas by tier field if cells don't have ideas populated
+  const tierIdeas = tierIdeaIds.size > 0
+    ? status.ideas.filter(i => tierIdeaIds.has(i.id))
+    : status.ideas.filter(i => i.tier === selectedTier || (selectedTier === 1 && i.tier === 0))
+
+  return (
+    <>
+      {commentsLoading && comments.length === 0 && (
+        <p className="text-muted text-xs text-center py-2 animate-pulse">Loading comments...</p>
+      )}
+
+      {/* Tier selector */}
+      {tiers.length > 1 && (
+        <div className="flex gap-1.5 flex-wrap">
+          {tiers.map(tier => (
+            <button
+              key={tier}
+              onClick={() => setSelectedTier(tier)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                selectedTier === tier
+                  ? 'bg-accent text-white'
+                  : 'bg-surface border border-border text-muted hover:text-foreground'
+              }`}
+            >
+              Tier {tier}
+              {tierCells.length > 0 && tier === selectedTier && (
+                <span className="ml-1 opacity-70">({cells.filter(c => c.tier === tier).length} cell{cells.filter(c => c.tier === tier).length !== 1 ? 's' : ''})</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-muted">Tap an idea to read and leave comments. Upvoted comments spread to other cells.</p>
+
+      {/* Ideas for selected tier */}
+      {tierIdeas.length === 0 ? (
+        <p className="text-muted text-sm text-center py-4">No ideas in this tier yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {tierIdeas
+            .sort((a, b) => {
+              const aCount = (commentsByIdea[a.id] || []).length
+              const bCount = (commentsByIdea[b.id] || []).length
+              if (bCount !== aCount) return bCount - aCount
+              return (b.totalXP || 0) - (a.totalXP || 0)
+            })
+            .map(idea => {
+              const ideaComments = commentsByIdea[idea.id] || []
+              const isExpanded = expandedIdea === idea.id
+              return (
+                <div key={idea.id} className="rounded-lg border border-border overflow-hidden bg-surface/90 backdrop-blur-sm">
+                  <button
+                    onClick={() => setExpandedIdea(isExpanded ? null : idea.id)}
+                    className="w-full p-3 text-left flex items-start justify-between gap-2 hover:bg-surface/80 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground leading-snug">{idea.text}</p>
+                      <p className="text-[11px] text-muted mt-0.5">{idea.author.name}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <IdeaStatusBadge status={idea.status} isChampion={idea.isChampion} tier={idea.tier} />
+                      <span className={`flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full ${
+                        ideaComments.length > 0 ? 'text-purple bg-purple/10' : 'text-muted bg-surface'
+                      }`}>
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M4.913 2.658c2.075-.27 4.19-.408 6.337-.408 2.147 0 4.262.139 6.337.408 1.922.25 3.291 1.861 3.405 3.727a4.403 4.403 0 00-1.032-.211 50.89 50.89 0 00-8.42 0c-2.358.196-4.04 2.19-4.04 4.434v4.286a4.47 4.47 0 002.433 3.984L7.28 21.53A.75.75 0 016 21v-4.03a48.527 48.527 0 01-1.087-.128C2.905 16.58 1.5 14.833 1.5 12.862V6.638c0-1.97 1.405-3.718 3.413-3.979z" />
+                          <path d="M15.75 7.5c-1.376 0-2.739.057-4.086.169C10.124 7.797 9 9.103 9 10.609v4.285c0 1.507 1.128 2.814 2.67 2.94 1.243.102 2.5.157 3.768.165l2.782 2.781a.75.75 0 001.28-.53v-2.39l.33-.026c1.542-.125 2.67-1.433 2.67-2.94v-4.286c0-1.505-1.125-2.811-2.664-2.94A49.392 49.392 0 0015.75 7.5z" />
+                        </svg>
+                        {ideaComments.length}
+                      </span>
+                      <span className="text-muted text-[10px]">{isExpanded ? '\u25B2' : '\u25BC'}</span>
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-border">
+                      <CommentThread
+                        comments={ideaComments}
+                        onUpvote={handleUpvote}
+                        upvoting={upvoting}
+                      />
+
+                      {userId && (
+                        <div className="p-2 border-t border-border bg-background/50">
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Add a comment..."
+                              value={commentText[idea.id] || ''}
+                              onChange={(e) => setCommentText(prev => ({ ...prev, [idea.id]: e.target.value }))}
+                              maxLength={2000}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault()
+                                  handlePostComment(idea.id)
+                                }
+                              }}
+                              className="flex-1 px-2.5 py-1.5 bg-background border border-border rounded-md text-xs text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
+                            />
+                            <button
+                              onClick={() => handlePostComment(idea.id)}
+                              disabled={postingComment === idea.id || !commentText[idea.id]?.trim()}
+                              className="px-3 py-1.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs rounded-md transition-colors font-medium"
+                            >
+                              {postingComment === idea.id ? '...' : 'Send'}
+                            </button>
+                          </div>
+                          {commentError && postingComment === null && (
+                            <p className="text-error text-[10px] mt-1">{commentError}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+        </div>
+      )}
+    </>
   )
 }
 
