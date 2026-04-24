@@ -600,7 +600,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         {status.champion && (() => {
           const runnersUp = status.ideas
             .filter(i => i.id !== status.champion!.id && i.totalXP > 0)
-            .sort((a, b) => b.totalXP - a.totalXP || (Math.random() - 0.5))
+            .sort((a, b) => b.totalXP - a.totalXP || a.id.localeCompare(b.id))
             .slice(0, 4)
           return (
             <div className="mb-3 p-3 bg-success/8 border border-success/20 rounded-lg">
@@ -727,8 +727,8 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   Top Ideas ({status.ideas.length})
                 </h3>
                 <div className="space-y-1.5">
-                  {status.ideas
-                    .sort((a, b) => b.totalXP - a.totalXP)
+                  {[...status.ideas]
+                    .sort((a, b) => b.totalXP - a.totalXP || a.id.localeCompare(b.id))
                     .slice(0, 5)
                     .map((idea, i) => (
                     <div key={idea.id} className="p-2.5 bg-surface/60 rounded-lg border border-border/50">
@@ -1165,8 +1165,8 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
               <EmptyState icon={'💡'} title="No ideas yet" subtitle="Be the first to submit one!" />
             ) : (
               <div className="space-y-2">
-                {status.ideas
-                  .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0))
+                {[...status.ideas]
+                  .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0) || a.id.localeCompare(b.id))
                   .map((idea, i) => {
                     const ideaComments = commentsByIdea[idea.id] || []
                     const isExpanded = expandedIdea === idea.id
