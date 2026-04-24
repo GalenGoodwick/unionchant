@@ -77,10 +77,7 @@ export async function GET(req: NextRequest) {
           },
           cells: {
             select: {
-              votes: {
-                select: { userId: true },
-                distinct: ['userId'],
-              },
+              _count: { select: { votes: true } },
             },
           },
         },
@@ -100,7 +97,7 @@ export async function GET(req: NextRequest) {
       }
 
       return deliberations.map(d => {
-        const voteCount = d.cells.reduce((sum, c) => sum + c.votes.length, 0)
+        const voteCount = d.cells.reduce((sum, c) => sum + c._count.votes, 0)
         const { cells: _cells, ...rest } = d
         return {
           ...rest,
