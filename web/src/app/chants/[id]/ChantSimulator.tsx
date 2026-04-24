@@ -149,6 +149,8 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   }, [id, joined])
 
   const fetchingStatus = useRef(false)
+  const hasLoadedOnce = useRef(false)
+  const tabInitializedRef = useRef(false)
   const fetchStatus = useCallback(async () => {
     if (fetchingStatus.current) return // prevent stacking
     fetchingStatus.current = true
@@ -156,10 +158,11 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       const res = await authFetch(`/api/deliberations/${id}/status`)
       if (!res.ok) {
         // Don't kill the page on transient errors — only on first load
-        if (!status) throw new Error('Failed to fetch')
+        if (!hasLoadedOnce.current) throw new Error('Failed to fetch')
         return
       }
       const data = await res.json()
+      hasLoadedOnce.current = true
       setStatus(data)
 
       // Detect existing membership from API
@@ -170,7 +173,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
       // Allocations initialized via useEffect watching status + selectedTier
 
-      if (!tabInitialized) {
+      if (!tabInitializedRef.current) {
         if (data.isMember) {
           // Already a member — go to phase tab
           if (data.phase === 'VOTING' && !data.hasVoted) setActiveTab('vote')
@@ -178,15 +181,16 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           else if (data.phase === 'COMPLETED') setActiveTab('discuss')
         }
         // else stay on 'join' tab (default)
+        tabInitializedRef.current = true
         setTabInitialized(true)
       }
     } catch (err) {
-      if (!status) setError((err as Error).message)
+      if (!hasLoadedOnce.current) setError((err as Error).message)
     } finally {
       setLoading(false)
       fetchingStatus.current = false
     }
-  }, [id, tabInitialized, status, authFetch])
+  }, [id, authFetch, joined])
 
   const fetchComments = useCallback(async () => {
     try {
@@ -225,7 +229,9 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     if (tier === status.currentTier && status.fcfsProgress?.currentCellIdeas) {
       ideaIds = status.fcfsProgress.currentCellIdeas.map(i => i.id)
     } else {
-      const cell = status.cells.find(c => c.tier === tier && c.status === 'VOTING' && c.ideas?.length)
+      const mySet = new Set(status.myCellIds || [])
+      const myCell = status.cells.find(c => c.tier === tier && c.status === 'VOTING' && c.ideas?.length && mySet.has(c.id))
+      const cell = myCell || status.cells.find(c => c.tier === tier && c.status === 'VOTING' && c.ideas?.length)
       if (cell?.ideas) ideaIds = cell.ideas.map(i => i.id)
     }
 
