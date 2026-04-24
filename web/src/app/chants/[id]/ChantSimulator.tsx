@@ -495,7 +495,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const effectiveTier = selectedTier ?? unvotedTiers[0] ?? votableTiers[0] ?? status.currentTier
 
   const cellIdeas = effectiveTier === status.currentTier ? status.fcfsProgress?.currentCellIdeas : null
-  const tierCell = !cellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length) : null
+  const myCellSet = new Set(status.myCellIds || [])
+  // Prefer user's own cell at this tier; fall back to any voting cell only if user has no cell
+  const myTierCell = !cellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length && myCellSet.has(c.id)) : null
+  const tierCell = myTierCell || (!cellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length) : null)
   const votingIdeas = cellIdeas
     ? cellIdeas.map(ci => ({ ...ci, status: 'IN_VOTING', tier: effectiveTier, totalXP: 0, totalVotes: 0, isChampion: false, author: { ...ci.author } }))
     : tierCell?.ideas
@@ -1125,6 +1128,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   defaultTier={defaultTier}
                   status={status}
                   cells={status.cells}
+                  myCellIds={status.myCellIds || []}
                   commentsByIdea={commentsByIdea}
                   expandedIdea={expandedIdea}
                   setExpandedIdea={setExpandedIdea}
@@ -1762,7 +1766,7 @@ function CommentThread({ comments, onUpvote, upvoting }: {
 }
 
 function DiscussTab({
-  tiers, defaultTier, status, cells, commentsByIdea, expandedIdea, setExpandedIdea,
+  tiers, defaultTier, status, cells, myCellIds, commentsByIdea, expandedIdea, setExpandedIdea,
   handleUpvote, upvoting, userId, commentText, setCommentText, handlePostComment,
   postingComment, commentError, commentsLoading, comments,
 }: {
@@ -1770,6 +1774,7 @@ function DiscussTab({
   defaultTier: number
   status: ChantStatus
   cells: CellInfo[]
+  myCellIds: string[]
   commentsByIdea: Record<string, CommentInfo[]>
   expandedIdea: string | null
   setExpandedIdea: (id: string | null) => void
@@ -1786,8 +1791,10 @@ function DiscussTab({
 }) {
   const [selectedTier, setSelectedTier] = useState(defaultTier)
 
-  // Get ideas for the selected tier from cells
-  const tierCells = cells.filter(c => c.tier === selectedTier)
+  // Get ideas for the selected tier — prefer user's own cells, fall back to all tier cells
+  const myCellSet = new Set(myCellIds)
+  const myTierCells = cells.filter(c => c.tier === selectedTier && myCellSet.has(c.id))
+  const tierCells = myTierCells.length > 0 ? myTierCells : cells.filter(c => c.tier === selectedTier)
   const tierIdeaIds = new Set(tierCells.flatMap(c => (c.ideas || []).map(i => i.id)))
   // Fall back to ideas by tier field if cells don't have ideas populated
   const tierIdeas = tierIdeaIds.size > 0

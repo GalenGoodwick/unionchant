@@ -40,6 +40,7 @@ export interface ChantStatus {
   accumulationEnabled?: boolean
   ideaGoal?: number | null
   memberGoal?: number | null
+  myCellIds?: string[]
 }
 
 export interface IdeaInfo {

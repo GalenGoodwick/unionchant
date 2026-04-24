@@ -1207,50 +1207,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // Notify agent owners of advancing ideas
     notifyAgentOwner({ type: 'idea_advanced', ideaIds: advancingIdeas.map(i => i.id), deliberationId, tier: nextTier })
 
-    // Backfill to 5 ideas for final showdown if we have 2-4 advancing
-    if (advancingIdeas.length >= 2 && advancingIdeas.length < 5) {
-      const needed = 5 - advancingIdeas.length
-      // Pull runners-up by totalXP from ideas eliminated this tier
-      const allRunnersUp = await prisma.idea.findMany({
-        where: {
-          deliberationId,
-          status: 'ELIMINATED',
-          tier: tier,
-        },
-        orderBy: { totalXP: 'desc' },
-      })
-
-      if (allRunnersUp.length > 0) {
-        let toRevive = allRunnersUp.slice(0, needed)
-
-        // Check for ties at the cutoff — if the last included idea ties with excluded ones, include them (max 7 total)
-        if (toRevive.length === needed && allRunnersUp.length > needed) {
-          const cutoffXP = toRevive[toRevive.length - 1].totalXP
-          const tiedExtras = allRunnersUp.slice(needed).filter(i => i.totalXP === cutoffXP)
-          if (tiedExtras.length > 0 && advancingIdeas.length + needed + tiedExtras.length <= 7) {
-            // Include all tied ideas (allows 6-7 in final showdown)
-            toRevive = [...toRevive, ...tiedExtras]
-            console.log(`checkTierCompletion: including ${tiedExtras.length} tied ideas at ${cutoffXP} VP`)
-          } else if (tiedExtras.length > 0) {
-            // Too many ties to include all — randomly pick from the tied group to fill to 5
-            const tiedPool = [...toRevive.filter(i => i.totalXP === cutoffXP), ...tiedExtras]
-            const nonTied = toRevive.filter(i => i.totalXP !== cutoffXP)
-            const slotsForTied = needed - nonTied.length
-            const shuffledTied = tiedPool.sort(() => Math.random() - 0.5).slice(0, slotsForTied)
-            toRevive = [...nonTied, ...shuffledTied]
-            console.log(`checkTierCompletion: randomly picked ${slotsForTied} from ${tiedPool.length} tied ideas at ${cutoffXP} VP`)
-          }
-        }
-
-        // Revive runners-up back to ADVANCING
-        await prisma.idea.updateMany({
-          where: { id: { in: toRevive.map(i => i.id) } },
-          data: { status: 'ADVANCING' },
-        })
-        advancingIdeas.push(...toRevive)
-        console.log(`checkTierCompletion: backfilled ${toRevive.length} runners-up by VP to reach ${advancingIdeas.length} ideas for final showdown`)
-      }
-    }
+    // No backfill — winners advance, losers stay eliminated.
+    // The tournament is the tournament.
 
     const shuffledIdeas = [...advancingIdeas].sort(() => Math.random() - 0.5)
     const shuffledMembers = [...deliberation.members].sort(() => Math.random() - 0.5)

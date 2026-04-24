@@ -17,7 +17,7 @@ export async function GET(
 
     const body = await cached(`status:${id}:${userId || 'anon'}`, 3_000, async () => {
       // Single parallel fan-out: main query + votedTiers
-      const [deliberation, votedParticipations] = await Promise.all([
+      const [deliberation, votedParticipations, allParticipations] = await Promise.all([
         prisma.deliberation.findUnique({
           where: { id },
           include: {
@@ -59,6 +59,12 @@ export async function GET(
           ? prisma.cellParticipation.findMany({
               where: { userId, status: 'VOTED', cell: { deliberationId: id } },
               select: { cell: { select: { tier: true } } },
+            })
+          : Promise.resolve([]),
+        userId
+          ? prisma.cellParticipation.findMany({
+              where: { userId, cell: { deliberationId: id } },
+              select: { cellId: true },
             })
           : Promise.resolve([]),
       ])
@@ -136,6 +142,7 @@ export async function GET(
         accumulationEnabled: deliberation.accumulationEnabled,
         ideaGoal: deliberation.ideaGoal,
         memberGoal: deliberation.memberGoal,
+        myCellIds: allParticipations.map(p => p.cellId),
       }
     })
 
