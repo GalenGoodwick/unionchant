@@ -522,10 +522,12 @@ async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
         tier: 1,
         batch: cellNum,
         status: 'VOTING',
+        // Dynamic cells for continuous flow: heartbeat-driven formation
+        ...(deliberation.continuousFlow && { dynamicStatus: 'forming' }),
         ideas: {
           create: cellIdeas.map(idea => ({ ideaId: idea.id })),
         },
-        // NO participants — they join via enter endpoint
+        // NO participants — they join via enter endpoint (or heartbeat for dynamic)
       },
     })
 
@@ -1526,6 +1528,7 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
       tier: 1,
       batch: existingCellCount, // Sequential batch number
       status: cellStatus,
+      dynamicStatus: isFCFS ? 'forming' : null, // Dynamic cells for FCFS continuous flow
       discussionEndsAt,
       votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
         ? new Date(Date.now() + deliberation.votingTimeoutMs)
@@ -1541,7 +1544,7 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
     },
   })
 
-  console.log(`Continuous flow: created tier 1 cell ${cell.id} with ${cellIdeas.length} ideas${isFCFS ? ' (FCFS)' : ` and ${cellMembers.length} members`}`)
+  console.log(`Continuous flow: created tier 1 cell ${cell.id} with ${cellIdeas.length} ideas${isFCFS ? ' (FCFS, dynamic)' : ` and ${cellMembers.length} members`}`)
 
   return { cellCreated: true, cellId: cell.id }
 }

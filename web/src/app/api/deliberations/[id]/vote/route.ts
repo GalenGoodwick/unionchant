@@ -3,6 +3,7 @@ import { resolveSimulatorUser } from '@/lib/simulator-auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
 import { invalidate } from '@/lib/cache'
+import { checkAutoComplete } from '@/lib/dynamic-cells'
 
 const FCFS_CELL_SIZE = 5
 
@@ -235,7 +236,39 @@ export async function POST(
           ) sub WHERE "Idea".id = sub."ideaId"
         `
       }
-      if (allVoted) {
+      // Check if this is a dynamic cell — use auto-complete timer instead of standard finalization
+      const cellForDynamic = await prisma.cell.findUnique({
+        where: { id: result.cellId },
+        select: { dynamicStatus: true },
+      })
+
+      if (cellForDynamic?.dynamicStatus) {
+        // Dynamic cell: check auto-complete (starts 30s timer when 2+ voted)
+        await checkAutoComplete(result.cellId).catch(err => {
+          console.error(`Dynamic cell checkAutoComplete failed for ${result.cellId}:`, err)
+        })
+
+        // Also handle case where ALL participants voted (immediate finalize with 5s grace)
+        if (allVoted) {
+          const GRACE_PERIOD_MS = 5_000
+          await prisma.cell.updateMany({
+            where: { id: result.cellId, status: 'VOTING' },
+            data: { dynamicStatus: null, autoCompleteAt: null, finalizesAt: new Date(Date.now() + GRACE_PERIOD_MS) },
+          })
+          await new Promise(resolve => setTimeout(resolve, GRACE_PERIOD_MS))
+          const c = await prisma.cell.findUnique({
+            where: { id: result.cellId },
+            select: { status: true, finalizesAt: true },
+          })
+          if (c?.status === 'VOTING' && c.finalizesAt && c.finalizesAt <= new Date()) {
+            await processCellResults(result.cellId, false).catch(err => {
+              console.error(`Dynamic cell finalization failed for ${result.cellId}:`, err)
+            })
+          }
+        }
+        invalidate(`status:${id}`)
+      } else if (allVoted) {
+        // Standard (non-dynamic) cell: existing finalization path
         const GRACE_PERIOD_MS = 5_000
         await prisma.cell.updateMany({
           where: { id: result.cellId, finalizesAt: null, status: 'VOTING' },

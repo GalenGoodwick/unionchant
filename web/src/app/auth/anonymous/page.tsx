@@ -53,6 +53,13 @@ export default function AnonymousSignIn() {
     }
   }, [challengeToken])
 
+  // Auto-proceed after verification — no second click needed
+  useEffect(() => {
+    if (verified && !loading) {
+      handleSubmit()
+    }
+  }, [verified]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSubmit = async () => {
     setError('')
     setLoading(true)

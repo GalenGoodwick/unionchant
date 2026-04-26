@@ -442,6 +442,10 @@ model Cell {
 
   avgXPUtilization Float?    // average % of 10 XP used by participants
 
+  // Dynamic cell formation (endless mode)
+  dynamicStatus    String?   // 'forming' | 'active' | 'locked' | null (null = legacy/static cell)
+  autoCompleteAt   DateTime? // when auto-completion timer fires
+
   // Relations
   participants    CellParticipation[]
   ideas           CellIdea[]
@@ -457,6 +461,7 @@ model Cell {
   @@index([deliberationId, status])
   @@index([status, finalizesAt])
   @@index([status, discussionEndsAt])
+  @@index([dynamicStatus, autoCompleteAt])
 }
 
 enum CellStatus {
@@ -492,6 +497,7 @@ model CellParticipation {
 
   joinedAt        DateTime @default(now())
   lastSeenAt      DateTime @default(now())
+  lastHeartbeat   DateTime? // presence tracking for dynamic cells
   votedAt         DateTime?
   droppedAt       DateTime?
 

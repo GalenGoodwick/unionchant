@@ -9,7 +9,7 @@
 'use client'
 
 import { useSession } from 'next-auth/react'
-import { ChantStatus, CellInfo, CommentInfo, IdeaInfo, VoteResult } from '@/types/chant-simulator'
+import { ChantStatus, CellInfo, CommentInfo, IdeaInfo, VoteResult, DynamicCellState } from '@/types/chant-simulator'
 import Link from 'next/link'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -18,7 +18,9 @@ import CopyButton from '@/components/deliberation/CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
 import FrameLayout from '@/components/FrameLayout'
 import ShareMenu from '@/components/ShareMenu'
+import FirstVisitTooltip from '@/components/FirstVisitTooltip'
 import SynthesisView from './SynthesisView'
+import { useToast } from '@/components/Toast'
 
 type Tab = 'join' | 'vote' | 'ideas' | 'submit' | 'discuss' | 'cells' | 'manage'
 
@@ -26,6 +28,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const { data: session } = useSession()
   const userId = authToken ? 'embed-user' : session?.user?.email // used to detect login, actual auth is server-side
   const router = useRouter()
+  const { showToast } = useToast()
 
   // Authenticated fetch — passes embed token when in iframe context
   const authFetch = useCallback((url: string, opts?: RequestInit) => {
@@ -92,6 +95,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const [commentError, setCommentError] = useState('')
   const [upvoting, setUpvoting] = useState<string | null>(null)
 
+  // Dynamic cell state (endless mode)
+  const [dynamicCell, setDynamicCell] = useState<DynamicCellState | null>(null)
+  const [dynamicCountdown, setDynamicCountdown] = useState<number | null>(null)
+
   // Onboarding final narration + next steps
   const [showOnboardingFinal, setShowOnboardingFinal] = useState(false)
   useEffect(() => {
@@ -111,7 +118,15 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   // Explicit join — no auto-join, user clicks Join tab button
   const [joined, setJoined] = useState(false)
   const [joining, setJoining] = useState(false)
+  const [flashJoin, setFlashJoin] = useState(false)
+  const joinBtnRef = useRef<HTMLButtonElement>(null)
   const participated = useRef(false)
+
+  const nudgeJoin = useCallback(() => {
+    setFlashJoin(true)
+    joinBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setTimeout(() => setFlashJoin(false), 1500)
+  }, [])
 
   const handleJoin = async () => {
     if (!userId) {
@@ -209,6 +224,76 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     return () => clearInterval(interval)
   }, [fetchStatus])
 
+  // Deregister viewer on page leave / tab hide / unmount
+  useEffect(() => {
+    const deregister = () => {
+      navigator.sendBeacon?.(`/api/deliberations/${id}/status`)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') deregister()
+      else fetchStatus() // re-register on tab focus
+    }
+    window.addEventListener('beforeunload', deregister)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.removeEventListener('beforeunload', deregister)
+      document.removeEventListener('visibilitychange', onVisibility)
+      deregister()
+    }
+  }, [id, fetchStatus])
+
+  // Dynamic cell heartbeat (every 5s for continuous flow in VOTING phase)
+  useEffect(() => {
+    if (!status || !status.continuousFlow || status.phase !== 'VOTING' || !userId) return
+
+    const sendHeartbeat = async () => {
+      try {
+        const res = await authFetch(`/api/deliberations/${id}/heartbeat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          setDynamicCell(data)
+
+          // Initialize allocations from dynamic cell ideas if on vote tab
+          if (data.cellId && data.ideas?.length > 0) {
+            setAllocations(prev => {
+              const dynamicIds = data.ideas.map((i: { id: string }) => i.id).sort().join(',')
+              const prevIds = Object.keys(prev).sort().join(',')
+              if (prevIds === dynamicIds) return prev
+              const init: Record<string, number> = {}
+              data.ideas.forEach((i: { id: string }) => { init[i.id] = 0 })
+              return init
+            })
+          }
+        }
+      } catch {
+        // silent fail
+      }
+    }
+
+    sendHeartbeat()
+    const interval = setInterval(sendHeartbeat, 5000)
+    return () => clearInterval(interval)
+  }, [status?.continuousFlow, status?.phase, userId, id, authFetch])
+
+  // Dynamic cell countdown timer
+  useEffect(() => {
+    if (!dynamicCell?.timer?.endsAt) {
+      setDynamicCountdown(null)
+      return
+    }
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((new Date(dynamicCell.timer!.endsAt).getTime() - Date.now()) / 1000))
+      setDynamicCountdown(remaining)
+    }
+    updateCountdown()
+    const interval = setInterval(updateCountdown, 1000)
+    return () => clearInterval(interval)
+  }, [dynamicCell?.timer?.endsAt])
+
   useEffect(() => {
     if (activeTab === 'ideas' || activeTab === 'submit' || activeTab === 'discuss') {
       setCommentsLoading(true)
@@ -236,13 +321,12 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     }
 
     if (ideaIds.length > 0) {
-      setAllocations(prev => {
-        const prevIds = Object.keys(prev).sort().join(',')
-        const newIds = [...ideaIds].sort().join(',')
-        if (prevIds === newIds) return prev
+      setAllocations(() => {
         // Restore saved allocations for this tier if they match
+        const newIds = [...ideaIds].sort().join(',')
         const saved = tierAllocationsRef.current[tier]
         if (saved && Object.keys(saved).sort().join(',') === newIds) return saved
+        // Always start fresh — never carry over from a different tier
         const init: Record<string, number> = {}
         ideaIds.forEach(id => { init[id] = 0 })
         return init
@@ -253,6 +337,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const handleSubmitIdea = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!userId || !ideaText.trim()) return
+    if (!joined) { nudgeJoin(); return }
 
     setSubmitting(true)
     setSubmitError('')
@@ -273,6 +358,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       participated.current = true
       setIdeaText('')
       setSubmitSuccess(true)
+      showToast('Idea submitted', 'success')
       fetchStatus()
       setTimeout(() => setSubmitSuccess(false), 3000)
     } catch (err) {
@@ -284,6 +370,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   const handleVote = async () => {
     if (!userId) return
+    if (!joined) { nudgeJoin(); return }
 
     // Snapshot at call time — these won't change during the await
     const voteTier = effectiveTier
@@ -323,6 +410,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       setTierLastCellIdeas(prev => ({ ...prev, [voteTier]: voteIdeas }))
       setShowOtherCellIdeas(false)
       setTierVoteResults(prev => ({ ...prev, [voteTier]: data }))
+      showToast('Vote recorded', 'success')
       // Auto-route to next unvoted tier
       setSelectedTier(null)
       fetchStatus()
@@ -406,6 +494,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   const handlePostComment = async (ideaId: string) => {
     if (!userId) return
+    if (!joined) { nudgeJoin(); return }
     const text = commentText[ideaId]?.trim()
     if (!text) return
 
@@ -425,6 +514,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       participated.current = true
       setComments(prev => [...prev, data])
       setCommentText(prev => ({ ...prev, [ideaId]: '' }))
+      showToast('Comment posted', 'success')
     } catch (err) {
       setCommentError((err as Error).message)
     } finally {
@@ -500,12 +590,19 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const unvotedTiers = votableTiers.filter(t => !status.votedTiers?.includes(t) && !localVotedTiers.has(t))
   const effectiveTier = selectedTier ?? unvotedTiers[0] ?? votableTiers[0] ?? status.currentTier
 
-  const cellIdeas = effectiveTier === status.currentTier ? status.fcfsProgress?.currentCellIdeas : null
+  // Dynamic cell ideas take priority (continuous flow with heartbeat)
+  const dynamicCellIdeas = dynamicCell?.cellId && dynamicCell.ideas.length >= 2
+    ? dynamicCell.ideas
+    : null
+
+  const cellIdeas = !dynamicCellIdeas && effectiveTier === status.currentTier ? status.fcfsProgress?.currentCellIdeas : null
   const myCellSet = new Set(status.myCellIds || [])
   // Prefer user's own cell at this tier; fall back to any voting cell only if user has no cell
-  const myTierCell = !cellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length && myCellSet.has(c.id)) : null
-  const tierCell = myTierCell || (!cellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length) : null)
-  const votingIdeas = cellIdeas
+  const myTierCell = !cellIdeas && !dynamicCellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length && myCellSet.has(c.id)) : null
+  const tierCell = myTierCell || (!cellIdeas && !dynamicCellIdeas ? status.cells.find(c => c.tier === effectiveTier && c.status === 'VOTING' && c.ideas?.length) : null)
+  const votingIdeas = dynamicCellIdeas
+    ? dynamicCellIdeas.map(i => ({ id: i.id, text: i.text, status: 'IN_VOTING', tier: effectiveTier, totalXP: 0, totalVotes: 0, isChampion: false, author: { id: '', name: i.author } }))
+    : cellIdeas
     ? cellIdeas.map(ci => ({ ...ci, status: 'IN_VOTING', tier: effectiveTier, totalXP: 0, totalVotes: 0, isChampion: false, author: { ...ci.author } }))
     : tierCell?.ideas
     ? tierCell.ideas.map(i => ({ id: i.id, text: i.text, status: 'IN_VOTING', tier: effectiveTier, totalXP: i.totalXP, totalVotes: 0, isChampion: false, author: { id: '', name: i.author.name } }))
@@ -534,8 +631,8 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     { key: 'submit', label: 'Submit', show: true },
     { key: 'discuss', label: 'Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' },
     { key: 'vote', label: 'Vote', show: true },
-    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: false },
-    { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: false },
+    { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: true },
+    { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: true },
     { key: 'manage', label: 'Manage', show: !!isCreator },
   ]
 
@@ -557,6 +654,13 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           <p className="text-xs text-muted">by {status.creator.name}</p>
         </div>
 
+        {/* First-time creator instructions */}
+        {isCreator && (
+          <FirstVisitTooltip id="chant-creator">
+            You created this chant! Use the <strong>Manage</strong> tab to start voting, close submissions, fill cells with AI voters, and force-complete cells.
+          </FirstVisitTooltip>
+        )}
+
         {/* Join CTA — above stats for visibility */}
         {!joined && (
           <div className="mb-3">
@@ -569,9 +673,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
               </Link>
             ) : (
               <button
+                ref={joinBtnRef}
                 onClick={handleJoin}
                 disabled={joining}
-                className="w-full bg-success hover:bg-success-hover text-white px-4 py-3 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+                className={`w-full bg-success hover:bg-success-hover text-white px-4 py-3 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors ${flashJoin ? 'animate-pulse ring-2 ring-warning ring-offset-2 ring-offset-background' : ''}`}
               >
                 {joining ? 'Joining...' : 'Join This Chant'}
               </button>
@@ -763,7 +868,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
               <button
                 onClick={handleJoin}
                 disabled={joining}
-                className="w-full bg-success hover:bg-success-hover text-white px-4 py-3 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+                className={`w-full bg-success hover:bg-success-hover text-white px-4 py-3 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors ${flashJoin ? 'animate-pulse ring-2 ring-warning ring-offset-2 ring-offset-background' : ''}`}
               >
                 {joining ? 'Joining...' : 'Join This Chant'}
               </button>
@@ -801,7 +906,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                     const tierCells = status.cells.filter(c => c.tier === tier)
                     const completed = tierCells.filter(c => c.status === 'COMPLETED').length
                     const votingCell = tierCells.find(c => c.status === 'VOTING')
-                    const voters = votingCell?._count.participants || 0
+                    const voters = Math.min(votingCell?._count.participants || 0, 5)
                     return (
                       <div key={tier}>
                         <div className="flex justify-between text-xs text-muted mb-1">
@@ -1010,13 +1115,112 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   disabled={votingTiers.has(effectiveTier) || totalAllocated !== 10}
                   className="w-full mt-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
                 >
-                  {votingTiers.has(effectiveTier) ? 'Submitting...' : totalAllocated !== 10 ? `Allocate ${10 - totalAllocated} more XP` : 'Cast Vote'}
+                  {votingTiers.has(effectiveTier) ? 'Submitting...' : totalAllocated > 10 ? `Too many — remove ${totalAllocated - 10} XP` : totalAllocated < 10 ? `Not enough — add ${10 - totalAllocated} XP` : 'Cast Vote'}
                 </button>
               </div>
             )}
 
-            {status.phase === 'VOTING' && !status.votedTiers?.includes(effectiveTier) && !localVotedTiers.has(effectiveTier) && !tierVoteResults[effectiveTier] && votingIdeas.length === 0 && (
-              <EmptyState icon={'\u23F3'} title="Waiting for a cell" subtitle="Cells form as voters arrive. You'll be assigned shortly." />
+            {/* Dynamic cell status (continuous flow) */}
+            {status.phase === 'VOTING' && status.continuousFlow && dynamicCell && dynamicCell.cellId && (
+              <div className="mb-4 p-3 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                    dynamicCell.dynamicStatus === 'locked'
+                      ? 'bg-warning/15 text-warning'
+                      : dynamicCell.dynamicStatus === 'active'
+                      ? 'bg-success/15 text-success'
+                      : 'bg-surface text-muted'
+                  }`}>
+                    {dynamicCell.dynamicStatus === 'locked'
+                      ? 'Finalizing'
+                      : dynamicCell.dynamicStatus === 'active'
+                      ? 'Active'
+                      : 'Forming'}
+                  </span>
+                  <span className="text-xs text-muted">
+                    {dynamicCell.people.length}/{dynamicCell.slots.total} people
+                  </span>
+                </div>
+
+                {/* Auto-complete countdown */}
+                {dynamicCountdown !== null && dynamicCountdown > 0 && (
+                  <div className="mb-2 p-2 bg-warning/8 border border-warning/20 rounded text-center">
+                    <p className="text-warning text-xs font-medium">
+                      Cell finalizes in {dynamicCountdown}s
+                    </p>
+                    {!dynamicCell.people.find(p => p.id === session?.user?.id && p.hasVoted) && (
+                      <p className="text-warning/70 text-[11px] mt-0.5">Vote now before time runs out</p>
+                    )}
+                  </div>
+                )}
+
+                {/* People in cell */}
+                <div className="flex items-center gap-1 mb-2">
+                  {dynamicCell.people.map(p => (
+                    <span
+                      key={p.id}
+                      className={`inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-full ${
+                        p.hasVoted ? 'bg-success/15 text-success' : 'bg-surface text-muted'
+                      }`}
+                      title={`${p.name}${p.hasVoted ? ' (voted)' : ''}`}
+                    >
+                      {p.name.split(' ')[0]}
+                      {p.hasVoted && <span>&#10003;</span>}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Idea slots */}
+                <div className="space-y-1">
+                  {dynamicCell.ideas.map(idea => (
+                    <div key={idea.id} className={`flex items-center gap-2 text-xs p-1.5 rounded ${
+                      idea.voted ? 'bg-success/8 border border-success/15' : 'bg-background'
+                    }`}>
+                      {idea.voted && <span className="text-success text-[10px]">&#9679;</span>}
+                      <span className="text-foreground/80 flex-1">{idea.text}</span>
+                      <span className="text-muted text-[10px]">{idea.author}</span>
+                    </div>
+                  ))}
+                  {dynamicCell.slots.explanations.map((msg, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[11px] p-1.5 rounded bg-background border border-dashed border-border">
+                      <span className="text-muted italic">{msg}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Needs more */}
+                {(dynamicCell.needsMore.ideas || dynamicCell.needsMore.people) && (
+                  <p className="text-[11px] text-muted mt-2 text-center">
+                    {dynamicCell.needsMore.ideas && dynamicCell.needsMore.people
+                      ? 'More ideas and people needed to start'
+                      : dynamicCell.needsMore.ideas
+                      ? 'More ideas needed'
+                      : 'Waiting for more participants...'}
+                  </p>
+                )}
+
+                {/* Current top priority */}
+                {dynamicCell.currentPriority && (
+                  <div className="mt-2 pt-2 border-t border-border">
+                    <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Current Priority</p>
+                    <p className="text-xs text-foreground/90 font-medium leading-snug">{dynamicCell.currentPriority.text}</p>
+                    <p className="text-[10px] text-muted mt-0.5">Tier {dynamicCell.currentPriority.tier} &middot; {dynamicCell.currentPriority.xp} XP</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {status.phase === 'VOTING' && !status.votedTiers?.includes(effectiveTier) && !localVotedTiers.has(effectiveTier) && !tierVoteResults[effectiveTier] && votingIdeas.length === 0 && !dynamicCell?.cellId && (
+              <div>
+                <EmptyState icon={'\u23F3'} title="Waiting for a cell" subtitle="Cells form as voters arrive. You'll be assigned shortly." />
+                {dynamicCell?.currentPriority && (
+                  <div className="mt-3 p-3 bg-surface/90 rounded-lg border border-border">
+                    <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Current Priority</p>
+                    <p className="text-xs text-foreground/90 font-medium leading-snug">{dynamicCell.currentPriority.text}</p>
+                    <p className="text-[10px] text-muted mt-0.5">Tier {dynamicCell.currentPriority.tier} &middot; {dynamicCell.currentPriority.xp} XP</p>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1835,7 +2039,9 @@ function DiscussTab({
         </div>
       )}
 
-      <p className="text-xs text-muted">Tap an idea to read and leave comments. Upvoted comments spread to other cells.</p>
+      <FirstVisitTooltip id="discuss-tab">
+        <strong>Tap an idea</strong> to open it and leave a comment. <strong>Upvote</strong> comments you support to boost their visibility — comments with 3 or more upvotes can spread to other cells in large chants.
+      </FirstVisitTooltip>
 
       {/* Ideas for selected tier */}
       {tierIdeas.length === 0 ? (

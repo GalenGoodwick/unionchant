@@ -130,3 +130,28 @@ export interface VoteResult {
     tierComplete: boolean
   }
 }
+
+// Dynamic cell formation types (endless mode)
+export interface DynamicCellState {
+  cellId: string | null
+  dynamicStatus: 'forming' | 'active' | 'locked' | null
+  ideas: DynamicIdeaSlot[]
+  people: DynamicPerson[]
+  slots: { total: number; filled: number; explanations: string[] }
+  timer: { endsAt: string } | null
+  needsMore: { ideas: boolean; people: boolean }
+  currentPriority: { text: string; tier: number; xp: number } | null
+}
+
+export interface DynamicIdeaSlot {
+  id: string
+  text: string
+  author: string
+  voted: boolean
+}
+
+export interface DynamicPerson {
+  id: string
+  name: string
+  hasVoted: boolean
+}

@@ -29,6 +29,7 @@ type Chant = {
   allowAI: boolean
   tags: string[]
   voteCount: number
+  viewerCount: number
   createdAt: string
   creator: { name: string | null }
   champion?: { text: string } | null
@@ -93,7 +94,7 @@ function ChantsPage() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
   const [showSettings, setShowSettings] = useState(true)
-  const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('endless')
+  const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('event')
   const [ideaGoal, setIdeaGoal] = useState(5)
   const [memberGoal, setMemberGoal] = useState(10)
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
@@ -229,7 +230,7 @@ function ChantsPage() {
     setCreateProgress('')
     setIdeaStatus({})
     setIdeas(['', '', '', '', ''])
-    setMode('endless')
+    setMode('event')
     setAllowAI(false)
     setTags('')
     setSelectedCommunityId(null)
@@ -545,6 +546,8 @@ function ChantsPage() {
     .sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1
       if (!a.isPinned && b.isPinned) return 1
+      // Most viewers first
+      if ((b.viewerCount || 0) !== (a.viewerCount || 0)) return (b.viewerCount || 0) - (a.viewerCount || 0)
       const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, PAUSED: 1, COMPLETED: 0 }
       const ap = phasePriority[a.phase] ?? 0
       const bp = phasePriority[b.phase] ?? 0
@@ -642,8 +645,8 @@ function ChantsPage() {
             <div className="flex gap-2">
               {([
                 ...(isUserAdmin ? [{ value: 'ask_ai' as const, label: 'Ask AI' }] : []),
+                { value: 'event', label: 'Human Managed' },
                 { value: 'endless', label: 'Online' },
-                { value: 'event', label: 'Event' },
               ] as const).map(opt => (
                 <button
                   key={opt.value}
@@ -1237,6 +1240,18 @@ function ChantsPage() {
                       </svg>
                       <span className="font-mono">{chant.upvoteCount || 0}</span>
                     </button>
+                    {chant.viewerCount > 0 && (
+                      <>
+                        <span className="flex items-center gap-1 text-success">
+                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          <span className="font-mono">{chant.viewerCount}</span>
+                        </span>
+                        <span className="text-border-strong">&middot;</span>
+                      </>
+                    )}
                     <span>{chant._count.ideas} ideas</span>
                     <span className="text-border-strong">&middot;</span>
                     <span>{chant.voteCount} votes</span>
@@ -1356,7 +1371,7 @@ function ChantTypeBadge({ chant }: { chant: Chant }) {
   const isAskAI = chant.tags?.includes('ask-ai')
   if (isAskAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium">Ask AI</span>
   if (chant.continuousFlow) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple/10 text-purple font-medium">Endless</span>
-  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue/10 text-blue font-medium">Event</span>
+  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue/10 text-blue font-medium">Human Managed</span>
 }
 
 function ParticipantBadge({ chant }: { chant: Chant }) {

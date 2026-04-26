@@ -7,6 +7,7 @@ import { cached } from '@/lib/cache'
 import { isAdmin } from '@/lib/admin'
 import { sendEmail } from '@/lib/email'
 import { followedNewDelibEmail } from '@/lib/email-templates'
+import { getViewerCounts } from '@/lib/viewers'
 
 // GET /api/deliberations - List all public deliberations
 export async function GET(req: NextRequest) {
@@ -96,12 +97,15 @@ export async function GET(req: NextRequest) {
         upvotedIds = new Set(userUpvotes.map(u => u.deliberationId))
       }
 
+      const viewerCounts = getViewerCounts(deliberations.map(d => d.id))
+
       return deliberations.map(d => {
         const voteCount = d.cells.reduce((sum, c) => sum + c._count.votes, 0)
         const { cells: _cells, ...rest } = d
         return {
           ...rest,
           voteCount,
+          viewerCount: viewerCounts[d.id] || 0,
           champion: d.ideas[0] || null,
           userHasUpvoted: upvotedIds.has(d.id),
         }

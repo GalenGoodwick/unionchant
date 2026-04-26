@@ -1,6 +1,7 @@
 import { prisma } from './prisma'
 import { startVotingPhase, processCellResults } from './voting'
 import { startChallengeRound } from './challenge'
+import { processExpiredAutoCompletes } from './dynamic-cells'
 
 /**
  * Process deliberations where submission period has ended
@@ -360,6 +361,14 @@ export async function checkAndTransitionDeliberation(deliberationId: string): Pr
     }
   }
 
+  // Check expired auto-complete timers (dynamic cells)
+  if (deliberation.phase === 'VOTING') {
+    const autoCompleted = await processExpiredAutoCompletes(deliberationId)
+    if (autoCompleted.length > 0) {
+      transitioned = true
+    }
+  }
+
   // Check accumulation expiry
   if (
     deliberation.phase === 'ACCUMULATING' &&
@@ -482,11 +491,12 @@ export async function processAllTimers(trigger?: string) {
   const startedAt = Date.now()
 
   try {
-    const [submissions, discussions, tiers, accumulations] = await Promise.all([
+    const [submissions, discussions, tiers, accumulations, autoCompletes] = await Promise.all([
       processExpiredSubmissions(),
       processExpiredDiscussions(),
       processExpiredTiers(),
       processExpiredAccumulations(),
+      processExpiredAutoCompletes(),
     ])
 
     // Self-healing and purging only run from cron triggers (not feed API)
@@ -497,7 +507,7 @@ export async function processAllTimers(trigger?: string) {
       purged = await purgeEmptyTalks()
     }
 
-    const total = submissions.length + discussions.length + tiers.length + accumulations.length + stuckHealed.length + purged.length
+    const total = submissions.length + discussions.length + tiers.length + accumulations.length + autoCompletes.length + stuckHealed.length + purged.length
 
     // Log execution: always for cron, only when work done for feed
     if (trigger === 'external_cron' || trigger === 'vercel_cron' || total > 0) {
@@ -516,6 +526,7 @@ export async function processAllTimers(trigger?: string) {
       discussions,
       tiers,
       accumulations,
+      autoCompletes,
       stuckHealed,
       purged,
       total,

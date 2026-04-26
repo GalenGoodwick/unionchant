@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/rate-limit'
 import { checkDeliberationAccess } from '@/lib/privacy'
 import { checkAndTransitionDeliberation } from '@/lib/timer-processor'
 import { atomicJoinCell } from '@/lib/voting'
+import { ensureDynamicCellAssignment } from '@/lib/dynamic-cells'
 
 // POST /api/deliberations/[id]/enter - Join a voting cell
 export async function POST(
@@ -107,7 +108,32 @@ export async function POST(
     // Check if user has active (not completed) cells
     const activeParticipations = existingParticipations.filter(p => p.cell.status === 'VOTING' || p.cell.status === 'DELIBERATING')
 
-    // ── Continuous flow multi-cell: return ALL active cells + join missing tiers ──
+    // ── Dynamic cells (continuous flow): heartbeat handles assignment ──
+    // Check if there are dynamic cells — if so, ensure user has an assignment
+    const hasDynamicCells = await prisma.cell.count({
+      where: { deliberationId, dynamicStatus: { not: null } },
+    })
+
+    if (deliberation.continuousFlow && isFCFS && hasDynamicCells > 0) {
+      // Dynamic mode: ensure user is assigned, return success
+      await prisma.deliberationMember.upsert({
+        where: { deliberationId_userId: { userId: user.id, deliberationId } },
+        create: { userId: user.id, deliberationId },
+        update: {},
+      })
+
+      const cellId = await ensureDynamicCellAssignment(deliberationId, user.id)
+
+      return NextResponse.json({
+        success: true,
+        isFCFS: true,
+        dynamicMode: true,
+        cellId,
+        message: cellId ? 'Assigned to dynamic cell' : 'No cells available yet — use heartbeat',
+      })
+    }
+
+    // ── Continuous flow multi-cell (non-dynamic): return ALL active cells + join missing tiers ──
     if (deliberation.continuousFlow && isFCFS) {
       const votedTiers = new Set(
         existingParticipations

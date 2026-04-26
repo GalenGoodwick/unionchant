@@ -139,6 +139,8 @@ export async function tryAdvanceContinuousFlowTier(
       tier: nextTier,
       batch: batchNumber ?? null,
       status: cellStatus,
+      // Dynamic cells for FCFS: heartbeat-driven formation at all tiers
+      ...(isFCFS && { dynamicStatus: 'forming' }),
       discussionEndsAt,
       votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
         ? new Date(Date.now() + deliberation.votingTimeoutMs)
@@ -209,12 +211,13 @@ export async function handleContinuousFlowCellComplete(
     },
   })
 
-  // Count remaining ADVANCING ideas at this tier
+  // Count remaining ADVANCING ideas at this tier (excluding the current cell's winners)
   const otherAdvancing = await prisma.idea.count({
     where: {
       deliberationId,
       status: 'ADVANCING',
       tier: completedTier,
+      ...(winnerIds.length > 0 ? { id: { notIn: winnerIds } } : {}),
     },
   })
 

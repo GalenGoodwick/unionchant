@@ -146,6 +146,9 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   const [chaseTime, setChaseTime] = useState(0)
   const [passed, setPassed] = useState(false)
   const [misclickHint, setMisclickHint] = useState(false)
+  const [tapHint, setTapHint] = useState(false)
+  const [stallHint, setStallHint] = useState(false)
+  const stallTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [isMobile, setIsMobile] = useState(false)
 
   // Detect mobile on mount — desktop auto-starts
@@ -173,9 +176,15 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
       if (timeSinceMove < 600) {
         // Active — accumulate
         accumulatedMsRef.current += 50
+        setStallHint(false)
+        if (stallTimerRef.current) { clearTimeout(stallTimerRef.current); stallTimerRef.current = null }
       } else {
         // Idle — decay at same rate
         accumulatedMsRef.current = Math.max(0, accumulatedMsRef.current - 50)
+        // Show stall hint after 1.2s of no movement
+        if (timeSinceMove > 1200 && !stallTimerRef.current) {
+          stallTimerRef.current = setTimeout(() => setStallHint(true), 0)
+        }
       }
 
       const elapsed = accumulatedMsRef.current / 1000
@@ -296,8 +305,13 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
       setTimeout(() => setMisclickHint(false), 1500)
       return
     }
-    // Pre-chase insta-click with zero chase activity = bot
+    // Pre-chase tap on mobile — show drag hint instead of flagging as bot
     if (!surrendered && !chasing) {
+      if (isMobile) {
+        setTapHint(true)
+        setTimeout(() => setTapHint(false), 2500)
+        return
+      }
       onBotDetected?.(getBehavioralData())
       return
     }
@@ -320,9 +334,19 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
           <div className="absolute top-0 left-0 h-1 bg-accent transition-all duration-100" style={{ width: `${progressPct}%` }} />
         )}
 
-        {chasing && !surrendered && !passed && (
+        {chasing && !surrendered && !passed && !stallHint && (
           <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-muted font-mono">
             {chaseTime.toFixed(1)}s / 3.0s
+          </div>
+        )}
+        {stallHint && chasing && !surrendered && !passed && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-warning font-semibold animate-pulse text-center px-4">
+            Keep moving your finger! Follow the button.
+          </div>
+        )}
+        {tapHint && !chasing && !passed && (
+          <div className="absolute top-3 left-1/2 -translate-x-1/2 text-xs text-warning font-semibold animate-pulse text-center px-4">
+            Hold down and drag your finger toward the button
           </div>
         )}
         {misclickHint && !surrendered && !passed && (

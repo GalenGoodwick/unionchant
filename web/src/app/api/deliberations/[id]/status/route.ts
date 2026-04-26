@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { resolveSimulatorUser } from '@/lib/simulator-auth'
 import { prisma } from '@/lib/prisma'
 import { cached } from '@/lib/cache'
+import { recordView, removeView } from '@/lib/viewers'
 
 const FCFS_CELL_SIZE = 5
 
@@ -14,6 +15,9 @@ export async function GET(
     const { id } = await params
     const auth = await resolveSimulatorUser(req)
     const userId = auth.authenticated ? auth.user.id : null
+
+    // Record viewer presence (outside cache — fires every poll)
+    recordView(id, userId || req.headers.get('x-forwarded-for') || 'anon')
 
     const body = await cached(`status:${id}:${userId || 'anon'}`, 3_000, async () => {
       // Single parallel fan-out: main query + votedTiers
@@ -34,6 +38,7 @@ export async function GET(
               orderBy: { createdAt: 'asc' },
               select: {
                 id: true, tier: true, status: true, createdAt: true,
+                dynamicStatus: true, autoCompleteAt: true,
                 _count: { select: { participants: true, votes: true } },
                 ideas: {
                   select: {
@@ -95,7 +100,7 @@ export async function GET(
         fcfsProgress = {
           currentCellIndex: completedCells,
           totalCells: tierCells.length,
-          currentCellVoters: currentCell?._count.participants || 0,
+          currentCellVoters: Math.min(currentCell?._count.participants || 0, FCFS_CELL_SIZE),
           votersNeeded: FCFS_CELL_SIZE,
           completedCells,
           currentCellIdeas: currentCell?.ideas.map(ci => ({
@@ -155,4 +160,17 @@ export async function GET(
     console.error('Error getting chant status:', error)
     return NextResponse.json({ error: 'Failed to get status' }, { status: 500 })
   }
+}
+
+// POST /api/deliberations/[id]/status — Deregister viewer (sendBeacon on page leave)
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const auth = await resolveSimulatorUser(req)
+  const userId = auth.authenticated ? auth.user.id : null
+  const viewerKey = userId || req.headers.get('x-forwarded-for') || 'anon'
+  removeView(id, viewerKey)
+  return NextResponse.json({ ok: true })
 }
