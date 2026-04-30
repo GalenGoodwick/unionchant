@@ -19,6 +19,9 @@ export const SHELL_MODEL = (process.env.SHELL_MODEL as string) || 'haiku'
 let anthropic: Anthropic | null = null
 
 function getClient(): Anthropic {
+  if (process.env.AI_DISABLED === '1') {
+    throw new Error('AI features are currently disabled')
+  }
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not configured. Add it to .env.local')
   }

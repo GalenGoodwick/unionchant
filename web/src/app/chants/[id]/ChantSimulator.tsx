@@ -1719,7 +1719,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   />
                 )}
 
-                {/* AI Resolve */}
+                {/* AI Resolve — hidden for now
                 {!confirmAIResolve ? (
                   <ManageAction
                     label="AI Resolve"
@@ -1748,6 +1748,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                     </div>
                   </div>
                 )}
+                */}
 
                 {/* Force Complete Round */}
                 {!confirmForce ? (

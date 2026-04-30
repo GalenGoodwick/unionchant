@@ -1197,6 +1197,14 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     console.log(`checkTierCompletion: claimed tier advancement ${tier}→${nextTier} for ${deliberationId}`)
 
+    // Event mode: close submissions once tier 2+ starts (no new ideas mid-tournament)
+    if (!deliberation.continuousFlow && nextTier >= 2 && !deliberation.submissionsClosed) {
+      await prisma.deliberation.update({
+        where: { id: deliberationId },
+        data: { submissionsClosed: true },
+      })
+    }
+
     // Fire tier_complete webhook
     fireWebhookEvent('tier_complete', {
       deliberationId,
