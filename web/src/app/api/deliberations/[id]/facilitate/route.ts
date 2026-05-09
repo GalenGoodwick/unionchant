@@ -40,6 +40,20 @@ export async function POST(
     const { action } = body
 
     switch (action) {
+      case 'close-subs': {
+        // Just close submissions without force-completing cells
+        if (deliberation.phase !== 'VOTING') {
+          return NextResponse.json({ error: 'Chant is not in voting phase' }, { status: 400 })
+        }
+
+        await prisma.deliberation.update({
+          where: { id },
+          data: { submissionsClosed: true },
+        })
+
+        return NextResponse.json({ success: true })
+      }
+
       case 'close': {
         // Close submissions + force-complete cells
         if (deliberation.phase !== 'VOTING') {

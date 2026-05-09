@@ -640,44 +640,37 @@ function ChantsPage() {
     >
       {showCreate || showAskAI ? (
         <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
-          {/* Mode selector — always visible at top */}
+          {/* Mode selector */}
           <div className="mb-4">
             <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
             <div className="flex gap-2">
-              {([
-                ...(isUserAdmin ? [{ value: 'ask_ai' as const, label: 'Ask AI' }] : []),
-                { value: 'event', label: 'Human Managed' },
-                { value: 'endless', label: 'Online' },
-              ] as const).map(opt => (
+              {isUserAdmin && (
                 <button
-                  key={opt.value}
                   type="button"
-                  onClick={() => {
-                    if (opt.value === 'ask_ai') {
-                      setShowAskAI(true); setShowCreate(false)
-                    } else {
-                      setMode(opt.value === 'event' ? 'event' : 'endless')
-                      setShowAskAI(false); setShowCreate(true)
-                    }
-                  }}
+                  onClick={() => { setShowAskAI(true); setShowCreate(false) }}
                   disabled={askRunning}
                   className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                    (opt.value === 'ask_ai' && showAskAI) || (opt.value !== 'ask_ai' && !showAskAI && mode === opt.value)
-                      ? opt.value === 'ask_ai'
-                        ? 'bg-warning/15 border-warning/40 text-warning'
-                        : 'bg-accent/15 border-accent/40 text-accent'
+                    showAskAI
+                      ? 'bg-warning/15 border-warning/40 text-warning'
                       : 'bg-surface border-border text-muted hover:border-border-strong'
                   }`}
                 >
-                  {opt.label}
+                  Ask AI
                 </button>
-              ))}
+              )}
+              <button
+                type="button"
+                onClick={() => { setMode('event'); setShowAskAI(false); setShowCreate(true) }}
+                disabled={askRunning}
+                className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
+                  !showAskAI
+                    ? 'bg-accent/15 border-accent/40 text-accent'
+                    : 'bg-surface border-border text-muted hover:border-border-strong'
+                }`}
+              >
+                Human Managed
+              </button>
             </div>
-            <p className="text-xs text-muted mt-1.5 leading-relaxed">
-              {showAskAI && 'AI agents brainstorm, discuss, and vote on your question.'}
-              {!showAskAI && mode === 'event' && 'Best for in-person groups. Facilitator controls when voting starts.'}
-              {!showAskAI && mode === 'endless' && 'Share a link. Cells form as ideas arrive, voting begins when there are enough ideas. Runs until closed.'}
-            </p>
           </div>
 
           {showAskAI ? (
@@ -1066,7 +1059,7 @@ function ChantsPage() {
                 }}
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-accent transition-colors"
               >
-                <option value="">No group</option>
+                <option value="">Group (optional)</option>
                 {communities.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
@@ -1144,6 +1137,15 @@ function ChantsPage() {
             <p className="text-xs text-muted mt-1.5">
               Pre-fill ideas to kick things off. Others can add more after creation.
             </p>
+          </div>
+
+          <div className="mb-3 p-3 bg-background rounded-lg border border-border">
+            <p className="text-xs font-medium text-foreground mb-2">How to facilitate</p>
+            <ol className="text-[11px] text-muted space-y-1.5 list-none">
+              <li><span className="font-bold text-accent mr-1">1.</span> Share the link — participants submit ideas on their phones.</li>
+              <li><span className="font-bold text-accent mr-1">2.</span> <strong className="text-foreground">Start Voting</strong> — open the <strong className="text-foreground">Manage</strong> tab when you have enough ideas.</li>
+              <li><span className="font-bold text-accent mr-1">3.</span> <strong className="text-foreground">Advance Tier</strong> — use the Manage tab after all cells have been fully voted on.</li>
+            </ol>
           </div>
 
           {createError && <p className="text-error text-xs mb-2">{createError}</p>}

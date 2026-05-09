@@ -39,6 +39,11 @@ export async function POST(
       return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
     }
 
+    // Completed chants cannot be joined
+    if (deliberation.phase === 'COMPLETED') {
+      return NextResponse.json({ error: 'This chant has already completed' }, { status: 400 })
+    }
+
     // Private deliberations cannot be joined directly — must use invite link
     if (!deliberation.isPublic) {
       return NextResponse.json({ error: 'This chant requires an invite link to join' }, { status: 403 })

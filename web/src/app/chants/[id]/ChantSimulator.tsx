@@ -100,6 +100,9 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const [dynamicCell, setDynamicCell] = useState<DynamicCellState | null>(null)
   const [dynamicCountdown, setDynamicCountdown] = useState<number | null>(null)
 
+  // Phase transition detection for toast notifications
+  const prevPhaseRef = useRef<string | null>(null)
+
   // Onboarding final narration + next steps
   const [showOnboardingFinal, setShowOnboardingFinal] = useState(false)
   useEffect(() => {
@@ -181,6 +184,21 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       hasLoadedOnce.current = true
       setStatus(data)
 
+      // Detect phase transition → COMPLETED for toast notifications
+      if (prevPhaseRef.current && prevPhaseRef.current !== 'COMPLETED' && data.phase === 'COMPLETED') {
+        if (data.champion) {
+          const isMyIdea = data.champion.author.id === session?.user?.id
+          if (isMyIdea) {
+            showToast('Your idea won!', 'celebration', `"${data.champion.text}"`)
+          } else {
+            showToast('Priority declared', 'success', `"${data.champion.text}" by ${data.champion.author.name}`)
+          }
+        } else {
+          showToast('Chant complete', 'success')
+        }
+      }
+      prevPhaseRef.current = data.phase
+
       // Detect existing membership from API
       if (data.isMember && !joined) {
         setJoined(true)
@@ -206,7 +224,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       setLoading(false)
       fetchingStatus.current = false
     }
-  }, [id, authFetch, joined])
+  }, [id, authFetch, joined, showToast, session?.user?.id])
 
   const fetchComments = useCallback(async () => {
     try {
@@ -672,7 +690,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         {/* First-time creator instructions */}
         {isCreator && (
           <FirstVisitTooltip id="chant-creator">
-            You created this chant! Use the <strong>Manage</strong> tab to start voting, close submissions, and force-complete cells.
+            You created this chant! Use the <strong>Manage</strong> tab to start voting, close submissions, and complete tiers.
           </FirstVisitTooltip>
         )}
 
@@ -872,7 +890,12 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             )}
 
             {/* Join action */}
-            {!userId ? (
+            {status.phase === 'COMPLETED' && !joined ? (
+              <div className="p-3 bg-surface/90 border border-border rounded-lg text-center space-y-1">
+                <p className="text-sm font-medium text-foreground">Chant Completed</p>
+                <p className="text-xs text-muted">Please <Link href="/chants" className="text-accent hover:underline">create a chant or find one</Link> that needs your ideas, comments, and votes.</p>
+              </div>
+            ) : !userId ? (
               <Link
                 href={`/auth/signin?callbackUrl=/chants/${id}`}
                 className="block text-center bg-accent hover:bg-accent-hover text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors"
@@ -1711,32 +1734,6 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             {/* ── VOTING PHASE ── */}
             {status.phase === 'VOTING' && (
               <>
-                {/* Continuous flow: Close & Advance / Force Complete */}
-                {status.continuousFlow && (
-                  <ManageAction
-                    label={status.submissionsClosed ? 'Force Complete Cells' : 'Close & Advance'}
-                    description={status.submissionsClosed
-                      ? 'Force-complete any open cells and advance the tier.'
-                      : 'Stop accepting new submissions and force-complete open cells.'}
-                    color="bg-accent hover:bg-accent-hover"
-                    disabled={actionLoading === 'close'}
-                    loading={actionLoading === 'close'}
-                    onClick={() => handleFacilitatorAction('close', status.submissionsClosed ? 'Force complete' : 'Close & advance')}
-                  />
-                )}
-
-                {/* Continuous flow: Declare Priority */}
-                {status.continuousFlow && (
-                  <ManageAction
-                    label="Declare Priority"
-                    description="Announce the current top idea as priority. Ends the chant."
-                    color="bg-success hover:bg-success-hover"
-                    disabled={actionLoading === 'declare'}
-                    loading={actionLoading === 'declare'}
-                    onClick={() => handleFacilitatorAction('declare', 'Declare priority')}
-                  />
-                )}
-
                 {/* Advance Discussion → Open Voting */}
                 {status.cells.some(c => c.status === 'DELIBERATING') && (
                   <ManageAction
@@ -1762,107 +1759,56 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   />
                 )}
 
-                {/* AI Resolve — hidden for now
-                {!confirmAIResolve ? (
-                  <ManageAction
-                    label="AI Resolve"
-                    description="AI agents fill empty seats in stuck cells and cast real votes."
-                    color="bg-purple hover:bg-purple-hover"
-                    disabled={actionLoading === 'ai-resolve'}
-                    loading={actionLoading === 'ai-resolve'}
-                    onClick={() => setConfirmAIResolve(true)}
-                  />
-                ) : (
-                  <div className="border border-purple rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-xs text-purple font-medium">Let AI fill empty seats?</p>
-                    <p className="text-xs text-foreground/80">AI voters will join cells that don&apos;t have enough participants, read all ideas, and cast votes.</p>
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => {
-                          setConfirmAIResolve(false)
-                          handleFacilitatorAction('ai-resolve', 'AI resolve')
-                        }}
-                        disabled={actionLoading === 'ai-resolve'}
-                        className="flex-1 bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
-                      >
-                        {actionLoading === 'ai-resolve' ? 'AI voting...' : 'Confirm'}
-                      </button>
-                      <button onClick={() => setConfirmAIResolve(false)} className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">Cancel</button>
+                {/* Tier progress — shows votes needed */}
+                {(() => {
+                  const votingCells = status.cells.filter(c => c.tier === status.currentTier && c.status === 'VOTING')
+                  const doneCells = status.cells.filter(c => c.tier === status.currentTier && c.status === 'COMPLETED')
+                  const totalCells = votingCells.length + doneCells.length
+                  const totalVoted = votingCells.reduce((sum, c) => sum + (c.votedCount ?? 0), 0) + doneCells.reduce((sum, c) => sum + (c.memberCount ?? c._count.participants), 0)
+                  const totalNeeded = votingCells.reduce((sum, c) => sum + (c.memberCount ?? c._count.participants), 0) + doneCells.reduce((sum, c) => sum + (c.memberCount ?? c._count.participants), 0)
+                  const remaining = totalNeeded - totalVoted
+                  return (
+                    <div className="p-3 bg-surface/90 rounded-lg border border-border">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-foreground">Tier {status.currentTier}</span>
+                        <span className="text-xs text-muted">{doneCells.length}/{totalCells} cells done</span>
+                      </div>
+                      <div className="h-1.5 bg-border rounded-full overflow-hidden mb-2">
+                        <div
+                          className="h-full bg-accent rounded-full transition-all"
+                          style={{ width: `${totalNeeded > 0 ? (totalVoted / totalNeeded) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted">
+                        {remaining > 0
+                          ? `${totalVoted}/${totalNeeded} votes cast — ${remaining} more to complete tier`
+                          : 'All votes in — tier advancing...'}
+                      </p>
                     </div>
-                  </div>
-                )}
-                */}
+                  )
+                })()}
 
-                {/* Force Complete Round */}
-                {!confirmForce ? (
+                {/* Declare Priority — continuous flow only */}
+                {status.continuousFlow && (
                   <ManageAction
-                    label="Force Complete Round"
-                    description="Ends all open cells immediately. Votes cast so far are tallied, non-voters skipped."
-                    color="bg-orange hover:bg-orange-hover"
-                    disabled={actionLoading === 'force-next-tier'}
-                    loading={actionLoading === 'force-next-tier'}
-                    onClick={() => setConfirmForce(true)}
-                  />
-                ) : (
-                  <div className="border border-orange rounded-lg p-2.5 space-y-1.5">
-                    <p className="text-xs text-orange font-medium">End voting now?</p>
-                    <p className="text-xs text-foreground/80">Tallies votes cast so far. Non-voters are skipped. Top ideas advance.</p>
-                    <div className="flex gap-1.5">
-                      <button
-                        onClick={() => {
-                          setConfirmForce(false)
-                          setActionLoading('force-next-tier')
-                          setActionError('')
-                          setActionSuccess('')
-                          authFetch(`/api/deliberations/${id}/force-next-tier`, { method: 'POST' })
-                            .then(res => res.json().then(data => {
-                              if (!res.ok) throw new Error(data.error || 'Failed')
-                              setActionSuccess(`Processed ${data.cellsProcessed || 0} cells`)
-                              fetchStatus()
-                              setTimeout(() => setActionSuccess(''), 3000)
-                            }))
-                            .catch(err => setActionError(err.message))
-                            .finally(() => setActionLoading(''))
-                        }}
-                        disabled={actionLoading === 'force-next-tier'}
-                        className="flex-1 bg-orange hover:bg-orange-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
-                      >
-                        {actionLoading === 'force-next-tier' ? 'Processing...' : 'Confirm'}
-                      </button>
-                      <button onClick={() => setConfirmForce(false)} className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">Cancel</button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Extend Timer */}
-                <ManageAction
-                  label="Extend +15min"
-                  description="Add 15 minutes to the voting timer for all active cells."
-                  color="bg-accent hover:bg-accent-hover"
-                  disabled={actionLoading === 'extend'}
-                  loading={actionLoading === 'extend'}
-                  onClick={() => handleFacilitatorAction('extend', 'Extend timer')}
-                />
-
-                {/* Reopen Submissions */}
-                {status.continuousFlow && status.submissionsClosed && (
-                  <ManageAction
-                    label="Reopen Submissions"
-                    description="Accept new ideas again. Voting continues."
-                    color="bg-accent hover:bg-accent-hover"
-                    disabled={actionLoading === 'reopen'}
-                    loading={actionLoading === 'reopen'}
-                    onClick={() => handleFacilitatorAction('reopen', 'Reopen submissions')}
+                    label="Declare Priority"
+                    description="Announce the current top idea as priority. Ends the chant."
+                    color="bg-success hover:bg-success-hover"
+                    disabled={actionLoading === 'declare'}
+                    loading={actionLoading === 'declare'}
+                    onClick={() => handleFacilitatorAction('declare', 'Declare priority')}
                   />
                 )}
-                {!status.continuousFlow && (
+
+                {/* Close Submissions — continuous flow only, when subs still open */}
+                {status.continuousFlow && !status.submissionsClosed && (
                   <ManageAction
-                    label="Reopen for Ideas"
-                    description="Pause voting and reopen idea submissions."
+                    label="Close Submissions"
+                    description="Stop accepting new ideas. Voting continues."
                     color="bg-accent hover:bg-accent-hover"
-                    disabled={actionLoading === 'reopen'}
-                    loading={actionLoading === 'reopen'}
-                    onClick={() => handleFacilitatorAction('reopen', 'Reopen')}
+                    disabled={actionLoading === 'close-subs'}
+                    loading={actionLoading === 'close-subs'}
+                    onClick={() => handleFacilitatorAction('close-subs', 'Close submissions')}
                   />
                 )}
               </>

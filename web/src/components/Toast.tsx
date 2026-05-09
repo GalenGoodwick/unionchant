@@ -2,16 +2,17 @@
 
 import { useState, useEffect, createContext, useContext, useCallback } from 'react'
 
-type ToastType = 'success' | 'error' | 'info'
+type ToastType = 'success' | 'error' | 'info' | 'celebration'
 
 type Toast = {
   id: string
   message: string
+  subtitle?: string
   type: ToastType
 }
 
 type ToastContextType = {
-  showToast: (message: string, type?: ToastType) => void
+  showToast: (message: string, type?: ToastType, subtitle?: string) => void
 }
 
 const ToastContext = createContext<ToastContextType | null>(null)
@@ -19,7 +20,6 @@ const ToastContext = createContext<ToastContextType | null>(null)
 export function useToast() {
   const context = useContext(ToastContext)
   if (!context) {
-    // Return a fallback that uses alert() if not in provider
     return {
       showToast: (message: string) => alert(message)
     }
@@ -30,9 +30,9 @@ export function useToast() {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const showToast = useCallback((message: string, type: ToastType = 'info') => {
+  const showToast = useCallback((message: string, type: ToastType = 'info', subtitle?: string) => {
     const id = Math.random().toString(36).slice(2)
-    setToasts(prev => [...prev, { id, message, type }])
+    setToasts(prev => [...prev, { id, message, type, subtitle }])
   }, [])
 
   const removeToast = useCallback((id: string) => {
@@ -50,15 +50,51 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 function ToastContainer({ toasts, onRemove }: { toasts: Toast[]; onRemove: (id: string) => void }) {
   if (toasts.length === 0) return null
 
+  const celebration = toasts.find(t => t.type === 'celebration')
+  const regular = toasts.filter(t => t.type !== 'celebration')
+
   return (
-    <div
-      className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"
-      role="status"
-      aria-live="polite"
-    >
-      {toasts.map(toast => (
-        <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
-      ))}
+    <>
+      {celebration && (
+        <CelebrationToast key={celebration.id} toast={celebration} onRemove={onRemove} />
+      )}
+      {regular.length > 0 && (
+        <div
+          className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm"
+          role="status"
+          aria-live="polite"
+        >
+          {regular.map(toast => (
+            <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+function CelebrationToast({ toast, onRemove }: { toast: Toast; onRemove: (id: string) => void }) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onRemove(toast.id)
+    }, 8000)
+    return () => clearTimeout(timer)
+  }, [toast.id, onRemove])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+      <div
+        role="alert"
+        className="pointer-events-auto bg-background border-2 border-warning rounded-2xl shadow-2xl shadow-warning/20 px-8 py-6 max-w-md w-full text-center animate-in zoom-in-95 fade-in duration-300"
+        onClick={() => onRemove(toast.id)}
+      >
+        <p className="text-3xl mb-2">&#9733;</p>
+        <p className="text-lg font-bold text-warning">{toast.message}</p>
+        {toast.subtitle && (
+          <p className="text-sm text-foreground mt-2 leading-relaxed">{toast.subtitle}</p>
+        )}
+        <p className="text-xs text-muted mt-3">Tap to dismiss</p>
+      </div>
     </div>
   )
 }
@@ -75,6 +111,7 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
     success: 'bg-success text-white',
     error: 'bg-error text-white',
     info: 'bg-accent text-white',
+    celebration: 'bg-warning text-white',
   }
 
   return (
@@ -82,10 +119,13 @@ function ToastItem({ toast, onRemove }: { toast: Toast; onRemove: (id: string) =
       role="alert"
       className={`${colors[toast.type]} px-4 py-3 rounded-lg shadow-lg flex items-center justify-between gap-3 animate-in slide-in-from-right`}
     >
-      <p className="text-sm">{toast.message}</p>
+      <div>
+        <p className="text-sm">{toast.message}</p>
+        {toast.subtitle && <p className="text-xs opacity-90 mt-0.5">{toast.subtitle}</p>}
+      </div>
       <button
         onClick={() => onRemove(toast.id)}
-        className="text-white/80 hover:text-white"
+        className="text-white/80 hover:text-white shrink-0"
         aria-label="Dismiss notification"
       >
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
