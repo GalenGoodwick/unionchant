@@ -44,6 +44,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   // Idea submission
   const [ideaText, setIdeaText] = useState('')
+  const [pendingIdea, setPendingIdea] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [submitSuccess, setSubmitSuccess] = useState(false)
@@ -338,7 +339,11 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     e.preventDefault()
     if (!userId || !ideaText.trim()) return
     if (!joined) { nudgeJoin(); return }
+    setPendingIdea(ideaText.trim())
+  }
 
+  const handleConfirmIdea = async () => {
+    if (!pendingIdea) return
     setSubmitting(true)
     setSubmitError('')
     setSubmitSuccess(false)
@@ -347,7 +352,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
       const res = await authFetch(`/api/deliberations/${id}/ideas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ideaText.trim() }),
+        body: JSON.stringify({ text: pendingIdea }),
       })
 
       if (!res.ok) {
@@ -357,6 +362,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
       participated.current = true
       setIdeaText('')
+      setPendingIdea(null)
       setSubmitSuccess(true)
       showToast('Idea submitted', 'success')
       fetchStatus()
@@ -366,6 +372,11 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleEditIdea = () => {
+    setIdeaText(pendingIdea || '')
+    setPendingIdea(null)
   }
 
   const handleVote = async () => {
@@ -605,7 +616,11 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     : cellIdeas
     ? cellIdeas.map(ci => ({ ...ci, status: 'IN_VOTING', tier: effectiveTier, totalXP: 0, totalVotes: 0, isChampion: false, author: { ...ci.author } }))
     : tierCell?.ideas
-    ? tierCell.ideas.map(i => ({ id: i.id, text: i.text, status: 'IN_VOTING', tier: effectiveTier, totalXP: i.totalXP, totalVotes: 0, isChampion: false, author: { id: '', name: i.author.name } }))
+    ? tierCell.ideas.map(i => {
+        const fullIdea = status.ideas.find(fi => fi.id === i.id)
+        const tierXP = fullIdea?.xpPerTier?.[effectiveTier] ?? 0
+        return { id: i.id, text: i.text, status: 'IN_VOTING', tier: effectiveTier, totalXP: tierXP, totalVotes: 0, isChampion: false, author: { id: '', name: i.author.name } }
+      })
     : status.ideas.filter(i => i.status === 'IN_VOTING')
   const isCreator = userId && status.creator.id === session?.user?.id
 
@@ -628,9 +643,9 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   const tabs: { key: Tab; label: string; badge?: number; show: boolean }[] = [
     { key: 'join', label: 'Join', show: false },
-    { key: 'submit', label: 'Submit', show: true },
-    { key: 'discuss', label: 'Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' },
-    { key: 'vote', label: 'Vote', show: true },
+    { key: 'submit', label: '1 Submit', show: true },
+    { key: 'discuss', label: '2 Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' },
+    { key: 'vote', label: '3 Vote', show: true },
     { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: true },
     { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: true },
     { key: 'manage', label: 'Manage', show: !!isCreator },
@@ -657,7 +672,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         {/* First-time creator instructions */}
         {isCreator && (
           <FirstVisitTooltip id="chant-creator">
-            You created this chant! Use the <strong>Manage</strong> tab to start voting, close submissions, fill cells with AI voters, and force-complete cells.
+            You created this chant! Use the <strong>Manage</strong> tab to start voting, close submissions, and force-complete cells.
           </FirstVisitTooltip>
         )}
 
@@ -906,7 +921,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                     const tierCells = status.cells.filter(c => c.tier === tier)
                     const completed = tierCells.filter(c => c.status === 'COMPLETED').length
                     const votingCell = tierCells.find(c => c.status === 'VOTING')
-                    const voters = Math.min(votingCell?._count.participants || 0, 5)
+                    const voters = votingCell?.votedCount ?? votingCell?._count.participants ?? 0
                     return (
                       <div key={tier}>
                         <div className="flex justify-between text-xs text-muted mb-1">
@@ -922,7 +937,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                         {votingCell && (
                           <div className="flex justify-between text-[11px] text-muted">
                             <span>Current cell</span>
-                            <span>{voters}/5 voters</span>
+                            <span>{voters}/{votingCell?.memberCount ?? 5} voters</span>
                           </div>
                         )}
                       </div>
@@ -1080,7 +1095,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             {status.phase === 'VOTING' && !tierVoteResults[effectiveTier] && !votingTiers.has(effectiveTier) && ((!status.votedTiers?.includes(effectiveTier) && !localVotedTiers.has(effectiveTier)) || status.multipleIdeasAllowed) && votingIdeas.length > 0 && (
               <div id="voting-area" className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
                 <div className="flex justify-between items-center mb-3">
-                  <h2 className="text-sm font-semibold text-foreground">Allocate 10 XP <span className="text-muted font-normal text-xs">(T{effectiveTier})</span></h2>
+                  <h2 className="text-sm font-semibold text-foreground"><span className="text-warning font-bold mr-1">3</span> Allocate 10 XP <span className="text-muted font-normal text-xs">(T{effectiveTier})</span></h2>
                   <span className={`text-sm font-mono font-bold ${totalAllocated === 10 ? 'text-success' : totalAllocated > 10 ? 'text-error' : 'text-muted'}`}>
                     {totalAllocated}/10
                   </span>
@@ -1252,9 +1267,33 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 >
                   Sign in to submit an idea
                 </Link>
+              ) : pendingIdea ? (
+                <div className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-accent/30 shadow-sm">
+                  <h2 className="text-sm font-semibold mb-2 text-foreground"><span className="text-accent font-bold mr-1">1</span> Confirm Your Idea</h2>
+                  <p className="text-sm text-foreground bg-background p-3 rounded-lg border border-border mb-3 leading-relaxed">
+                    {pendingIdea}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleEditIdea}
+                      disabled={submitting}
+                      className="flex-1 py-2 bg-surface border border-border hover:bg-background text-foreground text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={handleConfirmIdea}
+                      disabled={submitting}
+                      className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                    >
+                      {submitting ? 'Submitting...' : 'Confirm'}
+                    </button>
+                  </div>
+                  {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
+                </div>
               ) : (
                 <form onSubmit={handleSubmitIdea} className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
-                  <h2 className="text-sm font-semibold mb-1 text-foreground">Submit Your Idea</h2>
+                  <h2 className="text-sm font-semibold mb-1 text-foreground"><span className="text-accent font-bold mr-1">1</span> Submit Your Idea</h2>
                   <p className="text-xs text-muted mb-3 leading-relaxed">
                     Answer the question with your best idea.
                   </p>
@@ -1273,7 +1312,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                       disabled={submitting || !ideaText.trim()}
                       className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shadow-sm"
                     >
-                      {submitting ? 'Submitting...' : 'Submit'}
+                      Submit
                     </button>
                   </div>
                   {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
@@ -1526,7 +1565,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                               <div className="flex items-center justify-between mb-2">
                                 <span className="text-xs font-medium text-foreground">Cell {tierCells.indexOf(cell) + 1}</span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-muted">{cell._count.participants} voters &middot; {cell._count.votes} votes</span>
+                                  <span className="text-[10px] text-muted">{cell.votedCount ?? cell._count.participants}/{cell.memberCount ?? cell._count.participants} voted</span>
                                   <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
                                     cell.status === 'COMPLETED' ? 'bg-success/12 text-success'
                                       : cell.status === 'VOTING' ? 'bg-warning/12 text-warning'
@@ -1538,20 +1577,24 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                               </div>
                               {ideas.length > 0 ? (
                                 <div className="space-y-1.5">
-                                  {ideas.map(idea => (
+                                  {ideas.map(idea => {
+                                    const fullIdea = status.ideas.find(fi => fi.id === idea.id)
+                                    const tierXP = fullIdea?.xpPerTier?.[cell.tier] ?? idea.totalXP
+                                    return (
                                     <div key={idea.id} className="flex items-start justify-between gap-2 p-2 bg-background rounded-md">
                                       <div className="flex-1 min-w-0">
                                         <p className="text-xs text-foreground truncate">{idea.text}</p>
                                         <p className="text-[10px] text-muted">by {idea.author.name}</p>
                                       </div>
                                       <div className="flex items-center gap-1.5 shrink-0">
-                                        {idea.totalXP > 0 && (
-                                          <span className="text-[11px] font-mono font-bold text-warning">{idea.totalXP}</span>
+                                        {tierXP > 0 && (
+                                          <span className="text-[11px] font-mono font-bold text-warning">{tierXP}</span>
                                         )}
                                         <IdeaStatusBadge status={idea.status} isChampion={false} />
                                       </div>
                                     </div>
-                                  ))}
+                                    )
+                                  })}
                                 </div>
                               ) : (
                                 <p className="text-xs text-muted text-center py-2">No ideas loaded</p>

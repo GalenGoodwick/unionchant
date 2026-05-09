@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
           continuousFlow: true,
           allowAI: true,
           tags: true,
+          currentTier: true,
           createdAt: true,
           creator: {
             select: { name: true, status: true },
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
           },
           cells: {
             select: {
+              tier: true,
               _count: { select: { votes: true } },
             },
           },
@@ -100,7 +102,7 @@ export async function GET(req: NextRequest) {
       const viewerCounts = getViewerCounts(deliberations.map(d => d.id))
 
       return deliberations.map(d => {
-        const voteCount = d.cells.reduce((sum, c) => sum + c._count.votes, 0)
+        const voteCount = d.cells.filter(c => c.tier === d.currentTier).reduce((sum, c) => sum + c._count.votes, 0)
         const { cells: _cells, ...rest } = d
         return {
           ...rest,

@@ -29,6 +29,7 @@ type Chant = {
   allowAI: boolean
   tags: string[]
   voteCount: number
+  currentTier: number
   viewerCount: number
   createdAt: string
   creator: { name: string | null }
@@ -1255,6 +1256,12 @@ function ChantsPage() {
                     <span>{chant._count.ideas} ideas</span>
                     <span className="text-border-strong">&middot;</span>
                     <span>{chant.voteCount} votes</span>
+                    {chant.phase === 'VOTING' && (
+                      <>
+                        <span className="text-border-strong">&middot;</span>
+                        <span className="font-bold text-warning">T{chant.currentTier}</span>
+                      </>
+                    )}
                     <span className="text-border-strong">&middot;</span>
                     <span>by {chant.creator.name || 'Anonymous'}</span>
                   </div>

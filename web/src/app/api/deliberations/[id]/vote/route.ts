@@ -205,17 +205,20 @@ export async function POST(
 
       // Mark voted + count in one go
       await tx.$executeRaw`UPDATE "CellParticipation" SET status = 'VOTED', "votedAt" = ${now} WHERE "cellId" = ${cellId} AND "userId" = ${userId}`
-      const votedUserIds = await tx.$queryRaw<{ userId: string }[]>`
-        SELECT DISTINCT "userId" FROM "Vote" WHERE "cellId" = ${cellId}
-      `
+      const votedCount = await tx.cellParticipation.count({
+        where: { cellId: cellId!, status: 'VOTED' },
+      })
+      const totalMembers = await tx.cellParticipation.count({
+        where: { cellId: cellId! },
+      })
 
-      return { cellId: cellId!, voterCount: votedUserIds.length }
+      return { cellId: cellId!, voterCount: votedCount, votersNeeded: totalMembers }
     }, { timeout: 15000 })
 
     // Invalidate status cache
     invalidate(`status:${id}`)
 
-    const allVoted = result.voterCount >= FCFS_CELL_SIZE
+    const allVoted = result.voterCount >= result.votersNeeded
 
     // Background: XP tally + cell completion
     after(async () => {
@@ -293,7 +296,7 @@ export async function POST(
       cellId: result.cellId,
       cellCompleted: allVoted,
       voterCount: result.voterCount,
-      votersNeeded: FCFS_CELL_SIZE,
+      votersNeeded: result.votersNeeded,
       progress: { completedCells: 0, totalCells: 0, tierComplete: false },
     }, { status: 201 })
   } catch (error) {

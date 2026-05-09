@@ -40,6 +40,9 @@ export async function GET(
                 id: true, tier: true, status: true, createdAt: true,
                 dynamicStatus: true, autoCompleteAt: true,
                 _count: { select: { participants: true, votes: true } },
+                participants: {
+                  select: { status: true },
+                },
                 ideas: {
                   select: {
                     idea: {
@@ -97,11 +100,15 @@ export async function GET(
         const completedCells = tierCells.filter(c => c.status === 'COMPLETED').length
         const currentCell = tierCells.find(c => c.status === 'VOTING')
 
+        const currentVoted = currentCell?.participants.filter(p => p.status === 'VOTED').length || 0
+        const currentActive = currentCell?.participants.filter(p => p.status === 'ACTIVE').length || 0
+        const currentMembers = currentVoted + currentActive
+
         fcfsProgress = {
           currentCellIndex: completedCells,
           totalCells: tierCells.length,
-          currentCellVoters: Math.min(currentCell?._count.participants || 0, FCFS_CELL_SIZE),
-          votersNeeded: FCFS_CELL_SIZE,
+          currentCellVoters: currentVoted,
+          votersNeeded: currentMembers,
           completedCells,
           currentCellIdeas: currentCell?.ideas.map(ci => ({
             id: ci.idea.id,
@@ -134,10 +141,17 @@ export async function GET(
           ...idea,
           xpPerTier: tierXPMap[idea.id] || {},
         })),
-        cells: deliberation.cells.map(c => ({
-          ...c,
-          ideas: c.ideas.map(ci => ci.idea),
-        })),
+        cells: deliberation.cells.map(c => {
+          const votedCount = c.participants.filter(p => p.status === 'VOTED').length
+          const activeCount = c.participants.filter(p => p.status === 'ACTIVE').length
+          return {
+            ...c,
+            ideas: c.ideas.map(ci => ci.idea),
+            participants: undefined, // strip raw list
+            votedCount,
+            memberCount: votedCount + activeCount,
+          }
+        }),
         fcfsProgress,
         hasVoted: votedTiers.includes(deliberation.currentTier),
         votedTiers,

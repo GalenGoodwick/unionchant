@@ -163,7 +163,7 @@ async function getDiscovery() {
   const deliberations = await prisma.deliberation.findMany({
     where: {
       isPublic: true,
-      phase: { in: ['VOTING', 'SUBMISSION', 'COMPLETED'] },
+      phase: { in: ['VOTING', 'SUBMISSION', 'COMPLETED', 'ACCUMULATING'] },
     },
     select: {
       id: true,
@@ -497,6 +497,10 @@ async function buildYourTurnFeed(
     else if (d.phase === 'SUBMISSION') {
       entries.push({ kind: 'submit', id: `submit-${d.id}`, priority: isMember ? 70 : 50, ...base })
     }
+    else if (d.phase === 'ACCUMULATING') {
+      // Champion declared, accepting challengers
+      entries.push({ kind: 'champion', id: `champ-${d.id}`, priority: isMember ? 40 : 30, ...base })
+    }
     else if (d.phase === 'COMPLETED') {
       entries.push({ kind: 'completed', id: `done-${d.id}`, priority: 10, ...base })
     }
@@ -799,11 +803,54 @@ export async function GET(request: NextRequest) {
     response = await buildResultsFeed(userCtx)
   } else {
     // Default: your-turn tab
-    const [deliberations, podiums, userCtx] = await Promise.all([
+    const [publicDelibs, podiums, userCtx] = await Promise.all([
       getDiscovery(),
       getPodiums(),
       session?.user?.email ? getUserContext(session.user.email) : null,
     ])
+
+    // Merge in private community chants the user is a member of
+    let deliberations = publicDelibs
+    if (userCtx) {
+      const publicIds = new Set(publicDelibs.map((d: any) => d.id))
+      const privateDelibs = await prisma.deliberation.findMany({
+        where: {
+          isPublic: false,
+          phase: { in: ['VOTING', 'SUBMISSION', 'COMPLETED', 'ACCUMULATING'] },
+          members: { some: { userId: userCtx.id } },
+          id: { notIn: [...publicIds] },
+        },
+        select: {
+          id: true,
+          question: true,
+          phase: true,
+          currentTier: true,
+          challengeRound: true,
+          continuousFlow: true,
+          isPinned: true,
+          submissionEndsAt: true,
+          accumulationEndsAt: true,
+          votingTimeoutMs: true,
+          currentTierStartedAt: true,
+          completedAt: true,
+          upvoteCount: true,
+          _count: { select: { members: true, ideas: true } },
+          community: { select: { name: true } },
+          creator: { select: { name: true } },
+          ideas: {
+            where: { status: { in: ['WINNER', 'DEFENDING'] } },
+            select: { text: true, totalVotes: true, author: { select: { name: true } } },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+      })
+      if (privateDelibs.length > 0) {
+        deliberations = [...publicDelibs, ...privateDelibs]
+      }
+    }
+
     response = await buildYourTurnFeed(deliberations, podiums, userCtx)
   }
 

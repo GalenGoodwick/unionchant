@@ -69,6 +69,8 @@ export interface CellInfo {
   status: string
   createdAt: string
   _count: { participants: number; votes: number }
+  votedCount?: number
+  memberCount?: number
   ideas?: CellIdea[]
 }
 
