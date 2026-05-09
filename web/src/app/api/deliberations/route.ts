@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
               : []),
           ],
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { updatedAt: 'desc' },
         select: {
           id: true,
           question: true,
