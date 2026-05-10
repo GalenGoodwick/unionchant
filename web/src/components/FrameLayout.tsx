@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
@@ -13,7 +13,7 @@ import CollectiveChat from '@/components/CollectiveChat'
 import { useChallenge } from '@/components/ChallengeProvider'
 
 interface FrameLayoutProps {
-  active?: 'chants' | 'podiums' | 'groups' | 'demo' | 'contact' | 'how' | 'agents' | 'foresight' | 'stream'
+  active?: 'chants' | 'podiums' | 'groups' | 'install' | 'contact' | 'how' | 'agents' | 'foresight' | 'stream'
   header?: React.ReactNode
   children: React.ReactNode
   footerRight?: React.ReactNode
@@ -72,6 +72,30 @@ export default function FrameLayout({
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 })
 
   const [topBarOpen, setTopBarOpen] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<Event | null>(null)
+  const [showIOSHint, setShowIOSHint] = useState(false)
+  const [isInstalled, setIsInstalled] = useState(false)
+
+  useEffect(() => {
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstalled(true)
+      return
+    }
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    window.addEventListener('appinstalled', () => setIsInstalled(true))
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = useCallback(async () => {
+    if (installPrompt) {
+      const prompt = installPrompt as Event & { prompt: () => Promise<void> }
+      await prompt.prompt()
+      setInstallPrompt(null)
+    } else {
+      setShowIOSHint(v => !v)
+    }
+  }, [installPrompt])
 
   useEffect(() => {
     if (localStorage.getItem('topBarOpen') === 'true') setTopBarOpen(true)
@@ -111,12 +135,6 @@ export default function FrameLayout({
         <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
     )},
-    { key: 'demo', href: '/demo', label: 'Demo', icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.327l5.603 3.112z" />
-      </svg>
-    )},
     { key: 'contact', href: '/contact', label: 'Contact', icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
@@ -125,6 +143,12 @@ export default function FrameLayout({
     { key: 'how', href: '/how-it-works', label: 'How', icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+      </svg>
+    )},
+    { key: 'install', href: '#install', label: 'Install', icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v6m0 0l-2.25-2.25M12 14.25l2.25-2.25" />
       </svg>
     )},
   ]
@@ -295,8 +319,38 @@ export default function FrameLayout({
           <div className="flex items-end px-2 py-1.5">
             {!hideFooter && (
               <div className="flex-1 flex items-center gap-1">
-                {tabs.map(tab => {
+                {tabs.filter(tab => !(tab.key === 'install' && isInstalled)).map(tab => {
                   const isActive = tab.key === active
+
+                  if (tab.key === 'install') {
+                    return (
+                      <div key={tab.key} className="relative">
+                        <button
+                          onClick={handleInstall}
+                          className="flex flex-col items-center gap-0.5 px-2 py-1 rounded-lg transition-colors min-w-[48px] text-muted hover:text-foreground cursor-pointer"
+                        >
+                          {tab.icon}
+                          <span className="text-[9px] font-medium">{tab.label}</span>
+                        </button>
+                        {showIOSHint && !installPrompt && (
+                          <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border rounded-lg p-3 text-xs text-muted w-52 z-50 shadow-lg">
+                            {/iPhone|iPad|iPod/.test(navigator.userAgent) ? (
+                              <>
+                                <span className="text-foreground font-medium block mb-1">Install on iOS</span>
+                                Tap share <span className="inline-block align-middle">&#x1F4E4;</span> then &ldquo;Add to Home Screen&rdquo;
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-foreground font-medium block mb-1">Install in Safari</span>
+                                Click the share button <span className="inline-block align-middle">&#x1F4E4;</span> then &ldquo;Add to Dock&rdquo;
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }
+
                   return (
                     <Link
                       key={tab.key}

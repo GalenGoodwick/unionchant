@@ -1,8 +1,60 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import Link from 'next/link'
+
+function AddToPhoneLink() {
+  const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(null)
+  const [showHint, setShowHint] = useState(false)
+  const [installed, setInstalled] = useState(false)
+
+  useEffect(() => {
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setInstalled(true)
+      return
+    }
+    const handler = (e: Event) => { e.preventDefault(); setDeferredPrompt(e) }
+    window.addEventListener('beforeinstallprompt', handler)
+    window.addEventListener('appinstalled', () => setInstalled(true))
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleClick = useCallback(async () => {
+    if (deferredPrompt) {
+      const prompt = deferredPrompt as Event & { prompt: () => Promise<void> }
+      await prompt.prompt()
+      setDeferredPrompt(null)
+    } else {
+      setShowHint(v => !v)
+    }
+  }, [deferredPrompt])
+
+  if (installed) return null
+
+  return (
+    <span className="relative">
+      <button onClick={handleClick} className="text-purple hover:text-purple-hover cursor-pointer">
+        Add to Phone
+      </button>
+      {showHint && !deferredPrompt && (
+        <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-surface border border-border rounded-lg p-3 text-xs text-muted w-56 z-50 shadow-lg">
+          {/iPhone|iPad|iPod/.test(navigator.userAgent) ? (
+            <>
+              <span className="text-foreground font-medium block mb-1">Install on iOS</span>
+              Tap share <span className="inline-block align-middle">&#x1F4E4;</span> then &ldquo;Add to Home Screen&rdquo;
+            </>
+          ) : (
+            <>
+              <span className="text-foreground font-medium block mb-1">Install in Safari</span>
+              Click the share button <span className="inline-block align-middle">&#x1F4E4;</span> then &ldquo;Add to Dock&rdquo;
+            </>
+          )}
+        </span>
+      )}
+    </span>
+  )
+}
 
 interface MetaDeliberation {
   id: string
@@ -259,9 +311,7 @@ export default function HomeContent({
       {/* Footer links */}
       <div className="text-center pt-8 border-t border-border">
         <div className="flex gap-6 justify-center flex-wrap text-sm mb-4">
-          <Link href="/demo" className="text-purple hover:text-purple-hover">
-            Watch Demo
-          </Link>
+          <AddToPhoneLink />
           <Link href="/how-it-works" className="text-purple hover:text-purple-hover">
             How It Works
           </Link>

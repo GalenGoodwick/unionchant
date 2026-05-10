@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   BG, MUTED, BORDER,
@@ -72,6 +72,69 @@ function TierTab({ children }: { children: React.ReactNode }) {
   return <div className="lp-tier-tab">{children}</div>
 }
 
+// ── Add to Phone button ──
+function AddToPhoneButton() {
+  const [deferredPrompt, setDeferredPrompt] = useState<Event | null>(null)
+  const [showIOSHint, setShowIOSHint] = useState(false)
+  const [installed, setInstalled] = useState(false)
+
+  useEffect(() => {
+    // Check if already installed (standalone mode)
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setInstalled(true)
+      return
+    }
+
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    window.addEventListener('appinstalled', () => setInstalled(true))
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleClick = useCallback(async () => {
+    if (deferredPrompt) {
+      // Android / desktop Chrome
+      const prompt = deferredPrompt as Event & { prompt: () => Promise<void> }
+      await prompt.prompt()
+      setDeferredPrompt(null)
+    } else {
+      // iOS Safari — show hint
+      setShowIOSHint(v => !v)
+    }
+  }, [deferredPrompt])
+
+  if (installed) return null
+
+  return (
+    <div className="relative">
+      <button
+        onClick={handleClick}
+        className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20 cursor-pointer"
+      >
+        Add to Phone
+      </button>
+      {showIOSHint && !deferredPrompt && (
+        <div className="absolute top-full mt-3 left-1/2 -translate-x-1/2 bg-surface border border-border rounded-lg p-4 text-sm text-muted w-64 z-50 shadow-lg">
+          {/iPhone|iPad|iPod/.test(navigator.userAgent) ? (
+            <>
+              <p className="text-foreground font-medium mb-2">Install on iOS</p>
+              <p>Tap the share button <span className="inline-block align-middle text-base">&#x1F4E4;</span> in Safari, then &ldquo;Add to Home Screen&rdquo;</p>
+            </>
+          ) : (
+            <>
+              <p className="text-foreground font-medium mb-2">Install in Safari</p>
+              <p>Click the share button <span className="inline-block align-middle text-base">&#x1F4E4;</span> then &ldquo;Add to Dock&rdquo;</p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LandingParallax() {
   useEffect(() => {
     const scenes: ParallaxScene[] = []
@@ -135,7 +198,10 @@ export default function LandingParallax() {
 
       {/* ── HEADER ── */}
       <header className="relative z-[3] bg-header">
-        <div className="max-w-[800px] mx-auto px-6 py-4 flex justify-end">
+        <div className="max-w-[800px] mx-auto px-6 py-4 flex justify-end gap-6">
+          <Link href="/demo" className="text-sm text-muted hover:text-foreground transition-colors font-medium">
+            Demo
+          </Link>
           <Link href="/auth/signin" className="text-sm text-muted hover:text-foreground transition-colors font-medium">
             Sign In
           </Link>
@@ -179,9 +245,7 @@ export default function LandingParallax() {
             <Link href="/whitepaper" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
               Read the Whitepaper
             </Link>
-            <Link href="/demo" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
-              Watch the Demo
-            </Link>
+            <AddToPhoneButton />
           </div>
           <TierTab>so many individuals &mdash; good ideas flare<br />and are lost to disconnection and chaos</TierTab>
         </div>
