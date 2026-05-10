@@ -13,7 +13,7 @@ export default async function Image() {
         badge="UNITY CHANT"
         badgeColor="#fbbf24"
         borderColor="#fbbf24"
-        title="Small groups. Real conversations. Best idea wins."
+        title="Small groups. Real conversations. Collective priorities advance."
         subtitle="Civic deliberation at any scale"
       />
     ),

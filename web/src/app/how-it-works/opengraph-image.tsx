@@ -13,7 +13,7 @@ export default async function Image() {
         badge="HOW IT WORKS"
         badgeColor="#22d3ee"
         borderColor="#22d3ee"
-        title="Small groups. Real conversations. Best idea wins."
+        title="Small groups. Real conversations. Collective priorities advance."
         subtitle="25 people need 2 rounds. A million need 9. Everyone gets heard."
       />
     ),
