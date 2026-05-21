@@ -90,6 +90,10 @@ export default function AnonymousSignIn() {
         setError('Failed to sign in')
         setLoading(false)
       } else {
+        // Prompt for push notifications
+        if ('Notification' in window && Notification.permission === 'default') {
+          await Notification.requestPermission()
+        }
         router.push('/')
       }
     } catch {

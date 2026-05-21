@@ -16,12 +16,12 @@ function SignInForm() {
   const authError = searchParams.get('error')
 
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [forgotMode, setForgotMode] = useState(false)
   const [forgotSent, setForgotSent] = useState(false)
   const [passkeyLoading, setPasskeyLoading] = useState(false)
+  const [passkeySignupLoading, setPasskeySignupLoading] = useState(false)
 
   const handlePasskeySignin = async () => {
     setError('')
@@ -62,37 +62,63 @@ function SignInForm() {
       setPasskeyLoading(false)
     }
   }
-  const handleCredentialsLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
+
+  const handlePasskeySignup = async () => {
     setError('')
-
-    if (!email.trim()) {
-      setError('Please enter your email')
-      return
-    }
-    if (!password) {
-      setError('Please enter your password')
-      return
-    }
-
-    setLoading(true)
+    setPasskeySignupLoading(true)
 
     try {
+      // Create account with synthetic email (no real email needed)
+      const syntheticEmail = `passkey_${Date.now()}_${Math.random().toString(36).slice(2, 8)}@hosted.unitychant.com`
+      const randomPassword = crypto.randomUUID()
+      const signupRes = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: null, email: syntheticEmail, password: randomPassword }),
+      })
+
+      if (!signupRes.ok) {
+        const data = await signupRes.json()
+        throw new Error(data.error || 'Failed to create account')
+      }
+
+      // Auto sign in
       const result = await signIn('credentials', {
-        email,
-        password,
+        email: syntheticEmail,
+        password: randomPassword,
         redirect: false,
       })
 
-      if (result?.error) {
-        setError('Invalid email or password')
-      } else {
-        router.push('/')
+      if (result?.error) throw new Error('Failed to sign in')
+
+      // Register passkey
+      const { startRegistration } = await import('@simplewebauthn/browser')
+      const optRes = await fetch('/api/webauthn/register-options')
+      if (!optRes.ok) throw new Error('Failed to get registration options')
+      const options = await optRes.json()
+      const credential = await startRegistration({ optionsJSON: options })
+
+      const verifyRes = await fetch('/api/webauthn/register-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential, deviceName: 'My device' }),
+      })
+      if (!verifyRes.ok) throw new Error('Passkey registration failed')
+
+      // Prompt for push notifications
+      if ('Notification' in window && Notification.permission === 'default') {
+        await Notification.requestPermission()
       }
-    } catch {
-      setError('Something went wrong')
+
+      // Success - redirect
+      router.push('/')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Passkey signup failed'
+      if (!msg.includes('ceremony was sent an abort signal') && !msg.includes('not allowed')) {
+        setError(msg)
+      }
     } finally {
-      setLoading(false)
+      setPasskeySignupLoading(false)
     }
   }
 
@@ -202,6 +228,22 @@ function SignInForm() {
               </svg>
               Enter Anonymously (No Personal Data Collected)
             </Link>
+            <div className="bg-accent/10 border border-accent/30 rounded-lg p-3 mb-3">
+              <p className="text-foreground font-medium text-sm mb-1">Passwordless Sign In</p>
+              <p className="text-muted text-xs">
+                Uses your device's biometric authentication (Touch ID, Face ID, fingerprint) or device PIN. No password needed. Notifications via push.
+              </p>
+            </div>
+            <button
+              onClick={handlePasskeySignup}
+              disabled={passkeySignupLoading}
+              className="w-full bg-surface hover:bg-surface-hover text-foreground font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 transition-colors border border-border disabled:opacity-50"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              {passkeySignupLoading ? 'Setting up...' : 'Create account with Touch ID / Face ID'}
+            </button>
             <button
               onClick={handlePasskeySignin}
               disabled={passkeyLoading}
@@ -228,45 +270,19 @@ function SignInForm() {
             )}
           </div>
 
-          <div className="flex items-center gap-4 my-6">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-muted text-sm">or sign in with email</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          <form onSubmit={handleCredentialsLogin} className="space-y-4">
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              placeholder="Email"
-              className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:border-accent"
-            />
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              required
-              placeholder="Password"
-              className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground focus:outline-none focus:border-accent"
-            />
+          <div className="text-center mt-6 space-y-2">
+            <p className="text-muted text-sm">
+              Need an email/password account?{' '}
+              <Link href="/auth/signup" className="text-accent hover:text-accent-hover">
+                Sign up
+              </Link>
+            </p>
             <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-accent hover:bg-accent-hover text-white font-semibold py-3 rounded-lg transition-colors disabled:opacity-50"
+              onClick={() => setForgotMode(true)}
+              className="text-muted hover:text-foreground text-sm"
             >
-              {loading ? 'Signing in...' : 'Sign In'}
-            </button>
-          </form>
-
-          <div className="flex justify-between items-center mt-4 text-sm">
-            <button onClick={() => setForgotMode(true)} className="text-muted hover:text-foreground">
               Forgot password?
             </button>
-            <Link href="/auth/signup" className="text-accent hover:text-accent-hover">
-              Sign up
-            </Link>
           </div>
         </>
       )}
