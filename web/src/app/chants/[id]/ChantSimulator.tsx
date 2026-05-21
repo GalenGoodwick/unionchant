@@ -1029,7 +1029,33 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             )}
 
             {status.phase === 'SUBMISSION' && (
-              <EmptyState icon={'\u2696'} title="Voting hasn't started yet" subtitle={<>Ideas are gathering. Switch to <button onClick={() => setActiveTab('submit')} className="text-accent hover:underline font-medium">Submit</button> to add yours.</>} />
+              <div className="space-y-3">
+                <EmptyState icon={'\u2696'} title="Voting hasn't started yet" subtitle={<>Ideas are gathering. Switch to <button onClick={() => setActiveTab('submit')} className="text-accent hover:underline font-medium">Submit</button> to add yours.</>} />
+                {/* Invite Link */}
+                {status.inviteCode && (
+                  <div className="p-3 bg-surface/90 backdrop-blur-sm rounded-lg border border-border">
+                    <p className="text-xs text-muted mb-1.5 font-medium">Invite Link</p>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${status.inviteCode}`}
+                        className="flex-1 bg-background border border-border text-foreground rounded px-2 py-1.5 text-xs font-mono truncate"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/invite/${status.inviteCode}`)
+                          setCopiedInvite(true)
+                          setTimeout(() => setCopiedInvite(false), 2000)
+                        }}
+                        className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-xs transition-colors shrink-0"
+                      >
+                        {copiedInvite ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {status.phase === 'COMPLETED' && !status.champion && (
@@ -1387,9 +1413,61 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         {activeTab === 'discuss' && (
           <div className="space-y-3">
             {status.phase === 'SUBMISSION' ? (
-              <EmptyState icon={'💬'} title="Discussion opens when voting starts" subtitle="Submit your idea first — discussion begins once enough ideas are collected." />
-            ) : status.ideas.length === 0 ? (
-              <EmptyState icon={'💬'} title="No ideas to discuss" subtitle="Ideas will appear here once submitted." />
+              <>
+                <EmptyState icon={'💬'} title="Discussion opens when voting starts" subtitle="Submit your idea first — discussion begins once enough ideas are collected." />
+                {/* Invite Link */}
+                {status.inviteCode && (
+                  <div className="p-3 bg-surface/90 backdrop-blur-sm rounded-lg border border-border">
+                    <p className="text-xs text-muted mb-1.5 font-medium">Invite Link</p>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${status.inviteCode}`}
+                        className="flex-1 bg-background border border-border text-foreground rounded px-2 py-1.5 text-xs font-mono truncate"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/invite/${status.inviteCode}`)
+                          setCopiedInvite(true)
+                          setTimeout(() => setCopiedInvite(false), 2000)
+                        }}
+                        className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-xs transition-colors shrink-0"
+                      >
+                        {copiedInvite ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : status.cells.length === 0 ? (
+              <>
+                <EmptyState icon={'💬'} title="Voting hasn't started yet" subtitle="The facilitator will start voting once enough ideas are submitted. You'll be assigned to a cell for deliberation." />
+                {/* Invite Link */}
+                {status.inviteCode && (
+                  <div className="p-3 bg-surface/90 backdrop-blur-sm rounded-lg border border-border">
+                    <p className="text-xs text-muted mb-1.5 font-medium">Invite Link</p>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${status.inviteCode}`}
+                        className="flex-1 bg-background border border-border text-foreground rounded px-2 py-1.5 text-xs font-mono truncate"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/invite/${status.inviteCode}`)
+                          setCopiedInvite(true)
+                          setTimeout(() => setCopiedInvite(false), 2000)
+                        }}
+                        className="bg-accent hover:bg-accent-hover text-white px-3 py-1.5 rounded text-xs transition-colors shrink-0"
+                      >
+                        {copiedInvite ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (() => {
               const tiers = [...new Set(status.cells.map(c => c.tier))].sort((a, b) => a - b)
               const defaultTier = tiers.length > 0 ? tiers[tiers.length - 1] : 1
@@ -1811,6 +1889,32 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                     onClick={() => handleFacilitatorAction('close-subs', 'Close submissions')}
                   />
                 )}
+
+                {/* Force Next Tier — emergency fallback */}
+                <div className="border-t border-border pt-3 mt-3">
+                  <ManageAction
+                    label="⚠️ Force Next Tier (Emergency)"
+                    description="Use only if cells are stuck. Warning: Cells with zero votes will pass ALL ideas forward, bypassing elimination. Only force if you accept this consequence."
+                    color="bg-error hover:bg-error-hover"
+                    disabled={actionLoading === 'force-tier'}
+                    loading={actionLoading === 'force-tier'}
+                    onClick={() => {
+                      if (!confirm('Force advance to next tier?\n\nWARNING: Cells with zero votes will advance ALL ideas (no elimination). This bypasses adversarial consensus.\n\nOnly proceed if cells are stuck and you accept this consequence.')) return
+                      setActionLoading('force-tier')
+                      setActionError('')
+                      setActionSuccess('')
+                      authFetch(`/api/deliberations/${id}/force-next-tier`, { method: 'POST' })
+                        .then(res => res.json().then(data => {
+                          if (!res.ok) throw new Error(data.error || 'Failed')
+                          setActionSuccess(`Forced completion of ${data.cellsProcessed || 0} cells. Now at tier ${data.currentTier}.`)
+                          fetchStatus()
+                          setTimeout(() => setActionSuccess(''), 4000)
+                        }))
+                        .catch(err => setActionError(err.message))
+                        .finally(() => setActionLoading(''))
+                    }}
+                  />
+                </div>
               </>
             )}
 

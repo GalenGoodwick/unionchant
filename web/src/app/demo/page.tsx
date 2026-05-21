@@ -580,7 +580,7 @@ export default function DemoPage() {
   const getParticipantName = (pId: string) => participants.find(p => p.id === pId)?.name || ''
 
   return (
-    <FrameLayout hideFooter showBack contentClassName="!px-0">
+    <FrameLayout hideFooter showBack onBack={() => { window.location.href = '/chants' }} contentClassName="!px-0">
       <div className="px-4 py-4">
         {/* Title */}
         <div className="mb-4">
