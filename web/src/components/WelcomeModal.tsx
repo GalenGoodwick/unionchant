@@ -37,7 +37,7 @@ export default function WelcomeModal() {
           Welcome to Unity Chant
         </h2>
         <p className="text-muted mb-6">
-          Adversarial consensus deliberations. Ideas compete in 5-person cells, winners advance through tiers. What survives is what's robust.
+          Turn group chaos into clarity. Make decisions your team actually trusts. Every voice heard, every idea tested—what survives isn't what's popular, it's what works.
         </p>
 
         <div className="space-y-3">
