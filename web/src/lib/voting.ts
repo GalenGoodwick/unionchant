@@ -459,6 +459,8 @@ export async function startVotingPhase(deliberationId: string) {
     },
   })
 
+  console.log(`✓ Tier 1 ${isResume ? 'resumed' : 'started'}: created ${cells.length} cells, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
+
   return {
     success: true,
     reason: isResume ? 'VOTING_RESUMED' : 'VOTING_STARTED',
@@ -1169,6 +1171,11 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // Need another tier - create new cells with advancing ideas
     const nextTier = tier + 1
 
+    // Track tier 1 cell count for validation (should remain stable throughout)
+    const tier1CellCount = await prisma.cell.count({
+      where: { deliberationId, tier: 1 },
+    })
+
     // ATOMIC CLAIM: Only one caller can advance the tier.
     // Move this BEFORE cell creation so a second concurrent caller
     // cannot also start creating cells.
@@ -1264,6 +1271,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     if (shuffledIdeas.length <= CELL_SIZE) {
       // Create cells for all members, all voting on same ideas
       // Each participant only in ONE cell (no duplicates)
+      let cellsCreated = 0
       let remainingMembers = [...shuffledMembers]
       while (remainingMembers.length > 0) {
         const cellSize = remainingMembers.length <= MAX_CELL_SIZE ? remainingMembers.length : CELL_SIZE
@@ -1287,50 +1295,71 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             },
           },
         })
+        cellsCreated++
+      }
+
+      console.log(`✓ Final showdown tier ${nextTier}: created ${cellsCreated} cells (tier 1 baseline: ${tier1CellCount}), ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
+      if (tier1CellCount > 0 && cellsCreated !== tier1CellCount) {
+        console.warn(`⚠️  Cell count mismatch: tier ${nextTier} has ${cellsCreated} cells but tier 1 had ${tier1CellCount}`)
       }
     } else {
-      // Normal case: batch ideas into groups, distribute ALL members across batches.
-      // Use floor division so remainder ideas absorb into existing batches
-      // rather than creating a tiny batch. Fewer batches with more ideas = better deliberation.
-      // e.g., 11 ideas → 2 batches of 6,5 instead of 3 batches of 5,5,1
+      // Normal case: batch ideas into groups, maintain EXACT tier 1 cell count
       const numBatches = Math.max(1, Math.round(shuffledIdeas.length / IDEAS_PER_CELL))
       const baseIdeasPerBatch = Math.floor(shuffledIdeas.length / numBatches)
       const extraIdeas = shuffledIdeas.length % numBatches
-      const baseMembersPerBatch = Math.floor(shuffledMembers.length / numBatches)
-      const extraMembers = shuffledMembers.length % numBatches
+
+      // Target cell count = tier 1 baseline (maintains stable count across all tiers)
+      const targetCellCount = tier1CellCount > 0 ? tier1CellCount : Math.ceil(shuffledMembers.length / DEFAULT_CELL_SIZE)
+      const targetCellsPerBatch = Math.floor(targetCellCount / numBatches)
+      const extraCells = targetCellCount % numBatches
 
       let memberIndex = 0
       let ideaIndex = 0
+      let totalCellsCreated = 0
+
       for (let batch = 0; batch < numBatches; batch++) {
-        // Distribute ideas evenly: earlier batches get one extra
+        // Distribute ideas evenly across batches
         const batchIdeaCount = baseIdeasPerBatch + (batch < extraIdeas ? 1 : 0)
         const batchIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + batchIdeaCount)
         ideaIndex += batchIdeaCount
 
-        // Even distribution: base + 1 extra for first 'extraMembers' batches
-        const batchMemberCount = baseMembersPerBatch + (batch < extraMembers ? 1 : 0)
-        const batchMembers = shuffledMembers.slice(memberIndex, memberIndex + batchMemberCount)
-        memberIndex += batchMemberCount
-
         if (batchIdeas.length === 0) continue
 
-        // Create cells for all members in this batch.
-        // Reuse calculateCellSizes to get proper 3-7 sizing with no tiny cells.
-        const cellSizesForBatch = calculateCellSizes(batchMembers.length)
+        // Calculate exact cell count for this batch (maintains tier 1 baseline)
+        const batchCellCount = targetCellsPerBatch + (batch < extraCells ? 1 : 0)
+
+        // Calculate members for this batch's cells
+        const membersNeeded = batchCellCount * DEFAULT_CELL_SIZE
+        const batchMembers = shuffledMembers.slice(memberIndex, Math.min(memberIndex + membersNeeded, shuffledMembers.length))
+        memberIndex += batchMembers.length
+
+        // Distribute members evenly across this batch's cells
+        const cellSizes = calculateCellSizes(batchMembers.length, DEFAULT_CELL_SIZE)
+        // Ensure we create exactly batchCellCount cells by adjusting if calculateCellSizes differs
+        while (cellSizes.length < batchCellCount && cellSizes.length > 0) {
+          cellSizes.push(DEFAULT_CELL_SIZE)
+        }
+        while (cellSizes.length > batchCellCount) {
+          cellSizes.pop()
+        }
 
         let memberOffset = 0
-        for (let c = 0; c < cellSizesForBatch.length; c++) {
-          const cellSize = cellSizesForBatch[c]
-          if (cellSize === 0) continue
+        let batchCellsCreated = 0
 
-          const cellMembers = batchMembers.slice(memberOffset, memberOffset + cellSize)
-          memberOffset += cellSize
+        for (let c = 0; c < cellSizes.length; c++) {
+          const cellSize = cellSizes[c]
+          if (cellSize === 0 || memberOffset >= batchMembers.length) continue
+
+          const cellMembers = batchMembers.slice(memberOffset, Math.min(memberOffset + cellSize, batchMembers.length))
+          if (cellMembers.length === 0) continue
+
+          memberOffset += cellMembers.length
 
           await prisma.cell.create({
             data: {
               deliberationId,
               tier: nextTier,
-              batch, // Track which batch of ideas this cell votes on
+              batch,
               status: nextTierCellStatus,
               discussionEndsAt: nextTierDiscussionEndsAt,
               ideas: {
@@ -1341,7 +1370,15 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
               },
             },
           })
+          batchCellsCreated++
+          totalCellsCreated++
         }
+        console.log(`  Batch ${batch}: ${batchCellsCreated} cells (target: ${batchCellCount}), ${batchMembers.length} members, ${batchIdeas.length} ideas`)
+      }
+
+      console.log(`✓ Tier ${nextTier}: created ${totalCellsCreated} cells across ${numBatches} batches (tier 1 baseline: ${tier1CellCount}), ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
+      if (tier1CellCount > 0 && totalCellsCreated !== tier1CellCount) {
+        console.warn(`⚠️  Cell count mismatch: tier ${nextTier} has ${totalCellsCreated} cells but tier 1 had ${tier1CellCount}`)
       }
     }
 

@@ -45,33 +45,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Ask AI is currently admin-only' }, { status: 403 })
     }
 
-    // Admin bypass all limits (legacy code kept for future tier-based access)
-    if (false) {
-      // Daily quota based on subscription tier
-      const dailyLimit = ASK_AI_DAILY_LIMITS[user.subscriptionTier] || 2
-      const todayStart = new Date()
-      todayStart.setHours(0, 0, 0, 0)
-      const todayCount = await prisma.deliberation.count({
-        where: {
-          creatorId: user.id,
-          tags: { has: 'ask-ai' },
-          createdAt: { gte: todayStart },
-        },
-      })
-      if (todayCount >= dailyLimit) {
-        return NextResponse.json({
-          error: `Daily limit reached (${dailyLimit}/day on ${user.subscriptionTier}). Upgrade for more.`,
-          code: 'ASK_AI_LIMIT',
-        }, { status: 429 })
-      }
-
-      // Rate limit: 1 per 5 minutes (burst protection)
-      const limited = await checkRateLimit('ask_ai', user.id)
-      if (limited) {
-        return NextResponse.json({ error: 'Try again in a few minutes' }, { status: 429 })
-      }
-    }
-
     const body = await req.json()
     const { question, description, agentCount, sources } = body
 
