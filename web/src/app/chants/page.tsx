@@ -549,7 +549,7 @@ function ChantsPage() {
       if (!a.isPinned && b.isPinned) return 1
       // Most viewers first
       if ((b.viewerCount || 0) !== (a.viewerCount || 0)) return (b.viewerCount || 0) - (a.viewerCount || 0)
-      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, COMPLETED: 1, PAUSED: 0 }
+      const phasePriority: Record<string, number> = { VOTING: 3, COMPLETED: 3, SUBMISSION: 2, PAUSED: 0 }
       const ap = phasePriority[a.phase] ?? 0
       const bp = phasePriority[b.phase] ?? 0
       if (bp !== ap) return bp - ap
