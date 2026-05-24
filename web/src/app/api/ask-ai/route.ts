@@ -11,13 +11,13 @@ export const maxDuration = 300
 
 const VALID_COUNTS = [5, 10, 15, 20, 25]
 
-// Higher limits by tier — admin gets up to 500
+// Higher limits by tier — admin gets up to 200 (database performance limit)
 const MAX_AGENTS: Record<string, number> = {
   free: 25,
   pro: 50,
-  business: 100,
-  scale: 250,
-  admin: 500,
+  business: 75,
+  scale: 150,
+  admin: 200,
 }
 
 const ASK_AI_DAILY_LIMITS: Record<string, number> = {
@@ -39,10 +39,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Admin bypass all limits
+    // Admin-only feature
     const userIsAdmin = await isAdmin(session.user.email)
-
     if (!userIsAdmin) {
+      return NextResponse.json({ error: 'Ask AI is currently admin-only' }, { status: 403 })
+    }
+
+    // Admin bypass all limits (legacy code kept for future tier-based access)
+    if (false) {
       // Daily quota based on subscription tier
       const dailyLimit = ASK_AI_DAILY_LIMITS[user.subscriptionTier] || 2
       const todayStart = new Date()

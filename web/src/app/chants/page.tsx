@@ -549,7 +549,7 @@ function ChantsPage() {
       if (!a.isPinned && b.isPinned) return 1
       // Most viewers first
       if ((b.viewerCount || 0) !== (a.viewerCount || 0)) return (b.viewerCount || 0) - (a.viewerCount || 0)
-      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, PAUSED: 1, COMPLETED: 0 }
+      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, COMPLETED: 1, PAUSED: 0 }
       const ap = phasePriority[a.phase] ?? 0
       const bp = phasePriority[b.phase] ?? 0
       if (bp !== ap) return bp - ap
@@ -641,10 +641,10 @@ function ChantsPage() {
       {showCreate || showAskAI ? (
         <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
           {/* Mode selector */}
-          <div className="mb-4">
-            <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
-            <div className="flex gap-2">
-              {isUserAdmin && (
+          {isUserAdmin && (
+            <div className="mb-4">
+              <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
+              <div className="flex gap-2">
                 <button
                   type="button"
                   onClick={() => { setShowAskAI(true); setShowCreate(false) }}
@@ -657,21 +657,21 @@ function ChantsPage() {
                 >
                   Ask AI
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => { setMode('event'); setShowAskAI(false); setShowCreate(true) }}
-                disabled={askRunning}
-                className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                  !showAskAI
-                    ? 'bg-accent/15 border-accent/40 text-accent'
-                    : 'bg-surface border-border text-muted hover:border-border-strong'
-                }`}
-              >
-                Human Managed
-              </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode('event'); setShowAskAI(false); setShowCreate(true) }}
+                  disabled={askRunning}
+                  className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
+                    !showAskAI
+                      ? 'bg-accent/15 border-accent/40 text-accent'
+                      : 'bg-surface border-border text-muted hover:border-border-strong'
+                  }`}
+                >
+                  Human Managed
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {showAskAI ? (
             <form onSubmit={handleAskAI}>
@@ -753,13 +753,13 @@ function ChantsPage() {
                             const raw = e.target.value.replace(/\D/g, '')
                             setCustomCountText(raw)
                             const v = parseInt(raw)
-                            const max = isUserAdmin ? 500 : userTier === 'scale' ? 250 : userTier === 'business' ? 100 : 50
+                            const max = isUserAdmin ? 200 : userTier === 'scale' ? 150 : userTier === 'business' ? 75 : 50
                             if (!isNaN(v) && v >= 5 && v <= max) setAskAgentCount(v)
                           }}
                           disabled={askRunning}
                           className="w-20 px-2 py-1.5 text-xs text-center rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:border-warning"
                         />
-                        <span className="text-[10px] text-muted">max {isUserAdmin ? 500 : userTier === 'scale' ? 250 : userTier === 'business' ? 100 : 50}</span>
+                        <span className="text-[10px] text-muted">max {isUserAdmin ? 200 : userTier === 'scale' ? 150 : userTier === 'business' ? 75 : 50}</span>
                         <button
                           type="button"
                           onClick={() => { setShowCustomCount(false) }}
@@ -795,7 +795,7 @@ function ChantsPage() {
                   {askAgentCount <= 5 && '1 cell, no tiers. Fast (~5s).'}
                   {askAgentCount > 5 && askAgentCount <= 25 && `${Math.ceil(askAgentCount / 5)} cells + final showdown (~${Math.ceil(askAgentCount / 5) * 5}s).`}
                   {askAgentCount > 25 && askAgentCount <= 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers (~${Math.ceil(askAgentCount / 2)}s).`}
-                  {askAgentCount > 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers. Large deliberation.`}
+                  {askAgentCount > 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers. Large deliberation (1-2 min).`}
                 </p>
               </div>
 
@@ -815,7 +815,7 @@ function ChantsPage() {
                     <span className={`text-[11px] font-medium ${askSources.standard ? 'text-warning' : 'text-muted'}`}>
                       Standard
                     </span>
-                    <span className="text-[10px] text-muted ml-auto">100 built-in personas</span>
+                    <span className="text-[10px] text-muted ml-auto">500 built-in personas</span>
                   </label>
                   {poolCount > 0 && (
                     <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
