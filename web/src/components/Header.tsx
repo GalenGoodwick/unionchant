@@ -95,6 +95,7 @@ export default function Header() {
             ))}
             <span onClick={triggerChallenge} className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
             {[
+              { href: '/how', label: 'How' },
               { href: '/humanity', label: 'Humanity' },
               { href: '/embed', label: 'Embed' },
               { href: '/methodology', label: 'Method' },
