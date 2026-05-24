@@ -99,6 +99,7 @@ function ChantsPage() {
   const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('event')
   const [ideaGoal, setIdeaGoal] = useState(5)
   const [memberGoal, setMemberGoal] = useState(10)
+  const [submissionDeadline, setSubmissionDeadline] = useState('')
   const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
   const [allowAI, setAllowAI] = useState(false)
   const chantMode = 'classic' as const
@@ -235,6 +236,7 @@ function ChantsPage() {
     setMode('event')
     setAllowAI(false)
     setTags('')
+    setSubmissionDeadline('')
     setSelectedCommunityId(null)
     setIdeaGoal(5)
     setMemberGoal(10)
@@ -374,6 +376,7 @@ function ChantsPage() {
           allowAI,
           ideaGoal: (mode === 'idea_goal' || mode === 'endless') ? ideaGoal : null,
           memberGoal: mode === 'event' ? memberGoal : null,
+          submissionDeadline: submissionDeadline ? new Date(submissionDeadline).toISOString() : null,
           votingTimeoutMs: 0,
           tags: tags.split(',').map(t => t.trim()).filter(t => t.length > 0),
           chantMode,
@@ -1051,6 +1054,17 @@ function ChantsPage() {
             onChange={(e) => setTags(e.target.value)}
             className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-accent transition-colors"
           />
+          <div className="mb-2">
+            <label className="text-xs text-muted block mb-1">
+              Submission Deadline (optional) — Voting starts automatically at this time
+            </label>
+            <input
+              type="datetime-local"
+              value={submissionDeadline}
+              onChange={(e) => setSubmissionDeadline(e.target.value)}
+              className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-accent transition-colors"
+            />
+          </div>
           {communities.length > 0 && (
             <div className="mb-2">
               <select
