@@ -15,6 +15,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
 import { useFirstVisit } from '@/hooks/useFirstVisit'
+import ChantsTutorialModal from '@/components/ChantsTutorialModal'
 
 type Chant = {
   id: string
@@ -576,7 +577,9 @@ function ChantsPage() {
   const hasMore = visibleCount < filtered.length
 
   return (
-    <FrameLayout
+    <>
+      <ChantsTutorialModal />
+      <FrameLayout
       active="chants"
       scrollRef={!showCreate && !showAskAI ? scrollRef : undefined}
       contentClassName=""
@@ -1309,6 +1312,7 @@ function ChantsPage() {
         document.body
       )}
     </FrameLayout>
+    </>
   )
 }
 
