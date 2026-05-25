@@ -1642,7 +1642,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                               <button
                                 key={cell.id}
                                 onClick={() => setSelectedCell(isSelected ? null : cell.id)}
-                                className={`aspect-square rounded-lg border text-sm font-mono font-bold transition-all ${
+                                className={`aspect-square rounded-lg border text-xs font-mono font-bold transition-all max-w-[60px] max-h-[60px] ${
                                   isSelected
                                     ? 'bg-accent/20 border-accent/50 text-accent'
                                     : isComplete
