@@ -1095,7 +1095,7 @@ export default function DeliberationPageClient() {
               Submit
             </button>
           )}
-          {d.effectivePhase !== 'SUBMISSION' && (
+          {d.effectivePhase !== 'SUBMISSION' && d.effectivePhase !== 'COMPLETED' && (
             <button
               onClick={() => setActiveTab('discuss')}
               className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -1104,20 +1104,19 @@ export default function DeliberationPageClient() {
                   : 'border-transparent text-muted hover:text-foreground'
               }`}
             >
-              {d.effectivePhase === 'COMPLETED' ? 'Cells' : 'Discuss'}
+              Discuss
             </button>
           )}
-          {d.effectivePhase !== 'SUBMISSION' && (
+          {d.effectivePhase !== 'SUBMISSION' && d.effectivePhase !== 'COMPLETED' && (
             <button
               onClick={() => setActiveTab('vote')}
               className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === 'vote'
-                  ? (d.effectivePhase === 'COMPLETED' ? 'border-success text-success' :
-                     'border-warning text-warning')
+                  ? 'border-warning text-warning'
                   : 'border-transparent text-muted hover:text-foreground'
               }`}
             >
-              {d.effectivePhase === 'COMPLETED' ? 'Results' : 'Vote'}
+              Vote
             </button>
           )}
         </div>
