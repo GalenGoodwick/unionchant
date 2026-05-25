@@ -661,9 +661,9 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   const tabs: { key: Tab; label: string; badge?: number; show: boolean }[] = [
     { key: 'join', label: 'Join', show: false },
-    { key: 'submit', label: '1 Submit', show: true },
-    { key: 'discuss', label: '2 Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' },
-    { key: 'vote', label: '3 Vote', show: true },
+    { key: 'submit', label: '1 Submit', show: status.phase !== 'COMPLETED' },
+    { key: 'discuss', label: '2 Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' && status.phase !== 'COMPLETED' },
+    { key: 'vote', label: '3 Vote', show: status.phase !== 'COMPLETED' },
     { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: true },
     { key: 'cells', label: 'Cells', badge: status.cells.length || undefined, show: true },
     { key: 'manage', label: 'Manage', show: !!isCreator },
