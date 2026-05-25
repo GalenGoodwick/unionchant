@@ -113,6 +113,7 @@ function ChantsPage() {
   const [communityOnly, setCommunityOnly] = useState(false)
   const [ideaStatus, setIdeaStatus] = useState<Record<number, { ok: boolean; msg: string }>>({})
   const [createProgress, setCreateProgress] = useState('')
+  const [showConfirmation, setShowConfirmation] = useState(false)
 
   // Bond request banner
   const [pendingBond, setPendingBond] = useState<{
@@ -362,6 +363,12 @@ function ChantsPage() {
       return
     }
 
+    // Show confirmation dialog instead of immediately creating
+    setShowConfirmation(true)
+  }
+
+  const handleConfirmedCreate = async () => {
+    setShowConfirmation(false)
     setCreating(true)
     setCreateError('')
 
@@ -1184,6 +1191,46 @@ function ChantsPage() {
             {creating ? 'Creating...' : 'Create Chant'}
           </button>
             </form>
+
+          {/* Confirmation Dialog */}
+          {showConfirmation && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowConfirmation(false)}>
+              <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
+                <h3 className="text-lg font-bold text-foreground mb-4">Confirm Chant Creation</h3>
+
+                <div className="space-y-3 mb-6">
+                  <div>
+                    <p className="text-xs font-semibold text-muted mb-1">Question:</p>
+                    <p className="text-sm text-foreground">{question}</p>
+                  </div>
+
+                  {description.trim() && (
+                    <div>
+                      <p className="text-xs font-semibold text-muted mb-1">Context:</p>
+                      <p className="text-sm text-foreground">{description}</p>
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-xs text-muted mb-4">Please check that spelling and wording are correct before creating.</p>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowConfirmation(false)}
+                    className="flex-1 py-2 px-4 bg-surface border border-border text-foreground rounded-lg hover:bg-background transition-colors text-sm font-medium"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmedCreate}
+                    className="flex-1 py-2 px-4 bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors text-sm font-medium"
+                  >
+                    Confirm & Create
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           )}
         </div>
       ) : (
