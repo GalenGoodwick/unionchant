@@ -73,7 +73,7 @@ export default function ChantsPageWrapper() {
 }
 
 function ChantsPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [chants, setChants] = useState<Chant[]>([])
@@ -580,7 +580,7 @@ function ChantsPage() {
 
   return (
     <>
-      {!session && <AnonymousBanner />}
+      {!session && status !== 'loading' && <AnonymousBanner />}
       <ChantsTutorialModal show={showTutorial} onClose={() => setShowTutorial(false)} />
       <FrameLayout
       active="chants"
