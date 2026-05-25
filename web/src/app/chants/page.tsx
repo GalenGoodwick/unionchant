@@ -1231,7 +1231,6 @@ function ChantsPage() {
               </div>
             </div>
           )}
-          )}
         </div>
       ) : (
         <>
