@@ -198,13 +198,7 @@ export default function LandingParallax() {
 
       {/* ── HEADER ── */}
       <header className="relative z-[3] bg-header">
-        <div className="max-w-[800px] mx-auto px-6 py-4 flex justify-end gap-6">
-          <Link href="/demo" className="text-sm text-muted hover:text-foreground transition-colors font-medium">
-            Demo
-          </Link>
-          <Link href="/auth/signin" className="text-sm text-muted hover:text-foreground transition-colors font-medium">
-            Sign In
-          </Link>
+        <div className="max-w-[800px] mx-auto px-6 py-4">
         </div>
       </header>
 
@@ -214,10 +208,10 @@ export default function LandingParallax() {
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-5 leading-[1.1] tracking-tight font-serif">
             Unity Chant
           </h1>
-          <p className="text-xl text-accent-light font-medium mb-10 font-serif italic opacity-80">
-            Of all the ideas each of us could submit &mdash; what do we collectively agree on?
+          <p className="text-2xl sm:text-3xl text-accent font-medium mb-10 font-serif italic">
+            Of all the ideas each of us could submit &mdash;<br />what do we collectively agree on?
           </p>
-          <div className="max-w-[560px] mx-auto mb-10 space-y-5 text-white/70 text-lg leading-relaxed">
+          <div className="max-w-[560px] mx-auto mb-2 space-y-5 text-white/90 text-lg leading-relaxed">
             <p>
               Not a poll. Not a survey. Not a list of options someone else wrote.
               Everyone proposes their own answer. Then small groups of five read,
@@ -229,23 +223,6 @@ export default function LandingParallax() {
               Whether 50 people participate or 50,000, everyone gets
               the same fair experience. No megaphones. No loudest voice.
             </p>
-            <p>
-              The result isn&apos;t manufactured. It&apos;s discovered &mdash; through
-              real conversation, documented at every step. What emerges is
-              what the community already believed but had no way to say together.
-            </p>
-          </div>
-          <p className="text-white/90 font-medium text-sm mb-10">
-            Discover what your community already agrees on.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/how-it-works" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
-              How It Works
-            </Link>
-            <Link href="/whitepaper" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
-              Read the Whitepaper
-            </Link>
-            <AddToPhoneButton />
           </div>
           <TierTab>so many individuals &mdash; good ideas flare<br />and are lost to disconnection and chaos</TierTab>
         </div>
@@ -256,7 +233,7 @@ export default function LandingParallax() {
 
       {/* ── THE INSIGHT ── */}
       <section className="relative z-[2] bg-header">
-        <div className="max-w-[800px] mx-auto px-6 py-20">
+        <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-6">
             Agreement hides in small rooms
           </h2>
@@ -443,8 +420,11 @@ export default function LandingParallax() {
             <Link href="/chants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
               Go to Chants
             </Link>
-            <Link href="/auth/signin?callbackUrl=%2Fchants%3Fcreate%3D1" className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-semibold transition-colors border border-white/20">
-              Start a Chant
+            <Link href="/demo" className="bg-purple hover:bg-purple-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors flex items-center justify-center">
+              Demo
+            </Link>
+            <Link href="/whitepaper" className="bg-gold hover:bg-gold-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
+              Read the Whitepaper
             </Link>
           </div>
         </div>
