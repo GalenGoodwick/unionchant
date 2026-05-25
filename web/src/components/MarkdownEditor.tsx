@@ -39,7 +39,7 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
       <MDEditor
         value={value}
         onChange={(val) => onChange(val || '')}
-        preview="live"
+        preview="preview"
         height={parseInt(minHeight)}
         textareaProps={{
           placeholder: placeholder || 'Write your post...',
