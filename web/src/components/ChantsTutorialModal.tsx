@@ -1,19 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+type ChantsTutorialModalProps = {
+  show: boolean
+  onClose: () => void
+}
 
-export default function ChantsTutorialModal() {
-  const [show, setShow] = useState(false)
-
-  useEffect(() => {
-    // Check if tutorial should be shown
-    const shouldShow = localStorage.getItem('show_chants_tutorial')
-    if (shouldShow === 'true') {
-      setShow(true)
-      localStorage.removeItem('show_chants_tutorial')
-    }
-  }, [])
-
+export default function ChantsTutorialModal({ show, onClose }: ChantsTutorialModalProps) {
   if (!show) return null
 
   return (
@@ -101,16 +93,16 @@ export default function ChantsTutorialModal() {
 
         <div className="flex gap-3">
           <button
-            onClick={() => setShow(false)}
-            className="flex-1 px-6 py-3 bg-accent hover:bg-accent-hover text-white rounded-lg font-semibold transition-colors"
+            onClick={onClose}
+            className="flex-1 px-6 py-3 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg font-semibold transition-colors"
           >
             Got it
           </button>
           <a
-            href="/how"
-            className="flex-1 px-6 py-3 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-lg font-semibold transition-colors text-center"
+            href="/auth/signup"
+            className="flex-1 px-6 py-3 bg-accent hover:bg-accent-hover text-white rounded-lg font-semibold transition-colors text-center"
           >
-            Learn more
+            Sign up
           </a>
         </div>
       </div>

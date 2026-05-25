@@ -16,6 +16,7 @@ import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
 import { useFirstVisit } from '@/hooks/useFirstVisit'
 import ChantsTutorialModal from '@/components/ChantsTutorialModal'
+import AnonymousBanner from '@/components/AnonymousBanner'
 
 type Chant = {
   id: string
@@ -81,6 +82,7 @@ function ChantsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'PAUSED'>('all')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [showTutorial, setShowTutorial] = useState(false)
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -578,7 +580,8 @@ function ChantsPage() {
 
   return (
     <>
-      <ChantsTutorialModal />
+      {!session && <AnonymousBanner />}
+      <ChantsTutorialModal show={showTutorial} onClose={() => setShowTutorial(false)} />
       <FrameLayout
       active="chants"
       scrollRef={!showCreate && !showAskAI ? scrollRef : undefined}
@@ -588,20 +591,34 @@ function ChantsPage() {
       } : undefined}
       header={!showCreate && !showAskAI ? (
         <div className="space-y-2 pb-3">
-          <div className="flex gap-1.5 overflow-x-auto">
-            {(['all', 'SUBMISSION', 'VOTING', 'PAUSED', 'COMPLETED'] as const).map(f => (
-              <button
-                key={f}
-                onClick={() => { setFilter(f); setVisibleCount(PAGE_SIZE) }}
-                className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors ${
-                  filter === f
-                    ? 'bg-accent/15 text-accent font-medium'
-                    : 'text-muted hover:text-foreground hover:bg-surface/80'
-                }`}
-              >
-                {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : f === 'PAUSED' ? 'Paused' : 'Done'}
-              </button>
-            ))}
+          <div className="flex items-center gap-1.5">
+            <div className="flex gap-1.5 overflow-x-auto flex-1">
+              {(['all', 'SUBMISSION', 'VOTING', 'PAUSED', 'COMPLETED'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => { setFilter(f); setVisibleCount(PAGE_SIZE) }}
+                  className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors ${
+                    filter === f
+                      ? 'bg-accent/15 text-accent font-medium'
+                      : 'text-muted hover:text-foreground hover:bg-surface/80'
+                  }`}
+                >
+                  {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : f === 'PAUSED' ? 'Paused' : 'Done'}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowTutorial(true)}
+              className="w-7 h-7 rounded-full bg-accent/10 hover:bg-accent/20 flex items-center justify-center transition-colors text-accent shrink-0"
+              aria-label="How it works"
+              title="How it works"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="10" />
+                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                <circle cx="12" cy="17" r="0.5" fill="currentColor" />
+              </svg>
+            </button>
           </div>
           {filter === 'all' && (
             <input
