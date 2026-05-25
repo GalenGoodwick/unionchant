@@ -112,7 +112,7 @@ function ResetPasswordForm() {
 
 export default function ResetPasswordPage() {
   return (
-    <FrameLayout hideFooter contentClassName="flex items-center justify-center">
+    <FrameLayout hideFooter showBack contentClassName="flex items-center justify-center">
       <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-8 w-full">
         <Suspense fallback={<div className="text-center text-muted">Loading...</div>}>
           <ResetPasswordForm />

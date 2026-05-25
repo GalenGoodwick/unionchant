@@ -228,21 +228,15 @@ function SignInForm() {
               </svg>
               Enter Anonymously (No Personal Data Collected)
             </Link>
-            <div className="bg-accent/10 border border-accent/30 rounded-lg p-3 mb-3">
-              <p className="text-foreground font-medium text-sm mb-1">Passwordless Sign In</p>
-              <p className="text-muted text-xs">
-                Uses your device's biometric authentication (Touch ID, Face ID, fingerprint) or device PIN. No password needed. Notifications via push.
-              </p>
-            </div>
             <button
               onClick={handlePasskeySignup}
               disabled={passkeySignupLoading}
-              className="w-full bg-surface hover:bg-surface-hover text-foreground font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 transition-colors border border-border disabled:opacity-50"
+              className="w-full bg-gold hover:bg-gold-hover text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-3 transition-colors disabled:opacity-50"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1721 9z" />
               </svg>
-              {passkeySignupLoading ? 'Setting up...' : 'Create account with Touch ID / Face ID'}
+              {passkeySignupLoading ? 'Setting up...' : 'Create device-based account with Touch ID'}
             </button>
             <button
               onClick={handlePasskeySignin}
@@ -269,21 +263,6 @@ function SignInForm() {
               </button>
             )}
           </div>
-
-          <div className="text-center mt-6 space-y-2">
-            <p className="text-muted text-sm">
-              Need an email/password account?{' '}
-              <Link href="/auth/signup" className="text-accent hover:text-accent-hover">
-                Sign up
-              </Link>
-            </p>
-            <button
-              onClick={() => setForgotMode(true)}
-              className="text-muted hover:text-foreground text-sm"
-            >
-              Forgot password?
-            </button>
-          </div>
         </>
       )}
     </>
@@ -292,7 +271,7 @@ function SignInForm() {
 
 export default function SignIn() {
   return (
-    <FrameLayout hideFooter contentClassName="flex items-center justify-center">
+    <FrameLayout hideFooter showBack contentClassName="flex items-center justify-center">
       <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-8 w-full">
         <Suspense fallback={<div className="text-center text-muted">Loading...</div>}>
           <SignInForm />

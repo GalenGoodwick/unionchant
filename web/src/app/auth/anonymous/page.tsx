@@ -103,7 +103,7 @@ export default function AnonymousSignIn() {
   }
 
   return (
-    <FrameLayout hideFooter>
+    <FrameLayout hideFooter showBack>
       <div className="flex-1 flex items-center justify-center py-8">
         <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-6 w-full">
           <h1 className="text-xl font-bold text-foreground text-center mb-1.5">

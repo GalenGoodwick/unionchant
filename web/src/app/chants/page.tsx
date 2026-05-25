@@ -76,6 +76,9 @@ function ChantsPage() {
   const { data: session, status } = useSession()
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  // Debug banner visibility
+  console.log('Banner debug:', { session: !!session, status, showBanner: !session })
   const [chants, setChants] = useState<Chant[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -580,7 +583,6 @@ function ChantsPage() {
 
   return (
     <>
-      {!session && status !== 'loading' && <AnonymousBanner />}
       <ChantsTutorialModal show={showTutorial} onClose={() => setShowTutorial(false)} />
       <FrameLayout
       active="chants"
@@ -590,7 +592,9 @@ function ChantsPage() {
         resetCreateForm(); setShowCreate(false); setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
       } : undefined}
       header={!showCreate && !showAskAI ? (
-        <div className="space-y-2 pb-3">
+        <>
+          {!session && <AnonymousBanner />}
+          <div className="space-y-2 pb-3">
           <div className="flex items-center gap-1.5">
             <div className="flex gap-1.5 overflow-x-auto flex-1">
               {(['all', 'SUBMISSION', 'VOTING', 'PAUSED', 'COMPLETED'] as const).map(f => (
@@ -629,7 +633,8 @@ function ChantsPage() {
               className="w-full px-3 py-2 bg-background/80 backdrop-blur-sm border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
             />
           )}
-        </div>
+          </div>
+        </>
       ) : undefined}
       footerRight={session ? (
         <button
@@ -1337,8 +1342,104 @@ function ChantsPage() {
 function WelcomePopup() {
   const { data: session } = useSession()
   const [show, dismiss] = useFirstVisit('chants-welcome')
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [enableNotifications, setEnableNotifications] = useState(false)
+  const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default'>('default')
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setNotificationPermission(Notification.permission)
+      if (Notification.permission === 'granted') {
+        setEnableNotifications(true)
+      }
+    }
+  }, [])
 
   if (!show || !session) return null
+
+  const handleNotificationChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked
+
+    if (!checked) {
+      setEnableNotifications(false)
+      return
+    }
+
+    if ('Notification' in window) {
+      // If already denied, prevent checking and show message
+      if (Notification.permission === 'denied') {
+        setEnableNotifications(false)
+        alert('Notifications are blocked. Please enable them in your browser settings.')
+        return
+      }
+
+      const permission = await Notification.requestPermission()
+      setNotificationPermission(permission)
+
+      if (permission === 'granted') {
+        setEnableNotifications(true)
+        // Register push subscription in background
+        try {
+          const registration = await navigator.serviceWorker.ready
+          const subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+          })
+          await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(subscription),
+          })
+        } catch (err) {
+          console.error('Push subscription failed:', err)
+        }
+      } else {
+        setEnableNotifications(false)
+      }
+    }
+  }
+
+  const handleDone = async () => {
+    setError('')
+
+    // If name was entered, save it
+    if (name.trim()) {
+      setSaving(true)
+      try {
+        const res = await fetch('/api/user/me', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.trim() }),
+        })
+
+        if (res.ok) {
+          // Mark modal as seen BEFORE reloading
+          dismiss()
+          // Small delay to ensure localStorage is written
+          setTimeout(() => {
+            window.location.reload()
+          }, 100)
+          return
+        } else {
+          // Show error from API
+          const data = await res.json()
+          setError(data.error || 'Failed to update name')
+          setSaving(false)
+          return
+        }
+      } catch (err) {
+        console.error('Failed to update name:', err)
+        setError('Failed to update name')
+        setSaving(false)
+        return
+      }
+    }
+
+    // If no name entered, just dismiss
+    dismiss()
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
@@ -1374,12 +1475,53 @@ function WelcomePopup() {
               <p className="text-xs text-muted">When your group forms, read the ideas and attach comments to them. Like a comment to boost its visibility. Then vote for the strongest idea. You will get additional ideas to vote on as the chant progresses through rounds.</p>
             </div>
           </li>
+          <li className="flex gap-3">
+            <span className="w-6 h-6 rounded-full bg-gold/15 text-gold flex items-center justify-center text-xs font-bold shrink-0">5</span>
+            <div>
+              <p className="text-sm font-medium text-foreground">Create a Chant</p>
+              <p className="text-xs text-muted">Click the + button to make your own chant.</p>
+            </div>
+          </li>
         </ol>
+
+        <div className="mb-4">
+          <label className="block text-xs text-muted mb-1.5">What should we call you?</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter your name (optional)"
+            maxLength={50}
+            disabled={saving}
+            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+          />
+          {error && (
+            <p className="text-error text-xs mt-1.5">{error}</p>
+          )}
+        </div>
+
+        {notificationPermission !== 'denied' && (
+          <div className="mb-4 flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="notifications"
+              checked={enableNotifications}
+              onChange={handleNotificationChange}
+              disabled={saving}
+              className="w-4 h-4 accent-accent disabled:opacity-50"
+            />
+            <label htmlFor="notifications" className="text-xs text-foreground cursor-pointer">
+              Enable push notifications
+            </label>
+          </div>
+        )}
+
         <button
-          onClick={dismiss}
-          className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
+          onClick={handleDone}
+          disabled={saving}
+          className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
         >
-          Got it
+          {saving ? 'Saving...' : 'Done'}
         </button>
       </div>
     </div>,

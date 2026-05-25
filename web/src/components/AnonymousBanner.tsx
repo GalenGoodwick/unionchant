@@ -1,30 +1,24 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 
 export default function AnonymousBanner() {
-  const [dismissed, setDismissed] = useState(true)
+  const [dismissed, setDismissed] = useState(false)
 
-  useEffect(() => {
-    const isDismissed = localStorage.getItem('anonymous_banner_dismissed')
-    if (!isDismissed) {
-      setDismissed(false)
-    }
-  }, [])
+  console.log('AnonymousBanner rendering, dismissed:', dismissed)
 
   const handleDismiss = () => {
-    localStorage.setItem('anonymous_banner_dismissed', 'true')
     setDismissed(true)
   }
 
   if (dismissed) return null
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-accent/95 backdrop-blur-sm border-b border-accent-hover">
+    <div className="bg-accent/95 border-b border-accent-hover">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
         <p className="text-white text-sm font-medium">
-          Sign up to vote, submit ideas, and participate in deliberations
+          Sign up to vote, submit ideas, discuss, and create chants.
         </p>
         <div className="flex items-center gap-2">
           <Link
@@ -34,7 +28,7 @@ export default function AnonymousBanner() {
             Learn more
           </Link>
           <Link
-            href="/auth/signup"
+            href="/auth/signin"
             className="px-4 py-1.5 bg-white text-accent rounded-lg text-sm font-semibold hover:bg-white/90 transition-colors whitespace-nowrap"
           >
             Sign up
