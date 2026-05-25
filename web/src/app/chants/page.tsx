@@ -600,7 +600,7 @@ function ChantsPage() {
       } : undefined}
       header={!showCreate && !showAskAI ? (
         <>
-          {!session && <AnonymousBanner />}
+          {status !== 'loading' && !session && <AnonymousBanner />}
           <div className="space-y-2 pb-3">
           <div className="flex items-center gap-1.5">
             <div className="flex gap-1.5 overflow-x-auto flex-1">
