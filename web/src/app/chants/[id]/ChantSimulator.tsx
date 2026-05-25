@@ -1633,7 +1633,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                     return (
                       <div key={tier}>
                         <p className="text-xs font-medium text-muted mb-2">Tier {tier}</p>
-                        <div className="grid grid-cols-5 gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {tierCells.map((cell, i) => {
                             const isSelected = selectedCell === cell.id
                             const isComplete = cell.status === 'COMPLETED'
