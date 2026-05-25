@@ -1055,6 +1055,7 @@ function ChantsPage() {
               </button>
             </form>
           ) : (
+            <>
             <form onSubmit={handleCreate}>
           <h2 className="text-2xl font-bold text-white mb-3">Chant Create</h2>
           <p className="text-[11px] text-muted mb-3 leading-relaxed">Tip: Open-ended questions work best.</p>
@@ -1230,6 +1231,8 @@ function ChantsPage() {
                 </div>
               </div>
             </div>
+          )}
+            </>
           )}
         </div>
       ) : (
