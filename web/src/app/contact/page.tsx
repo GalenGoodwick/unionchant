@@ -45,7 +45,7 @@ export default function ContactPage() {
       header={<h2 className="text-sm font-semibold text-foreground pb-3">Contact</h2>}
     >
       <div className="space-y-3">
-        <p className="text-xs text-muted">Questions, feedback, or partnership inquiries? We'd love to hear from you.</p>
+        <p className="text-base text-white mt-6">Questions, feedback, or partnership inquiries? We'd love to hear from you.</p>
 
         {status === 'success' && (
           <div className="bg-success-bg border border-success text-success rounded-lg p-3 text-xs font-medium">
