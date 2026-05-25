@@ -12,8 +12,14 @@ interface MarkdownEditorProps {
 export default function MarkdownEditor({ value, onChange, placeholder, minHeight = '300px' }: MarkdownEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [showHelp, setShowHelp] = useState(false)
+  const lastActionRef = useRef<number>(0)
 
   const insertMarkdown = (before: string, after = '', placeholder = 'text') => {
+    // Debounce to prevent double-clicks
+    const now = Date.now()
+    if (now - lastActionRef.current < 200) return
+    lastActionRef.current = now
+
     const textarea = textareaRef.current
     if (!textarea) return
 
@@ -23,17 +29,23 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
     const textToInsert = selectedText || placeholder
 
     const newValue = value.substring(0, start) + before + textToInsert + after + value.substring(end)
+    const newCursorPos = start + before.length + (selectedText ? textToInsert.length + after.length : 0)
+
     onChange(newValue)
 
-    // Set cursor position after insert
-    setTimeout(() => {
-      const newCursorPos = start + before.length + textToInsert.length
+    // Set cursor position after React updates
+    requestAnimationFrame(() => {
       textarea.focus()
-      textarea.setSelectionRange(newCursorPos, newCursorPos)
-    }, 0)
+      textarea.setSelectionRange(newCursorPos, newCursorPos + (selectedText ? 0 : textToInsert.length))
+    })
   }
 
   const insertAtNewLine = (text: string) => {
+    // Debounce to prevent double-clicks
+    const now = Date.now()
+    if (now - lastActionRef.current < 200) return
+    lastActionRef.current = now
+
     const textarea = textareaRef.current
     if (!textarea) return
 
@@ -42,17 +54,22 @@ export default function MarkdownEditor({ value, onChange, placeholder, minHeight
     const afterCursor = value.substring(start)
 
     // Add newlines if not at start and previous char isn't newline
-    const prefix = beforeCursor && !beforeCursor.endsWith('\n') ? '\n' : ''
-    const suffix = afterCursor && !afterCursor.startsWith('\n') ? '\n' : ''
+    const needsPrefix = beforeCursor.length > 0 && !beforeCursor.endsWith('\n')
+    const needsSuffix = afterCursor.length > 0 && !afterCursor.startsWith('\n')
+
+    const prefix = needsPrefix ? '\n\n' : ''
+    const suffix = needsSuffix ? '\n\n' : ''
 
     const newValue = beforeCursor + prefix + text + suffix + afterCursor
+    const newCursorPos = start + prefix.length + text.length
+
     onChange(newValue)
 
-    setTimeout(() => {
-      const newCursorPos = start + prefix.length + text.length
+    // Set cursor position after React updates
+    requestAnimationFrame(() => {
       textarea.focus()
       textarea.setSelectionRange(newCursorPos, newCursorPos)
-    }, 0)
+    })
   }
 
   const handleBold = () => insertMarkdown('**', '**')
