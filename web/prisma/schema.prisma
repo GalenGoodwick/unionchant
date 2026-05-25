@@ -308,6 +308,7 @@ model Deliberation {
   members       DeliberationMember[]
   ideas         Idea[]
   cells         Cell[]
+  batches       Batch[]          // Model A: batches for multi-cell evaluation
   watchers      Watch[]
   predictions   Prediction[]
   podiums       Podium[]
@@ -393,6 +394,7 @@ model Idea {
   // Relations
   votes           Vote[]
   cellIdeas       CellIdea[]
+  batchIdeas      BatchIdea[]  // Model A: ideas in batches
   predictions     Prediction[]
   comments        Comment[]    // Comments linked to this idea (follow across tiers)
   revisions       IdeaRevision[]
@@ -423,7 +425,9 @@ model Cell {
   deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
 
   tier            Int
-  batch           Int?     // For Tier 2+ batching
+  batch           Int?     // DEPRECATED - kept for backward compat
+  batchId         String?  // NEW - FK to Batch model (Model A architecture)
+  batchRef        Batch?   @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   // State
   status          CellStatus @default(DELIBERATING)
@@ -1298,6 +1302,50 @@ model CellOutcome {
   resultText  String   @db.Text  // The text that advances upward
   sourceIdeas String[] // IDs of ideas that contributed to this outcome
   createdAt   DateTime @default(now())
+}
+
+// ============ BATCHES (Model A Architecture) ============
+// Batches group ideas for evaluation. Multiple cells can evaluate the same batch.
+// This ensures all participants vote at every tier, not just a shrinking subset.
+
+model Batch {
+  id              String      @id @default(cuid())
+  deliberationId  String
+  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
+
+  tier            Int
+  batchNumber     Int         // 0-indexed batch number within tier
+  status          BatchStatus @default(VOTING)
+
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+
+  // Relations
+  cells           Cell[]
+  ideas           BatchIdea[]
+
+  @@unique([deliberationId, tier, batchNumber])
+  @@index([deliberationId, tier])
+  @@index([deliberationId, tier, status])
+}
+
+enum BatchStatus {
+  VOTING      // Cells are voting on this batch
+  COMPLETED   // All cells have voted, batch winner determined
+}
+
+model BatchIdea {
+  id       String @id @default(cuid())
+  batchId  String
+  batch    Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  ideaId   String
+  idea     Idea   @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([batchId, ideaId])
+  @@index([batchId])
+  @@index([ideaId])
 }
 
 // ============ SHELL BONDING — Voluntary relationships ============
