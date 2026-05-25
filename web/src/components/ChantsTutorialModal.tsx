@@ -94,7 +94,7 @@ export default function ChantsTutorialModal() {
 
           <div className="p-3 bg-accent/10 border border-accent/30 rounded text-center">
             <p className="text-accent text-xs font-medium">
-              What survives isn't what's popular — it's what's robust through adversarial deliberation.
+              Unity Chant finds the latent consensus of your collective. That is, what do we already agree on that we don't know yet?
             </p>
           </div>
         </div>
