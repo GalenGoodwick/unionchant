@@ -81,6 +81,10 @@ export async function GET(req: NextRequest) {
             select: {
               tier: true,
               _count: { select: { votes: true } },
+              participants: {
+                where: { votedAt: { not: null } },
+                select: { userId: true },
+              },
             },
           },
         },
@@ -102,7 +106,7 @@ export async function GET(req: NextRequest) {
       const viewerCounts = getViewerCounts(deliberations.map(d => d.id))
 
       return deliberations.map(d => {
-        const voteCount = d.cells.filter(c => c.tier === d.currentTier).reduce((sum, c) => sum + c._count.votes, 0)
+        const voteCount = d.cells.filter(c => c.tier === d.currentTier).reduce((sum, c) => sum + c.participants.length, 0)
         const { cells: _cells, ...rest } = d
         return {
           ...rest,
