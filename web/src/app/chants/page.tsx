@@ -1347,6 +1347,7 @@ function WelcomePopup() {
   const [error, setError] = useState('')
   const [enableNotifications, setEnableNotifications] = useState(false)
   const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default'>('default')
+  const [notificationError, setNotificationError] = useState('')
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -1361,6 +1362,7 @@ function WelcomePopup() {
 
   const handleNotificationChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked
+    setNotificationError('')
 
     if (!checked) {
       setEnableNotifications(false)
@@ -1368,10 +1370,10 @@ function WelcomePopup() {
     }
 
     if ('Notification' in window) {
-      // If already denied, prevent checking and show message
+      // If already denied, show error message
       if (Notification.permission === 'denied') {
         setEnableNotifications(false)
-        alert('Notifications are blocked. Please enable them in your browser settings.')
+        setNotificationError('Notifications are blocked. Enable them in your browser settings to continue.')
         return
       }
 
@@ -1380,6 +1382,7 @@ function WelcomePopup() {
 
       if (permission === 'granted') {
         setEnableNotifications(true)
+        setNotificationError('')
         // Register push subscription in background
         try {
           const registration = await navigator.serviceWorker.ready
@@ -1397,6 +1400,7 @@ function WelcomePopup() {
         }
       } else {
         setEnableNotifications(false)
+        setNotificationError('Notifications were denied. You can change this in your browser settings.')
       }
     }
   }
@@ -1500,21 +1504,24 @@ function WelcomePopup() {
           )}
         </div>
 
-        {notificationPermission !== 'denied' && (
-          <div className="mb-4 flex items-center gap-2">
+        <div className="mb-4">
+          <label htmlFor="notifications" className="flex items-center gap-2 cursor-pointer select-none -mx-1 px-1 py-2 rounded touch-manipulation">
             <input
               type="checkbox"
               id="notifications"
               checked={enableNotifications}
               onChange={handleNotificationChange}
               disabled={saving}
-              className="w-4 h-4 accent-accent disabled:opacity-50"
+              className="w-4 h-4 accent-accent disabled:opacity-50 shrink-0"
             />
-            <label htmlFor="notifications" className="text-xs text-foreground cursor-pointer">
+            <span className="text-xs text-foreground">
               Enable push notifications
-            </label>
-          </div>
-        )}
+            </span>
+          </label>
+          {notificationError && (
+            <p className="text-error text-xs mt-1 ml-6">{notificationError}</p>
+          )}
+        </div>
 
         <button
           onClick={handleDone}
