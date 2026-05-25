@@ -958,7 +958,9 @@ export default function DeliberationPageClient() {
   useEffect(() => {
     if (!d.deliberation || tabInitialized.current) return
     tabInitialized.current = true
-    if (d.session && d.deliberation.isMember) {
+    if (d.effectivePhase === 'COMPLETED') {
+      setActiveTab('vote') // Show Results tab for completed chants
+    } else if (d.session && d.deliberation.isMember) {
       setActiveTab(d.effectivePhase === 'SUBMISSION' ? 'submit' : 'vote')
     }
   }, [d.deliberation, d.session, d.effectivePhase])
@@ -1069,26 +1071,30 @@ export default function DeliberationPageClient() {
 
         {/* Tab bar */}
         <div className="flex gap-1 mb-3 border-b border-border">
-          <button
-            onClick={() => setActiveTab('join')}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'join'
-                ? 'border-success text-success'
-                : 'border-transparent text-muted hover:text-foreground'
-            }`}
-          >
-            {delib.isMember ? 'Overview' : 'Join'}
-          </button>
-          <button
-            onClick={() => setActiveTab('submit')}
-            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === 'submit'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-muted hover:text-foreground'
-            }`}
-          >
-            Submit
-          </button>
+          {d.effectivePhase !== 'COMPLETED' && (
+            <button
+              onClick={() => setActiveTab('join')}
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'join'
+                  ? 'border-success text-success'
+                  : 'border-transparent text-muted hover:text-foreground'
+              }`}
+            >
+              {delib.isMember ? 'Overview' : 'Join'}
+            </button>
+          )}
+          {d.effectivePhase !== 'COMPLETED' && (
+            <button
+              onClick={() => setActiveTab('submit')}
+              className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === 'submit'
+                  ? 'border-accent text-accent'
+                  : 'border-transparent text-muted hover:text-foreground'
+              }`}
+            >
+              Submit
+            </button>
+          )}
           {d.effectivePhase !== 'SUBMISSION' && (
             <button
               onClick={() => setActiveTab('discuss')}
@@ -1098,7 +1104,7 @@ export default function DeliberationPageClient() {
                   : 'border-transparent text-muted hover:text-foreground'
               }`}
             >
-              Discuss
+              {d.effectivePhase === 'COMPLETED' ? 'Cells' : 'Discuss'}
             </button>
           )}
           {d.effectivePhase !== 'SUBMISSION' && (
