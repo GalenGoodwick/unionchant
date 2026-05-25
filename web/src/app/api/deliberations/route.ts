@@ -152,7 +152,6 @@ export async function POST(req: NextRequest) {
       supermajorityEnabled,
       ideaGoal,
       memberGoal,
-      submissionDeadline,
       allowAI,
       chantMode,
       // Community integration
@@ -249,7 +248,6 @@ export async function POST(req: NextRequest) {
         // Goal-based auto-start
         ...(ideaGoal && { ideaGoal }),
         ...(memberGoal && { memberGoal }),
-        ...(submissionDeadline && { submissionDeadline: new Date(submissionDeadline) }),
         ...(allowAI !== undefined && { allowAI: Boolean(allowAI) }),
         ...(chantMode === 'synthesis' && isAdminUser && { chantMode: 'synthesis' }),
         // Community integration

@@ -5,7 +5,7 @@ import { processExpiredAutoCompletes } from './dynamic-cells'
 
 /**
  * Process deliberations where submission period has ended
- * Auto-start voting when submissionEndsAt or submissionDeadline passes
+ * Auto-start voting when submissionEndsAt passes
  */
 export async function processExpiredSubmissions(): Promise<string[]> {
   const now = new Date()
@@ -13,10 +13,7 @@ export async function processExpiredSubmissions(): Promise<string[]> {
   const expiredDeliberations = await prisma.deliberation.findMany({
     where: {
       phase: 'SUBMISSION',
-      OR: [
-        { submissionEndsAt: { lte: now } },
-        { submissionDeadline: { lte: now } },
-      ],
+      submissionEndsAt: { lte: now },
     },
     include: {
       _count: { select: { ideas: true } }
@@ -36,10 +33,10 @@ export async function processExpiredSubmissions(): Promise<string[]> {
       }
     } else {
       // Not enough ideas - extend submission or mark as failed
-      // For now, just clear the deadlines so it doesn't keep trying
+      // For now, just clear the deadline so it doesn't keep trying
       await prisma.deliberation.update({
         where: { id: deliberation.id },
-        data: { submissionEndsAt: null, submissionDeadline: null }
+        data: { submissionEndsAt: null }
       })
     }
   }
