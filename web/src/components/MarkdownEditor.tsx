@@ -1,6 +1,12 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+import { useEffect, useState } from 'react'
+
+const MDEditor = dynamic(
+  () => import('@uiw/react-md-editor').then((mod) => mod.default),
+  { ssr: false }
+)
 
 interface MarkdownEditorProps {
   value: string
@@ -10,156 +16,122 @@ interface MarkdownEditorProps {
 }
 
 export default function MarkdownEditor({ value, onChange, placeholder, minHeight = '300px' }: MarkdownEditorProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [showHelp, setShowHelp] = useState(false)
-  const lastActionRef = useRef<number>(0)
+  const [mounted, setMounted] = useState(false)
 
-  const insertMarkdown = (before: string, after = '', placeholder = 'text') => {
-    // Debounce to prevent double-clicks
-    const now = Date.now()
-    if (now - lastActionRef.current < 200) return
-    lastActionRef.current = now
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selectedText = value.substring(start, end)
-    const textToInsert = selectedText || placeholder
-
-    const newValue = value.substring(0, start) + before + textToInsert + after + value.substring(end)
-    const newCursorPos = start + before.length + (selectedText ? textToInsert.length + after.length : 0)
-
-    onChange(newValue)
-
-    // Set cursor position after React updates
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(newCursorPos, newCursorPos + (selectedText ? 0 : textToInsert.length))
-    })
-  }
-
-  const insertAtNewLine = (text: string) => {
-    // Debounce to prevent double-clicks
-    const now = Date.now()
-    if (now - lastActionRef.current < 200) return
-    lastActionRef.current = now
-
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    const start = textarea.selectionStart
-    const beforeCursor = value.substring(0, start)
-    const afterCursor = value.substring(start)
-
-    // Add newlines if not at start and previous char isn't newline
-    const needsPrefix = beforeCursor.length > 0 && !beforeCursor.endsWith('\n')
-    const needsSuffix = afterCursor.length > 0 && !afterCursor.startsWith('\n')
-
-    const prefix = needsPrefix ? '\n\n' : ''
-    const suffix = needsSuffix ? '\n\n' : ''
-
-    const newValue = beforeCursor + prefix + text + suffix + afterCursor
-    const newCursorPos = start + prefix.length + text.length
-
-    onChange(newValue)
-
-    // Set cursor position after React updates
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(newCursorPos, newCursorPos)
-    })
-  }
-
-  const handleBold = () => insertMarkdown('**', '**')
-  const handleItalic = () => insertMarkdown('*', '*')
-  const handleCode = () => insertMarkdown('`', '`', 'code')
-  const handleH2 = () => insertAtNewLine('## Heading')
-  const handleH3 = () => insertAtNewLine('### Subheading')
-  const handleBulletList = () => insertAtNewLine('- List item')
-  const handleNumberedList = () => insertAtNewLine('1. List item')
-  const handleBlockquote = () => insertAtNewLine('> Quote')
-  const handleCodeBlock = () => insertAtNewLine('```\ncode\n```')
-  const handleHr = () => insertAtNewLine('---')
-  const handleLink = () => {
-    const url = prompt('Enter URL:')
-    if (url) insertMarkdown('[', `](${url})`, 'link text')
-  }
-
-  const tools = [
-    { label: 'B', title: 'Bold (**text**)', onClick: handleBold, className: 'font-bold' },
-    { label: 'I', title: 'Italic (*text*)', onClick: handleItalic, className: 'italic' },
-    { label: 'H2', title: 'Heading 2 (## text)', onClick: handleH2 },
-    { label: 'H3', title: 'Heading 3 (### text)', onClick: handleH3 },
-    { label: '•', title: 'Bullet list (- item)', onClick: handleBulletList },
-    { label: '1.', title: 'Numbered list (1. item)', onClick: handleNumberedList },
-    { label: '""', title: 'Blockquote (> text)', onClick: handleBlockquote },
-    { label: '<>', title: 'Inline code (`code`)', onClick: handleCode, className: 'font-mono text-xs' },
-    { label: '{...}', title: 'Code block (```)', onClick: handleCodeBlock, className: 'font-mono text-xs' },
-    { label: '🔗', title: 'Link ([text](url))', onClick: handleLink },
-    { label: '—', title: 'Horizontal rule (---)', onClick: handleHr },
-  ]
-
-  return (
-    <div className="space-y-2">
-      {/* Toolbar */}
-      <div className="flex items-center gap-1 pb-2 border-b border-border flex-wrap">
-        {tools.map((tool, i) => (
-          <button
-            key={i}
-            type="button"
-            onClick={tool.onClick}
-            title={tool.title}
-            className={`px-2 py-1 text-xs rounded hover:bg-surface transition-colors text-foreground ${tool.className || ''}`}
-          >
-            {tool.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setShowHelp(!showHelp)}
-          className="ml-auto px-2 py-1 text-xs rounded hover:bg-surface transition-colors text-muted"
-        >
-          {showHelp ? 'Hide guide' : 'Formatting guide'}
-        </button>
-      </div>
-
-      {/* Help guide */}
-      {showHelp && (
-        <div className="bg-surface border border-border rounded-lg p-3 text-xs space-y-2">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <div><code className="text-accent">**bold**</code> → <strong>bold</strong></div>
-            <div><code className="text-accent">*italic*</code> → <em>italic</em></div>
-            <div><code className="text-accent">`code`</code> → <code className="bg-border px-1 rounded">code</code></div>
-            <div><code className="text-accent">[text](url)</code> → <a className="text-accent underline">link</a></div>
-            <div><code className="text-accent">## Heading</code> → Heading 2</div>
-            <div><code className="text-accent">### Heading</code> → Heading 3</div>
-            <div><code className="text-accent">- item</code> → Bullet list</div>
-            <div><code className="text-accent">1. item</code> → Numbered list</div>
-            <div><code className="text-accent">&gt; quote</code> → Blockquote</div>
-            <div><code className="text-accent">---</code> → Horizontal rule</div>
-          </div>
-          <div className="pt-1 border-t border-border">
-            <div><code className="text-accent">```<br />code block<br />```</code> → Code block</div>
-          </div>
-        </div>
-      )}
-
-      {/* Textarea */}
+  if (!mounted) {
+    return (
       <textarea
-        ref={textareaRef}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full bg-transparent text-xs text-muted placeholder-border outline-none leading-relaxed resize-none"
+        className="w-full bg-transparent text-xs text-muted placeholder-border outline-none leading-relaxed resize-none border border-border rounded-lg p-3"
         style={{ minHeight }}
       />
+    )
+  }
 
-      {/* Character count */}
-      <div className="text-xs text-muted">
+  return (
+    <div data-color-mode="dark">
+      <MDEditor
+        value={value}
+        onChange={(val) => onChange(val || '')}
+        preview="live"
+        height={parseInt(minHeight)}
+        textareaProps={{
+          placeholder: placeholder || 'Write your post...',
+        }}
+        previewOptions={{
+          className: 'markdown-preview',
+        }}
+      />
+      <div className="text-xs text-muted mt-2">
         {value.length.toLocaleString()} characters
       </div>
+      <style jsx global>{`
+        .w-md-editor {
+          background: var(--color-background) !important;
+          border: 1px solid var(--color-border) !important;
+          border-radius: 0.5rem !important;
+          color: var(--color-foreground) !important;
+        }
+        .w-md-editor-toolbar {
+          background: var(--color-surface) !important;
+          border-bottom: 1px solid var(--color-border) !important;
+        }
+        .w-md-editor-toolbar button {
+          color: var(--color-foreground) !important;
+        }
+        .w-md-editor-toolbar button:hover {
+          background: var(--color-background) !important;
+        }
+        .w-md-editor-text-pre,
+        .w-md-editor-text-input {
+          color: var(--color-muted) !important;
+          font-size: 0.75rem !important;
+          line-height: 1.5 !important;
+        }
+        .wmde-markdown {
+          background: var(--color-surface) !important;
+          color: var(--color-subtle) !important;
+          font-size: 0.875rem !important;
+        }
+        .wmde-markdown h2 {
+          font-size: 1.25rem !important;
+          font-weight: 700 !important;
+          color: var(--color-foreground) !important;
+          margin-top: 2rem !important;
+          margin-bottom: 0.75rem !important;
+        }
+        .wmde-markdown h3 {
+          font-size: 1.125rem !important;
+          font-weight: 600 !important;
+          color: var(--color-foreground) !important;
+          margin-top: 1.5rem !important;
+          margin-bottom: 0.5rem !important;
+        }
+        .wmde-markdown p {
+          margin-bottom: 1rem !important;
+          line-height: 1.625 !important;
+        }
+        .wmde-markdown a {
+          color: var(--color-accent) !important;
+          text-decoration: underline !important;
+        }
+        .wmde-markdown code {
+          background: var(--color-surface) !important;
+          border: 1px solid var(--color-border) !important;
+          padding: 0.125rem 0.375rem !important;
+          border-radius: 0.25rem !important;
+          font-size: 0.75rem !important;
+          color: var(--color-foreground) !important;
+        }
+        .wmde-markdown pre {
+          background: var(--color-surface) !important;
+          border: 1px solid var(--color-border) !important;
+          padding: 1rem !important;
+          border-radius: 0.5rem !important;
+          margin: 1rem 0 !important;
+        }
+        .wmde-markdown blockquote {
+          border-left: 4px solid var(--color-accent) !important;
+          padding-left: 1rem !important;
+          margin: 1rem 0 !important;
+          opacity: 0.8 !important;
+          font-style: italic !important;
+        }
+        .wmde-markdown ul,
+        .wmde-markdown ol {
+          margin-bottom: 1rem !important;
+          padding-left: 1.5rem !important;
+        }
+        .wmde-markdown li {
+          margin-bottom: 0.25rem !important;
+        }
+      `}</style>
     </div>
   )
 }
