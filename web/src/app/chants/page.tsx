@@ -1351,6 +1351,7 @@ function WelcomePopup() {
 
   useEffect(() => {
     if ('Notification' in window) {
+      console.log('Welcome modal mounted - current permission:', Notification.permission)
       setNotificationPermission(Notification.permission)
       if (Notification.permission === 'granted') {
         setEnableNotifications(true)
@@ -1370,14 +1371,19 @@ function WelcomePopup() {
     }
 
     if ('Notification' in window) {
+      console.log('Initial permission state:', Notification.permission)
+
       // If already denied, show error message
       if (Notification.permission === 'denied') {
+        console.log('Permission already denied - cannot request again')
         setEnableNotifications(false)
         setNotificationError('Notifications are blocked. Enable them in your browser settings to continue.')
         return
       }
 
+      console.log('Requesting notification permission...')
       const permission = await Notification.requestPermission()
+      console.log('Permission result:', permission)
       setNotificationPermission(permission)
 
       if (permission === 'granted') {
@@ -1385,18 +1391,35 @@ function WelcomePopup() {
         setNotificationError('')
         // Register push subscription in background
         try {
+          if (!('serviceWorker' in navigator)) {
+            console.warn('Service workers not supported')
+            return
+          }
+
           const registration = await navigator.serviceWorker.ready
+          console.log('Service worker ready:', registration)
+
+          const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+          if (!vapidKey) {
+            console.warn('VAPID public key not configured')
+            return
+          }
+
           const subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+            applicationServerKey: vapidKey,
           })
-          await fetch('/api/push/subscribe', {
+          console.log('Push subscription created:', subscription)
+
+          const response = await fetch('/api/push/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(subscription),
           })
+          console.log('Subscription sent to server:', response.ok)
         } catch (err) {
           console.error('Push subscription failed:', err)
+          setNotificationError('Push notifications setup failed. Check console for details.')
         }
       } else {
         setEnableNotifications(false)
@@ -1505,19 +1528,19 @@ function WelcomePopup() {
         </div>
 
         <div className="mb-4">
-          <label htmlFor="notifications" className="flex items-center gap-2 cursor-pointer select-none -mx-1 px-1 py-2 rounded touch-manipulation">
+          <div className="flex items-center gap-2">
             <input
               type="checkbox"
               id="notifications"
               checked={enableNotifications}
               onChange={handleNotificationChange}
               disabled={saving}
-              className="w-4 h-4 accent-accent disabled:opacity-50 shrink-0"
+              className="w-4 h-4 accent-accent disabled:opacity-50 shrink-0 cursor-pointer"
             />
-            <span className="text-xs text-foreground">
+            <label htmlFor="notifications" className="text-xs text-foreground cursor-pointer">
               Enable push notifications
-            </span>
-          </label>
+            </label>
+          </div>
           {notificationError && (
             <p className="text-error text-xs mt-1 ml-6">{notificationError}</p>
           )}

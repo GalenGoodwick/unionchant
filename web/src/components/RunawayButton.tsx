@@ -151,11 +151,11 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
   const stallTimerRef = useRef<NodeJS.Timeout | null>(null)
   const [isMobile, setIsMobile] = useState(false)
 
-  // Detect mobile on mount — desktop auto-starts
+  // Detect mobile on mount — auto-start for both mobile and desktop
   useEffect(() => {
     const mobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0
     setIsMobile(mobile)
-    if (!mobile) setStarted(true)
+    setStarted(true) // Auto-start for all devices
   }, [])
 
   const getBehavioralData = useCallback((): ChallengeData => ({
@@ -365,49 +365,36 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
           </div>
         )}
 
-        {/* Mobile start circle — tap to begin */}
-        {!started && isMobile && (
-          <button
-            onClick={handleStart}
-            onTouchEnd={(e) => { e.preventDefault(); handleStart() }}
-            className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-28 h-28 rounded-full border-4 border-dashed border-accent/60 bg-accent/10 flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform touch-auto"
-          >
-            <span className="text-accent text-2xl">👆</span>
-            <span className="text-accent text-xs font-semibold">Tap to start</span>
-          </button>
-        )}
+        {/* Runaway button — always visible */}
+        <button
+          ref={btnRef}
+          onClick={handleClick}
+          onTouchEnd={surrendered && !passed ? (e) => { e.preventDefault(); handleClick() } : undefined}
+          className={`absolute px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-100 -translate-x-1/2 -translate-y-1/2 touch-auto ${
+            passed
+              ? 'bg-success text-white scale-110'
+              : surrendered
+                ? 'bg-success text-white hover:bg-success-hover cursor-pointer animate-pulse'
+                : 'bg-accent text-white cursor-default'
+          }`}
+          style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
+        >
+          {passed ? '✓' : surrendered ? 'Click me!' : 'Catch me!'}
+        </button>
 
-        {/* Runaway button — hidden until started on mobile, always visible on desktop */}
-        {(started || !isMobile) && (
-          <button
-            ref={btnRef}
-            onClick={handleClick}
-            onTouchEnd={surrendered && !passed ? (e) => { e.preventDefault(); handleClick() } : undefined}
-            className={`absolute px-5 py-2.5 rounded-lg font-semibold text-sm transition-all duration-100 -translate-x-1/2 -translate-y-1/2 touch-auto ${
-              passed
-                ? 'bg-success text-white scale-110'
-                : surrendered
-                  ? 'bg-success text-white hover:bg-success-hover cursor-pointer animate-pulse'
-                  : 'bg-accent text-white cursor-default'
-            }`}
-            style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-          >
-            {passed ? '✓' : surrendered ? 'Click me!' : 'Catch me!'}
-          </button>
-        )}
-
-        {/* Desktop: prompt to approach */}
-        {!started && !isMobile && !chasing && (
-          <p className="absolute bottom-3 w-full text-center text-xs text-muted">
-            Move your cursor toward the button to start
-          </p>
-        )}
-
-        {/* Mobile: post-start instructions */}
-        {started && !chasing && isMobile && (
-          <p className="absolute bottom-3 w-full text-center text-xs text-muted">
-            Drag your finger toward the button
-          </p>
+        {/* Initial instructions before chase starts */}
+        {!chasing && !surrendered && (
+          <div className="absolute bottom-8 w-full text-center px-4">
+            {isMobile ? (
+              <p className="text-accent text-lg font-bold leading-tight">
+                TAP AND FOLLOW THE BUTTON
+              </p>
+            ) : (
+              <p className="text-xs text-muted">
+                Move your cursor toward the button to start
+              </p>
+            )}
+          </div>
         )}
       </div>
       <p className="text-xs text-muted text-center">

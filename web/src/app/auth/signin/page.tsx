@@ -105,11 +105,6 @@ function SignInForm() {
       })
       if (!verifyRes.ok) throw new Error('Passkey registration failed')
 
-      // Prompt for push notifications
-      if ('Notification' in window && Notification.permission === 'default') {
-        await Notification.requestPermission()
-      }
-
       // Success - redirect
       router.push('/')
     } catch (err) {
