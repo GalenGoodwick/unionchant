@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useToast } from '@/components/Toast'
 import FrameLayout from '@/components/FrameLayout'
+import MarkdownEditor from '@/components/MarkdownEditor'
 
 const TITLE_MAX = 200
 
@@ -155,15 +156,12 @@ function NewPodiumPageInner() {
         <div className="text-xs text-muted mb-4">{title.length}/{TITLE_MAX}</div>
 
         {/* Body */}
-        <textarea
+        <MarkdownEditor
           value={body}
-          onChange={e => setBody(e.target.value)}
-          placeholder="Write your post..."
-          className="w-full bg-transparent text-xs text-muted placeholder-border outline-none leading-relaxed resize-none min-h-[300px]"
+          onChange={setBody}
+          placeholder="Write your post... Use the toolbar above for formatting."
+          minHeight="300px"
         />
-        <div className="text-xs mt-1 text-muted">
-          {body.length.toLocaleString()} chars
-        </div>
 
         {/* Admin: Send as news */}
         {isUserAdmin && (

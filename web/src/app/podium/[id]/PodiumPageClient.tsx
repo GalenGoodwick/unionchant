@@ -186,10 +186,30 @@ export default function PodiumPageClient() {
         {/* Body */}
         <article className="mb-6">
           {bodyBlocks.map((block, i) => {
-            if (block.type === 'h2') return <h2 key={i} className="text-xl font-bold text-foreground mt-8 mb-3">{block.text}</h2>
-            if (block.type === 'h3') return <h3 key={i} className="text-lg font-semibold text-foreground mt-6 mb-2">{block.text}</h3>
+            if (block.type === 'h2') return <h2 key={i} className="text-xl font-bold text-foreground mt-8 mb-3"><InlineMarkdown text={block.text!} /></h2>
+            if (block.type === 'h3') return <h3 key={i} className="text-lg font-semibold text-foreground mt-6 mb-2"><InlineMarkdown text={block.text!} /></h3>
             if (block.type === 'hr') return <hr key={i} className="border-border my-6" />
             if (block.type === 'table') return <MarkdownTable key={i} rows={block.rows!} />
+            if (block.type === 'ul') return (
+              <ul key={i} className="list-disc list-outside ml-6 mb-4 space-y-1 text-subtle">
+                {block.items!.map((item, j) => <li key={j}><InlineMarkdown text={item} /></li>)}
+              </ul>
+            )
+            if (block.type === 'ol') return (
+              <ol key={i} className="list-decimal list-outside ml-6 mb-4 space-y-1 text-subtle">
+                {block.items!.map((item, j) => <li key={j}><InlineMarkdown text={item} /></li>)}
+              </ol>
+            )
+            if (block.type === 'blockquote') return (
+              <blockquote key={i} className="border-l-4 border-accent/30 pl-4 py-2 my-4 text-subtle italic">
+                <InlineMarkdown text={block.text!} />
+              </blockquote>
+            )
+            if (block.type === 'code') return (
+              <pre key={i} className="bg-surface border border-border rounded-lg p-4 my-4 overflow-x-auto">
+                <code className="text-xs text-foreground font-mono">{block.code}</code>
+              </pre>
+            )
             return <p key={i} className="text-subtle leading-relaxed mb-4 text-base"><InlineMarkdown text={block.text!} /></p>
           })}
         </article>
@@ -281,7 +301,14 @@ export default function PodiumPageClient() {
 
 // ── Markdown rendering ──
 
-type Block = { type: 'p' | 'h2' | 'h3' | 'hr' | 'table'; text?: string; rows?: string[][] }
+type Block = {
+  type: 'p' | 'h2' | 'h3' | 'hr' | 'table' | 'ul' | 'ol' | 'blockquote' | 'code'
+  text?: string
+  rows?: string[][]
+  items?: string[]
+  code?: string
+  lang?: string
+}
 
 function parseMarkdown(body: string): Block[] {
   const lines = body.split('\n')
@@ -313,6 +340,53 @@ function parseMarkdown(body: string): Block[] {
       continue
     }
 
+    // Code block (```lang\ncode\n```)
+    if (line.trim().startsWith('```')) {
+      const lang = line.trim().slice(3).trim() || 'text'
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      if (i < lines.length) i++ // skip closing ```
+      blocks.push({ type: 'code', code: codeLines.join('\n'), lang })
+      continue
+    }
+
+    // Blockquote (> text)
+    if (line.trim().startsWith('> ')) {
+      const quoteLines: string[] = []
+      while (i < lines.length && lines[i].trim().startsWith('> ')) {
+        quoteLines.push(lines[i].trim().slice(2))
+        i++
+      }
+      blocks.push({ type: 'blockquote', text: quoteLines.join(' ') })
+      continue
+    }
+
+    // Unordered list (- item or * item)
+    if (/^[-*]\s/.test(line.trim())) {
+      const items: string[] = []
+      while (i < lines.length && /^[-*]\s/.test(lines[i].trim())) {
+        items.push(lines[i].trim().slice(2))
+        i++
+      }
+      blocks.push({ type: 'ul', items })
+      continue
+    }
+
+    // Ordered list (1. item)
+    if (/^\d+\.\s/.test(line.trim())) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\.\s/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+\.\s/, ''))
+        i++
+      }
+      blocks.push({ type: 'ol', items })
+      continue
+    }
+
     // Table (consecutive lines starting with |)
     if (line.trim().startsWith('|')) {
       const tableLines: string[] = []
@@ -329,7 +403,7 @@ function parseMarkdown(body: string): Block[] {
 
     // Paragraph — collect lines until blank line or special line
     const paraLines: string[] = []
-    while (i < lines.length && lines[i].trim() !== '' && !lines[i].startsWith('## ') && !lines[i].startsWith('### ') && !lines[i].trim().startsWith('|') && !/^---+$/.test(lines[i].trim())) {
+    while (i < lines.length && lines[i].trim() !== '' && !lines[i].startsWith('## ') && !lines[i].startsWith('### ') && !lines[i].trim().startsWith('|') && !/^---+$/.test(lines[i].trim()) && !lines[i].trim().startsWith('```') && !lines[i].trim().startsWith('> ') && !/^[-*]\s/.test(lines[i].trim()) && !/^\d+\.\s/.test(lines[i].trim())) {
       paraLines.push(lines[i])
       i++
     }
@@ -342,12 +416,28 @@ function parseMarkdown(body: string): Block[] {
 }
 
 function InlineMarkdown({ text }: { text: string }) {
-  // Split on **bold** and *italic* patterns
-  const parts: { text: string; bold?: boolean; italic?: boolean }[] = []
+  // Parse inline markdown: **bold**, *italic*, `code`, [link](url)
+  const parts: { text?: string; bold?: boolean; italic?: boolean; code?: boolean; link?: string; href?: string }[] = []
   let remaining = text
 
   while (remaining.length > 0) {
-    // Bold
+    // Link [text](url)
+    const linkMatch = remaining.match(/^([\s\S]*?)\[(.+?)\]\((.+?)\)([\s\S]*)$/)
+    if (linkMatch) {
+      if (linkMatch[1]) parts.push({ text: linkMatch[1] })
+      parts.push({ link: linkMatch[2], href: linkMatch[3] })
+      remaining = linkMatch[4]
+      continue
+    }
+    // Inline code `code`
+    const codeMatch = remaining.match(/^([\s\S]*?)`(.+?)`([\s\S]*)$/)
+    if (codeMatch) {
+      if (codeMatch[1]) parts.push({ text: codeMatch[1] })
+      parts.push({ text: codeMatch[2], code: true })
+      remaining = codeMatch[3]
+      continue
+    }
+    // Bold **text**
     const boldMatch = remaining.match(/^([\s\S]*?)\*\*(.+?)\*\*([\s\S]*)$/)
     if (boldMatch) {
       if (boldMatch[1]) parts.push({ text: boldMatch[1] })
@@ -355,7 +445,7 @@ function InlineMarkdown({ text }: { text: string }) {
       remaining = boldMatch[3]
       continue
     }
-    // Italic
+    // Italic *text*
     const italicMatch = remaining.match(/^([\s\S]*?)\*(.+?)\*([\s\S]*)$/)
     if (italicMatch) {
       if (italicMatch[1]) parts.push({ text: italicMatch[1] })
@@ -371,6 +461,8 @@ function InlineMarkdown({ text }: { text: string }) {
   return (
     <>
       {parts.map((p, i) => {
+        if (p.link) return <a key={i} href={p.href} className="text-accent hover:text-accent-hover underline" target="_blank" rel="noopener noreferrer">{p.link}</a>
+        if (p.code) return <code key={i} className="bg-surface border border-border px-1.5 py-0.5 rounded text-xs font-mono text-foreground">{p.text}</code>
         if (p.bold) return <strong key={i} className="font-semibold text-foreground">{p.text}</strong>
         if (p.italic) return <em key={i}>{p.text}</em>
         return <span key={i}>{p.text}</span>
