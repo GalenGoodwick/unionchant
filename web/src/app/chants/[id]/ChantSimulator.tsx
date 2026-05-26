@@ -1144,7 +1144,17 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             {status.phase === 'VOTING' && !tierVoteResults[effectiveTier] && !votingTiers.has(effectiveTier) && ((!status.votedTiers?.includes(effectiveTier) && !localVotedTiers.has(effectiveTier)) || status.multipleIdeasAllowed) && votingIdeas.length > 0 && (
               <div id="voting-area" className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
                 <div className="flex justify-between items-center mb-3">
-                  <h2 className="text-sm font-semibold text-foreground"><span className="text-warning font-bold mr-1">3</span> Allocate 10 XP <span className="text-muted font-normal text-xs">(T{effectiveTier})</span></h2>
+                  <div className="flex-1">
+                    <h2 className="text-sm font-semibold text-foreground">
+                      <span className="text-warning font-bold mr-1">3</span> Allocate 10 XP{' '}
+                      <span className="text-muted font-normal text-xs">(T{effectiveTier})</span>
+                    </h2>
+                    {tierCell?.batch && (
+                      <p className="text-[10px] text-muted mt-0.5">
+                        Batch {tierCell.batch.batchNumber} · {tierCell.batch.completedCells}/{tierCell.batch.totalCells} cells done
+                      </p>
+                    )}
+                  </div>
                   <span className={`text-sm font-mono font-bold ${totalAllocated === 10 ? 'text-success' : totalAllocated > 10 ? 'text-error' : 'text-muted'}`}>
                     {totalAllocated}/10
                   </span>
@@ -1630,33 +1640,78 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   .sort((a, b) => a - b)
                   .map(tier => {
                     const tierCells = status.cells.filter(c => c.tier === tier)
+
+                    // Group cells by batch (Model A architecture)
+                    const hasBatches = tierCells.some(c => c.batch !== null && c.batch !== undefined)
+                    const batchGroups = new Map<string, typeof tierCells>()
+
+                    if (hasBatches) {
+                      // Model A: group by batchId or batchNumber
+                      tierCells.forEach(cell => {
+                        const key = cell.batch?.batchId || `legacy-${cell.batch?.batchNumber ?? 0}`
+                        if (!batchGroups.has(key)) batchGroups.set(key, [])
+                        batchGroups.get(key)!.push(cell)
+                      })
+                    } else {
+                      // Legacy: all cells in one group
+                      batchGroups.set('all', tierCells)
+                    }
+
                     return (
-                      <div key={tier}>
-                        <p className="text-xs font-medium text-muted mb-2">Tier {tier}</p>
-                        <div className="flex flex-wrap gap-2">
-                          {tierCells.map((cell, i) => {
-                            const isSelected = selectedCell === cell.id
-                            const isComplete = cell.status === 'COMPLETED'
-                            const isVoting = cell.status === 'VOTING'
-                            return (
-                              <button
-                                key={cell.id}
-                                onClick={() => setSelectedCell(isSelected ? null : cell.id)}
-                                className={`aspect-square rounded-lg border text-xs font-mono font-bold transition-all max-w-[60px] max-h-[60px] ${
-                                  isSelected
-                                    ? 'bg-accent/20 border-accent/50 text-accent'
-                                    : isComplete
-                                    ? 'bg-success/8 border-success/25 text-success'
-                                    : isVoting
-                                    ? 'bg-warning/8 border-warning/25 text-warning animate-pulse'
-                                    : 'bg-surface/90 backdrop-blur-sm border-border text-muted'
-                                }`}
-                              >
-                                {i + 1}
-                              </button>
-                            )
-                          })}
-                        </div>
+                      <div key={tier} className="space-y-3">
+                        <p className="text-xs font-medium text-muted">Tier {tier}</p>
+
+                        {Array.from(batchGroups.entries()).sort(([a], [b]) => {
+                          // Sort batches by number
+                          const aNum = tierCells.find(c => (c.batch?.batchId || `legacy-${c.batch?.batchNumber ?? 0}`) === a)?.batch?.batchNumber ?? 0
+                          const bNum = tierCells.find(c => (c.batch?.batchId || `legacy-${c.batch?.batchNumber ?? 0}`) === b)?.batch?.batchNumber ?? 0
+                          return aNum - bNum
+                        }).map(([batchKey, batchCells]) => {
+                          const firstCell = batchCells[0]
+                          const batchData = firstCell.batch
+                          const showBatchHeader = hasBatches && batchData
+
+                          return (
+                            <div key={batchKey} className="space-y-2">
+                              {showBatchHeader && (
+                                <div className="flex items-center justify-between px-2">
+                                  <span className="text-[11px] font-medium text-foreground/80">
+                                    Batch {batchData.batchNumber} · {batchData.ideasInBatch} ideas
+                                  </span>
+                                  <span className="text-[10px] text-muted">
+                                    {batchData.completedCells}/{batchData.totalCells} cells done
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="flex flex-wrap gap-2">
+                                {batchCells.map((cell) => {
+                                  const cellIndex = tierCells.indexOf(cell)
+                                  const isSelected = selectedCell === cell.id
+                                  const isComplete = cell.status === 'COMPLETED'
+                                  const isVoting = cell.status === 'VOTING'
+                                  return (
+                                    <button
+                                      key={cell.id}
+                                      onClick={() => setSelectedCell(isSelected ? null : cell.id)}
+                                      className={`aspect-square rounded-lg border text-xs font-mono font-bold transition-all max-w-[60px] max-h-[60px] ${
+                                        isSelected
+                                          ? 'bg-accent/20 border-accent/50 text-accent'
+                                          : isComplete
+                                          ? 'bg-success/8 border-success/25 text-success'
+                                          : isVoting
+                                          ? 'bg-warning/8 border-warning/25 text-warning animate-pulse'
+                                          : 'bg-surface/90 backdrop-blur-sm border-border text-muted'
+                                      }`}
+                                    >
+                                      {cellIndex + 1}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )
+                        })}
 
                         {tierCells.map(cell => {
                           if (selectedCell !== cell.id) return null

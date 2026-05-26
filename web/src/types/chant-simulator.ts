@@ -72,6 +72,14 @@ export interface CellInfo {
   votedCount?: number
   memberCount?: number
   ideas?: CellIdea[]
+  batch?: {
+    batchId: string
+    batchNumber: number
+    batchStatus: string | null
+    totalCells: number
+    completedCells: number
+    ideasInBatch: number
+  } | null
 }
 
 // Synthesis mode types
