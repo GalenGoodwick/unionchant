@@ -89,6 +89,34 @@ export function calculateIdeaSizes(totalIdeas: number, totalCells: number): numb
 }
 
 /**
+ * Flexible batch sizing for Model A (3-7 ideas per batch)
+ * Avoids creating tiny batches (1-2 ideas) that can't have meaningful deliberation
+ * Similar logic to calculateCellSizes but for idea batches
+ */
+export function calculateBatchSizes(totalIdeas: number, targetSize: number = IDEAS_PER_CELL): number[] {
+  if (totalIdeas < 3) return [totalIdeas] // Edge case: tiny group
+  if (totalIdeas <= targetSize) return [totalIdeas] // Single batch
+
+  let numBatches = Math.floor(totalIdeas / targetSize)
+  let remainder = totalIdeas % targetSize
+
+  // Perfect division
+  if (remainder === 0) return Array(numBatches).fill(targetSize)
+
+  // Remainder of 1 or 2: Absorb into larger batch (avoid 1-2 idea batches)
+  if (remainder === 1 || remainder === 2) {
+    if (numBatches > 0) {
+      numBatches--
+      remainder += targetSize
+      return [...Array(numBatches).fill(targetSize), remainder]
+    }
+  }
+
+  // Remainder of 3+: Create a separate batch
+  return [...Array(numBatches).fill(targetSize), remainder]
+}
+
+/**
  * Resolve predictions when a cell completes
  * Updates wonImmediate for cell predictions
  */
@@ -1299,9 +1327,12 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // Multiple cells evaluate the same batch of ideas (cross-cell XP tally)
 
     const numCells = Math.max(1, Math.floor(shuffledMembers.length / CELL_SIZE))
-    const numBatches = Math.max(1, Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL))
 
-    console.log(`Creating tier ${nextTier} (Model A): ${shuffledIdeas.length} ideas → ${numBatches} batches, ${shuffledMembers.length} members → ${numCells} cells`)
+    // Calculate batch sizes using flexible algorithm (avoids 1-2 idea batches)
+    const batchSizes = calculateBatchSizes(shuffledIdeas.length, IDEAS_PER_CELL)
+    const numBatches = batchSizes.length
+
+    console.log(`Creating tier ${nextTier} (Model A): ${shuffledIdeas.length} ideas → ${numBatches} batches ${JSON.stringify(batchSizes)}, ${shuffledMembers.length} members → ${numCells} cells`)
 
     // FINAL SHOWDOWN: If ≤5 ideas, all cells vote on same batch (batch 0)
     if (shuffledIdeas.length <= CELL_SIZE) {
@@ -1350,10 +1381,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       console.log(`✓ Final showdown tier ${nextTier}: created ${cellsCreated} cells, 1 batch, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
     } else {
       // Normal case: multiple batches, distribute cells across batches
-      // Distribute ideas evenly across batches
-      const baseIdeasPerBatch = Math.floor(shuffledIdeas.length / numBatches)
-      const extraIdeas = shuffledIdeas.length % numBatches
-
       // Distribute cells evenly across batches (round-robin assignment)
       const baseCellsPerBatch = Math.floor(numCells / numBatches)
       const extraCells = numCells % numBatches
@@ -1363,8 +1390,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       let totalCellsCreated = 0
 
       for (let batchNum = 0; batchNum < numBatches; batchNum++) {
-        // Get ideas for this batch
-        const batchIdeaCount = baseIdeasPerBatch + (batchNum < extraIdeas ? 1 : 0)
+        // Get ideas for this batch using flexible sizing
+        const batchIdeaCount = batchSizes[batchNum]
         const batchIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + batchIdeaCount)
         ideaIndex += batchIdeaCount
 
