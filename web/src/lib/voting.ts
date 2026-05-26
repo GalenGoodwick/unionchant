@@ -641,23 +641,30 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
   if (!cell) return null
 
-  // Check if this cell is part of a batch (other cells in this tier share the same ideas).
+  // Check if this cell is part of a batch (uses new batchId FK, falls back to legacy idea comparison)
   // Batch cells defer winner/loser resolution to checkTierCompletion's cross-cell XP tally.
-  // This covers both final showdown (all cells same ideas) and multi-batch tiers.
   const allCellsInTier = await prisma.cell.findMany({
     where: { deliberationId: cell.deliberationId, tier: cell.tier },
     include: { ideas: true },
   })
 
-  const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-  const isBatchCell = allCellsInTier.some(c => {
-    if (c.id === cellId) return false
-    const otherIdeaIds = c.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
-    return otherIdeaIds.length === cellIdeaIds.length &&
-           otherIdeaIds.every((id: string, i: number) => id === cellIdeaIds[i])
-  })
+  let isBatchCell = false
+  if (cell.batchId) {
+    // New Model A: use batchId FK
+    isBatchCell = allCellsInTier.some(c => c.id !== cellId && c.batchId === cell.batchId)
+  } else {
+    // Legacy fallback: compare idea lists
+    const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
+    isBatchCell = allCellsInTier.some(c => {
+      if (c.id === cellId) return false
+      const otherIdeaIds = c.ideas.map((ci: { ideaId: string }) => ci.ideaId).sort()
+      return otherIdeaIds.length === cellIdeaIds.length &&
+             otherIdeaIds.every((id: string, i: number) => id === cellIdeaIds[i])
+    })
+  }
 
-  console.log(`Processing cell ${cellId}: tier ${cell.tier}, ${cellIdeaIds.length} ideas, ${allCellsInTier.length} cells in tier, isBatchCell: ${isBatchCell}`)
+  const cellIdeaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
+  console.log(`Processing cell ${cellId}: tier ${cell.tier}, ${cellIdeaIds.length} ideas, ${allCellsInTier.length} cells in tier, isBatchCell: ${isBatchCell}, batchId: ${cell.batchId || 'legacy'}`)
 
   let winnerIds: string[] = []
   let loserIds: string[] = []
@@ -722,8 +729,12 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     // ── Multi-cell batch: check if ALL cells in this batch are complete ──
     // If so, run cross-cell XP tally to determine the batch winner.
     // This resolves per-batch instead of waiting for the entire tier.
-    const batchNum = cell.batch ?? 0
-    const batchCells = allCellsInTier.filter(c => (c.batch ?? 0) === batchNum)
+
+    // Use new batchId FK if available, fallback to legacy batch number
+    const batchCells = cell.batchId
+      ? allCellsInTier.filter(c => c.batchId === cell.batchId)
+      : allCellsInTier.filter(c => (c.batch ?? 0) === (cell.batch ?? 0))
+
     const allBatchComplete = batchCells.every(c => c.status === 'COMPLETED')
 
     if (allBatchComplete && batchCells.length > 1) {
@@ -775,7 +786,16 @@ export async function processCellResults(cellId: string, isTimeout = false) {
             await resolveCellPredictions(bc.id, winnerIds)
           }
 
-          console.log(`processCellResults: batch ${batchNum} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
+          // Update Batch status to COMPLETED
+          if (cell.batchId) {
+            await prisma.batch.update({
+              where: { id: cell.batchId },
+              data: { status: 'COMPLETED' },
+            })
+          }
+
+          const batchLabel = cell.batchId ? `batchId: ${cell.batchId}` : `batch: ${cell.batch ?? 0}`
+          console.log(`processCellResults: ${batchLabel} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
         }
       }
     }
@@ -951,14 +971,15 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
   }
 
   // ── Per-batch cross-cell XP tally ──
-  // Group cells by batch. Multi-cell batches need cross-cell tally.
+  // Group cells by batch (use new batchId FK if available, fallback to legacy batch number).
+  // Multi-cell batches need cross-cell tally.
   // Single-cell batches were already resolved by processCellResults.
 
-  const batchMap = new Map<number, typeof cells>()
+  const batchMap = new Map<string, typeof cells>() // key: batchId or legacy "batch:N"
   for (const cell of cells) {
-    const b = cell.batch ?? 0
-    if (!batchMap.has(b)) batchMap.set(b, [])
-    batchMap.get(b)!.push(cell)
+    const key = cell.batchId ? cell.batchId : `batch:${cell.batch ?? 0}`
+    if (!batchMap.has(key)) batchMap.set(key, [])
+    batchMap.get(key)!.push(cell)
   }
 
   // For FCFS on-demand: check all expected batches have cells before auto-advancing.
@@ -995,7 +1016,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
   }
 
   // Process multi-cell batches: cross-cell XP tally
-  for (const [batchNum, batchCells] of batchMap.entries()) {
+  for (const [batchKey, batchCells] of batchMap.entries()) {
     if (batchCells.length <= 1) continue // Single-cell batch: already resolved
 
     const batchCellIds = batchCells.map(c => c.id)
@@ -1014,7 +1035,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
       `
     } catch (err) {
-      console.error(`Failed to query batch votes for batch ${batchNum}, picking random winner:`, err)
+      console.error(`Failed to query batch votes for ${batchKey}, picking random winner:`, err)
     }
     const tally: Record<string, number> = {}
     for (const vote of batchVotes) {
@@ -1031,7 +1052,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
     const batchLoserIds = batchIdeaIds.filter((id: string) => id !== batchWinnerId)
 
-    console.log(`checkTierCompletion: batch ${batchNum} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
+    console.log(`checkTierCompletion: ${batchKey} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
 
     // Mark batch winner as ADVANCING, losers as ELIMINATED
     await prisma.idea.update({
@@ -1043,6 +1064,14 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       await prisma.idea.updateMany({
         where: { id: { in: batchLoserIds } },
         data: { status: 'ELIMINATED', losses: { increment: 1 } },
+      })
+    }
+
+    // Update Batch status to COMPLETED (if using new model)
+    if (batchCells[0].batchId) {
+      await prisma.batch.update({
+        where: { id: batchCells[0].batchId },
+        data: { status: 'COMPLETED' },
       })
     }
 
@@ -1265,12 +1294,31 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       return // FCFS: cells created on-demand when voters enter
     }
 
-    // FINAL SHOWDOWN: If 5 or fewer ideas, ALL participants vote on ALL ideas
-    // Multiple cells for up-pollination of comments between cells
-    console.log(`Creating tier ${nextTier}: ${shuffledIdeas.length} ideas, ${shuffledMembers.length} members, final showdown: ${shuffledIdeas.length <= 5}`)
+    // ── MODEL A: Cells from participants, batches from ideas ──
+    // Tier 2+: numCells = participants ÷ 5 (constant), numBatches = ideas ÷ 5 (varies)
+    // Multiple cells evaluate the same batch of ideas (cross-cell XP tally)
+
+    const numCells = Math.max(1, Math.floor(shuffledMembers.length / CELL_SIZE))
+    const numBatches = Math.max(1, Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL))
+
+    console.log(`Creating tier ${nextTier} (Model A): ${shuffledIdeas.length} ideas → ${numBatches} batches, ${shuffledMembers.length} members → ${numCells} cells`)
+
+    // FINAL SHOWDOWN: If ≤5 ideas, all cells vote on same batch (batch 0)
     if (shuffledIdeas.length <= CELL_SIZE) {
-      // Create cells for all members, all voting on same ideas
-      // Each participant only in ONE cell (no duplicates)
+      // Create Batch record for final showdown
+      const batch = await prisma.batch.create({
+        data: {
+          deliberationId,
+          tier: nextTier,
+          batchNumber: 0,
+          status: 'VOTING',
+          ideas: {
+            create: shuffledIdeas.map(idea => ({ ideaId: idea.id })),
+          },
+        },
+      })
+
+      // Create cells for all members, all voting on same batch
       let cellsCreated = 0
       let remainingMembers = [...shuffledMembers]
       while (remainingMembers.length > 0) {
@@ -1284,7 +1332,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           data: {
             deliberationId,
             tier: nextTier,
-            batch: 0, // All cells vote on same ideas in final showdown
+            batch: 0, // DEPRECATED - keep for legacy
+            batchId: batch.id, // NEW - FK to Batch
             status: nextTierCellStatus,
             discussionEndsAt: nextTierDiscussionEndsAt,
             ideas: {
@@ -1298,35 +1347,44 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         cellsCreated++
       }
 
-      console.log(`✓ Final showdown tier ${nextTier}: created ${cellsCreated} cells (tier 1 baseline: ${tier1CellCount}), ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
-      if (tier1CellCount > 0 && cellsCreated !== tier1CellCount) {
-        console.warn(`⚠️  Cell count mismatch: tier ${nextTier} has ${cellsCreated} cells but tier 1 had ${tier1CellCount}`)
-      }
+      console.log(`✓ Final showdown tier ${nextTier}: created ${cellsCreated} cells, 1 batch, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
     } else {
-      // Normal case: batch ideas into groups, maintain EXACT tier 1 cell count
-      const numBatches = Math.max(1, Math.round(shuffledIdeas.length / IDEAS_PER_CELL))
+      // Normal case: multiple batches, distribute cells across batches
+      // Distribute ideas evenly across batches
       const baseIdeasPerBatch = Math.floor(shuffledIdeas.length / numBatches)
       const extraIdeas = shuffledIdeas.length % numBatches
 
-      // Target cell count = tier 1 baseline (maintains stable count across all tiers)
-      const targetCellCount = tier1CellCount > 0 ? tier1CellCount : Math.ceil(shuffledMembers.length / DEFAULT_CELL_SIZE)
-      const targetCellsPerBatch = Math.floor(targetCellCount / numBatches)
-      const extraCells = targetCellCount % numBatches
+      // Distribute cells evenly across batches (round-robin assignment)
+      const baseCellsPerBatch = Math.floor(numCells / numBatches)
+      const extraCells = numCells % numBatches
 
-      let memberIndex = 0
       let ideaIndex = 0
+      let memberIndex = 0
       let totalCellsCreated = 0
 
-      for (let batch = 0; batch < numBatches; batch++) {
-        // Distribute ideas evenly across batches
-        const batchIdeaCount = baseIdeasPerBatch + (batch < extraIdeas ? 1 : 0)
+      for (let batchNum = 0; batchNum < numBatches; batchNum++) {
+        // Get ideas for this batch
+        const batchIdeaCount = baseIdeasPerBatch + (batchNum < extraIdeas ? 1 : 0)
         const batchIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + batchIdeaCount)
         ideaIndex += batchIdeaCount
 
         if (batchIdeas.length === 0) continue
 
-        // Calculate exact cell count for this batch (maintains tier 1 baseline)
-        const batchCellCount = targetCellsPerBatch + (batch < extraCells ? 1 : 0)
+        // Create Batch record
+        const batch = await prisma.batch.create({
+          data: {
+            deliberationId,
+            tier: nextTier,
+            batchNumber: batchNum,
+            status: 'VOTING',
+            ideas: {
+              create: batchIdeas.map(idea => ({ ideaId: idea.id })),
+            },
+          },
+        })
+
+        // Calculate cells for this batch
+        const batchCellCount = baseCellsPerBatch + (batchNum < extraCells ? 1 : 0)
 
         // Calculate members for this batch's cells
         const membersNeeded = batchCellCount * DEFAULT_CELL_SIZE
@@ -1335,18 +1393,11 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
         // Distribute members evenly across this batch's cells
         const cellSizes = calculateCellSizes(batchMembers.length, DEFAULT_CELL_SIZE)
-        // Ensure we create exactly batchCellCount cells by adjusting if calculateCellSizes differs
-        while (cellSizes.length < batchCellCount && cellSizes.length > 0) {
-          cellSizes.push(DEFAULT_CELL_SIZE)
-        }
-        while (cellSizes.length > batchCellCount) {
-          cellSizes.pop()
-        }
 
         let memberOffset = 0
         let batchCellsCreated = 0
 
-        for (let c = 0; c < cellSizes.length; c++) {
+        for (let c = 0; c < Math.min(cellSizes.length, batchCellCount); c++) {
           const cellSize = cellSizes[c]
           if (cellSize === 0 || memberOffset >= batchMembers.length) continue
 
@@ -1359,7 +1410,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             data: {
               deliberationId,
               tier: nextTier,
-              batch,
+              batch: batchNum, // DEPRECATED - keep for legacy
+              batchId: batch.id, // NEW - FK to Batch
               status: nextTierCellStatus,
               discussionEndsAt: nextTierDiscussionEndsAt,
               ideas: {
@@ -1373,13 +1425,10 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           batchCellsCreated++
           totalCellsCreated++
         }
-        console.log(`  Batch ${batch}: ${batchCellsCreated} cells (target: ${batchCellCount}), ${batchMembers.length} members, ${batchIdeas.length} ideas`)
+        console.log(`  Batch ${batchNum}: ${batchCellsCreated} cells, ${batchMembers.length} members, ${batchIdeas.length} ideas`)
       }
 
-      console.log(`✓ Tier ${nextTier}: created ${totalCellsCreated} cells across ${numBatches} batches (tier 1 baseline: ${tier1CellCount}), ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
-      if (tier1CellCount > 0 && totalCellsCreated !== tier1CellCount) {
-        console.warn(`⚠️  Cell count mismatch: tier ${nextTier} has ${totalCellsCreated} cells but tier 1 had ${tier1CellCount}`)
-      }
+      console.log(`✓ Tier ${nextTier}: created ${totalCellsCreated} cells across ${numBatches} batches, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
     }
 
     // Send notification for new tier (tier was already advanced above)
