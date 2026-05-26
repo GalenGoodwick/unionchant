@@ -39,6 +39,16 @@ export async function GET(
               select: {
                 id: true, tier: true, status: true, createdAt: true,
                 dynamicStatus: true, autoCompleteAt: true,
+                batchId: true, // Model A: batch FK
+                batch: true, // legacy batch number
+                batchRef: { // Model A: batch data
+                  select: {
+                    id: true,
+                    batchNumber: true,
+                    status: true,
+                    _count: { select: { ideas: true } },
+                  },
+                },
                 _count: { select: { participants: true, votes: true } },
                 participants: {
                   select: { status: true },
@@ -120,6 +130,16 @@ export async function GET(
 
       const votedTiers = [...new Set(votedParticipations.map(v => v.cell.tier))].sort((a, b) => a - b)
 
+      // Model A: Compute batch cell counts (total/completed per batchId)
+      const batchCellCounts = new Map<string, { total: number; completed: number }>()
+      for (const cell of deliberation.cells) {
+        if (!cell.batchId) continue
+        const existing = batchCellCounts.get(cell.batchId) || { total: 0, completed: 0 }
+        existing.total++
+        if (cell.status === 'COMPLETED') existing.completed++
+        batchCellCounts.set(cell.batchId, existing)
+      }
+
       return {
         id: deliberation.id,
         question: deliberation.question,
@@ -144,8 +164,21 @@ export async function GET(
         cells: deliberation.cells.map(c => {
           const votedCount = c.participants.filter(p => p.status === 'VOTED').length
           const activeCount = c.participants.filter(p => p.status === 'ACTIVE').length
+
+          // Model A: Add batch context
+          const batchContext = c.batchId ? {
+            batchId: c.batchId,
+            batchNumber: c.batchRef?.batchNumber ?? c.batch ?? 0,
+            batchStatus: c.batchRef?.status ?? null,
+            totalCells: batchCellCounts.get(c.batchId)?.total ?? 1,
+            completedCells: batchCellCounts.get(c.batchId)?.completed ?? 0,
+            ideasInBatch: c.batchRef?._count.ideas ?? c.ideas.length,
+          } : null
+
           return {
             ...c,
+            batchRef: undefined, // strip relation, replaced by batch context below
+            batch: batchContext, // Model A: structured batch data
             ideas: c.ideas.map(ci => ci.idea),
             participants: undefined, // strip raw list
             votedCount,

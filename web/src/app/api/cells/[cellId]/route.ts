@@ -28,6 +28,16 @@ export async function GET(
             votingTimeoutMs: true,
           },
         },
+        batchRef: {
+          select: {
+            id: true,
+            batchNumber: true,
+            status: true,
+            _count: {
+              select: { ideas: true },
+            },
+          },
+        },
         ideas: {
           include: {
             idea: {
@@ -52,6 +62,23 @@ export async function GET(
 
     if (!cell) {
       return NextResponse.json({ error: 'Cell not found' }, { status: 404 })
+    }
+
+    // Get batch context (total cells, completed cells)
+    let batchContext = null
+    if (cell.batchId) {
+      const batchCells = await prisma.cell.findMany({
+        where: { batchId: cell.batchId },
+        select: { id: true, status: true },
+      })
+      batchContext = {
+        batchId: cell.batchId,
+        batchNumber: cell.batchRef?.batchNumber ?? null,
+        batchStatus: cell.batchRef?.status ?? null,
+        totalCells: batchCells.length,
+        completedCells: batchCells.filter(c => c.status === 'COMPLETED').length,
+        ideasInBatch: cell.batchRef?._count.ideas ?? 0,
+      }
     }
 
     // Find winner (idea with most votes, or ADVANCING status)
@@ -120,6 +147,7 @@ export async function GET(
       id: cell.id,
       status: cell.status,
       tier: cell.tier,
+      batch: batchContext, // Model A: batch context with multi-cell info
       votingDeadline: votingDeadline?.toISOString() || null,
       votedCount: isCompleted ? cell._count.votes : undefined,
       participantCount: cell._count.participants,
