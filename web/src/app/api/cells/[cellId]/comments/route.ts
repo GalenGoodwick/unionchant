@@ -24,12 +24,13 @@ export async function GET(
       currentUserId = user?.id || null
     }
 
-    // Get the cell to find its deliberation, tier, and IDEAS
+    // Get the cell to find its deliberation, tier, batchId, and IDEAS
     const cell = await prisma.cell.findUnique({
       where: { id: cellId },
       select: {
         deliberationId: true,
         tier: true,
+        batchId: true, // Model A: batch context for comment spreading
         ideas: {
           select: { ideaId: true },
         },
@@ -121,24 +122,32 @@ export async function GET(
       })
 
       // B) Same-tier viral spread: comments from other same-tier cells with shared ideas
-      // Count total same-tier cells per idea (for spread calculation)
+      // MODEL A: For Tier 2+ with batches, spread within batch only (same batchId)
+      // Legacy: For Tier 1 without batches (batchId=null), spread across all same-tier cells with shared ideas
       const sameTierCellsWithIdeas = await prisma.cell.findMany({
         where: {
           deliberationId: cell.deliberationId,
           tier: cell.tier,
           id: { not: cellId },
+          // Model A: If this cell has a batchId, only spread to cells in same batch
+          // Legacy: If no batchId, spread to any same-tier cell with shared ideas
+          ...(cell.batchId ? { batchId: cell.batchId } : {}),
           ideas: { some: { ideaId: { in: cellIdeaIds } } },
         },
         select: { id: true },
       })
       const totalSameTierCells = sameTierCellsWithIdeas.length + 1 // +1 for this cell
 
-      // Fetch same-tier candidates: idea-linked, from other cells at same tier, with spreadCount > 0
+      // Fetch same-tier candidates: idea-linked, from other cells at same tier (and same batch if Model A), with spreadCount > 0
       const sameTierCandidates = sameTierCellsWithIdeas.length > 0 ? await prisma.comment.findMany({
         where: {
           ideaId: { in: cellIdeaIds },
           cellId: { not: cellId },
-          cell: { tier: cell.tier },
+          cell: {
+            tier: cell.tier,
+            // Model A: same batch only (if this cell has batchId)
+            ...(cell.batchId ? { batchId: cell.batchId } : {}),
+          },
           spreadCount: { gte: 1 },
         },
         orderBy: [
