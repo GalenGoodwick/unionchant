@@ -1,6 +1,6 @@
 import { prisma } from './prisma'
 import { sendPushToDeliberation, notifications } from './push'
-import { sendEmailToDeliberation } from './email'
+// Email notifications removed - using push notifications only for humans
 import { updateAgreementScores } from './agreement'
 import { fireWebhookEvent } from './webhooks'
 
@@ -858,9 +858,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         cell.deliberationId,
         notifications.championDeclared(cell.deliberation.question, cell.deliberationId)
       ).catch(err => console.error('Failed to send push notifications:', err))
-      sendEmailToDeliberation(cell.deliberationId, 'champion_declared', {
-        championText: winnerIdea?.text || 'Unknown',
-      }).catch(err => console.error('Failed to send champion email:', err))
+      // Email removed - push notifications only for humans
       fireWebhookEvent('winner_declared', {
         deliberationId: cell.deliberationId,
         winnerId: fastWinnerId,
@@ -926,6 +924,149 @@ async function promoteTopComments(deliberationId: string, completedTier: number,
   }
 
   console.log(`promoteTopComments: promoted comments for ${advancingIdeaIds.length} ideas from tier ${completedTier}→${nextTier}`)
+}
+
+/**
+ * Check if all batches in a tier have at least one complete cell
+ * Used for "Continue with Current Participation" advancement
+ */
+export async function canAdvanceWithPartialCompletion(deliberationId: string, tier: number): Promise<{ canAdvance: boolean; batchStatus: { batchNumber: number; totalCells: number; completedCells: number }[] }> {
+  const cells = await prisma.cell.findMany({
+    where: { deliberationId, tier },
+    select: { id: true, status: true, batchId: true, batch: true },
+  })
+
+  if (cells.length === 0) {
+    return { canAdvance: false, batchStatus: [] }
+  }
+
+  // Group cells by batch
+  const batchMap = new Map<string, { total: number; completed: number; batchNumber: number }>()
+
+  for (const cell of cells) {
+    const key = cell.batchId ? cell.batchId : `batch:${cell.batch ?? 0}`
+    const batchNum = cell.batch ?? 0
+
+    if (!batchMap.has(key)) {
+      batchMap.set(key, { total: 0, completed: 0, batchNumber: batchNum })
+    }
+
+    const stats = batchMap.get(key)!
+    stats.total++
+    if (cell.status === 'COMPLETED') {
+      stats.completed++
+    }
+  }
+
+  // Check if all batches have at least 1 complete cell
+  const batchStatus = Array.from(batchMap.values())
+  const canAdvance = batchStatus.every(b => b.completed >= 1)
+
+  return {
+    canAdvance,
+    batchStatus: batchStatus.map(b => ({
+      batchNumber: b.batchNumber,
+      totalCells: b.total,
+      completedCells: b.completed,
+    })),
+  }
+}
+
+/**
+ * Force batch resolution for batches with at least 1 completed cell
+ * Used when advancing tier with partial participation
+ */
+export async function forcePartialBatchResolution(deliberationId: string, tier: number) {
+  const cells = await prisma.cell.findMany({
+    where: { deliberationId, tier },
+    include: {
+      ideas: true,
+      votes: true,
+    },
+  })
+
+  if (cells.length === 0) return
+
+  // Group cells by batch
+  const batchMap = new Map<string, typeof cells>()
+  for (const cell of cells) {
+    const key = cell.batchId ? cell.batchId : `batch:${cell.batch ?? 0}`
+    if (!batchMap.has(key)) batchMap.set(key, [])
+    batchMap.get(key)!.push(cell)
+  }
+
+  // Process each batch that has at least 1 completed cell
+  for (const [batchKey, batchCells] of batchMap.entries()) {
+    if (batchCells.length <= 1) continue // Single-cell batches already resolved
+
+    const completedCells = batchCells.filter(c => c.status === 'COMPLETED')
+    if (completedCells.length === 0) continue // No completed cells in this batch
+
+    const batchCellIds = completedCells.map(c => c.id) // Only use completed cells
+    const batchIdeaIds = batchCells[0].ideas.map((ci: { ideaId: string }) => ci.ideaId)
+
+    // Check if ideas are still unresolved
+    const unresolvedCount = await prisma.idea.count({
+      where: { id: { in: batchIdeaIds }, status: 'IN_VOTING' },
+    })
+    if (unresolvedCount === 0) continue // Already resolved
+
+    // Cross-cell XP tally for COMPLETED cells only
+    let batchVotes: { ideaId: string; xpPoints: number }[] = []
+    try {
+      batchVotes = await prisma.$queryRaw<{ ideaId: string; xpPoints: number }[]>`
+        SELECT "ideaId", "xpPoints" FROM "Vote" WHERE "cellId" = ANY(${batchCellIds})
+      `
+    } catch (err) {
+      console.error(`Failed to query partial batch votes for ${batchKey}:`, err)
+      continue
+    }
+
+    const tally: Record<string, number> = {}
+    for (const vote of batchVotes) {
+      tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
+    }
+
+    // Find batch winner (most total XP, deterministic tiebreak by ID)
+    const sorted = Object.entries(tally).sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
+    const batchWinnerId = sorted.length > 0
+      ? sorted[0][0]
+      : batchIdeaIds.sort()[0] // deterministic fallback
+
+    if (!batchWinnerId) continue
+
+    const batchLoserIds = batchIdeaIds.filter((id: string) => id !== batchWinnerId)
+
+    console.log(`forcePartialBatchResolution: ${batchKey} partial tally (${completedCells.length}/${batchCells.length} cells) — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP)`)
+
+    // Mark batch winner as ADVANCING, losers as ELIMINATED
+    await prisma.idea.update({
+      where: { id: batchWinnerId },
+      data: { status: 'ADVANCING', tier },
+    })
+
+    if (batchLoserIds.length > 0) {
+      await prisma.idea.updateMany({
+        where: { id: { in: batchLoserIds } },
+        data: { status: 'ELIMINATED', losses: { increment: 1 } },
+      })
+    }
+
+    // Update Batch status to COMPLETED
+    if (batchCells[0].batchId) {
+      await prisma.batch.update({
+        where: { id: batchCells[0].batchId },
+        data: { status: 'COMPLETED' },
+      })
+    }
+
+    // Resolve predictions for completed cells
+    for (const cell of completedCells) {
+      await resolveCellPredictions(cell.id, [batchWinnerId])
+    }
+  }
+
+  console.log(`forcePartialBatchResolution: processed ${batchMap.size} batches at tier ${tier}`)
 }
 
 /**
@@ -1147,9 +1288,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             deliberationId,
             notifications.championDeclared(completedDeliberation.question, deliberationId)
           ).catch(err => console.error('Failed to send push notifications:', err))
-          sendEmailToDeliberation(deliberationId, 'champion_declared', {
-            championText: completedDeliberation.ideas[0]?.text || 'Unknown',
-          }).catch(err => console.error('Failed to send champion email:', err))
+          // Email removed - push notifications only for humans
         }
       }
     }
@@ -1207,11 +1346,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           deliberationId,
           notifications.championDeclared(deliberation.question, deliberationId)
         ).catch(err => console.error('Failed to send push notifications:', err))
-
-        // Email: champion declared
-        sendEmailToDeliberation(deliberationId, 'champion_declared', {
-          championText: advancingIdeas[0]?.text || 'Unknown',
-        }).catch(err => console.error('Failed to send champion email:', err))
+        // Email removed - push notifications only for humans
       }
     }
 
@@ -1315,9 +1450,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         deliberationId,
         notifications.newTier(nextTier, deliberation.question, deliberationId)
       ).catch(err => console.error('Failed to send push notifications:', err))
-
-      sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
-        .catch(err => console.error('Failed to send new tier email:', err))
+      // Email removed - push notifications only for humans
 
       return // FCFS: cells created on-demand when voters enter
     }
@@ -1380,24 +1513,18 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
 
       console.log(`✓ Final showdown tier ${nextTier}: created ${cellsCreated} cells, 1 batch, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
     } else {
-      // Normal case: multiple batches, distribute cells across batches
-      // Distribute cells evenly across batches (round-robin assignment)
-      const baseCellsPerBatch = Math.floor(numCells / numBatches)
-      const extraCells = numCells % numBatches
-
+      // Normal case: multiple batches, distribute cells round-robin
+      // STEP 1: Create all batch records first
+      const batches: { id: string; batchNumber: number; ideas: typeof shuffledIdeas }[] = []
       let ideaIndex = 0
-      let memberIndex = 0
-      let totalCellsCreated = 0
 
       for (let batchNum = 0; batchNum < numBatches; batchNum++) {
-        // Get ideas for this batch using flexible sizing
         const batchIdeaCount = batchSizes[batchNum]
         const batchIdeas = shuffledIdeas.slice(ideaIndex, ideaIndex + batchIdeaCount)
         ideaIndex += batchIdeaCount
 
         if (batchIdeas.length === 0) continue
 
-        // Create Batch record
         const batch = await prisma.batch.create({
           data: {
             deliberationId,
@@ -1410,52 +1537,56 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           },
         })
 
-        // Calculate cells for this batch
-        const batchCellCount = baseCellsPerBatch + (batchNum < extraCells ? 1 : 0)
-
-        // Calculate members for this batch's cells
-        const membersNeeded = batchCellCount * DEFAULT_CELL_SIZE
-        const batchMembers = shuffledMembers.slice(memberIndex, Math.min(memberIndex + membersNeeded, shuffledMembers.length))
-        memberIndex += batchMembers.length
-
-        // Distribute members evenly across this batch's cells
-        const cellSizes = calculateCellSizes(batchMembers.length, DEFAULT_CELL_SIZE)
-
-        let memberOffset = 0
-        let batchCellsCreated = 0
-
-        for (let c = 0; c < Math.min(cellSizes.length, batchCellCount); c++) {
-          const cellSize = cellSizes[c]
-          if (cellSize === 0 || memberOffset >= batchMembers.length) continue
-
-          const cellMembers = batchMembers.slice(memberOffset, Math.min(memberOffset + cellSize, batchMembers.length))
-          if (cellMembers.length === 0) continue
-
-          memberOffset += cellMembers.length
-
-          await prisma.cell.create({
-            data: {
-              deliberationId,
-              tier: nextTier,
-              batch: batchNum, // DEPRECATED - keep for legacy
-              batchId: batch.id, // NEW - FK to Batch
-              status: nextTierCellStatus,
-              discussionEndsAt: nextTierDiscussionEndsAt,
-              ideas: {
-                create: batchIdeas.map(idea => ({ ideaId: idea.id })),
-              },
-              participants: {
-                create: cellMembers.map(member => ({ userId: member.userId })),
-              },
-            },
-          })
-          batchCellsCreated++
-          totalCellsCreated++
-        }
-        console.log(`  Batch ${batchNum}: ${batchCellsCreated} cells, ${batchMembers.length} members, ${batchIdeas.length} ideas`)
+        batches.push({ id: batch.id, batchNumber: batchNum, ideas: batchIdeas })
       }
 
-      console.log(`✓ Tier ${nextTier}: created ${totalCellsCreated} cells across ${numBatches} batches, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
+      // STEP 2: Distribute cells round-robin across batches
+      // Each batch gets 1 cell before any gets 2 (ensures low turnout can advance)
+      const cellSizes = calculateCellSizes(shuffledMembers.length, DEFAULT_CELL_SIZE)
+      let memberOffset = 0
+      let totalCellsCreated = 0
+      const cellsPerBatch: number[] = Array(batches.length).fill(0)
+
+      for (let cellIdx = 0; cellIdx < cellSizes.length; cellIdx++) {
+        const cellSize = cellSizes[cellIdx]
+        if (cellSize === 0 || memberOffset >= shuffledMembers.length) continue
+
+        // Round-robin: assign to batch with fewest cells
+        const batchIdx = cellIdx % batches.length
+        const batch = batches[batchIdx]
+
+        const cellMembers = shuffledMembers.slice(memberOffset, Math.min(memberOffset + cellSize, shuffledMembers.length))
+        if (cellMembers.length === 0) continue
+
+        memberOffset += cellMembers.length
+
+        await prisma.cell.create({
+          data: {
+            deliberationId,
+            tier: nextTier,
+            batch: batch.batchNumber, // DEPRECATED - keep for legacy
+            batchId: batch.id, // NEW - FK to Batch
+            status: nextTierCellStatus,
+            discussionEndsAt: nextTierDiscussionEndsAt,
+            ideas: {
+              create: batch.ideas.map(idea => ({ ideaId: idea.id })),
+            },
+            participants: {
+              create: cellMembers.map(member => ({ userId: member.userId })),
+            },
+          },
+        })
+
+        cellsPerBatch[batchIdx]++
+        totalCellsCreated++
+      }
+
+      // Log distribution
+      batches.forEach((batch, idx) => {
+        console.log(`  Batch ${batch.batchNumber}: ${cellsPerBatch[idx]} cells, ${batch.ideas.length} ideas`)
+      })
+
+      console.log(`✓ Tier ${nextTier}: created ${totalCellsCreated} cells across ${numBatches} batches (round-robin), ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
     }
 
     // Send notification for new tier (tier was already advanced above)
@@ -1463,10 +1594,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       deliberationId,
       notifications.newTier(nextTier, deliberation.question, deliberationId)
     ).catch(err => console.error('Failed to send push notifications:', err))
-
-    // Email: new tier started
-    sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
-      .catch(err => console.error('Failed to send new tier email:', err))
+    // Email removed - push notifications only for humans
   }
 }
 

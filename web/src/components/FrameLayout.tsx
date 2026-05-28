@@ -225,6 +225,7 @@ export default function FrameLayout({
 
               <div className="flex-1" />
 
+              {/* Navigation Orb - draggable ship controller */}
               {session && (
                 <>
                   <NotificationBell />

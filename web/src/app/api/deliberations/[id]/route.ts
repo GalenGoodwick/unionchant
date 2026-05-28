@@ -143,3 +143,109 @@ export async function GET(
     return NextResponse.json({ error: 'Failed to fetch deliberation' }, { status: 500 })
   }
 }
+
+// PATCH /api/deliberations/[id] - Update deliberation (add tags, etc.)
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const { id } = await params
+    const body = await req.json()
+
+    // Find user
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
+
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    // Check deliberation exists and get access
+    const deliberation = await prisma.deliberation.findUnique({
+      where: { id },
+      select: { id: true, creatorId: true, isPublic: true, tags: true },
+    })
+
+    if (!deliberation) {
+      return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+    }
+
+    // Privacy gate
+    if (!deliberation.isPublic) {
+      const access = await checkDeliberationAccess(id, session.user.email)
+      if (!access.allowed) {
+        return NextResponse.json({ error: 'Deliberation not found' }, { status: 404 })
+      }
+    }
+
+    // Check if user is member or creator
+    const isCreator = user.id === deliberation.creatorId || await isAdmin(session.user.email)
+    const membership = await prisma.deliberationMember.findUnique({
+      where: {
+        deliberationId_userId: {
+          deliberationId: id,
+          userId: user.id,
+        },
+      },
+    })
+
+    if (!isCreator && !membership) {
+      return NextResponse.json({ error: 'You must be a member to add tags' }, { status: 403 })
+    }
+
+    // Handle tag addition
+    if (body.tags?.add) {
+      const newTag = String(body.tags.add).trim().toLowerCase()
+
+      // Validate tag
+      if (!newTag || newTag.length === 0) {
+        return NextResponse.json({ error: 'Tag cannot be empty' }, { status: 400 })
+      }
+
+      if (newTag.length > 30) {
+        return NextResponse.json({ error: 'Tag too long (max 30 characters)' }, { status: 400 })
+      }
+
+      // Get current tags
+      const currentTags = deliberation.tags || []
+
+      // Check if tag already exists
+      if (currentTags.includes(newTag)) {
+        return NextResponse.json({ error: 'Tag already exists' }, { status: 400 })
+      }
+
+      // Limit total tags
+      if (currentTags.length >= 10) {
+        return NextResponse.json({ error: 'Maximum 10 tags per deliberation' }, { status: 400 })
+      }
+
+      // Add tag
+      const updated = await prisma.deliberation.update({
+        where: { id },
+        data: {
+          tags: [...currentTags, newTag],
+        },
+        select: {
+          id: true,
+          tags: true,
+        },
+      })
+
+      return NextResponse.json(updated)
+    }
+
+    return NextResponse.json({ error: 'No valid update operation provided' }, { status: 400 })
+  } catch (error) {
+    console.error('Error updating deliberation:', error)
+    return NextResponse.json({ error: 'Failed to update deliberation' }, { status: 500 })
+  }
+}

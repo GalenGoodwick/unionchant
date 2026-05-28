@@ -82,7 +82,6 @@ export default function VotingCell({
   const [submitting, setSubmitting] = useState(false)
   const [upvoting, setUpvoting] = useState<string | null>(null)
   const [openIdeaId, setOpenIdeaId] = useState<string | null>(null)
-  const [showMobilePopup, setShowMobilePopup] = useState(false)
   const [commentsLoaded, setCommentsLoaded] = useState(false)
   const [mutedUntil, setMutedUntil] = useState<number | null>(null)
 
@@ -209,8 +208,8 @@ export default function VotingCell({
           <p className="text-xs text-muted mt-0.5">{getDisplayName(openIdea.author)}</p>
         </div>
         <button
-          onClick={() => setShowMobilePopup(false)}
-          className="lg:hidden shrink-0 w-9 h-9 flex items-center justify-center rounded-full hover:bg-surface transition-colors text-muted hover:text-foreground"
+          onClick={() => setOpenIdeaId(null)}
+          className="shrink-0 w-9 h-9 flex items-center justify-center rounded-full hover:bg-surface transition-colors text-muted hover:text-foreground"
         >
           <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -386,10 +385,9 @@ export default function VotingCell({
                     <button
                       onClick={() => {
                         if (openIdeaId === idea.id) {
-                          setShowMobilePopup(prev => !prev)
+                          setOpenIdeaId(null)
                         } else {
                           setOpenIdeaId(idea.id)
-                          setShowMobilePopup(true)
                           fetchComments()
                         }
                       }}
@@ -405,6 +403,88 @@ export default function VotingCell({
                   </div>
                 </div>
               </div>
+
+              {/* Accordion: inline comments for this idea */}
+              {openIdeaId === idea.id && (
+                <div className="border-t border-border bg-background">
+                  {/* Comments list */}
+                  <div className="max-h-60 overflow-y-auto p-2 space-y-1.5">
+                    {!commentsLoaded ? (
+                      <p className="text-muted text-xs py-3 text-center">Loading...</p>
+                    ) : getIdeaComments(idea.id).length === 0 ? (
+                      <p className="text-muted text-xs py-3 text-center">No comments yet — be the first</p>
+                    ) : (
+                      getIdeaComments(idea.id).map(c => (
+                        <div
+                          key={c.id}
+                          className={`rounded p-1.5 text-xs flex justify-between items-start gap-1.5 ${
+                            c.isUpPollinated
+                              ? 'bg-purple-bg border-l-2 border-purple'
+                              : 'bg-surface'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-foreground text-xs leading-snug">{c.text}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] flex-wrap">
+                              {c.isUpPollinated ? (
+                                <span className="text-purple">From another cell</span>
+                              ) : (
+                                <>
+                                  <Link href={`/user/${c.user.id}`} className="text-accent font-medium hover:underline">{getDisplayName(c.user)}</Link>
+                                  <span className="text-muted">{timeAgo(c.createdAt)}</span>
+                                </>
+                              )}
+                              {!c.isUpPollinated && (c.spreadCount || 0) > 0 && (
+                                <span className="text-purple">
+                                  {(c.spreadCount || 0) >= 3 ? 'In all cells' : 'Spreading'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => handleUpvote(c.id)}
+                            disabled={upvoting === c.id || !!c.userHasUpvoted}
+                            className={`shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] transition-colors ${
+                              c.userHasUpvoted
+                                ? 'bg-purple-bg text-purple'
+                                : 'bg-surface hover:bg-purple-bg text-muted hover:text-purple'
+                            }`}
+                          >
+                            <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 19V5" />
+                              <path d="M5 12l7-7 7 7" />
+                            </svg>
+                            <span className="font-mono">{c.upvoteCount || 0}</span>
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Compose */}
+                  {!tierFinalized && (
+                    <div className="p-2 border-t border-border">
+                      <form onSubmit={handleCommentSubmit} className="flex gap-1.5 min-w-0">
+                        <input
+                          type="text"
+                          placeholder="Comment..."
+                          value={newComment}
+                          onChange={(e) => setNewComment(e.target.value)}
+                          maxLength={2000}
+                          className="flex-1 min-w-0 bg-surface rounded border border-border px-2 py-1 text-xs text-foreground placeholder-muted focus:outline-none focus:border-accent"
+                        />
+                        <button
+                          type="submit"
+                          disabled={submitting || !newComment.trim()}
+                          className="shrink-0 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white px-2 py-1 rounded text-xs"
+                        >
+                          {submitting ? '...' : 'Send'}
+                        </button>
+                      </form>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
@@ -453,18 +533,10 @@ export default function VotingCell({
         )}
       </div>
 
-      {/* === MOBILE: Voting card + popup === */}
+      {/* === MOBILE: Voting card with inline accordion === */}
       <div className="lg:hidden">
         {votingCard}
       </div>
-
-      {/* === MOBILE POPUP — full screen === */}
-      {showMobilePopup && openIdeaId && openIdea && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-background flex flex-col overflow-hidden">
-          {commentsContent}
-        </div>
-      )}
-
     </>
   )
 }

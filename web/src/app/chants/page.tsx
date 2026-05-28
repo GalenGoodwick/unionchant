@@ -1,10 +1,6 @@
 /**
- * Originally developed as part of the Common Ground plugin for Unity Chant.
- * Thank you to Common Ground (https://common.ground) for being open source
- * and inspiring the embeddable widget architecture.
- *
- * Adapted for the Unity Chant web application.
- * Original source: https://github.com/GalenGoodwick/unity-chant-cg-plugin
+ * Chants Page - Full-view carousel interface
+ * Each card shows the complete chant UI (Submit/Vote/etc.) in a swipeable carousel
  */
 'use client'
 
@@ -14,9 +10,13 @@ import { createPortal } from 'react-dom'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
-import { useFirstVisit } from '@/hooks/useFirstVisit'
-import ChantsTutorialModal from '@/components/ChantsTutorialModal'
 import AnonymousBanner from '@/components/AnonymousBanner'
+import ShareMenu from '@/components/ShareMenu'
+import VotingCell from '@/components/deliberation/VotingCell'
+import type { Cell } from '@/components/deliberation/types'
+import { useToast } from '@/components/Toast'
+
+type ActionTab = 'list' | 'submit' | 'vote' | 'history' | 'activity' | 'created'
 
 type Chant = {
   id: string
@@ -24,45 +24,27 @@ type Chant = {
   description: string | null
   phase: string
   isPublic: boolean
-  isPinned: boolean
-  upvoteCount: number
-  userHasUpvoted: boolean
+  isPinned?: boolean
+  upvoteCount?: number
+  userHasUpvoted?: boolean
   continuousFlow: boolean
   allowAI: boolean
   tags: string[]
-  voteCount: number
+  voteCount?: number
   currentTier: number
-  viewerCount: number
+  viewerCount?: number
   createdAt: string
-  creator: { name: string | null }
+  creatorId?: string
+  creator?: { name: string | null }
   champion?: { text: string } | null
   _count: { members: number; ideas: number }
+  userStatus?: {
+    isMember: boolean
+    hasSubmittedIdea: boolean
+    hasVotedInCurrentTier: boolean
+    isInActiveCell: boolean
+  }
 }
-
-const PAGE_SIZE = 15
-
-// Onboarding narration — consolidated popups explaining each phase of the chant
-type NarrationItem = { tier: number; text: string }
-const ONBOARDING_NARRATIONS: { id: string; match: (s: string, d: string, processed: Set<string>) => boolean; narrations: NarrationItem[] }[] = [
-  // Popup 1: Brainstorming — ideas submitted
-  { id: 'brainstorm', match: (s, d) => s === 'brainstorming' && /thinking/.test(d),
-    narrations: [{ tier: 1, text: 'Each agent submits 1 idea related to your question. Ideas go into the core.' }] },
-  // Popup 2: Cells + Discussion + Voting
-  { id: 'cells-and-voting', match: (s, d) => s === 'voting' && /Creating voting cells/.test(d),
-    narrations: [{ tier: 1, text: 'Groups (cells) of 5 agents are created. Each cell gets 5 unique ideas. One of those will be from your agent.\n\nAgents comment on ideas. Comments can be boosted. Each agent in each cell gets 10 vote points to give to the ideas in the cell. Vote points can be spread out or all in.' }] },
-  // Popup 3: Winners declared
-  { id: 'tier1-results', match: (s) => s === 'processing',
-    narrations: [{ tier: 1, text: 'Each cell declares a winner.' }] },
-  // Popup 4: Tier 2 starts (10+ agents only)
-  { id: 'tier2-start', match: (s, d) => s === 'voting' && /Final showdown/.test(d),
-    narrations: [{ tier: 2, text: "It isn't over! Now the winning idea from each cell goes back to the core. All cells get the winning ideas from the previous tier. Agents comment, boost, and vote." }] },
-  // Popup 5: Tier 2 result — collective priority explained
-  { id: 'tier2-result', match: (s, d) => s === 'processing' && /Determining/.test(d),
-    narrations: [{ tier: 2, text: "Now we have a winner which in Unity Chant is called a collective priority. Because the winning idea has gone through this process, it has made it through multiple rounds of voting. The ideas that don't work for everyone have been kept at lower tiers, and the winning priority emerges naturally." }] },
-  // Popup 6: Single-cell priority (≤5 agents, no tier 2)
-  { id: 'single-cell-priority', match: (s, d, processed) => s === 'complete' && /Champion:/.test(d) && !processed.has('tier2-result'),
-    narrations: [{ tier: 0, text: "This is the collective priority. In this chant, one cell evaluated all ideas. With more people, winning ideas advance through multiple tiers -- each round narrows the field.\n\nPriorities aren't chosen by a leader. They emerge from structured deliberation where every voice is heard." }] },
-]
 
 export default function ChantsPageWrapper() {
   return (
@@ -77,211 +59,54 @@ function ChantsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
-  // Debug banner visibility
-  console.log('Banner debug:', { session: !!session, status, showBanner: !session })
   const [chants, setChants] = useState<Chant[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [filter, setFilter] = useState<'all' | 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'PAUSED'>('all')
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  const [showTutorial, setShowTutorial] = useState(false)
-  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const [activeTab, setActiveTab] = useState<ActionTab>('list')
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userFetchError, setUserFetchError] = useState<string | null>(null)
+  const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
   const scrollRef = useRef<HTMLDivElement>(null)
+  const carouselRef = useRef<HTMLDivElement>(null)
 
-  // Deep-link: ?create=1&groupId=XXX opens create form with group pre-selected
-  const initCreate = searchParams.get('create') === '1'
-  const initGroupId = searchParams.get('groupId')
-
-  // Inline create form state
-  const [showCreate, setShowCreate] = useState(initCreate)
+  // Create form state
+  const [showCreate, setShowCreate] = useState(false)
   const [question, setQuestion] = useState('')
-  const [description, setDescription] = useState('')
+  const [createDescription, setCreateDescription] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
-  const [showSettings, setShowSettings] = useState(true)
-  const [mode, setMode] = useState<'event' | 'idea_goal' | 'endless'>('event')
-  const [ideaGoal, setIdeaGoal] = useState(5)
-  const [memberGoal, setMemberGoal] = useState(10)
-  const [ideas, setIdeas] = useState<string[]>(['', '', '', '', ''])
-  const [allowAI, setAllowAI] = useState(false)
-  const chantMode = 'classic' as const
-  const [tags, setTags] = useState('')
-  const [communities, setCommunities] = useState<{ id: string; name: string }[]>([])
-  const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(initGroupId)
-  const [communityOnly, setCommunityOnly] = useState(false)
-  const [ideaStatus, setIdeaStatus] = useState<Record<number, { ok: boolean; msg: string }>>({})
-  const [createProgress, setCreateProgress] = useState('')
   const [showConfirmation, setShowConfirmation] = useState(false)
 
-  // Bond request banner
-  const [pendingBond, setPendingBond] = useState<{
-    reachOutId: string; shellName: string; shellChampion: string | null; message: string
-  } | null>(null)
-  const [bondActionLoading, setBondActionLoading] = useState(false)
-
-  // Clean up create deep-link params
+  // Fetch current user ID
   useEffect(() => {
-    if (initCreate) router.replace('/chants', { scroll: false })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Onboarding: auto-open Ask AI with "Mine" pre-selected
-  const [onboardingTip, setOnboardingTip] = useState(false)
-  const onboardingHandledRef = useRef(false)
-  useEffect(() => {
-    if (onboardingHandledRef.current) return
-    if (typeof window === 'undefined') return
-    const isOnboarding = searchParams.get('onboarding') === '1'
-    const isSessionResume = !isOnboarding && sessionStorage.getItem('onboardingStarted') && !sessionStorage.getItem('onboardingChantCompleted')
-    if (isOnboarding || isSessionResume) {
-      onboardingHandledRef.current = true
-      setShowAskAI(true)
-      setAskSources({ standard: true, pool: false, mine: true, children: false, collective: false, cradle: false })
-      isOnboardingChantRef.current = true
-      setOnboardingTip(true)
-      if (isOnboarding) router.replace('/chants', { scroll: false })
-      // Re-fetch agents — user may have just created one in onboarding
-      fetch('/api/my-agents')
-        .then(res => res.json())
-        .then(data => {
-          if (data.agents?.length > 0) {
-            setHasUserAgents(true)
-            setUserAgentCount(data.agents.length)
-          }
-        })
-        .catch(() => {})
-    }
-  }, [searchParams, router])
-
-
-  // Ask AI state
-  const [showAskAI, setShowAskAI] = useState(false)
-  const [askQuestion, setAskQuestion] = useState('')
-  const [askDescription, setAskDescription] = useState('')
-  const [askAgentCount, setAskAgentCount] = useState(15)
-  const [askSources, setAskSources] = useState({ standard: true, pool: false, mine: false, children: false, collective: false, cradle: false })
-  const [hasUserAgents, setHasUserAgents] = useState(false)
-  const [userAgentCount, setUserAgentCount] = useState(0)
-  const [poolCount, setPoolCount] = useState(0)
-  const [userTier, setUserTier] = useState<string>('free')
-  const [isUserAdmin, setIsUserAdmin] = useState(false)
-  const [showCustomCount, setShowCustomCount] = useState(false)
-  const [customCountText, setCustomCountText] = useState('')
-  const [askRunning, setAskRunning] = useState(false)
-  const [askProgress, setAskProgress] = useState({ step: '', detail: '', progress: 0 })
-  const [askError, setAskError] = useState('')
-
-  // Live priority leaderboard during Ask AI run
-  type LiveRankedIdea = { id: string; text: string; xp: number; status: string; author: string }
-  const [liveRanked, setLiveRanked] = useState<LiveRankedIdea[]>([])
-  const [liveTier, setLiveTier] = useState(0)
-  const [livePaused, setLivePaused] = useState(false)
-  const livePausedRef = useRef(false)
-  const liveRankedRef = useRef<LiveRankedIdea[]>([])
-
-  // Onboarding narration state
-  const isOnboardingChantRef = useRef(false)
-  const narrationQueueRef = useRef<NarrationItem[]>([])
-  const currentNarrationRef = useRef<NarrationItem | null>(null)
-  const [currentNarration, setCurrentNarration] = useState<NarrationItem | null>(null)
-  const completedDelibIdRef = useRef<string | null>(null)
-  const processedCheckpointsRef = useRef(new Set<string>())
-
-  const triggerNarrations = useCallback((step: string, detail: string) => {
-    if (!isOnboardingChantRef.current) return
-    for (const cp of ONBOARDING_NARRATIONS) {
-      if (processedCheckpointsRef.current.has(cp.id)) continue
-      if (cp.match(step, detail, processedCheckpointsRef.current)) {
-        processedCheckpointsRef.current.add(cp.id)
-        narrationQueueRef.current.push(...cp.narrations)
-      }
-    }
-    if (!currentNarrationRef.current && narrationQueueRef.current.length > 0) {
-      const next = narrationQueueRef.current.shift()!
-      currentNarrationRef.current = next
-      setCurrentNarration(next)
-    }
-  }, [])
-
-  const handleNarrationContinue = useCallback(() => {
-    if (narrationQueueRef.current.length > 0) {
-      const next = narrationQueueRef.current.shift()!
-      currentNarrationRef.current = next
-      setCurrentNarration(next)
-    } else {
-      currentNarrationRef.current = null
-      setCurrentNarration(null)
-      if (completedDelibIdRef.current) {
-        setAskRunning(false)
-        setShowAskAI(false)
-        sessionStorage.setItem('onboardingChantCompleted', '1')
-        router.push(`/chants/${completedDelibIdRef.current}?onboarding=final`)
-      }
-    }
-  }, [router])
-
-  const updateIdeaGoal = (goal: number) => {
-    setIdeaGoal(goal)
-    const count = goal === 0 ? 5 : goal
-    setIdeas(prev => {
-      if (prev.length === count) return prev
-      if (prev.length < count) return [...prev, ...Array(count - prev.length).fill('')]
-      return prev.slice(0, count)
-    })
-  }
-
-  const resetCreateForm = () => {
-    setQuestion('')
-    setDescription('')
-    setCreateError('')
-    setCreateProgress('')
-    setIdeaStatus({})
-    setIdeas(['', '', '', '', ''])
-    setMode('event')
-    setAllowAI(false)
-    setTags('')
-    setSelectedCommunityId(null)
-    setIdeaGoal(5)
-    setMemberGoal(10)
-  }
-
-  // Fetch pending bond requests for current user
-  useEffect(() => {
-    if (!session?.user) return
-    const fetchBond = async () => {
-      try {
-        const res = await fetch('/api/bond-requests')
-        if (res.ok) {
-          const data = await res.json()
-          if (data.pendingReachOuts?.length > 0) {
-            const r = data.pendingReachOuts[0]
-            setPendingBond({
-              reachOutId: r.id,
-              shellName: r.shellName,
-              shellChampion: r.shellChampion,
-              message: r.message,
+    if (session?.user?.email) {
+      setUserFetchError(null)
+      fetch('/api/user/me')
+        .then(res => {
+          if (!res.ok) {
+            return res.text().then(text => {
+              throw new Error(`HTTP ${res.status}: ${text}`)
             })
           }
-        }
-      } catch { /* silent */ }
+          return res.json()
+        })
+        .then(data => {
+          console.log('Fetched user:', data)
+          if (data.user?.id) {
+            setUserId(data.user.id)
+          } else {
+            setUserFetchError('User data missing ID')
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch userId:', err)
+          setUserFetchError(err.message)
+        })
+    } else {
+      setUserId(null)
+      setUserFetchError(null)
     }
-    fetchBond()
-  }, [session?.user])
-
-  const handleBondAction = async (action: 'accept' | 'decline') => {
-    if (!pendingBond || bondActionLoading) return
-    setBondActionLoading(true)
-    try {
-      const res = await fetch('/api/shell/bond', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reachOutId: pendingBond.reachOutId, action }),
-      })
-      if (res.ok) setPendingBond(null)
-    } catch { /* silent */ }
-    setBondActionLoading(false)
-  }
+  }, [session])
 
   const fetchChants = useCallback(async () => {
     try {
@@ -306,64 +131,38 @@ function ChantsPage() {
     return () => clearInterval(interval)
   }, [fetchChants])
 
-  // Fetch user's communities for create form
-  useEffect(() => {
-    if (!session) return
-    fetch('/api/communities/mine')
-      .then(res => res.json())
-      .then(data => { if (Array.isArray(data)) setCommunities(data) })
-      .catch(() => {})
-  }, [session])
+  // Add tag handler
+  const handleAddTag = async (chantId: string) => {
+    const tagValue = tagInputs[chantId]?.trim()
+    if (!tagValue) return
 
-  // Check if user has AI agents + pool count (for Ask AI source options)
-  useEffect(() => {
-    if (!session) return
-    fetch('/api/my-agents')
-      .then(res => res.json())
-      .then(data => {
-        if (data.agents?.length > 0) {
-          setHasUserAgents(true)
-          setUserAgentCount(data.agents.length)
-        }
-        if (data.tier) setUserTier(data.tier)
-        if (data.isAdmin) setIsUserAdmin(true)
-      })
-      .catch(() => {})
-    fetch('/api/agent-pool/count')
-      .then(res => res.json())
-      .then(data => { if (data.count > 0) setPoolCount(data.count) })
-      .catch(() => {})
-  }, [session])
-
-  const handleSearch = (value: string) => {
-    setSearch(value)
-    setVisibleCount(PAGE_SIZE)
-    if (searchTimeout.current) clearTimeout(searchTimeout.current)
-    searchTimeout.current = setTimeout(() => setDebouncedSearch(value), 300)
-  }
-
-  const handleUpvote = async (e: React.MouseEvent, id: string) => {
-    e.preventDefault()
-    e.stopPropagation()
     try {
-      const res = await fetch(`/api/deliberations/${id}/upvote`, { method: 'POST' })
+      const res = await fetch(`/api/deliberations/${chantId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tags: { add: tagValue }
+        })
+      })
+
       if (res.ok) {
-        const data = await res.json()
-        setChants(prev => prev.map(c =>
-          c.id === id ? { ...c, userHasUpvoted: data.upvoted, upvoteCount: c.upvoteCount + (data.upvoted ? 1 : -1) } : c
-        ))
+        // Clear input
+        setTagInputs(prev => ({ ...prev, [chantId]: '' }))
+        // Refresh chants
+        fetchChants()
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('Failed to add tag:', err)
+    }
   }
 
-  const handleCreate = async (e: React.FormEvent) => {
+  // Create form handlers
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
     if (!question.trim() || question.trim().length < 2) {
       setCreateError('Question must be at least 2 characters')
       return
     }
-
-    // Show confirmation dialog instead of immediately creating
     setShowConfirmation(true)
   }
 
@@ -373,915 +172,322 @@ function ChantsPage() {
     setCreateError('')
 
     try {
-      setCreateProgress('Creating chant...')
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: question.trim(),
-          description: description.trim() || undefined,
-          isPublic: true,
-          allocationMode: mode === 'endless' ? 'fcfs' : 'balanced',
-          continuousFlow: mode === 'endless',
-          allowAI,
-          ideaGoal: (mode === 'idea_goal' || mode === 'endless') ? ideaGoal : null,
-          memberGoal: mode === 'event' ? memberGoal : null,
-          votingTimeoutMs: 0,
-          tags: tags.split(',').map(t => t.trim()).filter(t => t.length > 0),
-          chantMode,
-          communityId: selectedCommunityId || undefined,
-          communityOnly: selectedCommunityId ? communityOnly : undefined,
+          description: createDescription.trim() || undefined,
         }),
       })
 
-      const data = await res.json()
       if (!res.ok) {
-        throw new Error(data.error || `Failed to create (${res.status})`)
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to create chant')
       }
 
-      // Submit seed ideas
-      setIdeaStatus({})
-      let ideaSuccesses = 0
-      let ideaFailures = 0
-      const filledIndices = ideas.map((t, i) => t.trim() ? i : -1).filter(i => i >= 0)
+      const data = await res.json()
 
-      for (let fi = 0; fi < filledIndices.length; fi++) {
-        const idx = filledIndices[fi]
-        setCreateProgress(`Submitting idea ${fi + 1}/${filledIndices.length}...`)
-        try {
-          const ideaRes = await fetch(`/api/deliberations/${data.id}/ideas`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: ideas[idx].trim() }),
-          })
-          const ideaData = await ideaRes.json()
-          if (!ideaRes.ok) {
-            setIdeaStatus(prev => ({ ...prev, [idx]: { ok: false, msg: ideaData.error || `HTTP ${ideaRes.status}` } }))
-            ideaFailures++
-          } else {
-            setIdeaStatus(prev => ({ ...prev, [idx]: { ok: true, msg: 'Submitted' } }))
-            ideaSuccesses++
-          }
-        } catch (ideaErr) {
-          const reason = ideaErr instanceof Error ? ideaErr.message : String(ideaErr)
-          setIdeaStatus(prev => ({ ...prev, [idx]: { ok: false, msg: reason } }))
-          ideaFailures++
-        }
-      }
-
-      setCreateProgress('')
-
-      if (ideaFailures > 0 && ideaSuccesses === 0 && filledIndices.length > 0) {
-        setCreateError('Chant created but all ideas failed. See errors below.')
-        fetchChants()
-        return
-      }
-
-      resetCreateForm()
+      // Reset form and close
+      setQuestion('')
+      setCreateDescription('')
       setShowCreate(false)
+
+      // Navigate to new chant
       router.push(`/chants/${data.id}`)
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Unknown error')
-      setCreateProgress('')
     } finally {
       setCreating(false)
     }
   }
 
-  const handleAskAI = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!askQuestion.trim() || askQuestion.trim().length < 5) {
-      setAskError('Question must be at least 5 characters')
-      return
-    }
-    setAskRunning(true)
-    setAskError('')
-    setOnboardingTip(false)
-    setLiveRanked([])
-    setLiveTier(0)
-    setLivePaused(false)
-    livePausedRef.current = false
-    liveRankedRef.current = []
-    setAskProgress({ step: 'starting', detail: 'Connecting...', progress: 0 })
-
-    try {
-      const response = await fetch('/api/ask-ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: askQuestion.trim(),
-          description: askDescription.trim() || undefined,
-          agentCount: askAgentCount,
-          sources: askSources,
-        }),
-      })
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
-        throw new Error(data.error || `Failed (${response.status})`)
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No response stream')
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      const processLine = (line: string) => {
-        if (!line.startsWith('data: ')) return
-        try {
-          const data = JSON.parse(line.slice(6))
-          if (data.step === 'error') {
-            throw new Error(data.detail || 'Ask AI failed')
-          }
-          // Trigger onboarding narrations for each SSE event
-          if (isOnboardingChantRef.current && data.step) {
-            triggerNarrations(data.step, data.detail || '')
-          }
-          if (data.step === 'complete' && data.deliberationId) {
-            setAskProgress({ step: 'complete', detail: 'Done', progress: 100 })
-            if (isOnboardingChantRef.current) {
-              // Don't redirect yet — show completion narrations first
-              completedDelibIdRef.current = data.deliberationId
-              triggerNarrations('complete', '')
-              return 'done'
-            }
-            setAskRunning(false)
-            setShowAskAI(false)
-            router.push(`/chants/${data.deliberationId}`)
-            return 'done'
-          }
-          // Capture live ranked snapshots for the leaderboard
-          if (data.step === 'tier_results' && data.ranked) {
-            liveRankedRef.current = data.ranked
-            setLiveTier(data.tier || 0)
-            if (!livePausedRef.current) setLiveRanked(data.ranked)
-          }
-          if (data.step && data.detail) {
-            setAskProgress({ step: data.step, detail: data.detail, progress: data.progress || 0 })
-          }
-        } catch (parseErr) {
-          if (parseErr instanceof Error && parseErr.message !== 'Ask AI failed') return
-          throw parseErr
-        }
-      }
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (processLine(line) === 'done') return
-        }
-      }
-
-      // Process any remaining buffer after stream ends
-      if (buffer.trim()) {
-        for (const line of buffer.split('\n')) {
-          if (processLine(line) === 'done') return
-        }
-      }
-    } catch (err) {
-      setAskError(err instanceof Error ? err.message : 'Unknown error')
-      setAskRunning(false)
-    }
-  }
-
-  const filtered = chants
-    .filter(c => {
-      if (filter !== 'all' && c.phase !== filter) return false
-      if (debouncedSearch && !c.question.toLowerCase().includes(debouncedSearch.toLowerCase())) return false
-      return true
-    })
-    .sort((a, b) => {
-      if (a.isPinned && !b.isPinned) return -1
-      if (!a.isPinned && b.isPinned) return 1
-      // Most viewers first
-      if ((b.viewerCount || 0) !== (a.viewerCount || 0)) return (b.viewerCount || 0) - (a.viewerCount || 0)
-      const phasePriority: Record<string, number> = { VOTING: 3, COMPLETED: 3, SUBMISSION: 2, PAUSED: 0 }
+  // Categorize chants by action needed
+  const categorizedChants = {
+    list: [...chants].sort((a, b) => {
+      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, COMPLETED: 1, PAUSED: 0 }
       const ap = phasePriority[a.phase] ?? 0
       const bp = phasePriority[b.phase] ?? 0
       if (bp !== ap) return bp - ap
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    })
+    }),
+    submit: chants.filter(c =>
+      c.phase === 'SUBMISSION' &&
+      (!c.userStatus?.hasSubmittedIdea || !c.userStatus?.isMember)
+    ),
+    vote: chants.filter(c =>
+      c.phase === 'VOTING' &&
+      c.userStatus?.isInActiveCell &&
+      !c.userStatus?.hasVotedInCurrentTier
+    ),
+    history: chants.filter(c => c.userStatus?.isMember), // All joined chants
+    activity: chants.filter(c => c.userStatus?.isMember), // All joined chants
+    created: userId ? chants.filter(c => c.creatorId && c.creatorId === userId).sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ) : [], // Chants created by user, newest first
+  }
 
-  // Infinite scroll via IntersectionObserver
+  // Auto-select tab with most urgent action (only on initial load)
+  const hasAutoSelected = useRef(false)
   useEffect(() => {
-    const sentinel = sentinelRef.current
-    if (!sentinel) return
-    const observer = new IntersectionObserver(
-      (entries: IntersectionObserverEntry[]) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount(prev => prev + PAGE_SIZE)
-        }
-      },
-      { root: scrollRef.current, rootMargin: '200px' }
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [filtered.length])
+    if (!hasAutoSelected.current && chants.length > 0) {
+      if (categorizedChants.vote.length > 0) {
+        setActiveTab('vote')
+      } else if (categorizedChants.submit.length > 0) {
+        setActiveTab('submit')
+      }
+      hasAutoSelected.current = true
+    }
+  }, [chants, categorizedChants])
 
-  const visible = filtered.slice(0, visibleCount)
-  const hasMore = visibleCount < filtered.length
+  const currentChants = categorizedChants[activeTab]
+
+  const scrollTo = (index: number) => {
+    if (!carouselRef.current) return
+    const card = carouselRef.current.children[index] as HTMLElement
+    if (card) {
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
+      setCurrentIndex(index)
+    }
+  }
 
   return (
     <>
-      <ChantsTutorialModal show={showTutorial} onClose={() => setShowTutorial(false)} />
       <FrameLayout
-      active="chants"
-      scrollRef={!showCreate && !showAskAI ? scrollRef : undefined}
-      contentClassName=""
-      onBack={(showCreate || showAskAI) ? () => {
-        resetCreateForm(); setShowCreate(false); setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
-      } : undefined}
-      header={!showCreate && !showAskAI ? (
-        <>
-          {status !== 'loading' && !session && <AnonymousBanner />}
-          <div className="space-y-2 pb-3">
-          <div className="flex items-center gap-1.5">
-            <div className="flex gap-1.5 overflow-x-auto flex-1">
-              {(['all', 'SUBMISSION', 'VOTING', 'PAUSED', 'COMPLETED'] as const).map(f => (
-                <button
-                  key={f}
-                  onClick={() => { setFilter(f); setVisibleCount(PAGE_SIZE) }}
-                  className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors ${
-                    filter === f
-                      ? 'bg-accent/15 text-accent font-medium'
-                      : 'text-muted hover:text-foreground hover:bg-surface/80'
-                  }`}
-                >
-                  {f === 'all' ? 'All' : f === 'SUBMISSION' ? 'Ideas' : f === 'VOTING' ? 'Voting' : f === 'PAUSED' ? 'Paused' : 'Done'}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowTutorial(true)}
-              className="w-7 h-7 rounded-full bg-accent/10 hover:bg-accent/20 flex items-center justify-center transition-colors text-accent shrink-0"
-              aria-label="How it works"
-              title="How it works"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="10" />
-                <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                <circle cx="12" cy="17" r="0.5" fill="currentColor" />
-              </svg>
-            </button>
-          </div>
-          {filter === 'all' && (
-            <input
-              type="text"
-              placeholder="Search chants..."
-              value={search}
-              onChange={(e) => handleSearch(e.target.value)}
-              className="w-full px-3 py-2 bg-background/80 backdrop-blur-sm border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
-            />
-          )}
-          </div>
-        </>
-      ) : undefined}
-      footerRight={session ? (
-        <button
-          onClick={() => {
-            if (showCreate || showAskAI) {
-              resetCreateForm(); setShowCreate(false); setShowAskAI(false); setAskError(''); setAskProgress({ step: '', detail: '', progress: 0 }); setOnboardingTip(false)
-            } else {
-              setShowCreate(true)
-            }
-          }}
-          disabled={askRunning}
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
-        >
-          <svg className={`w-5 h-5 transition-transform ${showCreate || showAskAI ? 'rotate-45' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      ) : (
-        <a
-          href="/auth/signin?callbackUrl=/chants"
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
-        >
-          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-          </svg>
-        </a>
-      )}
-    >
-      {showCreate || showAskAI ? (
-        <div className="p-4 bg-surface rounded-lg border border-border shadow-md">
-          {/* Mode selector */}
-          {isUserAdmin && (
-            <div className="mb-4">
-              <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Mode</label>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setShowAskAI(true); setShowCreate(false) }}
-                  disabled={askRunning}
-                  className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                    showAskAI
-                      ? 'bg-warning/15 border-warning/40 text-warning'
-                      : 'bg-surface border-border text-muted hover:border-border-strong'
-                  }`}
-                >
-                  Ask AI
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMode('event'); setShowAskAI(false); setShowCreate(true) }}
-                  disabled={askRunning}
-                  className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                    !showAskAI
-                      ? 'bg-accent/15 border-accent/40 text-accent'
-                      : 'bg-surface border-border text-muted hover:border-border-strong'
-                  }`}
-                >
-                  Human Managed
-                </button>
-              </div>
-            </div>
-          )}
-
-          {showAskAI ? (
-            <form onSubmit={handleAskAI}>
-              {onboardingTip && !askRunning && (
-                <div className="bg-gold/10 border border-gold/30 rounded-lg p-2.5 mb-3">
-                  <p className="text-xs text-gold font-medium mb-0.5">Your first chant</p>
-                  <p className="text-[11px] text-muted leading-relaxed">A chant takes your question, has agents brainstorm ideas, splits them into small groups for discussion and voting, and finds the strongest answer. Type any question to start.</p>
-                </div>
-              )}
-              <p className="text-[11px] text-muted mb-3 leading-relaxed">
-                What is a question you want to solve?
-              </p>
-
-              <input
-                type="text"
-                placeholder="What is your question?"
-                value={askQuestion}
-                onChange={(e) => setAskQuestion(e.target.value)}
-                maxLength={300}
-                disabled={askRunning}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-warning transition-colors"
-              />
-              <textarea
-                placeholder="Add context (optional)"
-                value={askDescription}
-                onChange={(e) => setAskDescription(e.target.value)}
-                maxLength={500}
-                rows={2}
-                disabled={askRunning}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-3 focus:outline-none focus:border-warning resize-none transition-colors"
-              />
-
-              <div className="mb-3">
-                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agents <span className="font-normal text-muted">(How many agents do you want in the chant?)</span></label>
-                <div className="flex gap-2">
-                  {([10, 15, 20, 25] as const).map(n => (
+        active="chants"
+        scrollRef={!showCreate ? scrollRef : undefined}
+        contentClassName="h-full"
+        onBack={showCreate ? () => { setShowCreate(false); setQuestion(''); setCreateDescription(''); setCreateError(''); setShowConfirmation(false) } : undefined}
+        header={!showCreate ? (
+          <>
+            {status !== 'loading' && !session && <AnonymousBanner />}
+            <div className="space-y-2 pb-3">
+              {/* Action tabs */}
+              <div className="flex gap-1.5 overflow-x-auto">
+                {(['list', 'submit', 'vote', 'history', 'activity', 'created'] as const).map(tab => {
+                  const count = categorizedChants[tab].length
+                  const label = tab === 'list' ? 'All' : tab === 'submit' ? 'Submit and Chat' : tab === 'vote' ? 'Vote and Discuss' : tab
+                  return (
                     <button
-                      key={n}
-                      type="button"
-                      onClick={() => setAskAgentCount(n)}
-                      disabled={askRunning}
-                      className={`flex-1 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                        askAgentCount === n
-                          ? 'bg-warning/15 border-warning/40 text-warning'
-                          : 'bg-surface border-border text-muted hover:border-border-strong'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!showCustomCount) setCustomCountText(![10, 15, 20, 25].includes(askAgentCount) ? String(askAgentCount) : '')
-                      setShowCustomCount(!showCustomCount)
-                    }}
-                    disabled={askRunning}
-                    className={`px-2.5 py-1.5 text-xs rounded-md border transition-colors font-medium ${
-                      ![10, 15, 20, 25].includes(askAgentCount)
-                        ? 'bg-warning/15 border-warning/40 text-warning'
-                        : 'bg-surface border-border text-muted hover:border-border-strong'
-                    }`}
-                  >
-                    {![10, 15, 20, 25].includes(askAgentCount) ? askAgentCount : '30+'}
-                  </button>
-                </div>
-                {showCustomCount && (
-                  <div className="mt-2 p-3 bg-surface border border-border rounded-lg">
-                    {isUserAdmin || userTier !== 'free' ? (
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs text-muted whitespace-nowrap">Agents:</label>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          value={customCountText}
-                          placeholder="30"
-                          onChange={(e) => {
-                            const raw = e.target.value.replace(/\D/g, '')
-                            setCustomCountText(raw)
-                            const v = parseInt(raw)
-                            const max = isUserAdmin ? 200 : userTier === 'scale' ? 150 : userTier === 'business' ? 75 : 50
-                            if (!isNaN(v) && v >= 5 && v <= max) setAskAgentCount(v)
-                          }}
-                          disabled={askRunning}
-                          className="w-20 px-2 py-1.5 text-xs text-center rounded-md border border-border bg-background text-foreground font-mono focus:outline-none focus:border-warning"
-                        />
-                        <span className="text-[10px] text-muted">max {isUserAdmin ? 200 : userTier === 'scale' ? 150 : userTier === 'business' ? 75 : 50}</span>
-                        <button
-                          type="button"
-                          onClick={() => { setShowCustomCount(false) }}
-                          className="ml-auto text-[10px] text-muted hover:text-foreground"
-                        >
-                          Done
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="text-center">
-                        <p className="text-xs text-foreground/80 mb-1.5 font-medium">30+ agents requires a paid plan</p>
-                        <p className="text-[10px] text-muted mb-3">Pro: up to 50 / Business: 100 / Scale: 250</p>
-                        <div className="flex gap-2 justify-center">
-                          <Link
-                            href="/pricing"
-                            className="px-3 py-1.5 text-xs font-medium bg-warning text-background rounded-md hover:bg-warning-hover transition-colors"
-                          >
-                            View Plans
-                          </Link>
-                          <button
-                            type="button"
-                            onClick={() => setShowCustomCount(false)}
-                            className="px-3 py-1.5 text-xs font-medium text-muted hover:text-foreground transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <p className="text-xs text-muted mt-1.5">
-                  {askAgentCount <= 5 && '1 cell, no tiers. Fast (~5s).'}
-                  {askAgentCount > 5 && askAgentCount <= 25 && `${Math.ceil(askAgentCount / 5)} cells + final showdown (~${Math.ceil(askAgentCount / 5) * 5}s).`}
-                  {askAgentCount > 25 && askAgentCount <= 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers (~${Math.ceil(askAgentCount / 2)}s).`}
-                  {askAgentCount > 125 && `${Math.ceil(askAgentCount / 5)} cells, ${Math.ceil(Math.log(askAgentCount) / Math.log(5))} tiers. Large deliberation (1-2 min).`}
-                </p>
-              </div>
-
-              <div className="mb-3">
-                <label className="text-xs text-foreground/80 block mb-1.5 font-medium">Agent Sources</label>
-                <div className="space-y-1.5">
-                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
-                    askSources.standard ? 'bg-warning/10 border-warning/30' : 'bg-surface border-border hover:border-border-strong'
-                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={askSources.standard}
-                      onChange={() => setAskSources(s => ({ ...s, standard: !s.standard }))}
-                      disabled={askRunning}
-                      className="accent-warning w-3.5 h-3.5"
-                    />
-                    <span className={`text-[11px] font-medium ${askSources.standard ? 'text-warning' : 'text-muted'}`}>
-                      Standard
-                    </span>
-                    <span className="text-[10px] text-muted ml-auto">500 built-in personas</span>
-                  </label>
-                  {poolCount > 0 && (
-                    <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
-                      askSources.pool ? 'bg-accent/10 border-accent/30' : 'bg-surface border-border hover:border-border-strong'
-                    } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={askSources.pool}
-                        onChange={() => setAskSources(s => ({ ...s, pool: !s.pool }))}
-                        disabled={askRunning}
-                        className="accent-accent w-3.5 h-3.5"
-                      />
-                      <span className={`text-[11px] font-medium ${askSources.pool ? 'text-accent' : 'text-muted'}`}>
-                        Pool
-                      </span>
-                      <span className="text-[10px] text-muted ml-auto">{poolCount} community agents</span>
-                    </label>
-                  )}
-                  {hasUserAgents ? (
-                    <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
-                      askSources.mine ? 'bg-success/10 border-success/30' : 'bg-surface border-border hover:border-border-strong'
-                    } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                      <input
-                        type="checkbox"
-                        checked={askSources.mine}
-                        onChange={() => setAskSources(s => ({ ...s, mine: !s.mine }))}
-                        disabled={askRunning}
-                        className="accent-success w-3.5 h-3.5"
-                      />
-                      <span className={`text-[11px] font-medium ${askSources.mine ? 'text-success' : 'text-muted'}`}>
-                        Mine
-                      </span>
-                      <span className="text-[10px] text-muted ml-auto">{userAgentCount} agent{userAgentCount !== 1 ? 's' : ''}</span>
-                    </label>
-                  ) : (
-                    <div className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-border bg-surface opacity-50">
-                      <input type="checkbox" disabled checked={false} className="w-3.5 h-3.5" />
-                      <span className="text-[11px] text-muted">Mine</span>
-                      <Link href="/agents/new" className="text-[10px] text-accent hover:text-accent-hover ml-auto">Create an agent</Link>
-                    </div>
-                  )}
-                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
-                    askSources.children ? 'bg-gold/10 border-gold/30' : 'bg-surface border-border hover:border-border-strong'
-                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={askSources.children}
-                      onChange={() => setAskSources(s => ({ ...s, children: !s.children }))}
-                      disabled={askRunning}
-                      className="accent-[#d4a017] w-3.5 h-3.5"
-                    />
-                    <span className={`text-[11px] font-medium ${askSources.children ? 'text-gold' : 'text-muted'}`}>
-                      Children
-                    </span>
-                    <span className="text-[10px] text-muted ml-auto">10 Shell children</span>
-                  </label>
-                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
-                    askSources.collective ? 'bg-purple/10 border-purple/30' : 'bg-surface border-border hover:border-border-strong'
-                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={askSources.collective}
-                      onChange={() => setAskSources(s => ({ ...s, collective: !s.collective }))}
-                      disabled={askRunning}
-                      className="accent-purple w-3.5 h-3.5"
-                    />
-                    <span className={`text-[11px] font-medium ${askSources.collective ? 'text-purple' : 'text-muted'}`}>
-                      Collective
-                    </span>
-                    <span className="text-[10px] text-muted ml-auto">Shell consciousness</span>
-                  </label>
-                  <label className={`flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer transition-colors ${
-                    askSources.cradle ? 'bg-orange/10 border-orange/30' : 'bg-surface border-border hover:border-border-strong'
-                  } ${askRunning ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={askSources.cradle}
-                      onChange={() => setAskSources(s => ({ ...s, cradle: !s.cradle }))}
-                      disabled={askRunning}
-                      className="accent-orange w-3.5 h-3.5"
-                    />
-                    <span className={`text-[11px] font-medium ${askSources.cradle ? 'text-orange' : 'text-muted'}`}>
-                      Cradle
-                    </span>
-                    <span className="text-[10px] text-muted ml-auto">Geometric cognition</span>
-                  </label>
-                </div>
-                <p className="text-[10px] text-muted mt-1">
-                  {!askSources.standard && !askSources.pool && !askSources.mine && !askSources.children && !askSources.collective && !askSources.cradle
-                    ? 'Check at least one source. Standard will be used by default.'
-                    : 'Checked sources are blended. Standard fills remaining slots.'}
-                </p>
-              </div>
-
-              {askRunning && (
-                <div className="mb-3">
-                  {currentNarration ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-gold rounded-full animate-pulse" />
-                      <span className="text-xs text-muted">Chant running in the background...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <div className="w-2 h-2 bg-warning rounded-full animate-pulse" />
-                        <span className="text-xs text-warning font-medium">{askProgress.detail || 'Starting...'}</span>
-                      </div>
-                      <div className="w-full h-1.5 bg-background rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-warning rounded-full transition-all duration-500"
-                          style={{ width: `${askProgress.progress}%` }}
-                        />
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* Live Priority Leaderboard — shows ranked ideas updating after each tier */}
-              {askRunning && liveRanked.length > 0 && !currentNarration && (
-                <div className="mb-3 border border-border rounded-lg overflow-hidden">
-                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-background/60 border-b border-border">
-                    <span className="text-[10px] uppercase tracking-wider text-muted font-semibold">
-                      Live Priorities {liveTier > 0 && <span className="text-warning">Tier {liveTier}</span>}
-                    </span>
-                    <button
-                      type="button"
+                      key={tab}
                       onClick={() => {
-                        if (livePaused) {
-                          setLiveRanked(liveRankedRef.current)
-                          setLivePaused(false)
-                          livePausedRef.current = false
-                        } else {
-                          setLivePaused(true)
-                          livePausedRef.current = true
-                        }
+                        setActiveTab(tab)
+                        setCurrentIndex(0)
                       }}
-                      className={`text-[10px] px-1.5 py-0.5 rounded transition-colors ${
-                        livePaused
-                          ? 'bg-warning/15 text-warning'
-                          : 'text-muted hover:text-foreground'
+                      className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors ${
+                        activeTab === tab
+                          ? 'bg-accent/15 text-accent font-medium'
+                          : 'text-muted hover:text-foreground hover:bg-surface/80'
                       }`}
                     >
-                      {livePaused ? 'Resume' : 'Pause'}
+                      <span className="capitalize">{label}</span>
+                      {count > 0 && (
+                        <span className="ml-1 text-muted/50 text-[10px]">{count}</span>
+                      )}
                     </button>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto">
-                    {liveRanked.slice(0, 15).map((idea, i) => {
-                      const maxXP = liveRanked[0]?.xp || 1
-                      const barWidth = maxXP > 0 ? (idea.xp / maxXP) * 100 : 0
-                      const isAdvancing = idea.status === 'ADVANCING' || idea.status === 'WINNER' || idea.status === 'IN_VOTING'
-                      const isEliminated = idea.status === 'ELIMINATED'
-                      return (
-                        <div
-                          key={idea.id}
-                          className={`relative px-2.5 py-1.5 border-b border-border/30 last:border-0 transition-all ${
-                            isEliminated ? 'opacity-40' : ''
-                          }`}
-                        >
-                          <div
-                            className={`absolute inset-y-0 left-0 transition-all duration-700 ${
-                              isAdvancing ? 'bg-success/8' : isEliminated ? 'bg-error/5' : 'bg-warning/5'
-                            }`}
-                            style={{ width: `${barWidth}%` }}
-                          />
-                          <div className="relative flex items-start gap-1.5">
-                            <span className={`text-[10px] font-mono w-4 shrink-0 mt-0.5 ${
-                              i === 0 ? 'text-gold font-bold' : 'text-muted'
-                            }`}>
-                              {i + 1}
-                            </span>
-                            <p className="text-[11px] text-foreground leading-tight flex-1 line-clamp-2">{idea.text}</p>
-                            <div className="flex items-center gap-1 shrink-0">
-                              {isAdvancing && (
-                                <span className="w-1.5 h-1.5 rounded-full bg-success shrink-0" />
-                              )}
-                              <span className={`text-[10px] font-mono tabular-nums ${
-                                i === 0 ? 'text-gold font-bold' : 'text-muted'
-                              }`}>
-                                {idea.xp}
-                              </span>
-                            </div>
-                          </div>
-                          <p className="relative text-[9px] text-muted/60 ml-5.5 mt-0.5">{idea.author}</p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {liveRanked.length > 15 && (
-                    <p className="text-[9px] text-muted text-center py-1 bg-background/40">
-                      +{liveRanked.length - 15} more ideas
-                    </p>
-                  )}
+                  )
+                })}
+              </div>
+
+              {/* Carousel navigation dots */}
+              {currentChants.length > 1 && (
+                <div className="flex items-center justify-center gap-1.5">
+                  {currentChants.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => scrollTo(i)}
+                      className={`h-1.5 rounded-full transition-all ${
+                        i === currentIndex
+                          ? 'w-6 bg-accent'
+                          : 'w-1.5 bg-muted/30 hover:bg-muted/50'
+                      }`}
+                      aria-label={`Go to chant ${i + 1}`}
+                    />
+                  ))}
                 </div>
               )}
+            </div>
+          </>
+        ) : undefined}
+        footerRight={session ? (
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        ) : (
+          <a
+            href="/auth/signin?callbackUrl=/chants"
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+          </a>
+        )}
+      >
+        {showCreate ? (
+          /* Create chant form */
+          <div className="h-full overflow-y-auto px-4 pb-4">
+            <form onSubmit={handleCreate} className="max-w-2xl mx-auto pt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Question
+                </label>
+                <input
+                  type="text"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  placeholder="What question should we deliberate?"
+                  className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
+                  disabled={creating}
+                />
+              </div>
 
-              {askError && <p className="text-error text-xs mb-2">{askError}</p>}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-2">
+                  Description (optional)
+                </label>
+                <textarea
+                  value={createDescription}
+                  onChange={(e) => setCreateDescription(e.target.value)}
+                  placeholder="Provide context or background information..."
+                  rows={4}
+                  className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors resize-none"
+                  disabled={creating}
+                />
+              </div>
+
+              {createError && (
+                <div className="p-3 bg-error/10 border border-error/20 rounded-lg">
+                  <p className="text-sm text-error">{createError}</p>
+                </div>
+              )}
 
               <button
                 type="submit"
-                disabled={askRunning || !askQuestion.trim() || askQuestion.trim().length < 5}
-                className="w-full py-2 bg-warning hover:bg-warning-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                disabled={creating || !question.trim()}
+                className="w-full py-3 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
               >
-                {askRunning ? 'Running...' : 'Begin'}
+                {creating ? 'Creating...' : 'Create Chant'}
               </button>
             </form>
-          ) : (
-            <>
-            <form onSubmit={handleCreate}>
-          <h2 className="text-2xl font-bold text-white mb-3">Chant Create</h2>
-          <p className="text-[11px] text-muted mb-3 leading-relaxed">Tip: Open-ended questions work best.</p>
-          <input
-            type="text"
-            placeholder="What is your question?"
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            maxLength={200}
-            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-accent transition-colors"
-          />
-          <textarea
-            placeholder="Add context (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            maxLength={500}
-            rows={2}
-            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-accent resize-none transition-colors"
-          />
-          <input
-            type="text"
-            placeholder="Tags (optional, comma separated)"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 mb-2 focus:outline-none focus:border-accent transition-colors"
-          />
-          {communities.length > 0 && (
-            <div className="mb-2">
-              <select
-                value={selectedCommunityId || ''}
-                onChange={(e) => {
-                  const id = e.target.value || null
-                  setSelectedCommunityId(id)
-                  if (!id) setCommunityOnly(false)
-                }}
-                className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-accent transition-colors"
-              >
-                <option value="">Group (optional)</option>
-                {communities.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-              {selectedCommunityId && (
-                <label className="flex items-center gap-2 mt-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={communityOnly}
-                    onChange={(e) => setCommunityOnly(e.target.checked)}
-                    className="accent-accent"
-                  />
-                  <span className="text-xs text-muted">Private post (only appears in group feed)</span>
-                </label>
-              )}
-            </div>
-          )}
 
-          {isUserAdmin && (
-            <div className="mb-3 p-3 bg-background rounded-lg border border-border">
-              <div className="flex items-center justify-between">
-                <label className="text-xs text-foreground/80 font-medium">Allow AI Agents</label>
-                <button
-                  type="button"
-                  onClick={() => setAllowAI(!allowAI)}
-                  className={`w-10 h-5 rounded-full transition-colors relative ${
-                    allowAI ? 'bg-accent' : 'bg-border'
-                  }`}
-                >
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow-sm ${
-                    allowAI ? 'left-5' : 'left-0.5'
-                  }`} />
-                </button>
-              </div>
-              <p className="text-xs text-muted mt-1.5 leading-relaxed">
-                {allowAI
-                  ? 'AI agents can join and vote via the API.'
-                  : 'Humans only — AI agents will be blocked.'}
-              </p>
-            </div>
-          )}
+            {/* Confirmation Dialog */}
+            {showConfirmation && typeof window !== 'undefined' && createPortal(
+              <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowConfirmation(false)}>
+                <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-lg font-bold text-foreground mb-4">Confirm Chant Creation</h3>
 
-          <div className="mb-3">
-            <label className="text-xs text-foreground/80 block mb-2 font-medium">
-              Seed Ideas {ideaGoal === 0 && <span className="text-muted font-normal">(optional)</span>}
-            </label>
-            <div className="space-y-2">
-              {ideas.map((idea, i) => (
-                <div key={i}>
-                  <input
-                    type="text"
-                    placeholder={ideaGoal === 0 ? `Idea ${i + 1} (optional)` : `Idea ${i + 1}`}
-                    value={idea}
-                    onChange={(e) => {
-                      const next = [...ideas]
-                      next[i] = e.target.value
-                      setIdeas(next)
-                      setIdeaStatus(prev => {
-                        const copy = { ...prev }
-                        delete copy[i]
-                        return copy
-                      })
-                    }}
-                    maxLength={500}
-                    className={`w-full px-3 py-1.5 bg-background border rounded-md text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors ${
-                      ideaStatus[i]?.ok === false ? 'border-error' : ideaStatus[i]?.ok ? 'border-success' : 'border-border'
-                    }`}
-                  />
-                  {ideaStatus[i] && !ideaStatus[i].ok && (
-                    <p className="text-error text-xs mt-0.5">{ideaStatus[i].msg}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted mt-1.5">
-              Pre-fill ideas to kick things off. Others can add more after creation.
-            </p>
-          </div>
-
-          <div className="mb-3 p-3 bg-background rounded-lg border border-border">
-            <p className="text-xs font-medium text-foreground mb-2">How to facilitate</p>
-            <ol className="text-[11px] text-muted space-y-1.5 list-none">
-              <li><span className="font-bold text-accent mr-1">1.</span> Share the link — participants submit ideas on their phones.</li>
-              <li><span className="font-bold text-accent mr-1">2.</span> <strong className="text-foreground">Start Voting</strong> — open the <strong className="text-foreground">Manage</strong> tab when you have enough ideas.</li>
-              <li><span className="font-bold text-accent mr-1">3.</span> <strong className="text-foreground">Advance Tier</strong> — use the Manage tab after all cells have been fully voted on.</li>
-            </ol>
-          </div>
-
-          {createError && <p className="text-error text-xs mb-2">{createError}</p>}
-          {createProgress && <p className="text-accent text-xs mb-2 animate-pulse">{createProgress}</p>}
-          <button
-            type="submit"
-            disabled={creating || !question.trim()}
-            className="w-full py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-          >
-            {creating ? 'Creating...' : 'Create Chant'}
-          </button>
-            </form>
-
-          {/* Confirmation Dialog */}
-          {showConfirmation && (
-            <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowConfirmation(false)}>
-              <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
-                <h3 className="text-lg font-bold text-foreground mb-4">Confirm Chant Creation</h3>
-
-                <div className="space-y-3 mb-6">
-                  <div>
-                    <p className="text-xs font-semibold text-muted mb-1">Question:</p>
-                    <p className="text-sm text-foreground">{question}</p>
-                  </div>
-
-                  {description.trim() && (
+                  <div className="space-y-3 mb-6">
                     <div>
-                      <p className="text-xs font-semibold text-muted mb-1">Context:</p>
-                      <p className="text-sm text-foreground">{description}</p>
+                      <p className="text-xs font-semibold text-muted mb-1">Question:</p>
+                      <p className="text-sm text-foreground">{question}</p>
                     </div>
-                  )}
-                </div>
 
-                <p className="text-xs text-muted mb-4">Please check that spelling and wording are correct before creating.</p>
+                    {createDescription.trim() && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted mb-1">Description:</p>
+                        <p className="text-sm text-foreground">{createDescription}</p>
+                      </div>
+                    )}
+                  </div>
 
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowConfirmation(false)}
-                    className="flex-1 py-2 px-4 bg-surface border border-border text-foreground rounded-lg hover:bg-background transition-colors text-sm font-medium"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleConfirmedCreate}
-                    className="flex-1 py-2 px-4 bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors text-sm font-medium"
-                  >
-                    Confirm & Create
-                  </button>
+                  <p className="text-xs text-muted mb-4">
+                    Please review your question and description. Make sure the wording is clear and there are no spelling errors.
+                  </p>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowConfirmation(false)}
+                      className="flex-1 px-4 py-2 bg-surface border border-border hover:bg-background text-foreground text-sm font-medium rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmedCreate}
+                      disabled={creating}
+                      className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                    >
+                      {creating ? 'Creating...' : 'Confirm'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-            </>
-          )}
-        </div>
-      ) : (
-        <>
-          {loading && chants.length === 0 ? (
-            <div className="text-center text-muted py-12 animate-pulse text-sm">Loading chants...</div>
-          ) : filtered.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted mb-2 text-sm">
-                {debouncedSearch || filter !== 'all' ? 'No chants match your filters.' : 'No chants yet.'}
-              </p>
-              {session && !debouncedSearch && filter === 'all' && (
-                <button onClick={() => setShowCreate(true)} className="text-accent text-sm hover:underline">
-                  Start one to get the conversation going
-                </button>
+              </div>,
+              document.body
+            )}
+          </div>
+        ) : loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-muted text-sm animate-pulse">Loading chants...</div>
+          </div>
+        ) : currentChants.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full px-4">
+            <div className={`w-16 h-16 mb-4 rounded-full flex items-center justify-center ${
+              activeTab === 'submit' ? 'bg-accent/10 text-accent' :
+              activeTab === 'vote' ? 'bg-warning/10 text-warning' :
+              activeTab === 'history' ? 'bg-purple/10 text-purple' :
+              activeTab === 'created' ? 'bg-success/10 text-success' :
+              'bg-blue/10 text-blue'
+            }`}>
+              {activeTab === 'submit' && (
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+                </svg>
+              )}
+              {activeTab === 'vote' && (
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+              {activeTab === 'history' && (
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+              {activeTab === 'activity' && (
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+              )}
+              {activeTab === 'created' && (
+                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
               )}
             </div>
-          ) : (
+            <p className="text-foreground font-medium mb-2 text-center">
+              {activeTab === 'submit' && 'No chants accepting ideas'}
+              {activeTab === 'vote' && 'No pending votes'}
+              {activeTab === 'history' && 'No action history yet'}
+              {activeTab === 'activity' && 'No recent activity'}
+              {activeTab === 'created' && 'No chants created yet'}
+            </p>
+            <p className="text-muted text-sm text-center">
+              {activeTab === 'list' && 'No chants yet.'}
+              {activeTab === 'submit' && 'Create your own chant or check back later'}
+              {activeTab === 'vote' && 'Submit ideas and wait for voting to begin'}
+              {activeTab === 'history' && 'Join chants to see your participation history'}
+              {activeTab === 'activity' && 'Join chants to see activity updates'}
+              {activeTab === 'created' && 'Create your first chant to get started'}
+            </p>
+            {session && (activeTab === 'list' || activeTab === 'submit' || activeTab === 'created') && (
+              <button
+                onClick={() => setShowCreate(true)}
+                className="mt-4 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                Create a Chant
+              </button>
+            )}
+          </div>
+        ) : activeTab === 'list' || activeTab === 'created' ? (
+          /* List view */
+          <div className="h-full overflow-y-auto px-4 pb-4">
             <div className="space-y-2.5">
-              {/* Bond request banner — highest priority */}
-              {pendingBond && (
-                <div className="p-3.5 bg-success/8 border border-success/30 rounded-lg">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[10px] uppercase tracking-wider text-success font-semibold">Bond Request</span>
-                  </div>
-                  <p className="text-sm font-medium text-foreground mb-0.5">{pendingBond.shellName} wants to connect</p>
-                  {pendingBond.shellChampion && (
-                    <p className="text-xs text-muted italic mb-1">&quot;{pendingBond.shellChampion}&quot;</p>
-                  )}
-                  <p className="text-xs text-foreground mb-3">{pendingBond.message}</p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => handleBondAction('accept')}
-                      disabled={bondActionLoading}
-                      className="px-3 py-1.5 text-xs bg-success/20 text-success border border-success/40 rounded-lg hover:bg-success/30 transition-colors disabled:opacity-50"
-                    >
-                      Accept Bond
-                    </button>
-                    <button
-                      onClick={() => handleBondAction('decline')}
-                      disabled={bondActionLoading}
-                      className="px-3 py-1.5 text-xs text-muted border border-border rounded-lg hover:text-foreground transition-colors disabled:opacity-50"
-                    >
-                      Decline
-                    </button>
-                  </div>
-                </div>
-              )}
-              {visible.map((chant) => (
+              {currentChants.map((chant) => (
                 <Link
                   key={chant.id}
                   href={`/chants/${chant.id}`}
@@ -1307,304 +513,894 @@ function ChantsPage() {
                     </div>
                   )}
                   <div className="flex items-center gap-3 mt-2 text-xs text-muted">
-                    <button
-                      onClick={(e) => handleUpvote(e, chant.id)}
-                      className={`flex items-center gap-1 transition-colors ${
-                        chant.userHasUpvoted ? 'text-accent' : 'hover:text-accent'
-                      }`}
-                    >
-                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill={chant.userHasUpvoted ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-                      </svg>
-                      <span className="font-mono">{chant.upvoteCount || 0}</span>
-                    </button>
-                    {chant.viewerCount > 0 && (
-                      <>
-                        <span className="flex items-center gap-1 text-success">
-                          <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                          </svg>
-                          <span className="font-mono">{chant.viewerCount}</span>
-                        </span>
-                        <span className="text-border-strong">&middot;</span>
-                      </>
-                    )}
                     <span>{chant._count.ideas} ideas</span>
                     <span className="text-border-strong">&middot;</span>
-                    <span>{chant.voteCount} votes</span>
+                    <span>{chant._count.members} members</span>
+                    {chant.voteCount != null && chant.voteCount > 0 && (
+                      <>
+                        <span className="text-border-strong">&middot;</span>
+                        <span>{chant.voteCount} votes</span>
+                      </>
+                    )}
                     {chant.phase === 'VOTING' && (
                       <>
                         <span className="text-border-strong">&middot;</span>
                         <span className="font-bold text-warning">T{chant.currentTier}</span>
                       </>
                     )}
-                    <span className="text-border-strong">&middot;</span>
-                    <span>by {chant.creator.name || 'Anonymous'}</span>
+                    {chant.creator?.name && (
+                      <>
+                        <span className="text-border-strong">&middot;</span>
+                        <span>by {chant.creator.name}</span>
+                      </>
+                    )}
                   </div>
                 </Link>
               ))}
-
-              {/* Infinite scroll sentinel */}
-              <div ref={sentinelRef} className="h-1" />
-              {hasMore && (
-                <p className="text-center text-xs text-muted py-2 animate-pulse">Loading more...</p>
-              )}
             </div>
-          )}
-        </>
-      )}
+          </div>
+        ) : (
+          <div className="h-full">
+            {/* Full-page carousel */}
+            <div
+              ref={carouselRef}
+              className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide"
+              style={{
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                WebkitOverflowScrolling: 'touch'
+              }}
+              onScroll={(e) => {
+                const container = e.currentTarget
+                const scrollLeft = container.scrollLeft
+                const cardWidth = container.offsetWidth
+                const newIndex = Math.round(scrollLeft / cardWidth)
+                if (newIndex !== currentIndex) {
+                  setCurrentIndex(newIndex)
+                }
+              }}
+            >
+              {currentChants.map((chant) => (
+                <div
+                  key={chant.id}
+                  className="w-full h-full flex-shrink-0 snap-start snap-always px-4"
+                >
+                  <div className="h-full bg-surface rounded-lg p-4 overflow-y-auto">
+                    {/* Card header with share link and tag input */}
+                    <div className="mb-4 pb-4 border-b border-border">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex-1">
+                          <h3 className="text-sm font-semibold text-foreground mb-1">{chant.question}</h3>
+                          {chant.description && (
+                            <p className="text-xs text-muted leading-relaxed line-clamp-2">{chant.description}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-1 items-center shrink-0">
+                          <div className="flex items-center gap-0.5">
+                            <input
+                              type="text"
+                              placeholder="Add tag..."
+                              value={tagInputs[chant.id] ?? ''}
+                              onChange={(e) => setTagInputs(prev => ({ ...prev, [chant.id]: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault()
+                                  handleAddTag(chant.id)
+                                }
+                              }}
+                              className="w-20 px-2 py-1 bg-background border border-border rounded-l text-[11px] text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleAddTag(chant.id)}
+                              className="px-1.5 py-1 bg-accent/10 hover:bg-accent/20 border border-l-0 border-border text-accent rounded-r transition-colors"
+                              title="Add tag"
+                            >
+                              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+                              </svg>
+                            </button>
+                          </div>
+                          <ShareMenu
+                            url={`/chants/${chant.id}`}
+                            text={chant.question}
+                            variant="icon"
+                          />
+                        </div>
+                      </div>
 
+                      <div className="flex items-center gap-2">
+                        <div className="flex gap-2 text-xs text-muted">
+                          <span>{chant._count.members} {chant._count.members === 1 ? 'member' : 'members'}</span>
+                          <span>•</span>
+                          <span>{chant._count.ideas} {chant._count.ideas === 1 ? 'idea' : 'ideas'}</span>
+                        </div>
 
-      {/* Welcome popup — shows once for new users on chants page */}
-      <WelcomePopup />
+                        {/* Display existing tags */}
+                        {chant.tags && chant.tags.length > 0 && (
+                          <>
+                            <span className="text-xs text-muted">•</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {chant.tags.map((tag: string) => (
+                                <span key={tag} className="px-2 py-0.5 bg-accent/10 text-accent text-[10px] rounded">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
 
-      {/* Onboarding chant narration — explains each phase as the chant runs */}
-      {currentNarration && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
-          <div className="max-w-[400px] w-full bg-surface border-2 border-gold rounded-xl p-5 shadow-lg">
-            {currentNarration.tier > 0 && (
-              <p className="text-[10px] uppercase tracking-widest text-gold/60 mb-2 font-semibold">
-                Tier {currentNarration.tier}
-              </p>
-            )}
-            <div className="text-sm text-foreground leading-relaxed space-y-2">
-              {currentNarration.text.split('\n\n').map((p, i) => (
-                <p key={i}>{p}</p>
+                    {/* Tab content */}
+                    {activeTab === 'submit' && <SubmitTabContent chantId={chant.id} chant={chant} />}
+                    {activeTab === 'vote' && <VoteTabContent chantId={chant.id} chant={chant} />}
+                    {activeTab === 'history' && <HistoryTabContent chantId={chant.id} />}
+                    {activeTab === 'activity' && <ActivityTabContent chantId={chant.id} />}
+                  </div>
+                </div>
               ))}
             </div>
+
+            {/* Swipe hint */}
+            <p className="text-xs text-muted text-center mt-3 md:hidden">
+              ← Swipe to see more →
+            </p>
+
+            {/* Desktop arrow navigation */}
+            {currentChants.length > 1 && (
+              <>
+                {currentIndex > 0 && (
+                  <button
+                    onClick={() => scrollTo(currentIndex - 1)}
+                    className="hidden md:flex fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 items-center justify-center bg-surface/90 hover:bg-surface border border-border rounded-full shadow-lg transition-opacity z-10"
+                    aria-label="Previous chant"
+                  >
+                    <svg className="w-6 h-6 text-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                )}
+                {currentIndex < currentChants.length - 1 && (
+                  <button
+                    onClick={() => scrollTo(currentIndex + 1)}
+                    className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 items-center justify-center bg-surface/90 hover:bg-surface border border-border rounded-full shadow-lg transition-opacity z-10"
+                    aria-label="Next chant"
+                  >
+                    <svg className="w-6 h-6 text-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </FrameLayout>
+    </>
+  )
+}
+
+// Tab content components
+function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
+  const { data: session } = useSession()
+  const [ideaText, setIdeaText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [userIdeas, setUserIdeas] = useState<any[]>([])
+  const [chantData, setChantData] = useState<any>(null)
+  const [showJoinDialog, setShowJoinDialog] = useState(false)
+  const [pendingIdea, setPendingIdea] = useState('')
+  const [showSubmitHelp, setShowSubmitHelp] = useState(false)
+
+  // Show submit help modal on first visit to submit tab
+  useEffect(() => {
+    const hasSeenSubmitHelp = localStorage.getItem('hasSeenSubmitHelp')
+    if (!hasSeenSubmitHelp && chant.phase === 'SUBMISSION') {
+      setShowSubmitHelp(true)
+    }
+  }, [chant.phase])
+
+  const handleDismissSubmitHelp = () => {
+    localStorage.setItem('hasSeenSubmitHelp', 'true')
+    setShowSubmitHelp(false)
+  }
+
+  useEffect(() => {
+    // Fetch chant status and user's ideas
+    const fetchData = async () => {
+      try {
+        const [statusRes, ideasRes] = await Promise.all([
+          fetch(`/api/deliberations/${chantId}/status`),
+          session ? fetch(`/api/deliberations/${chantId}/ideas?mine=true`) : Promise.resolve(null)
+        ])
+
+        if (statusRes.ok) {
+          const statusData = await statusRes.json()
+          setChantData(statusData)
+        }
+
+        if (ideasRes?.ok) {
+          const ideasData = await ideasRes.json()
+          setUserIdeas(ideasData || [])
+        }
+      } catch (err) {
+        console.error('Failed to fetch chant data:', err)
+      }
+    }
+
+    fetchData()
+    const interval = setInterval(fetchData, 10000)
+    return () => clearInterval(interval)
+  }, [chantId, session])
+
+  const handleSubmitIdea = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!ideaText.trim()) return
+
+    // Check if user is a member
+    if (!chantData?.isMember) {
+      setPendingIdea(ideaText.trim())
+      setShowJoinDialog(true)
+      return
+    }
+
+    setSubmitting(true)
+    setSubmitError('')
+    setSubmitSuccess(false)
+
+    try {
+      const res = await fetch(`/api/deliberations/${chantId}/ideas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: ideaText.trim() }),
+      })
+
+      const data = await res.json()
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to submit')
+      }
+
+      setIdeaText('')
+      setSubmitSuccess(true)
+      setUserIdeas(prev => [data, ...prev])
+
+      setTimeout(() => setSubmitSuccess(false), 3000)
+    } catch (err) {
+      setSubmitError((err as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleConfirmJoinAndSubmit = async () => {
+    setSubmitting(true)
+    setSubmitError('')
+
+    try {
+      // First, join the chant
+      const joinRes = await fetch(`/api/deliberations/${chantId}/join`, {
+        method: 'POST',
+      })
+
+      if (!joinRes.ok) {
+        const joinData = await joinRes.json()
+        throw new Error(joinData.error || 'Failed to join chant')
+      }
+
+      // Then submit the idea
+      const ideaRes = await fetch(`/api/deliberations/${chantId}/ideas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pendingIdea }),
+      })
+
+      const ideaData = await ideaRes.json()
+      if (!ideaRes.ok) {
+        throw new Error(ideaData.error || 'Failed to submit idea')
+      }
+
+      // Success!
+      setIdeaText('')
+      setPendingIdea('')
+      setShowJoinDialog(false)
+      setSubmitSuccess(true)
+      setUserIdeas(prev => [ideaData, ...prev])
+
+      // Update chantData to reflect membership
+      setChantData((prev: any) => ({ ...prev, isMember: true }))
+
+      setTimeout(() => setSubmitSuccess(false), 3000)
+    } catch (err) {
+      setSubmitError((err as Error).message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!chantData) {
+    return <div className="text-xs text-muted animate-pulse">Loading...</div>
+  }
+
+  const submissionsClosed = chantData.phase !== 'SUBMISSION'
+  const multipleIdeasAllowed = chantData.continuousFlow
+
+  return (
+    <div className="space-y-3">
+      <div className={`p-3 rounded-lg border text-xs ${
+        submissionsClosed
+          ? 'bg-surface/90 backdrop-blur-sm border-border text-muted'
+          : multipleIdeasAllowed
+          ? 'bg-accent/8 border-accent/20 text-accent'
+          : 'bg-surface/90 backdrop-blur-sm border-border text-muted'
+      }`}>
+        {submissionsClosed
+          ? 'Submissions are closed. Voting is in progress.'
+          : multipleIdeasAllowed
+          ? 'Multiple ideas allowed — submit as many as you like.'
+          : userIdeas.length > 0
+          ? 'You\'ve submitted your idea. One per person.'
+          : 'One idea per person. Make it count.'}
+      </div>
+
+      {!submissionsClosed && (multipleIdeasAllowed || userIdeas.length === 0) && (
+        !session ? (
+          <Link
+            href={`/auth/signin?callbackUrl=/chants`}
+            className="block text-center p-4 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+          >
+            Sign in to submit an idea
+          </Link>
+        ) : (
+          <form onSubmit={handleSubmitIdea} className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
+            <h2 className="text-sm font-semibold mb-1 text-foreground">
+              <span className="text-accent font-bold mr-1">1</span> Submit Your Idea
+            </h2>
+            <p className="text-xs text-muted mb-3 leading-relaxed">
+              Answer the question with your best idea.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Your idea..."
+                value={ideaText}
+                onChange={(e) => setIdeaText(e.target.value)}
+                disabled={submitting}
+                maxLength={500}
+                className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={submitting || !ideaText.trim()}
+                className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shadow-sm"
+              >
+                Submit
+              </button>
+            </div>
+            {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
+            {submitSuccess && <p className="text-success text-xs mt-2">Idea submitted!</p>}
+          </form>
+        )
+      )}
+
+      {userIdeas.length > 0 && (
+        <div>
+          <h3 className="text-xs font-medium text-muted mb-2">
+            Your idea{userIdeas.length > 1 ? 's' : ''}
+          </h3>
+          <div className="space-y-1.5">
+            {userIdeas.map(idea => (
+              <div key={idea.id} className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-2.5">
+                <p className="text-sm text-foreground">{idea.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-muted text-center">
+        {chantData.ideaCount} idea{chantData.ideaCount !== 1 ? 's' : ''} submitted so far
+      </p>
+
+      {/* Chat UI */}
+      <div className="mt-6 pt-6 border-t border-border">
+        <h3 className="text-sm font-semibold text-foreground mb-3">Chat</h3>
+        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-4 min-h-[200px] flex flex-col">
+          <div className="flex-1 overflow-y-auto mb-3 space-y-2">
+            <p className="text-xs text-muted text-center py-8">
+              Chat messages will appear here
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Type a message..."
+              disabled
+              className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+            />
             <button
-              onClick={handleNarrationContinue}
-              className="w-full mt-4 py-2.5 bg-gold hover:bg-gold/90 text-black text-sm font-semibold rounded-lg transition-colors"
+              disabled
+              className="px-4 py-2 bg-accent/50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap opacity-50 cursor-not-allowed"
             >
-              Continue
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Join confirmation dialog */}
+      {showJoinDialog && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowJoinDialog(false)}>
+          <div className="bg-surface border border-border rounded-lg p-5 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-base font-bold text-foreground mb-3">Confirm & Subscribe</h3>
+
+            <div className="mb-4 p-3 bg-background rounded-lg border border-border">
+              <p className="text-xs font-semibold text-muted mb-1">Your idea:</p>
+              <p className="text-sm text-foreground leading-relaxed">{pendingIdea}</p>
+            </div>
+
+            <p className="text-xs text-muted mb-4">
+              Confirming will subscribe you to this chant. You'll receive updates and can participate in voting.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowJoinDialog(false)
+                  setPendingIdea('')
+                }}
+                disabled={submitting}
+                className="flex-1 py-2 px-4 bg-surface border border-border text-foreground rounded-lg hover:bg-background transition-colors text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmJoinAndSubmit}
+                disabled={submitting}
+                className="flex-1 py-2 px-4 bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
+              >
+                {submitting ? 'Submitting...' : 'Confirm & Subscribe'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Submit help modal - first time only */}
+      {showSubmitHelp && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[10000]" onClick={handleDismissSubmitHelp}>
+          <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground mb-3">Submit & Chat</h2>
+            <p className="text-sm text-muted mb-4">Here's how this tab works:</p>
+            <ol className="space-y-3 mb-5">
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Write your idea</p>
+                  <p className="text-xs text-muted">Enter your response to the question in your own words.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Chat with others</p>
+                  <p className="text-xs text-muted">Discuss ideas and coordinate strategy in the chat below.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Track progress</p>
+                  <p className="text-xs text-muted">See member and idea counts at the top of the card.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-warning/15 text-warning flex items-center justify-center text-xs font-bold shrink-0">4</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Add tags</p>
+                  <p className="text-xs text-muted">Help others find this chant by adding relevant tags.</p>
+                </div>
+              </li>
+            </ol>
+            <button
+              onClick={handleDismissSubmitHelp}
+              className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              Got it!
             </button>
           </div>
         </div>,
         document.body
       )}
-    </FrameLayout>
-    </>
+    </div>
   )
 }
 
-function WelcomePopup() {
+function VoteTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
   const { data: session } = useSession()
-  const [show, dismiss] = useFirstVisit('chants-welcome')
-  const [name, setName] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [enableNotifications, setEnableNotifications] = useState(false)
-  const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default'>('default')
-  const [notificationError, setNotificationError] = useState('')
+  const router = useRouter()
+  const { showToast } = useToast()
+  const [cells, setCells] = useState<Cell[]>([])
+  const [loading, setLoading] = useState(true)
+  const [voting, setVoting] = useState<string | null>(null)
+  const [showVoteConfirm, setShowVoteConfirm] = useState(false)
+  const [pendingVote, setPendingVote] = useState<{ cellId: string; allocations: { ideaId: string; points: number }[] } | null>(null)
+  const [enterError, setEnterError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [userFetchError, setUserFetchError] = useState<string | null>(null)
+  const [showVotingHelp, setShowVotingHelp] = useState(false)
 
+  const handleDismissVotingHelp = () => {
+    localStorage.setItem('hasSeenVotingHelp', 'true')
+    setShowVotingHelp(false)
+  }
+
+  // Fetch current user ID
   useEffect(() => {
-    if ('Notification' in window) {
-      console.log('Welcome modal mounted - current permission:', Notification.permission)
-      setNotificationPermission(Notification.permission)
-      if (Notification.permission === 'granted') {
-        setEnableNotifications(true)
+    if (session?.user?.email) {
+      setUserFetchError(null)
+      fetch('/api/user/me')
+        .then(res => {
+          if (!res.ok) {
+            return res.text().then(text => {
+              throw new Error(`HTTP ${res.status}: ${text}`)
+            })
+          }
+          return res.json()
+        })
+        .then(data => {
+          console.log('Fetched user:', data)
+          if (data.user?.id) {
+            setUserId(data.user.id)
+          } else {
+            setUserFetchError('User data missing ID')
+          }
+        })
+        .catch(err => {
+          console.error('Failed to fetch userId:', err)
+          setUserFetchError(err.message)
+        })
+    } else {
+      setUserId(null)
+      setUserFetchError(null)
+    }
+  }, [session])
+
+  // Show voting help modal on first visit when cells are available
+  useEffect(() => {
+    const hasSeenVotingHelp = localStorage.getItem('hasSeenVotingHelp')
+    if (!hasSeenVotingHelp && !loading && cells.length > 0 && userId) {
+      const activeCells = cells.filter(c => c.status === 'VOTING')
+      const userCells = activeCells.filter(c => c.participants.some(p => p.userId === userId))
+      const userActiveCells = userCells.filter(c => c.votes.length === 0)
+
+      if (userActiveCells.length > 0) {
+        setShowVotingHelp(true)
       }
     }
-  }, [])
+  }, [loading, cells, userId])
 
-  if (!show || !session) return null
+  const fetchCells = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/deliberations/${chantId}/cells`)
+      if (res.ok) {
+        const data = await res.json()
+        setCells(data || [])
+        setDebugInfo(prev => ({ ...prev, cellsCount: data.length, step: 'cells-fetched' }))
+      } else {
+        const errorText = await res.text()
+        console.error('Failed to fetch cells:', errorText)
+        setDebugInfo(prev => ({ ...prev, cellsError: errorText, step: 'cells-failed' }))
+      }
+    } catch (err) {
+      console.error('Failed to fetch cells:', err)
+      setDebugInfo(prev => ({ ...prev, cellsError: String(err), step: 'cells-error' }))
+    } finally {
+      setLoading(false)
+    }
+  }, [chantId])
 
-  const handleNotificationChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const checked = e.target.checked
-    setNotificationError('')
+  // Auto-enter voting when user views the tab, then fetch cells
+  useEffect(() => {
+    const autoEnter = async () => {
+      setEnterError(null)
+      setDebugInfo(null)
 
-    if (!checked) {
-      setEnableNotifications(false)
+      if (chant.phase === 'VOTING' && userId) {
+        try {
+          const res = await fetch(`/api/deliberations/${chantId}/enter`, { method: 'POST' })
+          const data = await res.json()
+
+          if (res.ok) {
+            console.log('Auto-entered voting successfully:', data)
+            setDebugInfo({ enter: data, step: 'entered' })
+            // Wait a moment for DB to update, then fetch cells
+            await new Promise(resolve => setTimeout(resolve, 500))
+          } else {
+            console.error('Auto-enter failed:', data)
+            setDebugInfo({ enter: data, step: 'enter-failed', status: res.status })
+            // Don't show "already in cell" as an error
+            if (!data.alreadyInCell) {
+              if (data.error) {
+                setEnterError(data.error)
+              } else if (data.roundFull) {
+                setEnterError('All cells are full - waiting for next round')
+              } else {
+                setEnterError(`Failed to join (HTTP ${res.status})`)
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Auto-enter error:', err)
+          setDebugInfo({ error: String(err), step: 'enter-error' })
+          setEnterError('Failed to join voting cell')
+        }
+        // Always fetch cells after attempting to enter
+        await fetchCells()
+      } else {
+        setDebugInfo({ phase: chant.phase, userId, step: 'skip-enter' })
+        // If not in voting phase or no userId, just fetch cells
+        await fetchCells()
+      }
+    }
+    autoEnter()
+
+    const interval = setInterval(fetchCells, 15000)
+    return () => clearInterval(interval)
+  }, [chantId, chant.phase, userId, fetchCells])
+
+  const handleVote = async (cellId: string, allocations: { ideaId: string; points: number }[]) => {
+    // If not a member, show confirmation
+    if (!chant.userStatus?.isMember) {
+      setPendingVote({ cellId, allocations })
+      setShowVoteConfirm(true)
       return
     }
 
-    if ('Notification' in window) {
-      console.log('Initial permission state:', Notification.permission)
+    // Otherwise submit directly
+    await submitVote(cellId, allocations)
+  }
 
-      // If already denied, show error message
-      if (Notification.permission === 'denied') {
-        console.log('Permission already denied - cannot request again')
-        setEnableNotifications(false)
-        setNotificationError('Notifications are blocked. Enable them in your browser settings to continue.')
-        return
-      }
+  const submitVote = async (cellId: string, allocations: { ideaId: string; points: number }[]) => {
+    setVoting(cellId)
+    try {
+      const res = await fetch(`/api/deliberations/${chantId}/vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cellId, allocations }),
+      })
 
-      console.log('Requesting notification permission...')
-      const permission = await Notification.requestPermission()
-      console.log('Permission result:', permission)
-      setNotificationPermission(permission)
-
-      if (permission === 'granted') {
-        setEnableNotifications(true)
-        setNotificationError('')
-        // Register push subscription in background
-        try {
-          if (!('serviceWorker' in navigator)) {
-            console.warn('Service workers not supported')
-            return
-          }
-
-          const registration = await navigator.serviceWorker.ready
-          console.log('Service worker ready:', registration)
-
-          const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-          if (!vapidKey) {
-            console.warn('VAPID public key not configured')
-            return
-          }
-
-          const subscription = await registration.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: vapidKey,
-          })
-          console.log('Push subscription created:', subscription)
-
-          const response = await fetch('/api/push/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(subscription),
-          })
-          console.log('Subscription sent to server:', response.ok)
-        } catch (err) {
-          console.error('Push subscription failed:', err)
-          setNotificationError('Push notifications setup failed. Check console for details.')
-        }
+      if (res.ok) {
+        showToast('Vote submitted successfully!', 'success')
+        fetchCells()
       } else {
-        setEnableNotifications(false)
-        setNotificationError('Notifications were denied. You can change this in your browser settings.')
+        const data = await res.json()
+        showToast(data.error || 'Failed to submit vote', 'error')
       }
+    } catch (err) {
+      console.error('Vote error:', err)
+      showToast('Failed to submit vote', 'error')
+    } finally {
+      setVoting(null)
     }
   }
 
-  const handleDone = async () => {
-    setError('')
+  const handleConfirmVote = async () => {
+    if (!pendingVote) return
 
-    // If name was entered, save it
-    if (name.trim()) {
-      setSaving(true)
-      try {
-        const res = await fetch('/api/user/me', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name.trim() }),
-        })
-
-        if (res.ok) {
-          // Mark modal as seen BEFORE reloading
-          dismiss()
-          // Small delay to ensure localStorage is written
-          setTimeout(() => {
-            window.location.reload()
-          }, 100)
-          return
-        } else {
-          // Show error from API
-          const data = await res.json()
-          setError(data.error || 'Failed to update name')
-          setSaving(false)
-          return
-        }
-      } catch (err) {
-        console.error('Failed to update name:', err)
-        setError('Failed to update name')
-        setSaving(false)
-        return
-      }
-    }
-
-    // If no name entered, just dismiss
-    dismiss()
+    setShowVoteConfirm(false)
+    await submitVote(pendingVote.cellId, pendingVote.allocations)
+    setPendingVote(null)
   }
 
-  return createPortal(
-    <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
-      <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg">
-        <h2 className="text-base font-bold text-foreground mb-3">Welcome to Unity Chant</h2>
-        <p className="text-sm text-muted mb-4">Here&apos;s how to participate:</p>
-        <ol className="space-y-3 mb-5">
-          <li className="flex gap-3">
-            <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">1</span>
-            <div>
-              <p className="text-sm font-medium text-foreground">Click a chant</p>
-              <p className="text-xs text-muted">Pick any question that interests you from the list.</p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">2</span>
-            <div>
-              <p className="text-sm font-medium text-foreground">Join</p>
-              <p className="text-xs text-muted">Tap the join button to enter the deliberation.</p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <span className="w-6 h-6 rounded-full bg-warning/15 text-warning flex items-center justify-center text-xs font-bold shrink-0">3</span>
-            <div>
-              <p className="text-sm font-medium text-foreground">Submit your idea</p>
-              <p className="text-xs text-muted">Go to the Submit tab and write your answer in your own words.</p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">4</span>
-            <div>
-              <p className="text-sm font-medium text-foreground">Discuss &amp; Vote</p>
-              <p className="text-xs text-muted">When your group forms, read the ideas and attach comments to them. Like a comment to boost its visibility. Then vote for the strongest idea. You will get additional ideas to vote on as the chant progresses through rounds.</p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <span className="w-6 h-6 rounded-full bg-gold/15 text-gold flex items-center justify-center text-xs font-bold shrink-0">5</span>
-            <div>
-              <p className="text-sm font-medium text-foreground">Create a Chant</p>
-              <p className="text-xs text-muted">Click the + button to make your own chant.</p>
-            </div>
-          </li>
-        </ol>
-
-        <div className="mb-4">
-          <label className="block text-xs text-muted mb-1.5">What should we call you?</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter your name (optional)"
-            maxLength={50}
-            disabled={saving}
-            className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-          />
-          {error && (
-            <p className="text-error text-xs mt-1.5">{error}</p>
-          )}
-        </div>
-
-        <div className="mb-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="notifications"
-              checked={enableNotifications}
-              onChange={handleNotificationChange}
-              disabled={saving}
-              className="w-4 h-4 accent-accent disabled:opacity-50 shrink-0 cursor-pointer"
-            />
-            <label htmlFor="notifications" className="text-xs text-foreground cursor-pointer">
-              Enable push notifications
-            </label>
-          </div>
-          {notificationError && (
-            <p className="text-error text-xs mt-1 ml-6">{notificationError}</p>
-          )}
-        </div>
-
-        <button
-          onClick={handleDone}
-          disabled={saving}
-          className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50"
-        >
-          {saving ? 'Saving...' : 'Done'}
-        </button>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="text-muted text-sm animate-pulse">Loading voting cells...</div>
       </div>
-    </div>,
-    document.body
+    )
+  }
+
+  const activeCells = cells.filter(c => c.status === 'VOTING')
+  const userCells = userId ? activeCells.filter(c =>
+    c.participants.some(p => p.userId === userId)
+  ) : []
+  const userActiveCells = userCells.filter(c => c.votes.length === 0)
+  const userVotedCells = userCells.filter(c => c.votes.length > 0)
+
+  const voteDebug = {
+    phase: chant.phase,
+    userId: userId || 'NULL',
+    totalCells: cells.length,
+    activeCells: activeCells.length,
+    userCells: userCells.length,
+    userActiveCells: userActiveCells.length,
+    userVotedCells: userVotedCells.length,
+    cellParticipants: activeCells.map(c => ({
+      cellId: c.id.slice(0, 8),
+      status: c.status,
+      participantIds: c.participants.map(p => p.userId?.slice(0, 8) || p.user?.id?.slice(0, 8) || 'unknown')
+    }))
+  }
+  console.log('Vote tab debug:', voteDebug)
+
+  return (
+    <div className="space-y-4">
+      {/* Active voting cells */}
+      {userActiveCells.length > 0 && userActiveCells.map(cell => (
+        <VotingCell
+          key={cell.id}
+          cell={cell}
+          onVote={handleVote}
+          voting={voting}
+          onRefresh={fetchCells}
+          currentTier={chant.currentTier}
+        />
+      ))}
+
+      {/* Already voted cells */}
+      {userVotedCells.length > 0 && userVotedCells.map(cell => (
+        <VotingCell
+          key={cell.id}
+          cell={cell}
+          onVote={handleVote}
+          voting={voting}
+          onRefresh={fetchCells}
+          currentTier={chant.currentTier}
+        />
+      ))}
+
+      {/* No cells yet */}
+      {userActiveCells.length === 0 && userVotedCells.length === 0 && chant.phase === 'VOTING' && (
+        <div className={`rounded-lg border p-4 ${
+          enterError ? 'bg-warning-bg border-warning' : !userId ? 'bg-accent-light border-accent' : 'bg-surface/90 border-border'
+        }`}>
+          <p className={`text-sm mb-2 ${enterError ? 'text-foreground' : !userId ? 'text-accent' : 'text-muted'}`}>
+            {enterError || (!userId && !session ? 'Sign in to participate in voting' : !userId && session ? 'Loading your profile...' : (cells.length === 0 ? 'No voting cells available yet' : 'Placing you in a voting cell...'))}
+          </p>
+          {!enterError && userId && (
+            <p className="text-xs text-muted mb-3">
+              {cells.length === 0 ? 'Voting may not have started yet' : 'This usually takes a moment'}
+            </p>
+          )}
+          {!userId && !session && (
+            <button
+              onClick={() => router.push('/auth/signin')}
+              className="mt-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Sign In
+            </button>
+          )}
+
+          {/* Debug info */}
+          <details className="text-left mt-3">
+            <summary className="text-xs text-muted cursor-pointer hover:text-foreground">Debug Info</summary>
+            <div className="mt-2 p-2 bg-background rounded text-xs font-mono space-y-1">
+              <div><strong>Session Info:</strong></div>
+              <pre className="text-[10px] overflow-auto">{JSON.stringify({
+                hasSession: !!session,
+                email: session?.user?.email || 'none',
+                userFetchError: userFetchError || 'none'
+              }, null, 2)}</pre>
+              <div className="mt-2"><strong>Enter Response:</strong></div>
+              <pre className="text-[10px] overflow-auto">{JSON.stringify(debugInfo, null, 2)}</pre>
+              <div className="mt-2"><strong>Vote Tab State:</strong></div>
+              <pre className="text-[10px] overflow-auto">{JSON.stringify(voteDebug, null, 2)}</pre>
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* Not in voting phase */}
+      {chant.phase !== 'VOTING' && (
+        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-4 text-center">
+          <p className="text-sm text-muted">
+            {chant.phase === 'SUBMISSION' && 'Submit ideas and wait for voting to begin'}
+            {chant.phase === 'ACCUMULATING' && 'Submit challenger ideas to enter Round 2'}
+            {chant.phase === 'COMPLETED' && 'Voting has concluded'}
+          </p>
+        </div>
+      )}
+
+      {/* Voting help modal - first time only */}
+      {showVotingHelp && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[10000]" onClick={handleDismissVotingHelp}>
+          <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground mb-3">Vote & Discuss</h2>
+            <p className="text-sm text-muted mb-4">Here's how voting works:</p>
+            <ol className="space-y-3 mb-5">
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-warning/15 text-warning flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Drag sliders</p>
+                  <p className="text-xs text-muted">Distribute 10 Vote Points across the ideas. Give more points to stronger ideas.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Discuss ideas</p>
+                  <p className="text-xs text-muted">Click the chat icon on any idea to read and add comments.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Upvote comments</p>
+                  <p className="text-xs text-muted">Upvoted comments spread to other cells, amplifying good insights.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">4</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Submit your vote</p>
+                  <p className="text-xs text-muted">When all 10 points are allocated, click Submit Vote.</p>
+                </div>
+              </li>
+            </ol>
+            <button
+              onClick={handleDismissVotingHelp}
+              className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Vote confirmation dialog */}
+      {showVoteConfirm && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[100]">
+          <div className="bg-background border border-border rounded-lg max-w-md w-full p-6">
+            <h3 className="text-lg font-semibold text-foreground mb-3">Confirm Your Vote</h3>
+            <p className="text-sm text-muted mb-4">
+              Submitting your vote will subscribe you to this chant. You'll receive updates and can participate in future rounds.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => {
+                  setShowVoteConfirm(false)
+                  setPendingVote(null)
+                }}
+                disabled={!!voting}
+                className="flex-1 py-2 px-4 bg-surface border border-border text-foreground rounded-lg hover:bg-background transition-colors text-sm font-medium disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmVote}
+                disabled={!!voting}
+                className="flex-1 py-2 px-4 bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
+              >
+                {voting ? 'Submitting...' : 'Confirm & Vote'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  )
+}
+
+function HistoryTabContent({ chantId }: { chantId: string }) {
+  return (
+    <div className="text-xs text-muted">
+      History tab content - to be implemented
+    </div>
+  )
+}
+
+function ActivityTabContent({ chantId }: { chantId: string }) {
+  return (
+    <div className="text-xs text-muted">
+      Activity tab content - to be implemented
+    </div>
   )
 }
 

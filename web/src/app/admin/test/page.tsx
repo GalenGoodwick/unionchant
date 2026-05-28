@@ -47,6 +47,10 @@ export default function AdminTestPage() {
   // System utilities state
   const [recalculating, setRecalculating] = useState(false)
   const [recalcResult, setRecalcResult] = useState<string | null>(null)
+  const [seedingVoting, setSeedingVoting] = useState(false)
+  const [seedVotingResult, setSeedVotingResult] = useState<string | null>(null)
+  const [creatingManual, setCreatingManual] = useState(false)
+  const [manualResult, setManualResult] = useState<string | null>(null)
 
   // Passkey state
   const [isAdminVerified, setIsAdminVerified] = useState(false)
@@ -90,6 +94,54 @@ export default function AdminTestPage() {
       addLog('error', 'Failed to recalculate XP')
     } finally {
       setRecalculating(false)
+    }
+  }
+
+  const handleSeedVotingChants = async () => {
+    const count = window.prompt('How many voting chants to create?', '3')
+    if (!count) return
+    setSeedingVoting(true)
+    setSeedVotingResult(null)
+    try {
+      const res = await fetch('/api/admin/test/seed-voting-chants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: parseInt(count) })
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setSeedVotingResult(`✅ Created ${data.chants.length} voting chants`)
+        addLog('success', `Created ${data.chants.length} voting chants: ${data.chants.map((c: any) => c.id).join(', ')}`)
+      } else {
+        setSeedVotingResult(`❌ ${data.error}`)
+        addLog('error', data.error)
+      }
+    } catch {
+      setSeedVotingResult('❌ Failed to create voting chants')
+      addLog('error', 'Failed to create voting chants')
+    } finally {
+      setSeedingVoting(false)
+    }
+  }
+
+  const handleCreateManualVoting = async () => {
+    setCreatingManual(true)
+    setManualResult(null)
+    try {
+      const res = await fetch('/api/admin/test/create-manual-voting', { method: 'POST' })
+      const data = await res.json()
+      if (res.ok) {
+        setManualResult(`✅ ${data.message}`)
+        addLog('success', `Created manual voting chant: ${data.chantId}`)
+      } else {
+        setManualResult(`❌ ${data.error}`)
+        addLog('error', data.error)
+      }
+    } catch {
+      setManualResult('❌ Failed to create voting chant')
+      addLog('error', 'Failed to create manual voting chant')
+    } finally {
+      setCreatingManual(false)
     }
   }
 
@@ -428,6 +480,34 @@ export default function AdminTestPage() {
             )}
           </div>
           <p className="text-xs text-muted mt-2">Fixes broken XP values by recalculating from vote records. Safe to run multiple times.</p>
+
+          <div className="flex items-center gap-4 mt-4">
+            <button
+              onClick={handleSeedVotingChants}
+              disabled={seedingVoting}
+              className="px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-md text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {seedingVoting ? 'Creating...' : 'Seed Voting Chants'}
+            </button>
+            {seedVotingResult && (
+              <span className="text-sm text-foreground">{seedVotingResult}</span>
+            )}
+          </div>
+          <p className="text-xs text-muted mt-2">Creates test chants already in voting state with 10 participants and 10 ideas each.</p>
+
+          <div className="flex items-center gap-4 mt-4">
+            <button
+              onClick={handleCreateManualVoting}
+              disabled={creatingManual}
+              className="px-4 py-2 bg-success hover:bg-success-hover text-white rounded-md text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {creatingManual ? 'Creating...' : 'Create Manual Voting Chant'}
+            </button>
+            {manualResult && (
+              <span className="text-sm text-foreground">{manualResult}</span>
+            )}
+          </div>
+          <p className="text-xs text-muted mt-2">Creates a simple voting chant with 5 participants (including you) and 5 ideas. You'll be in an active cell ready to vote.</p>
         </div>
 
         {/* Configuration */}

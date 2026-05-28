@@ -314,6 +314,7 @@ model Deliberation {
   podiums       Podium[]
   aiAgents      AIAgent[]
   upvotes       DeliberationUpvote[]
+  groupMessages GroupMessage[]   @relation("GroupMessages")
 
   // Emergence signals detected in this chant
   emergenceSignals EmergenceSignal[]
@@ -454,7 +455,8 @@ model Cell {
   participants    CellParticipation[]
   ideas           CellIdea[]
   votes           Vote[]
-  comments        Comment[]
+  comments        Comment[]         // Legacy cell comments
+  messages        GroupMessage[]    // Unified message system
   predictions     Prediction[]
   ideaRevisions   IdeaRevision[]
   dialogues       CellDialogue[]
@@ -1031,15 +1033,24 @@ model CommunityBan {
 }
 
 model GroupMessage {
-  id          String    @id @default(cuid())
-  communityId String
-  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User      @relation("GroupMessages", fields: [userId], references: [id], onDelete: Cascade)
-  text        String    @db.Text
-  createdAt   DateTime  @default(now())
+  id              String        @id @default(cuid())
+  // Scope: one of these will be set
+  communityId     String?       // Community-wide chat
+  community       Community?    @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  deliberationId  String?       // Deliberation/chant/space chat (cross-mode: world, swipe, detail)
+  deliberation    Deliberation? @relation("GroupMessages", fields: [deliberationId], references: [id], onDelete: Cascade)
+  cellId          String?       // Cell discussion during voting
+  cell            Cell?         @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  // Author
+  userId          String
+  user            User          @relation("GroupMessages", fields: [userId], references: [id], onDelete: Cascade)
+  // Content
+  text            String        @db.Text
+  createdAt       DateTime      @default(now())
 
   @@index([communityId, createdAt])
+  @@index([deliberationId, createdAt])
+  @@index([cellId, createdAt])
 }
 
 // ============ CHALLENGE LOG ============

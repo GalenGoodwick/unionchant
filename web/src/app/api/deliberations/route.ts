@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
           tags: true,
           currentTier: true,
           createdAt: true,
+          creatorId: true,
           creator: {
             select: { name: true, status: true },
           },
@@ -105,6 +106,65 @@ export async function GET(req: NextRequest) {
 
       const viewerCounts = getViewerCounts(deliberations.map(d => d.id))
 
+      // Calculate userStatus for each deliberation if user is logged in
+      let userStatusMap = new Map<string, any>()
+      if (userId) {
+        // Get user memberships
+        const memberships = await prisma.deliberationMember.findMany({
+          where: {
+            userId,
+            deliberationId: { in: deliberations.map(d => d.id) }
+          },
+          select: { deliberationId: true }
+        })
+        const membershipIds = new Set(memberships.map(m => m.deliberationId))
+
+        // Get user ideas
+        const userIdeas = await prisma.idea.findMany({
+          where: {
+            authorId: userId,
+            deliberationId: { in: deliberations.map(d => d.id) }
+          },
+          select: { deliberationId: true }
+        })
+        const ideasMap = new Set(userIdeas.map(i => i.deliberationId))
+
+        // Get user's active cells and votes
+        const activeCells = await prisma.cellParticipation.findMany({
+          where: {
+            userId,
+            cell: {
+              deliberationId: { in: deliberations.map(d => d.id) },
+              status: 'VOTING'
+            }
+          },
+          select: {
+            cell: {
+              select: {
+                deliberationId: true,
+                tier: true
+              }
+            },
+            votedAt: true
+          }
+        })
+
+        for (const delib of deliberations) {
+          const isMember = membershipIds.has(delib.id)
+          const hasSubmittedIdea = ideasMap.has(delib.id)
+          const userCells = activeCells.filter(c => c.cell.deliberationId === delib.id && c.cell.tier === delib.currentTier)
+          const isInActiveCell = userCells.length > 0
+          const hasVotedInCurrentTier = userCells.some(c => c.votedAt !== null)
+
+          userStatusMap.set(delib.id, {
+            isMember,
+            hasSubmittedIdea,
+            isInActiveCell,
+            hasVotedInCurrentTier
+          })
+        }
+      }
+
       return deliberations.map(d => {
         const voteCount = d.cells.filter(c => c.tier === d.currentTier).reduce((sum, c) => sum + c.participants.length, 0)
         const { cells: _cells, ...rest } = d
@@ -114,6 +174,7 @@ export async function GET(req: NextRequest) {
           viewerCount: viewerCounts[d.id] || 0,
           champion: d.ideas[0] || null,
           userHasUpvoted: upvotedIds.has(d.id),
+          userStatus: userStatusMap.get(d.id) || null,
         }
       })
     })
@@ -245,7 +306,9 @@ export async function POST(req: NextRequest) {
         tags: cleanTags,
         creatorId: user.id,
         votingTimeoutMs: 0,
-        ...(discussionDurationMs !== undefined && { discussionDurationMs }),
+        discussionDurationMs: 0, // No discussion timers
+        submissionEndsAt: null, // No submission deadline
+        accumulationEndsAt: null, // No accumulation deadline
         ...(accumulationEnabled !== undefined && { accumulationEnabled }),
         ...(continuousFlow !== undefined && { continuousFlow }),
         ...(supermajorityEnabled !== undefined && { supermajorityEnabled }),
