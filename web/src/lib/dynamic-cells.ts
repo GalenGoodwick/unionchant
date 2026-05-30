@@ -4,7 +4,7 @@ import { invalidate } from './cache'
 import type { DynamicCellState } from '@/types/chant-simulator'
 
 const CELL_SIZE = 5
-const HEARTBEAT_STALE_MS = 15_000 // 15s without heartbeat = stale
+const HEARTBEAT_STALE_MS = 600_000 // 10 minutes without heartbeat = stale
 const AUTO_COMPLETE_DELAY_MS = 30_000 // 30s timer after 2+ votes
 
 /**

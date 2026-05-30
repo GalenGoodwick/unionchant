@@ -604,7 +604,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
       // Just keep extending indefinitely until someone actually votes.
       if (cell?.deliberation?.continuousFlow) {
         const timeoutMs = cell?.deliberation?.votingTimeoutMs
-        const newDeadline = timeoutMs ? new Date(Date.now() + timeoutMs) : null
+        const newDeadline = timeoutMs && timeoutMs > 0 ? new Date(Date.now() + timeoutMs) : null
         await prisma.cell.update({
           where: { id: cellId },
           data: { votingDeadline: newDeadline },
@@ -617,7 +617,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
       // completedByTimeout is repurposed here as "already extended once" flag
       if (!cell?.completedByTimeout) {
         const timeoutMs = cell?.deliberation?.votingTimeoutMs
-        const newDeadline = timeoutMs ? new Date(Date.now() + timeoutMs) : null
+        const newDeadline = timeoutMs && timeoutMs > 0 ? new Date(Date.now() + timeoutMs) : null
         await prisma.cell.update({
           where: { id: cellId },
           data: { votingDeadline: newDeadline, completedByTimeout: true },

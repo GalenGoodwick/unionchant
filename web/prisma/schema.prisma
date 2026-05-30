@@ -252,7 +252,7 @@ model Deliberation {
 
   // Settings
   submissionDurationMs  Int      @default(86400000)  // 24 hours
-  votingTimeoutMs       Int      @default(3600000)   // 1 hour
+  votingTimeoutMs       Int      @default(-1)        // -1 = no deadline, cells never expire
   secondVoteTimeoutMs   Int      @default(900000)    // 15 minutes
   discussionDurationMs  Int?     // null = no discussion (skip to voting). e.g. 7200000 = 2h. -1 = manual advance only
   accumulationEnabled   Boolean  @default(false)
