@@ -68,6 +68,10 @@ function ChantsPage() {
   const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
   const scrollRef = useRef<HTMLDivElement>(null)
   const carouselRef = useRef<HTMLDivElement>(null)
+  const [showSwipeHint, setShowSwipeHint] = useState(() => {
+    if (typeof window !== 'undefined') return !localStorage.getItem('hasSeenSwipeHint')
+    return true
+  })
 
   // Create form state
   const [showCreate, setShowCreate] = useState(false)
@@ -541,6 +545,24 @@ function ChantsPage() {
           </div>
         ) : (
           <div className="h-full">
+            {/* Swipe hint — one-time dismissable */}
+            {showSwipeHint && currentChants.length > 1 && (
+              <div className="mx-4 mb-2 flex items-center justify-between gap-2 px-3 py-2 bg-accent/10 border border-accent/20 rounded-lg">
+                <p className="text-xs text-accent">Swipe left or right to see more chants</p>
+                <button
+                  onClick={() => {
+                    localStorage.setItem('hasSeenSwipeHint', 'true')
+                    setShowSwipeHint(false)
+                  }}
+                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full hover:bg-accent/20 text-accent transition-colors"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
+                    <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
             {/* Full-page carousel */}
             <div
               ref={carouselRef}
@@ -642,11 +664,6 @@ function ChantsPage() {
               ))}
             </div>
 
-            {/* Swipe hint */}
-            <p className="text-xs text-muted text-center mt-3 md:hidden">
-              ← Swipe to see more →
-            </p>
-
             {/* Desktop arrow navigation */}
             {currentChants.length > 1 && (
               <>
@@ -694,6 +711,14 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
   const [pendingIdea, setPendingIdea] = useState('')
   const [showSubmitHelp, setShowSubmitHelp] = useState(false)
 
+  // Chat state
+  const [chatMessages, setChatMessages] = useState<{ id: string; text: string; createdAt: string; user: { id: string; name: string | null; image: string | null } }[]>([])
+  const [chatText, setChatText] = useState('')
+  const [sendingChat, setSendingChat] = useState(false)
+  const [chatError, setChatError] = useState('')
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatContainerRef = useRef<HTMLDivElement>(null)
+
   // Show submit help modal on first visit to submit tab
   useEffect(() => {
     const hasSeenSubmitHelp = localStorage.getItem('hasSeenSubmitHelp')
@@ -734,6 +759,75 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
     const interval = setInterval(fetchData, 10000)
     return () => clearInterval(interval)
   }, [chantId, session])
+
+  // Chat: fetch messages + poll
+  const fetchChatMessages = useCallback(async () => {
+    if (!session) return
+    try {
+      const res = await fetch(`/api/deliberations/${chantId}/chat`)
+      if (res.ok) {
+        const data = await res.json()
+        setChatMessages(prev => {
+          const newMsgs = data.messages || []
+          // Only update if message count changed (avoid unnecessary rerenders)
+          if (prev.length !== newMsgs.length || (newMsgs.length > 0 && prev[prev.length - 1]?.id !== newMsgs[newMsgs.length - 1]?.id)) {
+            return newMsgs
+          }
+          return prev
+        })
+      }
+    } catch { /* silent */ }
+  }, [chantId, session])
+
+  useEffect(() => {
+    fetchChatMessages()
+    const interval = setInterval(fetchChatMessages, 5000)
+    return () => clearInterval(interval)
+  }, [fetchChatMessages])
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    if (chatEndRef.current && chatContainerRef.current) {
+      const container = chatContainerRef.current
+      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80
+      if (isNearBottom) {
+        chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      }
+    }
+  }, [chatMessages.length])
+
+  const handleSendChat = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!chatText.trim() || sendingChat) return
+    setSendingChat(true)
+    setChatError('')
+    try {
+      const res = await fetch(`/api/deliberations/${chantId}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: chatText.trim() }),
+      })
+      if (res.ok) {
+        setChatText('')
+        fetchChatMessages()
+      } else {
+        const data = await res.json()
+        if (data.error === 'MUTED') {
+          setChatError(`Muted until ${new Date(data.mutedUntil).toLocaleTimeString()}`)
+        } else if (data.error === 'RATE_LIMITED') {
+          setChatError('Too many messages. Slow down.')
+        } else {
+          setChatError(data.error || 'Failed to send')
+        }
+        setTimeout(() => setChatError(''), 5000)
+      }
+    } catch {
+      setChatError('Failed to send')
+      setTimeout(() => setChatError(''), 5000)
+    } finally {
+      setSendingChat(false)
+    }
+  }
 
   const handleSubmitIdea = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -906,26 +1000,63 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
       {/* Chat UI */}
       <div className="mt-6 pt-6 border-t border-border">
         <h3 className="text-sm font-semibold text-foreground mb-3">Chat</h3>
-        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-4 min-h-[200px] flex flex-col">
-          <div className="flex-1 overflow-y-auto mb-3 space-y-2">
-            <p className="text-xs text-muted text-center py-8">
-              Chat messages will appear here
-            </p>
+        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border overflow-hidden flex flex-col" style={{ minHeight: 200 }}>
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2" style={{ maxHeight: 300 }}>
+            {chatMessages.length === 0 ? (
+              <p className="text-xs text-muted text-center py-8">
+                {session ? 'No messages yet — start the conversation' : 'Sign in to chat'}
+              </p>
+            ) : (
+              chatMessages.map(msg => (
+                <div key={msg.id} className="flex gap-2 items-start">
+                  <div className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-[10px] font-bold shrink-0">
+                    {(msg.user.name || '?')[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-xs font-medium text-foreground">{msg.user.name || 'Anonymous'}</span>
+                      <span className="text-[10px] text-muted">{new Date(msg.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+                    </div>
+                    <p className="text-sm text-foreground/90 leading-snug">{msg.text}</p>
+                  </div>
+                </div>
+              ))
+            )}
+            <div ref={chatEndRef} />
           </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Type a message..."
-              disabled
-              className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-            />
-            <button
-              disabled
-              className="px-4 py-2 bg-accent/50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap opacity-50 cursor-not-allowed"
-            >
-              Send
-            </button>
-          </div>
+
+          {session ? (
+            <div className="p-3 border-t border-border">
+              {chatError && <p className="text-[11px] text-error mb-1.5">{chatError}</p>}
+              <form onSubmit={handleSendChat} className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Type a message..."
+                  value={chatText}
+                  onChange={(e) => setChatText(e.target.value)}
+                  disabled={sendingChat}
+                  maxLength={2000}
+                  className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+                />
+                <button
+                  type="submit"
+                  disabled={sendingChat || !chatText.trim()}
+                  className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {sendingChat ? '...' : 'Send'}
+                </button>
+              </form>
+            </div>
+          ) : (
+            <div className="p-3 border-t border-border">
+              <Link
+                href="/auth/signin?callbackUrl=/chants"
+                className="block text-center text-sm text-accent hover:text-accent-hover font-medium"
+              >
+                Sign in to chat
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 
