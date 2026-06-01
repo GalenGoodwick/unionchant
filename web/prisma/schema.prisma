@@ -173,6 +173,7 @@ model User {
   shellReachOuts        ShellReachOut[]
   bondRequests          BondRequest[]
   cellDialogues         CellDialogue[]
+
 }
 
 // ============ NEXT-AUTH MODELS ============

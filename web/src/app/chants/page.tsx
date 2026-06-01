@@ -799,18 +799,31 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!chatText.trim() || sendingChat) return
-    setSendingChat(true)
+    const text = chatText.trim()
+
+    // Optimistic: show message immediately
+    const optimisticMsg = {
+      id: `optimistic-${Date.now()}`,
+      text,
+      createdAt: new Date().toISOString(),
+      user: { id: '', name: session?.user?.name || 'You', image: session?.user?.image || null },
+    }
+    setChatMessages(prev => [...prev, optimisticMsg])
+    setChatText('')
     setChatError('')
+
     try {
       const res = await fetch(`/api/deliberations/${chantId}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: chatText.trim() }),
+        body: JSON.stringify({ text }),
       })
       if (res.ok) {
-        setChatText('')
+        // Replace optimistic message on next poll
         fetchChatMessages()
       } else {
+        // Remove optimistic message on error
+        setChatMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
         const data = await res.json()
         if (data.error === 'MUTED') {
           setChatError(`Muted until ${new Date(data.mutedUntil).toLocaleTimeString()}`)
@@ -822,10 +835,9 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
         setTimeout(() => setChatError(''), 5000)
       }
     } catch {
+      setChatMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
       setChatError('Failed to send')
       setTimeout(() => setChatError(''), 5000)
-    } finally {
-      setSendingChat(false)
     }
   }
 
