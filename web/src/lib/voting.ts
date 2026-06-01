@@ -1175,7 +1175,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       const expectedBatches = Math.max(1, Math.ceil(allTierIdeaCount / cellSize))
 
       for (let b = 0; b < expectedBatches; b++) {
-        if (!batchMap.has(b)) {
+        if (!batchMap.has(`batch:${b}`)) {
           console.log(`checkTierCompletion: FCFS batch ${b} has no cells yet (expected ${expectedBatches} batches), waiting for voters`)
           return
         }

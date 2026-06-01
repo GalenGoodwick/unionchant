@@ -65,7 +65,14 @@ export async function GET(
     }
 
     // Get batch context (total cells, completed cells)
-    let batchContext = null
+    let batchContext: {
+      batchId: string
+      batchNumber: number | null
+      batchStatus: string | null
+      totalCells: number
+      completedCells: number
+      ideasInBatch: number
+    } | null = null
     if (cell.batchId) {
       const batchCells = await prisma.cell.findMany({
         where: { batchId: cell.batchId },
