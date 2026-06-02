@@ -723,6 +723,7 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
   const [chantData, setChantData] = useState<any>(null)
   const [showJoinDialog, setShowJoinDialog] = useState(false)
   const [pendingIdea, setPendingIdea] = useState('')
+  const [showSubmitModal, setShowSubmitModal] = useState(false)
   // Chat state
   const [chatMessages, setChatMessages] = useState<{ id: string; text: string; createdAt: string; user: { id: string; name: string | null; image: string | null } }[]>([])
   const [chatText, setChatText] = useState('')
@@ -869,6 +870,7 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
 
       setIdeaText('')
       setSubmitSuccess(true)
+      setShowSubmitModal(false)
       setUserIdeas(prev => [data, ...prev])
 
       setTimeout(() => setSubmitSuccess(false), 3000)
@@ -958,35 +960,60 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
             Sign in to submit an idea
           </Link>
         ) : (
-          <form onSubmit={handleSubmitIdea} className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
-            <h2 className="text-sm font-semibold mb-1 text-foreground">
-              <span className="text-accent font-bold mr-1">1</span> Submit Your Idea
-            </h2>
-            <p className="text-xs text-muted mb-3 leading-relaxed">
-              Answer the question with your best idea.
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
+          <button
+            onClick={() => { setSubmitError(''); setShowSubmitModal(true) }}
+            className="w-full py-3 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
+          >
+            Submit an Idea
+          </button>
+        )
+      )}
+
+      {submitSuccess && (
+        <p className="text-success text-xs text-center">Idea submitted!</p>
+      )}
+
+      {/* Submit idea modal */}
+      {showSubmitModal && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[10000]" onClick={() => setShowSubmitModal(false)}>
+          <div className="max-w-md w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground mb-1">Submit Your Idea</h2>
+            <p className="text-xs text-muted mb-4">Answer the question with your best idea.</p>
+            <form onSubmit={handleSubmitIdea}>
+              <textarea
                 placeholder="Your idea..."
                 value={ideaText}
                 onChange={(e) => setIdeaText(e.target.value)}
                 disabled={submitting}
                 maxLength={500}
-                className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
+                rows={4}
+                autoFocus
+                className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50 resize-none"
               />
-              <button
-                type="submit"
-                disabled={submitting || !ideaText.trim()}
-                className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap shadow-sm"
-              >
-                Submit
-              </button>
-            </div>
-            {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
-            {submitSuccess && <p className="text-success text-xs mt-2">Idea submitted!</p>}
-          </form>
-        )
+              <div className="flex items-center justify-between mt-1 mb-3">
+                <span className="text-[10px] text-muted">{ideaText.length}/500</span>
+                {submitError && <p className="text-error text-xs">{submitError}</p>}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSubmitModal(false)}
+                  className="flex-1 py-2.5 bg-surface border border-border text-foreground text-sm font-medium rounded-lg hover:bg-background transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !ideaText.trim()}
+                  className="flex-1 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
+                >
+                  {submitting ? 'Submitting...' : 'Submit'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        document.body
       )}
 
       {userIdeas.length > 0 && (

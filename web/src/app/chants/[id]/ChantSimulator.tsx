@@ -468,6 +468,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
     if (!userId) return
     setStarting(true)
     setStartError('')
+    showToast('Starting voting...', 'info')
 
     try {
       const res = await authFetch(`/api/deliberations/${id}/start-voting`, {
@@ -480,8 +481,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         throw new Error(data.error || 'Failed to start')
       }
 
+      showToast('Voting started', 'success')
       fetchStatus()
     } catch (err) {
+      showToast((err as Error).message, 'error')
       setStartError((err as Error).message)
     } finally {
       setStarting(false)
