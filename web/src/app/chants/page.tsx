@@ -216,13 +216,9 @@ function ChantsPage() {
 
   // Categorize chants by action needed
   const categorizedChants = {
-    list: [...chants].sort((a, b) => {
-      const phasePriority: Record<string, number> = { VOTING: 3, SUBMISSION: 2, COMPLETED: 1, PAUSED: 0 }
-      const ap = phasePriority[a.phase] ?? 0
-      const bp = phasePriority[b.phase] ?? 0
-      if (bp !== ap) return bp - ap
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    }),
+    list: [...chants].sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    ),
     submit: chants.filter(c =>
       c.phase === 'SUBMISSION' &&
       (!c.userStatus?.hasSubmittedIdea || !c.userStatus?.isMember)
