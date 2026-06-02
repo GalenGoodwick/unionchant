@@ -16,7 +16,7 @@ import VotingCell from '@/components/deliberation/VotingCell'
 import type { Cell } from '@/components/deliberation/types'
 import { useToast } from '@/components/Toast'
 
-type ActionTab = 'list' | 'submit' | 'vote' | 'history' | 'activity' | 'created'
+type ActionTab = 'list' | 'submit' | 'vote' | 'created'
 
 type Chant = {
   id: string
@@ -72,6 +72,14 @@ function ChantsPage() {
     if (typeof window !== 'undefined') return !localStorage.getItem('hasSeenSwipeHint')
     return true
   })
+  const [showSubmitHelpGlobal, setShowSubmitHelpGlobal] = useState(() => {
+    if (typeof window !== 'undefined') return !localStorage.getItem('hasSeenSubmitHelp')
+    return false
+  })
+  const handleDismissSubmitHelpGlobal = () => {
+    localStorage.setItem('hasSeenSubmitHelp', 'true')
+    setShowSubmitHelpGlobal(false)
+  }
 
   // Create form state
   const [showCreate, setShowCreate] = useState(false)
@@ -224,25 +232,12 @@ function ChantsPage() {
       c.userStatus?.isInActiveCell &&
       !c.userStatus?.hasVotedInCurrentTier
     ),
-    history: chants.filter(c => c.userStatus?.isMember), // All joined chants
-    activity: chants.filter(c => c.userStatus?.isMember), // All joined chants
     created: userId ? chants.filter(c => c.creatorId && c.creatorId === userId).sort((a, b) =>
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     ) : [], // Chants created by user, newest first
   }
 
-  // Auto-select tab with most urgent action (only on initial load)
-  const hasAutoSelected = useRef(false)
-  useEffect(() => {
-    if (!hasAutoSelected.current && chants.length > 0) {
-      if (categorizedChants.vote.length > 0) {
-        setActiveTab('vote')
-      } else if (categorizedChants.submit.length > 0) {
-        setActiveTab('submit')
-      }
-      hasAutoSelected.current = true
-    }
-  }, [chants, categorizedChants])
+  // Always start on All tab — no auto-selection
 
   const currentChants = categorizedChants[activeTab]
 
@@ -268,7 +263,7 @@ function ChantsPage() {
             <div className="space-y-2 pb-3">
               {/* Action tabs */}
               <div className="flex gap-1.5 overflow-x-auto">
-                {(['list', 'submit', 'vote', 'history', 'activity', 'created'] as const).map(tab => {
+                {(['list', 'submit', 'vote', 'created'] as const).map(tab => {
                   const count = categorizedChants[tab].length
                   const label = tab === 'list' ? 'All' : tab === 'submit' ? 'Submit and Chat' : tab === 'vote' ? 'Vote and Discuss' : tab
                   return (
@@ -433,7 +428,6 @@ function ChantsPage() {
             <div className={`w-16 h-16 mb-4 rounded-full flex items-center justify-center ${
               activeTab === 'submit' ? 'bg-accent/10 text-accent' :
               activeTab === 'vote' ? 'bg-warning/10 text-warning' :
-              activeTab === 'history' ? 'bg-purple/10 text-purple' :
               activeTab === 'created' ? 'bg-success/10 text-success' :
               'bg-blue/10 text-blue'
             }`}>
@@ -447,16 +441,6 @@ function ChantsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               )}
-              {activeTab === 'history' && (
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
-              {activeTab === 'activity' && (
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
-              )}
               {activeTab === 'created' && (
                 <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -466,16 +450,12 @@ function ChantsPage() {
             <p className="text-foreground font-medium mb-2 text-center">
               {activeTab === 'submit' && 'No chants accepting ideas'}
               {activeTab === 'vote' && 'No pending votes'}
-              {activeTab === 'history' && 'No action history yet'}
-              {activeTab === 'activity' && 'No recent activity'}
               {activeTab === 'created' && 'No chants created yet'}
             </p>
             <p className="text-muted text-sm text-center">
               {activeTab === 'list' && 'No chants yet.'}
               {activeTab === 'submit' && 'Create your own chant or check back later'}
               {activeTab === 'vote' && 'Submit ideas and wait for voting to begin'}
-              {activeTab === 'history' && 'Join chants to see your participation history'}
-              {activeTab === 'activity' && 'Join chants to see activity updates'}
               {activeTab === 'created' && 'Create your first chant to get started'}
             </p>
             {session && (activeTab === 'list' || activeTab === 'submit' || activeTab === 'created') && (
@@ -657,8 +637,6 @@ function ChantsPage() {
                     {/* Tab content */}
                     {activeTab === 'submit' && <SubmitTabContent chantId={chant.id} chant={chant} />}
                     {activeTab === 'vote' && <VoteTabContent chantId={chant.id} chant={chant} />}
-                    {activeTab === 'history' && <HistoryTabContent chantId={chant.id} />}
-                    {activeTab === 'activity' && <ActivityTabContent chantId={chant.id} />}
                   </div>
                 </div>
               ))}
@@ -694,6 +672,46 @@ function ChantsPage() {
           </div>
         )}
       </FrameLayout>
+
+      {/* Global submit help modal - shown once across all cards */}
+      {showSubmitHelpGlobal && activeTab === 'submit' && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[10000]" onClick={handleDismissSubmitHelpGlobal}>
+          <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground mb-3">Submit & Chat</h2>
+            <p className="text-sm text-muted mb-4">Here&apos;s how this tab works:</p>
+            <ol className="space-y-3 mb-5">
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">1</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Write your idea</p>
+                  <p className="text-xs text-muted">Enter your response to the question in your own words.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">2</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Chat with others</p>
+                  <p className="text-xs text-muted">Discuss ideas and coordinate strategy in the chat below.</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">3</span>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Track progress</p>
+                  <p className="text-xs text-muted">See member and idea counts at the top of the card.</p>
+                </div>
+              </li>
+            </ol>
+            <button
+              onClick={handleDismissSubmitHelpGlobal}
+              className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   )
 }
@@ -709,8 +727,6 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
   const [chantData, setChantData] = useState<any>(null)
   const [showJoinDialog, setShowJoinDialog] = useState(false)
   const [pendingIdea, setPendingIdea] = useState('')
-  const [showSubmitHelp, setShowSubmitHelp] = useState(false)
-
   // Chat state
   const [chatMessages, setChatMessages] = useState<{ id: string; text: string; createdAt: string; user: { id: string; name: string | null; image: string | null } }[]>([])
   const [chatText, setChatText] = useState('')
@@ -718,19 +734,6 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
   const [chatError, setChatError] = useState('')
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatContainerRef = useRef<HTMLDivElement>(null)
-
-  // Show submit help modal on first visit to submit tab
-  useEffect(() => {
-    const hasSeenSubmitHelp = localStorage.getItem('hasSeenSubmitHelp')
-    if (!hasSeenSubmitHelp && chant.phase === 'SUBMISSION') {
-      setShowSubmitHelp(true)
-    }
-  }, [chant.phase])
-
-  const handleDismissSubmitHelp = () => {
-    localStorage.setItem('hasSeenSubmitHelp', 'true')
-    setShowSubmitHelp(false)
-  }
 
   useEffect(() => {
     // Fetch chant status and user's ideas
@@ -1111,52 +1114,6 @@ function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant })
         document.body
       )}
 
-      {/* Submit help modal - first time only */}
-      {showSubmitHelp && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[10000]" onClick={handleDismissSubmitHelp}>
-          <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-bold text-foreground mb-3">Submit & Chat</h2>
-            <p className="text-sm text-muted mb-4">Here's how this tab works:</p>
-            <ol className="space-y-3 mb-5">
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Write your idea</p>
-                  <p className="text-xs text-muted">Enter your response to the question in your own words.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Chat with others</p>
-                  <p className="text-xs text-muted">Discuss ideas and coordinate strategy in the chat below.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Track progress</p>
-                  <p className="text-xs text-muted">See member and idea counts at the top of the card.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-warning/15 text-warning flex items-center justify-center text-xs font-bold shrink-0">4</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Add tags</p>
-                  <p className="text-xs text-muted">Help others find this chant by adding relevant tags.</p>
-                </div>
-              </li>
-            </ol>
-            <button
-              onClick={handleDismissSubmitHelp}
-              className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
-            >
-              Got it!
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   )
 }
@@ -1174,12 +1131,6 @@ function VoteTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
   const [debugInfo, setDebugInfo] = useState<any>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [userFetchError, setUserFetchError] = useState<string | null>(null)
-  const [showVotingHelp, setShowVotingHelp] = useState(false)
-
-  const handleDismissVotingHelp = () => {
-    localStorage.setItem('hasSeenVotingHelp', 'true')
-    setShowVotingHelp(false)
-  }
 
   // Fetch current user ID
   useEffect(() => {
@@ -1211,20 +1162,6 @@ function VoteTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
       setUserFetchError(null)
     }
   }, [session])
-
-  // Show voting help modal on first visit when cells are available
-  useEffect(() => {
-    const hasSeenVotingHelp = localStorage.getItem('hasSeenVotingHelp')
-    if (!hasSeenVotingHelp && !loading && cells.length > 0 && userId) {
-      const activeCells = cells.filter(c => c.status === 'VOTING')
-      const userCells = activeCells.filter(c => c.participants.some(p => p.userId === userId))
-      const userActiveCells = userCells.filter(c => c.votes.length === 0)
-
-      if (userActiveCells.length > 0) {
-        setShowVotingHelp(true)
-      }
-    }
-  }, [loading, cells, userId])
 
   const fetchCells = useCallback(async () => {
     try {
@@ -1448,53 +1385,6 @@ function VoteTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
         </div>
       )}
 
-      {/* Voting help modal - first time only */}
-      {showVotingHelp && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[10000]" onClick={handleDismissVotingHelp}>
-          <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-bold text-foreground mb-3">Vote & Discuss</h2>
-            <p className="text-sm text-muted mb-4">Here's how voting works:</p>
-            <ol className="space-y-3 mb-5">
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-warning/15 text-warning flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Drag sliders</p>
-                  <p className="text-xs text-muted">Distribute 10 Vote Points across the ideas. Give more points to stronger ideas.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Discuss ideas</p>
-                  <p className="text-xs text-muted">Click the chat icon on any idea to read and add comments.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Upvote comments</p>
-                  <p className="text-xs text-muted">Upvoted comments spread to other cells, amplifying good insights.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">4</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Submit your vote</p>
-                  <p className="text-xs text-muted">When all 10 points are allocated, click Submit Vote.</p>
-                </div>
-              </li>
-            </ol>
-            <button
-              onClick={handleDismissVotingHelp}
-              className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
-            >
-              Got it!
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
-
       {/* Vote confirmation dialog */}
       {showVoteConfirm && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[100]">
@@ -1531,21 +1421,6 @@ function VoteTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
   )
 }
 
-function HistoryTabContent({ chantId }: { chantId: string }) {
-  return (
-    <div className="text-xs text-muted">
-      History tab content - to be implemented
-    </div>
-  )
-}
-
-function ActivityTabContent({ chantId }: { chantId: string }) {
-  return (
-    <div className="text-xs text-muted">
-      Activity tab content - to be implemented
-    </div>
-  )
-}
 
 function PhaseBadge({ phase }: { phase: string }) {
   const config: Record<string, { label: string; color: string }> = {

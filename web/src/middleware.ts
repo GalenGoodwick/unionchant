@@ -29,10 +29,22 @@ export function middleware(req: NextRequest) {
   // ── First-time visitors → /how ──
   if (pathname === '/' || pathname === '/chants') {
     const visited = req.cookies.get('uc_visited')
-    if (!visited) {
+    const hasSession = req.cookies.get('next-auth.session-token') ||
+                       req.cookies.get('__Secure-next-auth.session-token')
+    if (!visited && !hasSession) {
       const response = NextResponse.redirect(new URL('/how', req.url))
       response.cookies.set('uc_visited', '1', {
         maxAge: 60 * 60 * 24 * 365, // 1 year
+        path: '/',
+        sameSite: 'lax',
+      })
+      return response
+    }
+    // Logged-in user without uc_visited cookie — set it silently
+    if (!visited && hasSession) {
+      const response = NextResponse.next()
+      response.cookies.set('uc_visited', '1', {
+        maxAge: 60 * 60 * 24 * 365,
         path: '/',
         sameSite: 'lax',
       })
