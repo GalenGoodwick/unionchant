@@ -220,10 +220,7 @@ export default function LandingParallax() {
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-5 leading-[1.1] tracking-tight font-serif">
             Unity Chant
           </h1>
-          <p className="text-2xl sm:text-3xl text-accent font-medium mb-3 font-serif italic">
-            Save the world.
-          </p>
-          <p className="text-lg text-white/60 mb-10">
+          <p className="text-2xl sm:text-3xl text-accent font-medium mb-10 font-serif italic">
             Standing for World Peace
           </p>
           <div className="max-w-[560px] mx-auto mb-2 space-y-5 text-white/90 text-lg leading-relaxed">
