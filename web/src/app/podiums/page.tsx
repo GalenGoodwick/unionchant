@@ -59,8 +59,9 @@ export default function PodiumsPage() {
       footerRight={
         <Link
           href={session ? '/podium/new' : '/auth/signin'}
-          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-purple hover:bg-purple-hover text-white shadow-sm flex items-center justify-center transition-colors shrink-0"
+          className="flex items-center gap-1.5 px-3 h-9 sm:h-10 rounded-full bg-purple hover:bg-purple-hover text-white shadow-sm transition-colors shrink-0"
         >
+          <span className="text-sm font-semibold">Article of Free Speech</span>
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" d="M12 5v14M5 12h14" />
           </svg>

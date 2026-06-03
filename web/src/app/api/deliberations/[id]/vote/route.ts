@@ -40,7 +40,7 @@ export async function POST(
     // === ROUND TRIP 1: All reads in parallel ===
     const [deliberation, votedCheck, activeParticipation, allTierCellsRaw] = await Promise.all([
       prisma.deliberation.findUnique({ where: { id } }),
-      prisma.cellParticipation.findFirst({
+      prisma.cellParticipation.findMany({
         where: { userId, status: 'VOTED', cell: { deliberationId: id } },
         select: { cell: { select: { tier: true } } },
       }),
@@ -65,7 +65,7 @@ export async function POST(
     const targetTier = requestedTier ?? deliberation.currentTier
 
     // Check already voted
-    if (!deliberation.multipleIdeasAllowed && votedCheck && votedCheck.cell.tier === targetTier) {
+    if (!deliberation.multipleIdeasAllowed && votedCheck.some(v => v.cell.tier === targetTier)) {
       return NextResponse.json({ error: 'You already voted in this tier' }, { status: 400 })
     }
 

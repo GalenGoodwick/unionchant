@@ -664,7 +664,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
   const tabs: { key: Tab; label: string; badge?: number; show: boolean }[] = [
     { key: 'join', label: 'Join', show: false },
-    { key: 'submit', label: '1 Submit', show: status.phase !== 'COMPLETED' },
+    { key: 'submit', label: '1 Submit', show: submissionsOpen || userIdeas.length > 0 },
     { key: 'discuss', label: '2 Discuss', badge: comments.length || undefined, show: status.phase !== 'SUBMISSION' && status.phase !== 'COMPLETED' },
     { key: 'vote', label: '3 Vote', show: status.phase !== 'COMPLETED' },
     { key: 'ideas', label: status.phase === 'COMPLETED' ? 'Results' : 'Ideas', badge: status.ideas.length || undefined, show: true },
@@ -1306,13 +1306,13 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         {activeTab === 'submit' && (
           <div className="space-y-3">
             <div className={`p-3 rounded-lg border text-xs ${
-              status.submissionsClosed
+              !submissionsOpen
                 ? 'bg-surface/90 backdrop-blur-sm border-border text-muted'
                 : status.multipleIdeasAllowed
                 ? 'bg-accent/8 border-accent/20 text-accent'
                 : 'bg-surface/90 backdrop-blur-sm border-border text-muted'
             }`}>
-              {status.submissionsClosed
+              {!submissionsOpen
                 ? 'Submissions are closed. Voting is in progress.'
                 : status.multipleIdeasAllowed
                 ? 'Multiple ideas allowed — submit as many as you like.'
@@ -1321,7 +1321,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 : 'One idea per person. Make it count.'}
             </div>
 
-            {!status.submissionsClosed && (status.multipleIdeasAllowed || userIdeas.length === 0) && (
+            {submissionsOpen && (status.multipleIdeasAllowed || userIdeas.length === 0) && (
               !userId ? (
                 <Link
                   href={`/auth/signin?callbackUrl=/chants/${id}`}
@@ -1329,30 +1329,6 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 >
                   Sign in to submit an idea
                 </Link>
-              ) : pendingIdea ? (
-                <div className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-accent/30 shadow-sm">
-                  <h2 className="text-sm font-semibold mb-2 text-foreground"><span className="text-accent font-bold mr-1">1</span> Confirm Your Idea</h2>
-                  <p className="text-sm text-foreground bg-background p-3 rounded-lg border border-border mb-3 leading-relaxed">
-                    {pendingIdea}
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleEditIdea}
-                      disabled={submitting}
-                      className="flex-1 py-2 bg-surface border border-border hover:bg-background text-foreground text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={handleConfirmIdea}
-                      disabled={submitting}
-                      className="flex-1 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
-                    >
-                      {submitting ? 'Submitting...' : 'Confirm'}
-                    </button>
-                  </div>
-                  {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
-                </div>
               ) : (
                 <form onSubmit={handleSubmitIdea} className="p-4 bg-surface/90 backdrop-blur-sm rounded-lg border border-border shadow-sm">
                   <h2 className="text-sm font-semibold mb-1 text-foreground"><span className="text-accent font-bold mr-1">1</span> Submit Your Idea</h2>
@@ -2026,6 +2002,37 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             </div>
           </div>
         )}
+
+      {/* Confirm idea submission popup */}
+      {pendingIdea && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[10000]" onClick={() => setPendingIdea(null)}>
+          <div className="max-w-md w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-foreground mb-1">Check Your Spelling</h2>
+            <p className="text-xs text-muted mb-3">Review your idea before submitting. This cannot be edited later.</p>
+            <div className="p-4 bg-background border border-border rounded-lg mb-4">
+              <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{pendingIdea}</p>
+            </div>
+            {submitError && <p className="text-error text-xs mb-3">{submitError}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={handleEditIdea}
+                disabled={submitting}
+                className="flex-1 py-2.5 bg-surface border border-border text-foreground text-sm font-medium rounded-lg hover:bg-background transition-colors disabled:opacity-50"
+              >
+                Edit
+              </button>
+              <button
+                onClick={handleConfirmIdea}
+                disabled={submitting}
+                className="flex-1 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                {submitting ? 'Submitting...' : 'Confirm & Submit'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Onboarding final — shown on results page after first chant completes */}
       {showOnboardingFinal && typeof document !== 'undefined' && createPortal(

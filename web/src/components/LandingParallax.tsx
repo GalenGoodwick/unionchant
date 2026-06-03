@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import {
   BG, MUTED, BORDER,
@@ -136,6 +137,8 @@ function AddToPhoneButton() {
 }
 
 export default function LandingParallax() {
+  const { data: session } = useSession()
+
   useEffect(() => {
     const scenes: ParallaxScene[] = []
     for (const g of GAPS) {
@@ -197,8 +200,17 @@ export default function LandingParallax() {
       `}</style>
 
       {/* ── HEADER ── */}
-      <header className="relative z-[3] bg-header">
-        <div className="max-w-[800px] mx-auto px-6 py-4">
+      <header className="sticky top-0 z-[10] bg-header/95 backdrop-blur-sm border-b border-white/5">
+        <div className="max-w-[800px] mx-auto px-6 py-3 flex justify-end">
+          {session?.user ? (
+            <Link href="/chants" className="text-sm text-accent hover:text-accent-hover font-medium transition-colors">
+              Go to Chants &rarr;
+            </Link>
+          ) : (
+            <Link href="/auth/signin" className="text-sm text-accent hover:text-accent-hover font-medium transition-colors">
+              Sign In
+            </Link>
+          )}
         </div>
       </header>
 
@@ -208,22 +220,47 @@ export default function LandingParallax() {
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-5 leading-[1.1] tracking-tight font-serif">
             Unity Chant
           </h1>
-          <p className="text-2xl sm:text-3xl text-accent font-medium mb-10 font-serif italic">
-            Of all the ideas each of us could submit &mdash;<br />what do we collectively agree on?
+          <p className="text-2xl sm:text-3xl text-accent font-medium mb-3 font-serif italic">
+            Save the world.
+          </p>
+          <p className="text-lg text-white/60 mb-10">
+            Standing for World Peace
           </p>
           <div className="max-w-[560px] mx-auto mb-2 space-y-5 text-white/90 text-lg leading-relaxed">
+            <p className="text-white/60 text-sm uppercase tracking-widest mb-1">15-second version</p>
             <p>
-              Not a poll. Not a survey. Not a list of options someone else wrote.
-              Everyone proposes their own answer. Then small groups of five read,
-              discuss, and choose the strongest. What survives rises. What doesn&apos;t, falls away.
+              Unity Chant is a decision-making platform that helps communities turn
+              hundreds or millions of ideas into one trusted priority. Instead of
+              another poll, social media, or chaotic town hall, Unity Chant introduces Collective Media: it breaks people into small deliberation
+              groups, advances the strongest ideas through multiple rounds, and produces
+              a final decision people understand, trust, and helped shape.
             </p>
+            <p className="text-white/60 text-sm uppercase tracking-widest mb-1 pt-4">30-second version</p>
             <p>
-              The answer was always there &mdash; latent in the group, waiting
-              to be found. Unity Chant is the process that finds it.
-              Whether 50 people participate or 50,000, everyone gets
-              the same fair experience. No megaphones. No loudest voice.
+              Most civic engagement tools either collect shallow votes or give the
+              microphone to the loudest voices. Unity Chant creates a better process.
+              Community members submit ideas, discuss them in small groups, and vote
+              through structured rounds where the strongest ideas keep advancing. By the
+              end, the winning priority has not just received clicks &mdash; it has survived
+              repeated discussion, comparison, and support from many different groups. It
+              gives cities, organizations, and communities a practical way to listen at
+              scale and make decisions with legitimacy.
+            </p>
+            <p className="text-white/60 text-sm uppercase tracking-widest mb-1 pt-4">Founder-style version</p>
+            <p>
+              We have tools for broadcasting opinions, but not for building collective
+              judgment. Unity Chant lets large communities deliberate the way humans
+              actually reason: in small groups. People submit ideas, discuss trade-offs,
+              and advance the strongest proposals through multiple rounds until a clear
+              community priority emerges. It is designed for cities, institutions, and
+              organizations that need more than a survey. They need a trusted process
+              people can believe in.
             </p>
           </div>
+          <p className="text-4xl sm:text-5xl md:text-6xl text-accent font-bold mt-16 mb-2 font-serif">
+            The Journey.
+          </p>
+          <p className="text-accent text-7xl sm:text-8xl font-black mb-4">&darr;</p>
           <TierTab>so many individuals &mdash; good ideas flare<br />and are lost to disconnection and chaos</TierTab>
         </div>
       </section>
@@ -250,7 +287,7 @@ export default function LandingParallax() {
             conversations in parallel. Each one uncovers a small piece
             of hidden consensus. Connected together, they reveal the whole.
           </p>
-          <TierTab>each person writes 1 idea &mdash; they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks the strongest</TierTab>
+          <TierTab>each person writes 1 idea &mdash; they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks the strongest idea</TierTab>
         </div>
       </section>
 
@@ -263,24 +300,42 @@ export default function LandingParallax() {
           <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
             How latent consensus surfaces
           </h2>
-          <p className="text-muted text-lg mb-10">
+          <p className="text-muted text-lg mb-6">
             Nobody knows the answer in advance. The process finds it.
           </p>
-          <div className="grid md:grid-cols-3 gap-8">
+          <p className="text-subtle text-sm leading-relaxed max-w-[600px] mx-auto mb-10">
+            The current technical model uses small cells of about five people, where ideas are reviewed in batches, scored, and advanced round by round. In the example from the <Link href="/whitepaper" className="text-accent hover:underline">technical paper</Link>, 50,000 ideas can narrow to one priority in roughly seven rounds, with each round happening in parallel rather than sequentially across the whole population. This is the opposite of the United Nations where one person talks at a time.
+          </p>
+
+          <h3 className="text-2xl font-bold text-foreground mb-8">How it works</h3>
+
+          <div className="grid md:grid-cols-3 gap-8 mb-8">
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-accent flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-accent">1</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Everyone proposes</h3>
-              <p className="text-muted text-sm">No preset options. Each person submits their own answer to the question. The collective doesn&apos;t know what it thinks yet.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">People submit ideas</h3>
+              <p className="text-muted text-sm">The community contributes possible solutions, priorities, or proposals.</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-warning flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-warning">2</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Small groups discover</h3>
-              <p className="text-muted text-sm">Groups of 5 read every idea, discuss, and choose. In conversation, people find they agree on things they didn&apos;t know they shared.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Small groups deliberate</h3>
+              <p className="text-muted text-sm">Participants are placed into small cells where everyone has space to speak, listen, and weigh trade-offs.</p>
             </div>
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-success flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-success">3</div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">The answer emerges</h3>
-              <p className="text-muted text-sm">Strongest ideas meet other strong ideas. Layer by layer, what the group actually agrees on reveals itself.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Strong ideas advance</h3>
+              <p className="text-muted text-sm">Each group evaluates a small batch of ideas. The strongest ideas move to the next round.</p>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-2 gap-8 max-w-[540px] mx-auto">
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-full border-2 border-purple flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-purple">4</div>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Rounds repeat</h3>
+              <p className="text-muted text-sm">Surviving ideas face new groups and tougher comparison.</p>
+            </div>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-full border-2 border-gold flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-gold">5</div>
+              <h3 className="text-lg font-semibold text-foreground mb-2">The community chooses</h3>
+              <p className="text-muted text-sm">The final set is presented to the broader group, producing a clear shared priority.</p>
             </div>
           </div>
           <TierTab>strongest ideas advance &mdash; each cell<br />joins with 4 others &mdash; 5 ideas from the<br />previous round are debated and scrutinized</TierTab>
@@ -290,31 +345,28 @@ export default function LandingParallax() {
       {/* ── GAP 2: Tier 2 ── */}
       <VizGap id="gap2" colorAbove={HEADER} colorBelow={HEADER} />
 
-      {/* ── NOT A POLL ── */}
+      {/* ── WHY IT IS DIFFERENT ── */}
       <section className="relative z-[2] bg-header">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Discovery, not measurement
+          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-8">
+            Why it is different
           </h2>
-          <p className="text-muted text-lg max-w-[560px] mx-auto mb-8">
-            A poll measures what people already think. Unity Chant reveals what they didn&apos;t know they shared.
-          </p>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">No one is drowned out</h3>
-              <p className="text-muted text-sm">In a group of 5, every perspective gets genuine consideration. Hidden agreement needs every voice to surface.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Not a poll</h3>
+              <p className="text-muted text-sm">People help generate the options, not just choose from a fixed list.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">Consensus earns its place</h3>
-              <p className="text-muted text-sm">An idea must survive independent scrutiny from many groups. What emerges isn&apos;t popular &mdash; it&apos;s durable.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Not a town hall</h3>
+              <p className="text-muted text-sm">Participation is distributed across many small conversations.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">The answer can change</h3>
-              <p className="text-muted text-sm">New ideas can challenge old ones. The collective understanding updates as the group evolves.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Not a popularity contest</h3>
+              <p className="text-muted text-sm">Ideas must survive repeated evaluation by different groups.</p>
             </div>
             <div className="bg-background rounded-xl border border-border p-6 text-left">
-              <h3 className="text-lg font-semibold text-foreground mb-2">A genuine mandate</h3>
-              <p className="text-muted text-sm">The result was found, not imposed. That&apos;s legitimacy you can stand behind.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Not a replacement for leadership</h3>
+              <p className="text-muted text-sm">It gives leaders a clearer, more legitimate picture of collective judgment.</p>
             </div>
           </div>
           <TierTab>the strongest idea advances &mdash; the pattern repeats<br />each layer distills further and the<br />most collectively durable ideas emerge</TierTab>
@@ -380,32 +432,6 @@ export default function LandingParallax() {
       {/* ── GAP 5: Post-consensus ── */}
       <VizGap id="gap5" colorAbove={HEADER} colorBelow={BG} />
 
-      {/* ── USE CASES ── */}
-      <section className="relative z-[2] bg-background">
-        <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
-          <h2 className="text-3xl md:text-4xl font-bold text-foreground mb-4">
-            Every group has something it already agrees on
-          </h2>
-          <p className="text-muted text-lg mb-10">
-            They just haven&apos;t had a way to find it yet.
-          </p>
-          <div className="grid md:grid-cols-3 gap-8">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Organizations</h3>
-              <p className="text-muted text-sm">What does the whole company actually think we should do? Not what leadership assumes. Not what the loudest team says. The real answer.</p>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Communities</h3>
-              <p className="text-muted text-sm">What does the neighborhood actually want? Not the three people who show up to every meeting. Everyone, on their own time, discovering shared ground.</p>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">Governance</h3>
-              <p className="text-muted text-sm">What do citizens actually agree on? Not what polls predict. Not what campaigns promise. The answer that emerges when people deliberate for real.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       {/* ── FINAL CTA ── */}
       <section className="relative z-[2] bg-header text-white">
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
@@ -433,12 +459,6 @@ export default function LandingParallax() {
       {/* ── ENTRY ── */}
       <section className="relative z-[2] bg-background border-t border-border">
         <div className="max-w-[800px] mx-auto px-6 py-16 text-center">
-          <h3 className="text-2xl font-bold text-foreground mb-4">
-            What does your group already agree on?
-          </h3>
-          <p className="text-muted mb-8 max-w-[600px] mx-auto">
-            Ask the question. Submit your idea. Find out together.
-          </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/auth/signup" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">
               Sign Up
