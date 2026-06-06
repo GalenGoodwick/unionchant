@@ -221,37 +221,17 @@ export default function LandingParallax() {
             Unity Chant
           </h1>
           <p className="text-2xl sm:text-3xl text-accent font-medium mb-10 font-serif italic">
-            Standing for World Peace
+            The tool for collective self-determination.
           </p>
           <div className="max-w-[560px] mx-auto mb-2 space-y-5 text-white/90 text-lg leading-relaxed">
-            <p className="text-white/60 text-sm uppercase tracking-widest mb-1">15-second version</p>
             <p>
               Unity Chant is a decision-making platform that helps communities turn
-              hundreds or millions of ideas into one trusted priority. Instead of
-              another poll, social media, or chaotic town hall, Unity Chant introduces Collective Media: it breaks people into small deliberation
-              groups, advances the strongest ideas through multiple rounds, and produces
-              a final decision people understand, trust, and helped shape.
-            </p>
-            <p className="text-white/60 text-sm uppercase tracking-widest mb-1 pt-4">30-second version</p>
-            <p>
-              Most civic engagement tools either collect shallow votes or give the
-              microphone to the loudest voices. Unity Chant creates a better process.
-              Community members submit ideas, discuss them in small groups, and vote
-              through structured rounds where the strongest ideas keep advancing. By the
-              end, the winning priority has not just received clicks &mdash; it has survived
-              repeated discussion, comparison, and support from many different groups. It
-              gives cities, organizations, and communities a practical way to listen at
-              scale and make decisions with legitimacy.
-            </p>
-            <p className="text-white/60 text-sm uppercase tracking-widest mb-1 pt-4">Founder-style version</p>
-            <p>
-              We have tools for broadcasting opinions, but not for building collective
-              judgment. Unity Chant lets large communities deliberate the way humans
-              actually reason: in small groups. People submit ideas, discuss trade-offs,
-              and advance the strongest proposals through multiple rounds until a clear
-              community priority emerges. It is designed for cities, institutions, and
-              organizations that need more than a survey. They need a trusted process
-              people can believe in.
+              hundreds or millions of ideas into one trusted priority. People submit
+              ideas, discuss trade-offs in small groups, and advance the strongest
+              proposals through multiple rounds until a clear community priority
+              emerges. It is designed for cities, institutions, and communities that
+              need more than a survey. They need a collective mirror that people
+              understand, trust, and helped shape.
             </p>
           </div>
           <p className="text-4xl sm:text-5xl md:text-6xl text-accent font-bold mt-16 mb-2 font-serif">
