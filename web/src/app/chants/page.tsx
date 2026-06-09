@@ -1,1502 +1,1139 @@
-/**
- * Chants Page - Full-view carousel interface
- * Each card shows the complete chant UI (Submit/Vote/etc.) in a swipeable carousel
- */
 'use client'
 
-import { useSession } from 'next-auth/react'
-import { Suspense, useCallback, useEffect, useState, useRef } from 'react'
-import { createPortal } from 'react-dom'
-import { useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import FrameLayout from '@/components/FrameLayout'
-import AnonymousBanner from '@/components/AnonymousBanner'
-import ShareMenu from '@/components/ShareMenu'
-import VotingCell from '@/components/deliberation/VotingCell'
-import type { Cell } from '@/components/deliberation/types'
-import { useToast } from '@/components/Toast'
+import { useState, useRef, useCallback, useEffect, Suspense } from 'react'
+import Dockstar, { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
+import PlayerOverlay from './PlayerOverlay'
+import type { PlayerPixel } from './PlayerOverlay'
+import IdeaSubspace from './IdeaSubspace'
+import BookmarkSidebar from './BookmarkSidebar'
+import { getSubspace } from './subspace-data'
 
-type ActionTab = 'list' | 'submit' | 'vote' | 'created'
+// ── MOCK PLAYERS — each has an instance + optional dockedTo for dock point presence ──
+const MOCK_PLAYERS: PlayerPixel[] = [
+  // Players browsing the list
+  { id: 'p1', name: 'citizen_pdx', color: '#34d399', x: 280, y: 320, instance: 'list' },
+  { id: 'p2', name: 'urbanplanner', color: '#a78bfa', x: 350, y: 580, instance: 'list', dockedTo: '2' },
+  { id: 'p4', name: 'fiscal_hawk', color: '#f472b6', x: 200, y: 720, instance: 'list', dockedTo: '1' },
+  // Players docked into specific posts (inside detail view)
+  { id: 'p3', name: 'safety_first', color: '#f97316', x: 310, y: 450, instance: '1', dockedTo: 'idea:i1' },
+  { id: 'p5', name: 'bike_commuter', color: '#38bdf8', x: 340, y: 500, instance: '1', dockedTo: 'idea:i4' },
+]
 
-type Chant = {
+// ── MOCK DATA ──
+
+interface MockComment {
+  id: string
+  author: string
+  text: string
+  time: string
+  upvotes: number
+  isUpPollinated?: boolean
+}
+
+interface MockIdea {
+  id: string
+  text: string
+  author: string
+  xp: number
+  votes: number
+  comments: MockComment[]
+}
+
+interface MockCell {
+  id: string
+  number: number
+  tier: number
+  ideas: MockIdea[]
+}
+
+interface MockGroupMessage {
+  id: string
+  author: string
+  text: string
+  time: string
+}
+
+interface MockChant {
   id: string
   question: string
-  description: string | null
-  phase: string
-  isPublic: boolean
-  isPinned?: boolean
-  upvoteCount?: number
-  userHasUpvoted?: boolean
-  continuousFlow: boolean
-  allowAI: boolean
-  tags: string[]
-  voteCount?: number
-  currentTier: number
-  viewerCount?: number
+  phase: 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING'
+  tier: number
+  participants: number
+  ideas: number
+  cells: number
+  upvotes: number
+  community: string
+  creator: string
   createdAt: string
-  creatorId?: string
-  creator?: { name: string | null }
-  champion?: { text: string } | null
-  _count: { members: number; ideas: number }
-  userStatus?: {
-    isMember: boolean
-    hasSubmittedIdea: boolean
-    hasVotedInCurrentTier: boolean
-    isInActiveCell: boolean
+  duration?: string
+  champion?: { text: string; author: string }
+  topIdeas?: { id: string; text: string; author: string; tier: number; xp: number; groupChat?: MockGroupMessage[] }[]
+  mockCell?: MockCell
+  isCreator?: boolean
+}
+
+const MOCK_COMMUNITIES = ['All', 'Portland Gov', 'Austin TX', 'Workers Union 503', 'UC Berkeley']
+
+const MOCK_COMMENTS: MockComment[] = [
+  { id: 'c1', author: 'citizen_pdx', text: 'Schools built before 1970 are the biggest risk. This directly saves lives.', time: '2h ago', upvotes: 47 },
+  { id: 'c2', author: 'urbanplanner', text: 'The cost-benefit analysis strongly favors this. Every $1 in seismic retrofit saves $4 in expected losses.', time: '4h ago', upvotes: 31, isUpPollinated: true },
+  { id: 'c3', author: 'parent_of_3', text: 'My kids go to Buckman Elementary. The building is from 1925. I lose sleep over this.', time: '6h ago', upvotes: 28 },
+  { id: 'c4', author: 'fiscal_hawk', text: 'Where is the detailed cost breakdown? $50M may not cover all schools.', time: '3h ago', upvotes: 19 },
+  { id: 'c5', author: 'ne_resident', text: 'What about the emergency shelters? Some of those are in worse shape than the schools.', time: '5h ago', upvotes: 14 },
+]
+
+const MOCK_CELL: MockCell = {
+  id: 'cell-847',
+  number: 847,
+  tier: 3,
+  ideas: [
+    { id: 'i1', text: 'Seismic retrofit of public schools and emergency shelters', author: 'safety_first', xp: 0, votes: 0, comments: [MOCK_COMMENTS[0], MOCK_COMMENTS[1], MOCK_COMMENTS[2]] },
+    { id: 'i2', text: 'Repair and expand the stormwater drainage system in East Portland', author: 'waterworks_pdx', xp: 0, votes: 0, comments: [
+      { id: 'c6', author: 'flood_victim', text: 'Division St floods every winter. This would actually fix it.', time: '1h ago', upvotes: 12 },
+      { id: 'c7', author: 'engineer42', text: 'The current system is 60 years old. Patching it costs more than replacing.', time: '3h ago', upvotes: 8 },
+    ]},
+    { id: 'i3', text: 'Build protected bike lane network connecting all neighborhoods', author: 'bike_commuter', xp: 0, votes: 0, comments: [
+      { id: 'c8', author: 'daily_rider', text: 'Hawthorne to downtown is terrifying. Protected lanes save lives.', time: '2h ago', upvotes: 9 },
+    ]},
+    { id: 'i4', text: 'Upgrade aging water mains to prevent lead contamination', author: 'clean_water', xp: 0, votes: 0, comments: [
+      { id: 'c9', author: 'health_dept', text: 'Lead pipe inventory shows 12,000 service lines need replacement.', time: '4h ago', upvotes: 15 },
+      { id: 'c10', author: 'parent_of_3', text: 'We had lead in our water last year. My daughter was tested. This is urgent.', time: '5h ago', upvotes: 22 },
+    ]},
+    { id: 'i5', text: 'Install solar panels on all city-owned buildings', author: 'green_future', xp: 0, votes: 0, comments: [
+      { id: 'c11', author: 'budget_guy', text: 'ROI on municipal solar is 7-10 years. Long-term savings are real.', time: '3h ago', upvotes: 6 },
+    ]},
+  ],
+}
+
+const MOCK_CHANTS: MockChant[] = [
+  // VOTING — active cell with XP allocation
+  { id: '1', question: 'What should Portland allocate its $50M infrastructure bond to?', phase: 'VOTING', tier: 3, participants: 2847, ideas: 11203, cells: 569, upvotes: 342, community: 'Portland Gov', creator: 'Mayor Wheeler', createdAt: '9d', mockCell: MOCK_CELL },
+  // SUBMISSION — collecting ideas
+  { id: '2', question: 'How should we reform the residential zoning code to address housing affordability?', phase: 'SUBMISSION', tier: 0, participants: 1203, ideas: 890, cells: 0, upvotes: 218, community: 'Portland Gov', creator: 'Planning Bureau', createdAt: '3d', topIdeas: [
+    { id: 's1', text: 'Allow fourplexes in all residential zones', author: 'housing_advocate', tier: 0, xp: 0 },
+    { id: 's2', text: 'Require 20% affordable units in new developments', author: 'equity_first', tier: 0, xp: 0 },
+    { id: 's3', text: 'Tax vacant lots to incentivize building', author: 'land_use_nerd', tier: 0, xp: 0 },
+    { id: 's4', text: 'Streamline permitting for ADUs', author: 'backyard_builder', tier: 0, xp: 0 },
+  ]},
+  // COMPLETED — decided with champion + group chats
+  { id: '4', question: 'How should we prioritize park maintenance with the reduced budget?', phase: 'COMPLETED', tier: 4, participants: 3200, ideas: 2100, cells: 640, upvotes: 567, community: 'Portland Gov', creator: 'Parks Dept', createdAt: '21d', duration: '11 days', champion: { text: 'Restore community gardens and convert unused lots to green space', author: 'garden_collective' }, topIdeas: [
+    { id: 'p1', text: 'Restore community gardens and convert unused lots to green space', author: 'garden_collective', tier: 4, xp: 847, groupChat: [
+      { id: 'g1', author: 'garden_collective', text: 'The city identified 23 vacant lots in East Portland alone. Lets coordinate which ones to target first.', time: '2h ago' },
+      { id: 'g2', author: 'parks_volunteer', text: 'Lents Park community garden has a waitlist of 40 families. We need more plots.', time: '1h ago' },
+      { id: 'g3', author: 'urban_farmer', text: 'Has anyone connected with the Bureau of Environmental Services? They have composting grants.', time: '45m ago' },
+      { id: 'g4', author: 'ne_gardener', text: 'Im organizing a seed swap at Woodstock Park next Saturday. All welcome.', time: '20m ago' },
+    ]},
+    { id: 'p2', text: 'Fix playground equipment in underserved neighborhoods first', author: 'equity_parks', tier: 4, xp: 623, groupChat: [
+      { id: 'g5', author: 'equity_parks', text: 'Mapped all playgrounds with safety violations — 14 in East Portland, 3 in St Johns.', time: '5h ago' },
+      { id: 'g6', author: 'parent_coalition', text: 'Lents Park swingset has been broken since September. Kids deserve better.', time: '3h ago' },
+      { id: 'g7', author: 'parks_board', text: 'Budget memo going to council next Tuesday. Speak at public comment if you can.', time: '1h ago' },
+    ]},
+    { id: 'p3', text: 'Plant 10,000 native trees for urban canopy', author: 'tree_hugger', tier: 3, xp: 412, groupChat: [
+      { id: 'g8', author: 'tree_hugger', text: 'Friends of Trees has capacity for 3,000 plantings this season. Who else can help scale?', time: '8h ago' },
+      { id: 'g9', author: 'urban_forestry', text: 'Priority zones: areas with less than 15% canopy coverage. See the city heat map.', time: '4h ago' },
+    ]},
+  ]},
+  // MANAGE — creator's own chant in submission phase
+  { id: '5', question: 'What improvements should we make to the school lunch program?', phase: 'SUBMISSION', tier: 0, participants: 87, ideas: 42, cells: 0, upvotes: 31, community: 'Portland Gov', creator: 'You', createdAt: '1d', isCreator: true, topIdeas: [
+    { id: 'm1', text: 'Source ingredients from local farms within 50 miles', author: 'farm_to_school', tier: 0, xp: 0 },
+    { id: 'm2', text: 'Eliminate all processed foods and added sugars', author: 'health_parent', tier: 0, xp: 0 },
+    { id: 'm3', text: 'Free lunch for all students regardless of income', author: 'equity_now', tier: 0, xp: 0 },
+  ]},
+  // ACCUMULATING — challenging the champion
+  { id: '7', question: 'How should the university invest its $2M sustainability fund?', phase: 'ACCUMULATING', tier: 5, participants: 560, ideas: 430, cells: 112, upvotes: 203, community: 'UC Berkeley', creator: 'Student Senate', createdAt: '14d', champion: { text: 'Campus-wide composting program with student employment', author: 'zero_waste_cal' } },
+]
+
+// ── NAV ITEMS (bottom bar drop spots) ──
+
+const NAV_ITEMS = [
+  { id: '__nav_chants__', label: 'Chants', href: '/chants', icon: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+    </svg>
+  )},
+  { id: '__nav_podiums__', label: 'Podiums', href: '/podiums', icon: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
+    </svg>
+  )},
+  { id: '__nav_groups__', label: 'Groups', href: '/groups', icon: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+    </svg>
+  )},
+  { id: '__nav_how__', label: 'How', href: '/how', icon: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+    </svg>
+  )},
+  { id: '__nav_search__', label: 'Search', href: '#search', icon: (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+    </svg>
+  )},
+]
+
+// ── HELPERS ──
+
+function phaseBadge(phase: string, tier: number) {
+  switch (phase) {
+    case 'VOTING': return { label: 'VOTING', sublabel: tier > 0 ? `T${tier}` : '', color: 'bg-warning/15 text-warning border-warning/30' }
+    case 'SUBMISSION': return { label: 'IDEAS', sublabel: '', color: 'bg-accent/15 text-accent border-accent/30' }
+    case 'COMPLETED': return { label: 'DECIDED', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
+    case 'ACCUMULATING': return { label: 'CHALLENGING', sublabel: '', color: 'bg-purple/15 text-purple border-purple/30' }
+    default: return { label: phase, sublabel: '', color: 'bg-surface text-muted border-border' }
   }
 }
 
-export default function ChantsPageWrapper() {
+function fmt(n: number): string {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
+  return n.toString()
+}
+
+// ── CREATE DROP ZONE — orb-sized circle, drop target + tappable ──
+
+function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onClick, glowDrag }: { id: string; isActive: boolean; isDocked?: boolean; userInitial?: string; registerRef: (id: string, el: HTMLElement | null) => void; onClick: () => void; glowDrag: boolean }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    registerRef(id, ref.current)
+    return () => registerRef(id, null)
+  }, [id, registerRef])
   return (
-    <Suspense fallback={<div className="flex items-center justify-center py-20"><div className="text-muted text-sm animate-pulse">Loading...</div></div>}>
-      <ChantsPage />
-    </Suspense>
+    <div
+      ref={ref}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); (document.activeElement as HTMLElement)?.blur(); onClick() }}
+      className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer select-none transition-all duration-200 ${isDocked ? 'bg-accent border-accent text-header shadow-[0_0_12px_rgba(34,211,238,0.4)]' : isActive ? 'border-accent bg-accent/20 text-accent scale-110 shadow-[0_0_12px_rgba(34,211,238,0.4)]' : glowDrag ? 'border-[#f59e0b]/60 bg-[#f59e0b]/10 text-[#f59e0b] shadow-[0_0_8px_rgba(245,158,11,0.3)]' : 'border-accent/50 bg-transparent text-accent hover:border-accent hover:bg-accent/10'}`}
+    >
+      {isDocked ? (
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      ) : (
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+      )}
+    </div>
   )
 }
 
-function ChantsPage() {
-  const { data: session, status } = useSession()
-  const router = useRouter()
-  const searchParams = useSearchParams()
+// ── MAIN PAGE ──
 
-  const [chants, setChants] = useState<Chant[]>([])
-  const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<ActionTab>('list')
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [userFetchError, setUserFetchError] = useState<string | null>(null)
-  const [tagInputs, setTagInputs] = useState<Record<string, string>>({})
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const carouselRef = useRef<HTMLDivElement>(null)
-  const [showSwipeHint, setShowSwipeHint] = useState(() => {
-    if (typeof window !== 'undefined') return !localStorage.getItem('hasSeenSwipeHint')
-    return true
-  })
-  const [showSubmitHelpGlobal, setShowSubmitHelpGlobal] = useState(() => {
-    if (typeof window !== 'undefined') return !localStorage.getItem('hasSeenSubmitHelp')
-    return false
-  })
-  const handleDismissSubmitHelpGlobal = () => {
-    localStorage.setItem('hasSeenSubmitHelp', 'true')
-    setShowSubmitHelpGlobal(false)
-  }
-
-  // Create form state
-  const [showCreate, setShowCreate] = useState(false)
-  const [question, setQuestion] = useState('')
+function ChantsPageContent() {
+  // ── Feed state ──
+  const [dockedPostId, setDockedPostId] = useState<string | null>(null)
+  const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
+  const [selectedCommunity, setSelectedCommunity] = useState('All')
+  const [sortBy, setSortBy] = useState<'hot' | 'new' | 'top'>('hot')
+  const [showCommunityViewer, setShowCommunityViewer] = useState(false)
+  const [xpAllocations, setXpAllocations] = useState<Record<string, Record<string, number>>>({})
+  const [nearestDrop, setNearestDrop] = useState<string | null>(null)
+  const [isDraggingDockstar, setIsDraggingDockstar] = useState(false)
+  const [scrollY, setScrollY] = useState(0)
+  const [linkCopied, setLinkCopied] = useState<string | null>(null)
+  const [dockedPostVisible, setDockedPostVisible] = useState(true)
+  const [selfPixelPos, setSelfPixelPos] = useState<{ x: number; y: number } | null>(null)
+  const [flashDocks, setFlashDocks] = useState(false)
+  const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [tetherPoints, setTetherPoints] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const [externalDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [undockingAnim, setUndockingAnim] = useState(false)
+  // pendingDock removed — drag-and-drop auto-confirms
+  const [pendingInput, setPendingInput] = useState<string>('')
+  const [pendingInputType, setPendingInputType] = useState<'comment' | 'idea' | 'chat' | 'challenge' | null>(null)
+  const [pendingDockContext, setPendingDockContext] = useState<{ postId: string; ideaId: string | null } | null>(null)
+  const [pendingInputTargetId, setPendingInputTargetId] = useState<string | null>(null)
+  // Footer pinned (toggled by clicking dockstar at home)
+  const [footerPinned, setFooterPinned] = useState(false)
+  // Create mode
+  const [createMode, setCreateMode] = useState(false)
+  const [createQuestion, setCreateQuestion] = useState('')
   const [createDescription, setCreateDescription] = useState('')
-  const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
-  const [showConfirmation, setShowConfirmation] = useState(false)
+  const [creating, setCreating] = useState(false)
+  // Subspace state
+  const [activeSubspaceId, setActiveSubspaceId] = useState<string | null>(null)
+  const [bookmarks, setBookmarks] = useState<string[]>([])
 
-  // Fetch current user ID
+  const dropZoneRefs = useRef<Map<string, HTMLElement>>(new Map())
+
+  // Active dock target — idea DropCircle if docked to idea, else chant DropCircle
+  // Hide dockstar orb when docked to create (CreateDropZone shows X instead)
+  const activeDockTarget = dockedPostId === '__create_chant__' ? '__create_chant__' : dockedIdeaId ? `idea:${dockedIdeaId}` : dockedPostId
+
+  // Track scroll — updates player pixel position (scrolling moves pixel down)
+  // + docked target visibility
   useEffect(() => {
-    if (session?.user?.email) {
-      setUserFetchError(null)
-      fetch('/api/user/me')
-        .then(res => {
-          if (!res.ok) {
-            return res.text().then(text => {
-              throw new Error(`HTTP ${res.status}: ${text}`)
-            })
-          }
-          return res.json()
-        })
-        .then(data => {
-          console.log('Fetched user:', data)
-          if (data.user?.id) {
-            setUserId(data.user.id)
-          } else {
-            setUserFetchError('User data missing ID')
-          }
-        })
-        .catch(err => {
-          console.error('Failed to fetch userId:', err)
-          setUserFetchError(err.message)
-        })
-    } else {
-      setUserId(null)
-      setUserFetchError(null)
-    }
-  }, [session])
-
-  const fetchChants = useCallback(async () => {
-    try {
-      const res = await fetch('/api/deliberations')
-      if (res.ok) {
-        const data = await res.json()
-        if (Array.isArray(data)) {
-          const seen = new Set<string>()
-          setChants(data.filter((c: Chant) => seen.has(c.id) ? false : (seen.add(c.id), true)))
+    const onScroll = () => {
+      const sy = window.scrollY
+      setScrollY(sy)
+      // Check if the active dock target's DropCircle is on screen
+      const target = dockedIdeaId ? `idea:${dockedIdeaId}` : dockedPostId
+      if (target) {
+        const el = dropZoneRefs.current.get(target)
+        if (el) {
+          const rect = el.getBoundingClientRect()
+          const visible = rect.top > -20 && rect.bottom < window.innerHeight + 20
+          setDockedPostVisible(visible)
         }
       }
-    } catch {
-      // silent
-    } finally {
-      setLoading(false)
     }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [dockedPostId, dockedIdeaId])
+
+  // Initialize self pixel at center of viewport
+  useEffect(() => {
+    setSelfPixelPos({ x: window.innerWidth / 2, y: window.innerHeight / 2 + window.scrollY })
   }, [])
 
+  // Track tether line from sidebar orb to docked idea's DropCircle
   useEffect(() => {
-    fetchChants()
-    const interval = setInterval(fetchChants, 15000)
-    return () => clearInterval(interval)
-  }, [fetchChants])
-
-  // Add tag handler
-  const handleAddTag = async (chantId: string) => {
-    const tagValue = tagInputs[chantId]?.trim()
-    if (!tagValue) return
-
-    try {
-      const res = await fetch(`/api/deliberations/${chantId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tags: { add: tagValue }
-        })
+    if (!dockedIdeaId) { setTetherPoints(null); return }
+    const el = dropZoneRefs.current.get(`idea:${dockedIdeaId}`)
+    if (el) {
+      const rect = el.getBoundingClientRect()
+      setTetherPoints({
+        x1: window.innerWidth - 20,
+        y1: 26,
+        x2: rect.left + rect.width / 2,
+        y2: rect.top + rect.height / 2,
       })
-
-      if (res.ok) {
-        // Clear input
-        setTagInputs(prev => ({ ...prev, [chantId]: '' }))
-        // Refresh chants
-        fetchChants()
-      }
-    } catch (err) {
-      console.error('Failed to add tag:', err)
+    } else {
+      setTetherPoints(null)
     }
-  }
+  }, [dockedIdeaId, scrollY])
 
-  // Create form handlers
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!question.trim() || question.trim().length < 2) {
-      setCreateError('Question must be at least 2 characters')
+  // Page tap — place pixel + flash docks on miss
+  const handlePageClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement
+    const isForm = target.closest('input, textarea, select')
+    if (isForm) return
+
+    // Place self pixel at tap location only when NOT docked (dockstar stays pinned when docked)
+    if (!dockedPostId) {
+      setSelfPixelPos({ x: e.clientX, y: e.clientY + window.scrollY })
+    }
+
+    // Flash docks gold if tap missed dockpoint/dockstar/interactive
+    const isDockTarget = target.closest('[data-dockstar], [data-dockpoint]')
+    const isInteractive = target.closest('button, a, [data-interactive]')
+    if (!isDockTarget && !isInteractive) {
+      setFlashDocks(true)
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
+      flashTimeoutRef.current = setTimeout(() => setFlashDocks(false), 600)
+    }
+  }, [dockedPostId])
+
+  // Share link for docked chant — slug-style URL from chant title
+  const handleShareLink = useCallback((chant: MockChant) => {
+    const slug = chant.question
+      .replace(/[^a-zA-Z0-9\s]/g, '')
+      .trim()
+      .replace(/\s+/g, '-')
+      .slice(0, 60)
+      .replace(/-$/, '')
+    const url = `${window.location.origin}/chants/${slug}`
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(chant.id)
+      setTimeout(() => setLinkCopied(null), 2000)
+    })
+  }, [])
+
+  // ── Feed handlers ──
+  const registerDropZone = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) dropZoneRefs.current.set(id, el)
+    else dropZoneRefs.current.delete(id)
+  }, [])
+
+  const handleDock = useCallback((id: string) => {
+    setFooterPinned(false)
+    // Warn if leaving unsaved work for a different dock target
+    if (dockedPostId && id !== dockedPostId && !id.startsWith('idea:')) {
+      const hasUnsavedText = pendingInput.trim().length > 0
+      const hasUnsavedCreate = createMode && createQuestion.trim().length > 0
+      const hasUnsavedVotes = dockedPostId !== '__create_chant__' && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
+      if ((hasUnsavedText || hasUnsavedCreate || hasUnsavedVotes) && !window.confirm('You have unsubmitted work. Leave and discard?')) return
+    }
+    if (id === '__create_chant__') {
+      setDockedPostId('__create_chant__')
+      setDockedIdeaId(null)
+      setCreateMode(true)
+      setCreateQuestion('')
+      setCreateDescription('')
+      setCreateError('')
       return
     }
-    setShowConfirmation(true)
-  }
+    if (id.startsWith('__nav_')) {
+      // Undock from current position before navigating
+      setDockedPostId(null)
+      setDockedIdeaId(null)
+      setXpAllocations({})
+      setPendingInput('')
+      setPendingInputType(null)
+      const nav = NAV_ITEMS.find(n => n.id === id)
+      if (nav) {
+        if (nav.href === '#search') {
+          setShowCommunityViewer(true)
+        } else if (nav.href !== '/chants') {
+          window.location.href = nav.href
+        }
+      }
+      return
+    }
+    // Bookmark dock — bookmark + enter subspace
+    if (id.startsWith('bookmark:')) {
+      const ideaId = id.slice(9)
+      setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId])
+      enterSubspace(ideaId)
+      return
+    }
+    // Idea-level dock (drag-dropped onto an idea DropCircle)
+    if (id.startsWith('idea:')) {
+      setDockedIdeaId(id.slice(5))
+      setDockedPostVisible(true)
+      // Prevent comment input from auto-focusing
+      requestAnimationFrame(() => (document.activeElement as HTMLElement)?.blur())
+      return
+    }
+    // Chant-level dock — scroll to top
+    setCreateMode(false)
+    setDockedPostId(id)
+    setDockedIdeaId(null)
+    setDockedPostVisible(true)
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`chant-${id}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [])
 
-  const handleConfirmedCreate = async () => {
-    setShowConfirmation(false)
+  const handleUndock = useCallback(() => {
+    if (dockedPostId) {
+      // Warn if unsaved work
+      const hasUnsavedText = pendingInput.trim().length > 0
+      const hasUnsavedCreate = createMode && createQuestion.trim().length > 0
+      const hasUnsavedVotes = dockedPostId !== '__create_chant__' && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
+      if (hasUnsavedText || hasUnsavedCreate || hasUnsavedVotes) {
+        if (!window.confirm('You have unsubmitted work. Leave and discard?')) return
+      }
+      setUndockingAnim(true)
+      setActiveSubspaceId(null)
+      setTimeout(() => {
+        setDockedPostId(null)
+        setDockedIdeaId(null)
+        setXpAllocations({})
+        setPendingInput('')
+        setPendingInputType(null)
+        setCreateMode(false)
+        setUndockingAnim(false)
+      }, 200)
+    } else {
+      // Not docked — toggle footer
+      setFooterPinned(prev => !prev)
+    }
+  }, [dockedPostId, pendingInput, createMode, createQuestion, xpAllocations])
+
+  const handleCreateSubmit = useCallback(async () => {
+    const q = createQuestion.trim()
+    if (!q || q.length < 2) { setCreateError('Question must be at least 2 characters'); return }
     setCreating(true)
     setCreateError('')
-
     try {
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: question.trim(),
-          description: createDescription.trim() || undefined,
-        }),
+        body: JSON.stringify({ question: q, description: createDescription.trim() || undefined }),
       })
-
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to create chant')
+        const data = await res.json().catch(() => ({}))
+        setCreateError(data.error || 'Failed to create chant')
+        return
       }
-
-      const data = await res.json()
-
-      // Reset form and close
-      setQuestion('')
+      const delib = await res.json()
+      setCreateMode(false)
+      setCreateQuestion('')
       setCreateDescription('')
-      setShowCreate(false)
-
-      // Navigate to new chant
-      router.push(`/chants/${data.id}`)
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : 'Unknown error')
+      // Dock into the newly created chant — for now navigate to it
+      window.location.href = `/chants/${delib.id}`
+    } catch {
+      setCreateError('Network error')
     } finally {
       setCreating(false)
     }
-  }
+  }, [createQuestion, createDescription])
 
-  // Categorize chants by action needed
-  const categorizedChants = {
-    list: [...chants].sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    ),
-    submit: chants.filter(c =>
-      c.phase === 'SUBMISSION' &&
-      (!c.userStatus?.hasSubmittedIdea || !c.userStatus?.isMember)
-    ),
-    vote: chants.filter(c =>
-      c.phase === 'VOTING' &&
-      c.userStatus?.isInActiveCell &&
-      !c.userStatus?.hasVotedInCurrentTier
-    ),
-    created: userId ? chants.filter(c => c.creatorId && c.creatorId === userId).sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    ) : [], // Chants created by user, newest first
-  }
+  const handleDragState = useCallback((dragging: boolean, nearest: string | null) => {
+    setIsDraggingDockstar(dragging)
+    setNearestDrop(nearest)
+  }, [])
 
-  // Always start on All tab — no auto-selection
 
-  const currentChants = categorizedChants[activeTab]
+  const handleXpChange = useCallback((chantId: string, ideaId: string, value: number) => {
+    setXpAllocations(prev => {
+      const current = prev[chantId] || {}
+      const othersTotal = Object.entries(current).filter(([k]) => k !== ideaId).reduce((s, [, v]) => s + v, 0)
+      const capped = Math.min(value, 10 - othersTotal)
+      return { ...prev, [chantId]: { ...current, [ideaId]: Math.max(0, capped) } }
+    })
+  }, [])
 
-  const scrollTo = (index: number) => {
-    if (!carouselRef.current) return
-    const card = carouselRef.current.children[index] as HTMLElement
-    if (card) {
-      card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
-      setCurrentIndex(index)
+  const handleTextInput = useCallback((value: string, type: 'comment' | 'idea' | 'chat' | 'challenge', targetId: string) => {
+    setPendingInput(value)
+    setPendingInputType(type)
+    setPendingInputTargetId(targetId)
+    if (value.trim().length > 0) {
+      setPendingDockContext(prev => prev || { postId: dockedPostId!, ideaId: dockedIdeaId })
     }
+  }, [dockedPostId, dockedIdeaId])
+
+  // ── SUBSPACE ──
+  const enterSubspace = useCallback((ideaId: string) => {
+    setActiveSubspaceId(ideaId)
+    setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId])
+  }, [])
+
+  const exitSubspace = useCallback(() => {
+    setActiveSubspaceId(null)
+  }, [])
+
+  const filteredChants = MOCK_CHANTS
+    .filter(c => selectedCommunity === 'All' || c.community === selectedCommunity)
+    .sort((a, b) => {
+      if (sortBy === 'top') return b.upvotes - a.upvotes
+      if (sortBy === 'new') return 0
+      return (b.upvotes + b.participants) - (a.upvotes + a.participants)
+    })
+
+  const getXpTotal = (chantId: string) => {
+    const alloc = xpAllocations[chantId] || {}
+    return Object.values(alloc).reduce((s, v) => s + v, 0)
   }
 
   return (
-    <>
-      <FrameLayout
-        active="chants"
-        scrollRef={!showCreate ? scrollRef : undefined}
-        contentClassName="h-full"
-        onBack={showCreate ? () => { setShowCreate(false); setQuestion(''); setCreateDescription(''); setCreateError(''); setShowConfirmation(false) } : undefined}
-        header={!showCreate ? (
-          <>
-            {status !== 'loading' && !session && <AnonymousBanner />}
-            <div className="space-y-2 pb-3">
-              {/* Action tabs */}
-              <div className="flex gap-1.5 overflow-x-auto">
-                {(['list', 'submit', 'vote', 'created'] as const).map(tab => {
-                  const count = categorizedChants[tab].length
-                  const label = tab === 'list' ? 'All' : tab === 'submit' ? 'Submit and Chat' : tab === 'vote' ? 'Vote and Discuss' : tab
-                  return (
-                    <button
-                      key={tab}
-                      onClick={() => {
-                        setActiveTab(tab)
-                        setCurrentIndex(0)
-                      }}
-                      className={`px-2.5 py-1 text-xs rounded-lg whitespace-nowrap transition-colors ${
-                        activeTab === tab
-                          ? 'bg-accent/15 text-accent font-medium'
-                          : 'text-muted hover:text-foreground hover:bg-surface/80'
-                      }`}
-                    >
-                      <span className="capitalize">{label}</span>
-                      {count > 0 && (
-                        <span className="ml-1 text-muted/50 text-[10px]">{count}</span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
+    <DockstarGlowContext.Provider value={{ nearestDrop, isDragging: isDraggingDockstar }}>
+      {/* ═══ BOOKMARK SIDEBAR — left edge ═══ */}
+      <BookmarkSidebar
+        bookmarks={bookmarks}
+        activeSubspaceId={activeSubspaceId}
+        onNavigate={enterSubspace}
+        onRemove={(id) => setBookmarks(prev => prev.filter(b => b !== id))}
+      />
 
-              {/* Carousel navigation dots */}
-              {currentChants.length > 1 && (
-                <div className="flex items-center justify-center gap-1.5">
-                  {currentChants.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => scrollTo(i)}
-                      className={`h-1.5 rounded-full transition-all ${
-                        i === currentIndex
-                          ? 'w-6 bg-accent'
-                          : 'w-1.5 bg-muted/30 hover:bg-muted/50'
-                      }`}
-                      aria-label={`Go to chant ${i + 1}`}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        ) : undefined}
-        footerRight={session ? (
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="flex items-center gap-1.5 px-3 h-9 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm transition-all shrink-0"
-          >
-            <span className="text-sm font-semibold">Begin</span>
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-        ) : (
-          <a
-            href="/auth/signin?callbackUrl=/chants"
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-accent hover:bg-accent-hover text-white shadow-sm flex items-center justify-center transition-all shrink-0"
-          >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-            </svg>
-          </a>
-        )}
+      <div
+        className="min-h-screen bg-background text-foreground cursor-none"
+        style={{ marginLeft: bookmarks.length > 0 ? '36px' : undefined }}
+        onClick={handlePageClick}
+        onPointerMove={(e) => setSelfPixelPos({ x: e.clientX, y: e.clientY + window.scrollY })}
       >
-        {showCreate ? (
-          /* Create chant form */
-          <div className="h-full overflow-y-auto px-4 pb-4">
-            <form onSubmit={handleCreate} className="max-w-2xl mx-auto pt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Question
-                </label>
+        {/* ═══ DOCKSTAR ORB ═══ */}
+        <Dockstar
+          userInitial="G"
+          dockedPostId={activeDockTarget}
+          dropZoneRefs={dropZoneRefs}
+          onDock={handleDock}
+          onUndock={handleUndock}
+          onUndockIdea={() => setDockedIdeaId(null)}
+          onDragStateChange={handleDragState}
+          flashDocks={flashDocks}
+          externalDragStart={externalDragStart}
+          onExternalDragHandled={() => {}}
+        />
+
+        {/* ═══ PLAYER OVERLAY — filtered to current instance ═══ */}
+        <PlayerOverlay
+          players={[
+            ...MOCK_PLAYERS.filter(p => p.instance === (dockedPostId || 'list')),
+            ...(selfPixelPos ? [{ id: 'self', name: 'You', color: '#22d3ee', x: selfPixelPos.x, y: selfPixelPos.y }] : []),
+          ]}
+          scrollY={scrollY}
+        />
+
+        {/* ═══ TOP BAR — always visible, masks list ═══ */}
+        <div className={`fixed top-0 left-0 z-[60] bg-header/95 backdrop-blur-sm border-b border-border/30 transition-all duration-300 ${dockedPostId && dockedPostId !== '__create_chant__' ? 'right-12' : 'right-0'}`}>
+          <div className="px-3 py-3 flex items-center gap-2">
+            {(!dockedPostId || dockedPostId === '__create_chant__') && (
+              <CreateDropZone
+                id="__create_chant__"
+                isActive={isDraggingDockstar && nearestDrop === '__create_chant__'}
+                isDocked={createMode}
+                userInitial="G"
+                registerRef={registerDropZone}
+                onClick={() => createMode ? handleUndock() : handleDock('__create_chant__')}
+                glowDrag={isDraggingDockstar && nearestDrop !== '__create_chant__'}
+              />
+            )}
+            {dockedPostId && dockedPostId !== '__create_chant__' ? (
+              <h2 className={`flex-1 text-xs font-serif text-foreground/80 truncate transition-all duration-300 ${undockingAnim ? '-translate-x-full opacity-0' : ''}`}>
+                {MOCK_CHANTS.find(c => c.id === dockedPostId)?.question}
+              </h2>
+            ) : (
+              <h2 className="flex-1 text-xs font-serif text-foreground/80">{createMode ? 'New Chant' : 'Create'}</h2>
+            )}
+          </div>
+          {/* ── INLINE CREATE FORM ── */}
+          <div className={`overflow-hidden transition-all duration-300 ease-out ${createMode ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className="px-3 pb-3 space-y-3">
+              <div className="relative">
                 <input
                   type="text"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                  placeholder="What question should we deliberate?"
-                  className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
+                  value={createQuestion}
+                  onChange={e => { setCreateQuestion(e.target.value); setCreateError('') }}
+                  placeholder="What should we deliberate?"
+                  className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all"
                   disabled={creating}
+                  autoFocus={createMode}
                 />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">
-                  Description (optional)
-                </label>
-                <textarea
-                  value={createDescription}
-                  onChange={(e) => setCreateDescription(e.target.value)}
-                  placeholder="Provide context or background information..."
-                  rows={4}
-                  className="w-full px-4 py-3 bg-surface border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors resize-none"
-                  disabled={creating}
-                />
-              </div>
-
-              {createError && (
-                <div className="p-3 bg-error/10 border border-error/20 rounded-lg">
-                  <p className="text-sm text-error">{createError}</p>
+                <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${createQuestion.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
+                  <svg className={`w-3 h-3 transition-colors ${createQuestion.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" /></svg>
                 </div>
+              </div>
+              <textarea
+                value={createDescription}
+                onChange={e => setCreateDescription(e.target.value)}
+                placeholder="Add context (optional)"
+                rows={2}
+                className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all resize-none"
+                disabled={creating}
+              />
+              {createError && (
+                <p className="text-xs text-error font-mono">{createError}</p>
               )}
+            </div>
+          </div>
+        </div>
 
+        {/* ═══ DOCKED RIGHT BAR — permanent sidebar (orb is in Dockstar component) ═══ */}
+        {dockedPostId && (() => {
+          const docked = MOCK_CHANTS.find(c => c.id === dockedPostId)
+          if (!docked) return null
+          const badge = phaseBadge(docked.phase, docked.tier)
+          return (
+            <div className="fixed top-0 right-0 bottom-0 z-[70] w-12 bg-header border-l border-border/30 flex flex-col items-center py-2 gap-3 pointer-events-none">
+              {/* Spacer for Dockstar orb (rendered by Dockstar component at z-[9999]) */}
+              <div className="w-10 h-10 shrink-0" />
+
+              {/* Phase badge — vertical */}
+              <span className={`inline-flex items-center px-1 py-0.5 rounded border text-[8px] font-mono pointer-events-auto ${badge.color}`} style={{ writingMode: 'vertical-lr', textOrientation: 'mixed' }}>
+                {badge.label}
+              </span>
+
+              {/* Undock button (X) */}
               <button
-                type="submit"
-                disabled={creating || !question.trim()}
-                className="w-full py-3 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                onClick={handleUndock}
+                data-interactive
+                className="w-6 h-6 rounded flex items-center justify-center text-muted-light hover:text-error hover:bg-white/10 transition-colors pointer-events-auto"
+                title="Deselect"
               >
-                {creating ? 'Creating...' : 'Create Chant'}
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
-            </form>
+            </div>
+          )
+        })()}
 
-            {/* Confirmation Dialog */}
-            {showConfirmation && typeof window !== 'undefined' && createPortal(
-              <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50" onClick={() => setShowConfirmation(false)}>
-                <div className="bg-surface border border-border rounded-lg p-6 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
-                  <h3 className="text-lg font-bold text-foreground mb-4">Confirm Chant Creation</h3>
+        {/* ═══ TETHER LINE — sidebar orb to docked idea ═══ */}
+        {tetherPoints && (
+          <svg className="fixed inset-0 z-[65] pointer-events-none" style={{ width: '100vw', height: '100vh' }}>
+            <line
+              x1={tetherPoints.x1} y1={tetherPoints.y1}
+              x2={tetherPoints.x2} y2={tetherPoints.y2}
+              stroke="rgba(34,211,238,0.2)"
+              strokeWidth={1.5}
+              strokeDasharray="6 3"
+            />
+          </svg>
+        )}
 
-                  <div className="space-y-3 mb-6">
-                    <div>
-                      <p className="text-xs font-semibold text-muted mb-1">Question:</p>
-                      <p className="text-sm text-foreground">{question}</p>
-                    </div>
+        {/* ── Top spacer for header ── */}
+        <div className="h-16" />
 
-                    {createDescription.trim() && (
-                      <div>
-                        <p className="text-xs font-semibold text-muted mb-1">Description:</p>
-                        <p className="text-sm text-foreground">{createDescription}</p>
+        {/* ── CHANTS FEED ── */}
+        <div className={`${activeSubspaceId ? 'max-w-xl ml-4' : 'max-w-2xl mx-auto'} ${dockedPostId ? 'pr-14' : ''}`}>
+          <div className="divide-y divide-border/30">
+            {filteredChants.map(chant => {
+              const isDocked = dockedPostId === chant.id
+              const badge = phaseBadge(chant.phase, chant.tier)
+              const isNearDrop = isDraggingDockstar && nearestDrop === chant.id
+
+              return (
+                <div
+                  key={chant.id}
+                  id={`chant-${chant.id}`}
+                  className={`transition-colors duration-200 ${isDocked ? 'bg-surface/40' : ''}`}
+                >
+                  {/* Card header */}
+                  <div className="flex items-start gap-2.5 px-3 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-base font-serif text-foreground leading-snug mb-1">
+                        {chant.question}
+                      </h3>
+                      <div className="flex items-center gap-1.5 mb-1.5 text-xs">
+                        <span className="font-mono text-accent">{chant.community}</span>
+                        <span className="text-muted-light/50">/</span>
+                        <span className="text-muted-light">{chant.creator}</span>
+                        <span className="text-muted-light/50">/</span>
+                        <span className="text-muted-light">{chant.createdAt}</span>
                       </div>
-                    )}
+                      <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
+                        <span className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded border ${badge.color}`}>
+                          {badge.label}{badge.sublabel && <span className="opacity-60"> {badge.sublabel}</span>}
+                        </span>
+                        {chant.isCreator && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded border bg-accent/10 text-accent border-accent/30 text-[10px]">
+                            <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            YOURS
+                          </span>
+                        )}
+                        <span className="text-muted">{fmt(chant.participants)}</span>
+                        <span className="text-muted-light/40">&middot;</span>
+                        <span className="text-muted">{fmt(chant.ideas)} ideas</span>
+                        <span className="ml-auto text-muted flex items-center gap-0.5">
+                          <span className="text-accent/70">&uarr;</span>{fmt(chant.upvotes)}
+                        </span>
+                      </div>
+                      {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (
+                        <div className="mt-1.5 px-2 py-1.5 bg-gold/6 border-l-2 border-gold/30 text-sm text-gold/80">
+                          {chant.champion.text}
+                        </div>
+                      )}
+                    </div>
+                    <div className="pt-1 self-center">
+                      <DropCircle
+                        id={chant.id}
+                        isActive={isNearDrop}
+                        isDocked={isDocked}
+                        userInitial="G"
+                        registerRef={registerDropZone}
+                        onClick={() => isDocked ? handleUndock() : handleDock(chant.id)}
+                        onDragUndock={undefined}
+                        flashDocks={flashDocks}
+                        glowDrag={isDraggingDockstar && !isDocked}
+                        dockedPlayers={MOCK_PLAYERS.filter(p => p.dockedTo === chant.id).map(p => ({ id: p.id, color: p.color }))}
+                      />
+                    </div>
                   </div>
 
-                  <p className="text-xs text-muted mb-4">
-                    Please review your question and description. Make sure the wording is clear and there are no spelling errors.
-                  </p>
+                  {/* ── EXPANDED (docked) ── */}
+                  {isDocked && (
+                    <div
+                      className="px-3 pb-3 pl-12 animate-slideDown"
+                      onPointerMove={(e) => setSelfPixelPos({ x: e.clientX, y: e.clientY + window.scrollY })}
+                      onPointerLeave={() => setSelfPixelPos(null)}
+                    >
+                      <div className="border-t border-border/30 pt-2.5">
+                        {/* SUBMISSION */}
+                        {chant.phase === 'SUBMISSION' && !activeSubspaceId && (
+                          <div>
+                            <div className="mb-2.5 relative">
+                              <input id="idea-input" type="text" placeholder="Your idea..." value={pendingInputType === 'idea' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'idea', chant.id)} className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
+                              <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
+                                <svg className={`w-3 h-3 transition-colors ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" /></svg>
+                              </div>
+                            </div>
+                            {chant.topIdeas?.map((idea, i) => (
+                              <div key={i} className="bg-purple/12 border border-purple/30 rounded px-2.5 py-1.5 mb-1">
+                                <div className="text-sm font-serif text-purple/70 leading-snug">{idea.text}</div>
+                                <div className="text-xs text-purple/40 mt-0.5">{idea.author}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
-                  <div className="flex gap-3">
+                        {/* VOTING */}
+                        {chant.phase === 'VOTING' && chant.mockCell && !activeSubspaceId && (
+                          <div>
+                              <div>
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-[10px] font-mono text-muted-light">Cell #{chant.mockCell.number} / Tier {chant.mockCell.tier}</span>
+                                  <span className={`text-xl font-mono font-bold ${getXpTotal(chant.id) === 10 ? 'text-success' : 'text-accent'}`}>
+                                    {getXpTotal(chant.id)}<span className="text-sm text-muted-light/60">/10 XP</span>
+                                  </span>
+                                </div>
+                                <div className="space-y-px">
+                                  {chant.mockCell.ideas.map(idea => {
+                                    const xp = (xpAllocations[chant.id] || {})[idea.id] || 0
+                                    const isIdeaDocked = dockedIdeaId === idea.id
+                                    return (
+                                      <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                        <div className="px-2.5 py-2">
+                                          <div className="flex items-start gap-2 mb-1.5">
+                                            <div className="flex-1 min-w-0">
+                                              <div className={`text-sm font-serif leading-snug ${isIdeaDocked ? 'text-purple' : 'text-purple/70'}`}>{idea.text}</div>
+                                              <div className="text-xs text-purple/40 mt-0.5">{idea.author}</div>
+                                            </div>
+                                            <span className={`text-2xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
+                                          </div>
+                                          {/* Slider + dock port */}
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1 flex-1" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+                                              {Array.from({ length: 10 }, (_, i) => (
+                                                <div key={i} onClick={() => handleXpChange(chant.id, idea.id, xp === i + 1 ? 0 : i + 1)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${flashDocks ? 'animate-flash-gold' : ''} ${i < xp ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : isIdeaDocked ? 'border-accent/40 bg-accent/5 shadow-[0_0_4px_rgba(34,211,238,0.15)]' : 'border-border/40 bg-transparent hover:border-muted-light/60'}`}>
+                                                  <svg className={`w-2.5 h-2.5 transition-colors ${i < xp ? 'fill-accent' : isIdeaDocked ? 'fill-accent/30' : 'fill-muted-light/30'}`} viewBox="0 0 24 24">
+                                                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+                                                  </svg>
+                                                </div>
+                                              ))}
+                                            </div>
+                                            <DropCircle
+                                              id={`idea:${idea.id}`}
+                                              isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
+                                              isDocked={isIdeaDocked}
+                                              userInitial="G"
+                                              registerRef={registerDropZone}
+                                              onClick={() => { if (isIdeaDocked) { setDockedIdeaId(null); exitSubspace() } else { setDockedIdeaId(idea.id); enterSubspace(idea.id); setTimeout(() => { const el = document.getElementById(`idea-${idea.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 50) } }}
+                                              onDragUndock={undefined}
+                                              flashDocks={flashDocks}
+                                              faded={isIdeaDocked}
+                                              glowDrag={isDraggingDockstar && !isIdeaDocked}
+                                              dockedPlayers={MOCK_PLAYERS.filter(p => p.dockedTo === `idea:${idea.id}`).map(p => ({ id: p.id, color: p.color }))}
+                                            />
+                                          </div>
+                                        </div>
+                                        {/* Subspace viewport — last messages + dockstar chat box */}
+                                        {(() => {
+                                          const sub = getSubspace(idea.id)
+                                          const recentMsgs = sub?.messages.slice(-3) || []
+                                          return recentMsgs.length > 0 ? (
+                                            <div
+                                              className={`border-t border-border/20 px-2.5 py-1.5 bg-header/20 cursor-pointer hover:bg-header/30 transition-colors ${isIdeaDocked ? 'animate-slideDown' : ''}`}
+                                              onClick={(e) => { e.stopPropagation(); enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
+                                              data-interactive
+                                            >
+                                              <div className="space-y-1">
+                                                {recentMsgs.map(msg => (
+                                                  <div key={msg.id} className="text-[10px]">
+                                                    <span className="font-mono text-xs" style={{ color: msg.authorColor }}>{msg.author}</span>
+                                                    <span className="text-muted-light text-xs"> &middot; {msg.time}</span>
+                                                    <p className="text-muted/80 mt-0.5 leading-snug text-sm">{msg.text}</p>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                              <div className="flex items-center gap-1.5 mt-1.5 pt-1 border-t border-border/10">
+                                                <div className="flex -space-x-1">
+                                                  {(sub?.members.slice(0, 4) || []).map(m => (
+                                                    <div key={m.id} className="w-2 h-2 rounded-full border border-header" style={{ backgroundColor: m.color }} />
+                                                  ))}
+                                                </div>
+                                                <span className="text-[9px] font-mono text-muted-light/50">{sub?.members.length} in subspace</span>
+                                                <div className="ml-auto">
+                                                  <DropCircle
+                                                    id={`bookmark:${idea.id}`}
+                                                    isActive={isDraggingDockstar && nearestDrop === `bookmark:${idea.id}`}
+                                                    isDocked={bookmarks.includes(idea.id)}
+                                                    userInitial=""
+                                                    registerRef={registerDropZone}
+                                                    onClick={() => { setBookmarks(prev => prev.includes(idea.id) ? prev : [...prev, idea.id]); enterSubspace(idea.id); setDockedIdeaId(idea.id) }}
+                                                    flashDocks={flashDocks}
+                                                    faded={false}
+                                                    glowDrag={isDraggingDockstar}
+                                                    dockedPlayers={[]}
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ) : null
+                                        })()}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                          </div>
+                        )}
+
+                        {/* COMPLETED — top ideas with group chat dock points */}
+                        {chant.phase === 'COMPLETED' && chant.champion && chant.topIdeas && !activeSubspaceId && (
+                          <div>
+                            <div className="flex gap-4 text-center text-xs font-mono mb-2.5">
+                              <div><span className="text-foreground">{fmt(chant.participants)}</span> <span className="text-muted-light">people</span></div>
+                              <div><span className="text-foreground">{chant.tier}</span> <span className="text-muted-light">tiers</span></div>
+                              <div><span className="text-foreground">{chant.duration}</span> <span className="text-muted-light">duration</span></div>
+                            </div>
+                            {chant.topIdeas.map((idea, i) => {
+                              const isChampion = i === 0
+                              const isIdeaDocked = dockedIdeaId === idea.id
+                              return (
+                                <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border mb-1 transition-colors ${isChampion ? (isIdeaDocked ? 'bg-gold/12 border-gold/50' : 'bg-gold/6 border-gold/30') : (isIdeaDocked ? 'bg-purple/12 border-purple/50' : 'bg-purple/6 border-purple/25')}`}>
+                                  <div className="px-2.5 py-2">
+                                    <div className="flex items-start gap-2">
+                                      {!isChampion && <span className="text-purple/30 font-mono text-xs shrink-0 pt-0.5">{i + 1}.</span>}
+                                      {isChampion && <span className="text-gold/50 font-mono text-xs shrink-0 pt-0.5">★</span>}
+                                      <div className="flex-1 min-w-0">
+                                        {isChampion && <div className="text-[9px] font-mono text-gold/50 uppercase tracking-wider mb-0.5">Priority</div>}
+                                        <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple/70')}`}>{idea.text}</div>
+                                        <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/40'}`}>{idea.author} · {idea.xp}xp</div>
+                                      </div>
+                                      <div className="flex flex-col items-center gap-0.5 shrink-0">
+                                        <DropCircle
+                                          id={`idea:${idea.id}`}
+                                          isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
+                                          isDocked={isIdeaDocked}
+                                          userInitial="G"
+                                          registerRef={registerDropZone}
+                                          onClick={() => { if (isIdeaDocked) { setDockedIdeaId(null); exitSubspace() } else { setDockedIdeaId(idea.id); enterSubspace(idea.id); setTimeout(() => { const el = document.getElementById(`idea-${idea.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 50) } }}
+                                          onDragUndock={undefined}
+                                          flashDocks={flashDocks}
+                                          faded={isIdeaDocked}
+                                          glowDrag={isDraggingDockstar && !isIdeaDocked}
+                                          dockedPlayers={MOCK_PLAYERS.filter(p => p.dockedTo === `idea:${idea.id}`).map(p => ({ id: p.id, color: p.color }))}
+                                        />
+                                        {(() => { const s = getSubspace(idea.id); return s && s.messages.length > 0 ? (
+                                          <span className={`text-[9px] font-mono ${isIdeaDocked ? 'text-accent' : 'text-muted-light/60'}`}>{s.messages.length}</span>
+                                        ) : null })()}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {/* Subspace viewport — last messages + dockstar chat box */}
+                                  {(() => {
+                                    const sub = getSubspace(idea.id)
+                                    const recentMsgs = sub?.messages.slice(-3) || []
+                                    return recentMsgs.length > 0 ? (
+                                      <div
+                                        className={`border-t border-border/20 px-2.5 py-1.5 bg-header/20 cursor-pointer hover:bg-header/30 transition-colors ${isIdeaDocked ? 'animate-slideDown' : ''}`}
+                                        onClick={(e) => { e.stopPropagation(); enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
+                                        data-interactive
+                                      >
+                                        <div className="space-y-1">
+                                          {recentMsgs.map(msg => (
+                                            <div key={msg.id} className="text-[10px]">
+                                              <span className="font-mono text-xs" style={{ color: msg.authorColor }}>{msg.author}</span>
+                                              <span className="text-muted-light text-xs"> &middot; {msg.time}</span>
+                                              <p className="text-muted/80 mt-0.5 leading-snug text-sm">{msg.text}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="flex items-center gap-1.5 mt-1.5 pt-1 border-t border-border/10">
+                                          <div className="flex -space-x-1">
+                                            {(sub?.members.slice(0, 4) || []).map(m => (
+                                              <div key={m.id} className="w-2 h-2 rounded-full border border-header" style={{ backgroundColor: m.color }} />
+                                            ))}
+                                          </div>
+                                          <span className="text-[9px] font-mono text-muted-light/50">{sub?.members.length} in subspace</span>
+                                          <div className="ml-auto">
+                                            <DropCircle
+                                              id={`bookmark:${idea.id}`}
+                                              isActive={isDraggingDockstar && nearestDrop === `bookmark:${idea.id}`}
+                                              isDocked={bookmarks.includes(idea.id)}
+                                              userInitial=""
+                                              registerRef={registerDropZone}
+                                              onClick={() => { setBookmarks(prev => prev.includes(idea.id) ? prev : [...prev, idea.id]); enterSubspace(idea.id); setDockedIdeaId(idea.id) }}
+                                              flashDocks={flashDocks}
+                                              faded={false}
+                                              glowDrag={isDraggingDockstar}
+                                              dockedPlayers={[]}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : null
+                                  })()}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {/* ACCUMULATING */}
+                        {chant.phase === 'ACCUMULATING' && chant.champion && !activeSubspaceId && (
+                          <div>
+                            <div className="px-2.5 py-2 bg-purple/6 border-l-2 border-purple/40 rounded-r mb-2.5">
+                              <div className="text-[9px] font-mono text-purple/50 uppercase tracking-wider">Champion</div>
+                              <div className="text-sm text-purple font-serif mt-0.5">{chant.champion.text}</div>
+                            </div>
+                            <div className="relative">
+                              <input id="challenge-input" type="text" placeholder="Challenge with your idea..." value={pendingInputType === 'challenge' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'challenge', chant.id)} className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
+                              <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${pendingInputType === 'challenge' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
+                                <svg className={`w-3 h-3 transition-colors ${pendingInputType === 'challenge' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" /></svg>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+
+                        {/* ── INLINE SUBSPACE — replaces card body content ── */}
+                        {activeSubspaceId && (() => {
+                          const hasIdea = chant.mockCell?.ideas?.some(i => i.id === activeSubspaceId) || chant.topIdeas?.some(i => i.id === activeSubspaceId)
+                          if (!hasIdea) return null
+                          const parentChant = chant
+                          const xpVal = (xpAllocations[parentChant.id] || {})[activeSubspaceId] || 0
+                          return (
+                            <div className="animate-subspaceExpand -mx-3 -mb-3 border-t border-accent/30" style={{ height: 'calc(100vh - 160px)' }}>
+                              <IdeaSubspace
+                                ideaId={activeSubspaceId}
+                                onClose={() => { setActiveSubspaceId(null); setDockedIdeaId(null) }}
+                                onNavigateToSubspace={(id) => { setActiveSubspaceId(id); setDockedIdeaId(id) }}
+                                bookmarks={bookmarks}
+                                xp={xpVal}
+                                onXpChange={parentChant.phase === 'VOTING' ? (val) => handleXpChange(parentChant.id, activeSubspaceId, val) : undefined}
+                                flashDocks={flashDocks}
+                              />
+                            </div>
+                          )
+                        })()}
+
+                        {/* Share link */}
+                        {!activeSubspaceId && (
+                        <div className="mt-3 pt-2.5 border-t border-border/20 flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-accent/70 truncate flex-1">
+                            unitychant.com/{chant.question.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-').slice(0, 40).replace(/-$/, '')}
+                          </span>
+                          <button
+                            onClick={() => handleShareLink(chant)}
+                            data-interactive
+                            className="shrink-0 px-2 py-1 text-[10px] font-mono rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors"
+                          >
+                            {linkCopied === chant.id ? 'Copied!' : 'Share'}
+                          </button>
+                        </div>
+                        )}
+
+                        {/* ── MANAGE PANEL — creator only ── */}
+                        {chant.isCreator && !activeSubspaceId && (
+                          <div className="mt-3 pt-2.5 border-t border-border/20">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <svg className="w-3 h-3 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                              <span className="text-[10px] font-mono text-accent uppercase tracking-wider">Manage</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {chant.phase === 'SUBMISSION' && (
+                                <button data-interactive className="px-2.5 py-2 rounded border border-warning/30 bg-warning/8 text-warning text-[11px] font-mono hover:bg-warning/15 transition-colors text-left">
+                                  Start Voting
+                                </button>
+                              )}
+                              {chant.phase === 'VOTING' && (
+                                <button data-interactive className="px-2.5 py-2 rounded border border-success/30 bg-success/8 text-success text-[11px] font-mono hover:bg-success/15 transition-colors text-left">
+                                  Advance Tier
+                                </button>
+                              )}
+                              <button data-interactive onClick={() => handleShareLink(chant)} className="px-2.5 py-2 rounded border border-accent/30 bg-accent/8 text-accent text-[11px] font-mono hover:bg-accent/15 transition-colors text-left">
+                                Invite
+                              </button>
+                              <button data-interactive onClick={() => window.location.href = `/chants/${chant.id}/analytics`} className="px-2.5 py-2 rounded border border-border/40 bg-surface/50 text-muted-light text-[11px] font-mono hover:text-foreground hover:bg-surface transition-colors text-left">
+                                Analytics
+                              </button>
+                              <button data-interactive className="px-2.5 py-2 rounded border border-error/30 bg-error/8 text-error/70 text-[11px] font-mono hover:bg-error/15 hover:text-error transition-colors text-left">
+                                Close
+                              </button>
+                            </div>
+                            <div className="mt-2 flex items-center gap-3 text-[10px] font-mono text-muted-light">
+                              <span>{fmt(chant.participants)} joined</span>
+                              <span>{fmt(chant.ideas)} ideas</span>
+                              <span>{chant.cells} cells</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {filteredChants.length === 0 && (
+            <div className="text-center py-16 text-muted-light text-sm">No chants found.</div>
+          )}
+
+          <div className="h-32" />
+        </div>
+
+        {/* ── BOTTOM BAR — drag nav + confirm button ── */}
+        {(() => {
+          const hasTextInput = pendingInput.trim().length > 0 && pendingInputType
+          const hasVoteReady = dockedPostId && dockedPostId !== '__create_chant__' ? getXpTotal(dockedPostId) === 10 : false
+          const hasCreateReady = createMode && createQuestion.trim().length >= 2
+          const showBar = isDraggingDockstar || hasTextInput || hasVoteReady || hasCreateReady || footerPinned
+          const confirmLabel = hasCreateReady && !hasTextInput ? (creating ? 'Creating...' : 'Launch Chant') : hasVoteReady && !hasTextInput ? 'Submit Vote' : pendingInputType === 'idea' ? 'Submit Idea' : pendingInputType === 'comment' ? 'Post Comment' : pendingInputType === 'chat' ? 'Send Message' : pendingInputType === 'challenge' ? 'Submit Challenge' : 'Confirm'
+          return (
+            <div className={`fixed bottom-0 left-0 right-0 z-[9997] transition-all duration-300 ease-out ${showBar ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`}>
+              <div className="bg-header/95 backdrop-blur-sm border-t border-border/50 px-2 py-2 safe-area-bottom">
+                {/* Confirm button — text input or vote ready */}
+                {(hasTextInput || hasVoteReady || hasCreateReady) && !isDraggingDockstar ? (
+                  <div className="flex items-center gap-2 max-w-md mx-auto px-2">
                     <button
-                      onClick={() => setShowConfirmation(false)}
-                      className="flex-1 px-4 py-2 bg-surface border border-border hover:bg-background text-foreground text-sm font-medium rounded-lg transition-colors"
+                      onClick={() => {
+                        if (hasCreateReady) { handleUndock() }
+                        else { setPendingInput(''); setPendingInputType(null); setPendingDockContext(null); if (hasVoteReady && dockedPostId) setXpAllocations(prev => { const next = { ...prev }; delete next[dockedPostId]; return next }) }
+                      }}
+                      data-interactive
+                      className="px-3 py-3 rounded text-sm font-mono text-muted-light hover:text-foreground hover:bg-white/5 transition-colors"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={handleConfirmedCreate}
-                      disabled={creating}
-                      className="flex-1 px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                      onClick={() => {
+                        if (hasCreateReady) { handleCreateSubmit() }
+                        else if (hasTextInput) { setPendingInput(''); setPendingInputType(null); setPendingInputTargetId(null); setPendingDockContext(null) }
+                        if (hasVoteReady && dockedPostId) { setXpAllocations(prev => { const next = { ...prev }; delete next[dockedPostId]; return next }) }
+                      }}
+                      disabled={hasCreateReady && creating}
+                      data-interactive
+                      className="flex-1 py-3 rounded-lg bg-accent text-header font-mono font-bold text-sm shadow-[0_0_16px_rgba(34,211,238,0.4)] hover:bg-accent-hover disabled:opacity-40 transition-colors"
                     >
-                      {creating ? 'Creating...' : 'Confirm'}
+                      {confirmLabel}
                     </button>
                   </div>
-                </div>
-              </div>,
-              document.body
-            )}
-          </div>
-        ) : loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-muted text-sm animate-pulse">Loading chants...</div>
-          </div>
-        ) : currentChants.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full px-4">
-            <div className={`w-16 h-16 mb-4 rounded-full flex items-center justify-center ${
-              activeTab === 'submit' ? 'bg-accent/10 text-accent' :
-              activeTab === 'vote' ? 'bg-warning/10 text-warning' :
-              activeTab === 'created' ? 'bg-success/10 text-success' :
-              'bg-blue/10 text-blue'
-            }`}>
-              {activeTab === 'submit' && (
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-                </svg>
-              )}
-              {activeTab === 'vote' && (
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              )}
-              {activeTab === 'created' && (
-                <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              )}
-            </div>
-            <p className="text-foreground font-medium mb-2 text-center">
-              {activeTab === 'submit' && 'No chants accepting ideas'}
-              {activeTab === 'vote' && 'No pending votes'}
-              {activeTab === 'created' && 'No chants created yet'}
-            </p>
-            <p className="text-muted text-sm text-center">
-              {activeTab === 'list' && 'No chants yet.'}
-              {activeTab === 'submit' && 'Create your own chant or check back later'}
-              {activeTab === 'vote' && 'Submit ideas and wait for voting to begin'}
-              {activeTab === 'created' && 'Create your first chant to get started'}
-            </p>
-            {session && (activeTab === 'list' || activeTab === 'submit' || activeTab === 'created') && (
-              <button
-                onClick={() => setShowCreate(true)}
-                className="mt-4 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
-              >
-                Create a Chant
-              </button>
-            )}
-          </div>
-        ) : activeTab === 'list' || activeTab === 'created' ? (
-          /* List view */
-          <div className="h-full overflow-y-auto px-4 pb-4">
-            <div className="space-y-2.5">
-              {currentChants.map((chant) => (
-                <Link
-                  key={chant.id}
-                  href={`/chants/${chant.id}`}
-                  className="block p-3.5 bg-surface/90 hover:bg-surface-hover/90 border border-border rounded-lg transition-all shadow-sm hover:shadow-md backdrop-blur-sm"
-                >
-                  <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                    {chant.isPinned && (
-                      <span className="text-[10px] uppercase tracking-wider text-accent font-semibold">Pinned</span>
-                    )}
-                    <ChantTypeBadge chant={chant} />
-                    <ParticipantBadge chant={chant} />
+                ) : (
+                  /* Nav drop circles — during drag or pinned */
+                  <div className="flex items-center justify-around max-w-md mx-auto">
+                    {NAV_ITEMS.map(nav => (
+                      <NavDropCircle key={nav.id} id={nav.id} label={nav.label} icon={nav.icon} isActive={isDraggingDockstar && nearestDrop === nav.id} registerRef={registerDropZone} glowDrag={isDraggingDockstar && nearestDrop !== nav.id} onClick={footerPinned ? () => handleDock(nav.id) : undefined} />
+                    ))}
                   </div>
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="text-sm font-medium text-foreground leading-tight flex-1">{chant.question}</h3>
-                    <PhaseBadge phase={chant.phase} />
-                  </div>
-                  {chant.description && (
-                    <p className="text-xs text-muted mt-1.5 line-clamp-2 leading-relaxed">{chant.description}</p>
-                  )}
-                  {chant.champion && chant.phase === 'COMPLETED' && (
-                    <div className="mt-2 p-2 bg-success/8 border border-success/15 rounded-md">
-                      <p className="text-xs text-foreground/80 truncate">&ldquo;{chant.champion.text}&rdquo;</p>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3 mt-2 text-xs text-muted">
-                    <span>{chant._count.ideas} ideas</span>
-                    <span className="text-border-strong">&middot;</span>
-                    <span>{chant._count.members} members</span>
-                    {chant.voteCount != null && chant.voteCount > 0 && (
-                      <>
-                        <span className="text-border-strong">&middot;</span>
-                        <span>{chant.voteCount} votes</span>
-                      </>
-                    )}
-                    {chant.phase === 'VOTING' && (
-                      <>
-                        <span className="text-border-strong">&middot;</span>
-                        <span className="font-bold text-warning">T{chant.currentTier}</span>
-                      </>
-                    )}
-                    {chant.creator?.name && (
-                      <>
-                        <span className="text-border-strong">&middot;</span>
-                        <span>by {chant.creator.name}</span>
-                      </>
-                    )}
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="h-full">
-            {/* Swipe hint — one-time dismissable */}
-            {showSwipeHint && currentChants.length > 1 && (
-              <div className="mx-4 mb-2 flex items-center justify-between gap-2 px-3 py-2 bg-accent/10 border border-accent/20 rounded-lg">
-                <p className="text-xs text-accent">Swipe left or right to see more chants</p>
-                <button
-                  onClick={() => {
-                    localStorage.setItem('hasSeenSwipeHint', 'true')
-                    setShowSwipeHint(false)
-                  }}
-                  className="shrink-0 w-5 h-5 flex items-center justify-center rounded-full hover:bg-accent/20 text-accent transition-colors"
-                >
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}>
-                    <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                )}
               </div>
-            )}
-
-            {/* Full-page carousel */}
-            <div
-              ref={carouselRef}
-              className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-hide"
-              style={{
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none',
-                WebkitOverflowScrolling: 'touch'
-              }}
-              onScroll={(e) => {
-                const container = e.currentTarget
-                const scrollLeft = container.scrollLeft
-                const cardWidth = container.offsetWidth
-                const newIndex = Math.round(scrollLeft / cardWidth)
-                if (newIndex !== currentIndex) {
-                  setCurrentIndex(newIndex)
-                }
-              }}
-            >
-              {currentChants.map((chant) => (
-                <div
-                  key={chant.id}
-                  className="w-full h-full flex-shrink-0 snap-start snap-always px-4"
-                >
-                  <div className="h-full bg-surface rounded-lg p-4 overflow-y-auto">
-                    {/* Card header with share link and tag input */}
-                    <div className="mb-4 pb-4 border-b border-border">
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="flex-1">
-                          <h3 className="text-sm font-semibold text-foreground mb-1">{chant.question}</h3>
-                          {chant.description && (
-                            <p className="text-xs text-muted leading-relaxed line-clamp-2">{chant.description}</p>
-                          )}
-                        </div>
-                        <div className="flex gap-1 items-center shrink-0">
-                          <div className="flex items-center gap-0.5">
-                            <input
-                              type="text"
-                              placeholder="Add tag..."
-                              value={tagInputs[chant.id] ?? ''}
-                              onChange={(e) => setTagInputs(prev => ({ ...prev, [chant.id]: e.target.value }))}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault()
-                                  handleAddTag(chant.id)
-                                }
-                              }}
-                              className="w-20 px-2 py-1 bg-background border border-border rounded-l text-[11px] text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleAddTag(chant.id)}
-                              className="px-1.5 py-1 bg-accent/10 hover:bg-accent/20 border border-l-0 border-border text-accent rounded-r transition-colors"
-                              title="Add tag"
-                            >
-                              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                                <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-                              </svg>
-                            </button>
-                          </div>
-                          <ShareMenu
-                            url={`/chants/${chant.id}`}
-                            text={chant.question}
-                            variant="icon"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="flex gap-2 text-xs text-muted">
-                          <span>{chant._count.members} {chant._count.members === 1 ? 'member' : 'members'}</span>
-                          <span>•</span>
-                          <span>{chant._count.ideas} {chant._count.ideas === 1 ? 'idea' : 'ideas'}</span>
-                        </div>
-
-                        {/* Display existing tags */}
-                        {chant.tags && chant.tags.length > 0 && (
-                          <>
-                            <span className="text-xs text-muted">•</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {chant.tags.map((tag: string) => (
-                                <span key={tag} className="px-2 py-0.5 bg-accent/10 text-accent text-[10px] rounded">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Tab content */}
-                    {activeTab === 'submit' && <SubmitTabContent chantId={chant.id} chant={chant} />}
-                    {activeTab === 'vote' && <VoteTabContent chantId={chant.id} chant={chant} />}
-                  </div>
-                </div>
-              ))}
             </div>
+          )
+        })()}
 
-            {/* Desktop arrow navigation */}
-            {currentChants.length > 1 && (
-              <>
-                {currentIndex > 0 && (
-                  <button
-                    onClick={() => scrollTo(currentIndex - 1)}
-                    className="hidden md:flex fixed left-4 top-1/2 -translate-y-1/2 w-12 h-12 items-center justify-center bg-surface/90 hover:bg-surface border border-border rounded-full shadow-lg transition-opacity z-10"
-                    aria-label="Previous chant"
-                  >
-                    <svg className="w-6 h-6 text-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
+        {/* ── COMMUNITY VIEWER ── */}
+        {showCommunityViewer && (
+          <div className="fixed inset-0 z-[9990] bg-header/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowCommunityViewer(false)}>
+            <div className="bg-surface border border-border rounded-lg max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-serif text-foreground text-sm">Communities</h3>
+                <button onClick={() => setShowCommunityViewer(false)} className="text-muted-light hover:text-foreground">&times;</button>
+              </div>
+              <div className="space-y-1.5">
+                {MOCK_COMMUNITIES.filter(c => c !== 'All').map(c => (
+                  <button key={c} onClick={() => { setSelectedCommunity(c); setShowCommunityViewer(false) }} className="w-full text-left px-3 py-2 rounded bg-header hover:bg-surface-hover border border-border/30 transition-colors">
+                    <div className="text-xs text-foreground">{c}</div>
+                    <div className="text-[10px] text-muted-light font-mono">{MOCK_CHANTS.filter(ch => ch.community === c).length} chants</div>
                   </button>
-                )}
-                {currentIndex < currentChants.length - 1 && (
-                  <button
-                    onClick={() => scrollTo(currentIndex + 1)}
-                    className="hidden md:flex fixed right-4 top-1/2 -translate-y-1/2 w-12 h-12 items-center justify-center bg-surface/90 hover:bg-surface border border-border rounded-full shadow-lg transition-opacity z-10"
-                    aria-label="Next chant"
-                  >
-                    <svg className="w-6 h-6 text-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                )}
-              </>
-            )}
+                ))}
+              </div>
+            </div>
           </div>
         )}
-      </FrameLayout>
+      </div>{/* end feed */}
 
-      {/* Global submit help modal - shown once across all cards */}
-      {showSubmitHelpGlobal && activeTab === 'submit' && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-[10000]" onClick={handleDismissSubmitHelpGlobal}>
-          <div className="max-w-[360px] w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-bold text-foreground mb-3">Submit & Chat</h2>
-            <p className="text-sm text-muted mb-4">Here&apos;s how this tab works:</p>
-            <ol className="space-y-3 mb-5">
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-xs font-bold shrink-0">1</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Write your idea</p>
-                  <p className="text-xs text-muted">Enter your response to the question in your own words.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-purple/15 text-purple flex items-center justify-center text-xs font-bold shrink-0">2</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Chat with others</p>
-                  <p className="text-xs text-muted">Discuss ideas and coordinate strategy in the chat below.</p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center text-xs font-bold shrink-0">3</span>
-                <div>
-                  <p className="text-sm font-medium text-foreground">Track progress</p>
-                  <p className="text-xs text-muted">See member and idea counts at the top of the card.</p>
-                </div>
-              </li>
-            </ol>
-            <button
-              onClick={handleDismissSubmitHelpGlobal}
-              className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors"
-            >
-              Got it!
-            </button>
-          </div>
-        </div>,
-        document.body
-      )}
-    </>
+
+      <style jsx global>{`
+        @keyframes slideDown {
+          from { opacity: 0; max-height: 0; }
+          to { opacity: 1; max-height: 2000px; }
+        }
+        .animate-slideDown { animation: slideDown 0.3s ease-out; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 8px); }
+        @keyframes orbit-dot {
+          0%, 100% { transform: translate(0, 0); }
+          25% { transform: translate(3px, -2px); }
+          50% { transform: translate(-1px, 3px); }
+          75% { transform: translate(-3px, -1px); }
+        }
+        @keyframes subspaceExpand {
+          from { opacity: 0; transform: scale(0.92); clip-path: inset(10% 5% 10% 5% round 8px); }
+          to { opacity: 1; transform: scale(1); clip-path: inset(0 0 0 0); }
+        }
+        .animate-subspaceExpand { animation: subspaceExpand 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+      `}</style>
+    </DockstarGlowContext.Provider>
   )
 }
 
-// Tab content components
-function SubmitTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
-  const { data: session } = useSession()
-  const [ideaText, setIdeaText] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState('')
-  const [submitSuccess, setSubmitSuccess] = useState(false)
-  const [userIdeas, setUserIdeas] = useState<any[]>([])
-  const [chantData, setChantData] = useState<any>(null)
-  const [showJoinDialog, setShowJoinDialog] = useState(false)
-  const [pendingIdea, setPendingIdea] = useState('')
-  const [showSubmitModal, setShowSubmitModal] = useState(false)
-  const [showConfirmSubmit, setShowConfirmSubmit] = useState(false)
-  // Chat state
-  const [chatMessages, setChatMessages] = useState<{ id: string; text: string; createdAt: string; user: { id: string; name: string | null; image: string | null } }[]>([])
-  const [chatText, setChatText] = useState('')
-  const [sendingChat, setSendingChat] = useState(false)
-  const [chatError, setChatError] = useState('')
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const chatContainerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    // Fetch chant status and user's ideas
-    const fetchData = async () => {
-      try {
-        const [statusRes, ideasRes] = await Promise.all([
-          fetch(`/api/deliberations/${chantId}/status`),
-          session ? fetch(`/api/deliberations/${chantId}/ideas?mine=true`) : Promise.resolve(null)
-        ])
-
-        if (statusRes.ok) {
-          const statusData = await statusRes.json()
-          setChantData(statusData)
-        }
-
-        if (ideasRes?.ok) {
-          const ideasData = await ideasRes.json()
-          setUserIdeas(ideasData || [])
-        }
-      } catch (err) {
-        console.error('Failed to fetch chant data:', err)
-      }
-    }
-
-    fetchData()
-    const interval = setInterval(fetchData, 10000)
-    return () => clearInterval(interval)
-  }, [chantId, session])
-
-  // Chat: fetch messages + poll
-  const fetchChatMessages = useCallback(async () => {
-    if (!session) return
-    try {
-      const res = await fetch(`/api/deliberations/${chantId}/chat`)
-      if (res.ok) {
-        const data = await res.json()
-        setChatMessages(prev => {
-          const newMsgs = data.messages || []
-          // Only update if message count changed (avoid unnecessary rerenders)
-          if (prev.length !== newMsgs.length || (newMsgs.length > 0 && prev[prev.length - 1]?.id !== newMsgs[newMsgs.length - 1]?.id)) {
-            return newMsgs
-          }
-          return prev
-        })
-      }
-    } catch { /* silent */ }
-  }, [chantId, session])
-
-  useEffect(() => {
-    fetchChatMessages()
-    const interval = setInterval(fetchChatMessages, 5000)
-    return () => clearInterval(interval)
-  }, [fetchChatMessages])
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    if (chatEndRef.current && chatContainerRef.current) {
-      const container = chatContainerRef.current
-      const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80
-      if (isNearBottom) {
-        chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
-      }
-    }
-  }, [chatMessages.length])
-
-  const handleSendChat = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!chatText.trim() || sendingChat) return
-    const text = chatText.trim()
-
-    // Optimistic: show message immediately
-    const optimisticMsg = {
-      id: `optimistic-${Date.now()}`,
-      text,
-      createdAt: new Date().toISOString(),
-      user: { id: '', name: session?.user?.name || 'You', image: session?.user?.image || null },
-    }
-    setChatMessages(prev => [...prev, optimisticMsg])
-    setChatText('')
-    setChatError('')
-
-    try {
-      const res = await fetch(`/api/deliberations/${chantId}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-      if (res.ok) {
-        // Replace optimistic message on next poll
-        fetchChatMessages()
-      } else {
-        // Remove optimistic message on error
-        setChatMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
-        const data = await res.json()
-        if (data.error === 'MUTED') {
-          setChatError(`Muted until ${new Date(data.mutedUntil).toLocaleTimeString()}`)
-        } else if (data.error === 'RATE_LIMITED') {
-          setChatError('Too many messages. Slow down.')
-        } else {
-          setChatError(data.error || 'Failed to send')
-        }
-        setTimeout(() => setChatError(''), 5000)
-      }
-    } catch {
-      setChatMessages(prev => prev.filter(m => m.id !== optimisticMsg.id))
-      setChatError('Failed to send')
-      setTimeout(() => setChatError(''), 5000)
-    }
-  }
-
-  const handleSubmitIdea = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!ideaText.trim()) return
-
-    // Check if user is a member
-    if (!chantData?.isMember) {
-      setPendingIdea(ideaText.trim())
-      setShowJoinDialog(true)
-      return
-    }
-
-    setSubmitting(true)
-    setSubmitError('')
-    setSubmitSuccess(false)
-
-    try {
-      const res = await fetch(`/api/deliberations/${chantId}/ideas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: ideaText.trim() }),
-      })
-
-      const data = await res.json()
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to submit')
-      }
-
-      setIdeaText('')
-      setSubmitSuccess(true)
-      setShowSubmitModal(false)
-      setShowConfirmSubmit(false)
-      setUserIdeas(prev => [data, ...prev])
-
-      setTimeout(() => setSubmitSuccess(false), 3000)
-    } catch (err) {
-      setSubmitError((err as Error).message)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const handleConfirmJoinAndSubmit = async () => {
-    setSubmitting(true)
-    setSubmitError('')
-
-    try {
-      // First, join the chant
-      const joinRes = await fetch(`/api/deliberations/${chantId}/join`, {
-        method: 'POST',
-      })
-
-      if (!joinRes.ok) {
-        const joinData = await joinRes.json()
-        throw new Error(joinData.error || 'Failed to join chant')
-      }
-
-      // Then submit the idea
-      const ideaRes = await fetch(`/api/deliberations/${chantId}/ideas`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pendingIdea }),
-      })
-
-      const ideaData = await ideaRes.json()
-      if (!ideaRes.ok) {
-        throw new Error(ideaData.error || 'Failed to submit idea')
-      }
-
-      // Success!
-      setIdeaText('')
-      setPendingIdea('')
-      setShowJoinDialog(false)
-      setSubmitSuccess(true)
-      setUserIdeas(prev => [ideaData, ...prev])
-
-      // Update chantData to reflect membership
-      setChantData((prev: any) => ({ ...prev, isMember: true }))
-
-      setTimeout(() => setSubmitSuccess(false), 3000)
-    } catch (err) {
-      setSubmitError((err as Error).message)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  if (!chantData) {
-    return <div className="text-xs text-muted animate-pulse">Loading...</div>
-  }
-
-  const submissionsClosed = chantData.phase !== 'SUBMISSION'
-  const multipleIdeasAllowed = chantData.continuousFlow
-
+export default function ChantsPage() {
   return (
-    <div className="space-y-3">
-      <div className={`p-3 rounded-lg border text-xs ${
-        submissionsClosed
-          ? 'bg-surface/90 backdrop-blur-sm border-border text-muted'
-          : multipleIdeasAllowed
-          ? 'bg-accent/8 border-accent/20 text-accent'
-          : 'bg-surface/90 backdrop-blur-sm border-border text-muted'
-      }`}>
-        {submissionsClosed
-          ? 'Submissions are closed. Voting is in progress.'
-          : multipleIdeasAllowed
-          ? 'Multiple ideas allowed — submit as many as you like.'
-          : userIdeas.length > 0
-          ? 'You\'ve submitted your idea. One per person.'
-          : 'One idea per person. Make it count.'}
-      </div>
-
-      {!submissionsClosed && (multipleIdeasAllowed || userIdeas.length === 0) && (
-        !session ? (
-          <Link
-            href={`/auth/signin?callbackUrl=/chants`}
-            className="block text-center p-4 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
-          >
-            Sign in to submit an idea
-          </Link>
-        ) : (
-          <button
-            onClick={() => { setSubmitError(''); setShowSubmitModal(true) }}
-            className="w-full py-3 bg-accent hover:bg-accent-hover text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
-          >
-            Submit an Idea
-          </button>
-        )
-      )}
-
-      {submitSuccess && (
-        <p className="text-success text-xs text-center">Idea submitted!</p>
-      )}
-
-      {/* Submit idea modal */}
-      {showSubmitModal && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[10000]" onClick={() => { setShowSubmitModal(false); setShowConfirmSubmit(false) }}>
-          <div className="max-w-md w-full bg-surface border border-border rounded-xl p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            {!showConfirmSubmit ? (
-              <>
-                <h2 className="text-base font-bold text-foreground mb-1">Submit Your Idea</h2>
-                <p className="text-xs text-muted mb-4">Answer the question with your best idea.</p>
-                <textarea
-                  placeholder="Your idea..."
-                  value={ideaText}
-                  onChange={(e) => setIdeaText(e.target.value)}
-                  maxLength={500}
-                  rows={4}
-                  autoFocus
-                  className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors resize-none"
-                />
-                <div className="flex items-center justify-between mt-1 mb-3">
-                  <span className="text-[10px] text-muted">{ideaText.length}/500</span>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowSubmitModal(false)}
-                    className="flex-1 py-2.5 bg-surface border border-border text-foreground text-sm font-medium rounded-lg hover:bg-background transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!ideaText.trim()}
-                    onClick={() => setShowConfirmSubmit(true)}
-                    className="flex-1 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
-                  >
-                    Review
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h2 className="text-base font-bold text-foreground mb-1">Check Your Spelling</h2>
-                <p className="text-xs text-muted mb-3">Review your idea before submitting. This cannot be edited later.</p>
-                <div className="p-4 bg-background border border-border rounded-lg mb-4">
-                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{ideaText.trim()}</p>
-                </div>
-                {submitError && <p className="text-error text-xs mb-3">{submitError}</p>}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmSubmit(false)}
-                    disabled={submitting}
-                    className="flex-1 py-2.5 bg-surface border border-border text-foreground text-sm font-medium rounded-lg hover:bg-background transition-colors disabled:opacity-50"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    disabled={submitting}
-                    onClick={(e) => handleSubmitIdea(e as any)}
-                    className="flex-1 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
-                  >
-                    {submitting ? 'Submitting...' : 'Confirm & Submit'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {userIdeas.length > 0 && (
-        <div>
-          <h3 className="text-xs font-medium text-muted mb-2">
-            Your idea{userIdeas.length > 1 ? 's' : ''}
-          </h3>
-          <div className="space-y-1.5">
-            {userIdeas.map(idea => (
-              <div key={idea.id} className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-2.5">
-                <p className="text-sm text-foreground">{idea.text}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="text-xs text-muted text-center">
-        {chantData.ideaCount} idea{chantData.ideaCount !== 1 ? 's' : ''} submitted so far
-      </p>
-
-      {/* Chat UI */}
-      <div className="mt-6 pt-6 border-t border-border">
-        <h3 className="text-sm font-semibold text-foreground mb-3">Chat</h3>
-        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border overflow-hidden flex flex-col" style={{ minHeight: 200 }}>
-          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-3 space-y-2" style={{ maxHeight: 300 }}>
-            {chatMessages.length === 0 ? (
-              <p className="text-xs text-muted text-center py-8">
-                {session ? 'No messages yet — start the conversation' : 'Sign in to chat'}
-              </p>
-            ) : (
-              chatMessages.map(msg => (
-                <div key={msg.id} className="flex gap-2 items-start">
-                  <div className="w-6 h-6 rounded-full bg-accent/15 text-accent flex items-center justify-center text-[10px] font-bold shrink-0">
-                    {(msg.user.name || '?')[0].toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-xs font-medium text-foreground">{msg.user.name || 'Anonymous'}</span>
-                      <span className="text-[10px] text-muted">{new Date(msg.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
-                    </div>
-                    <p className="text-sm text-foreground/90 leading-snug">{msg.text}</p>
-                  </div>
-                </div>
-              ))
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {session ? (
-            <div className="p-3 border-t border-border">
-              {chatError && <p className="text-[11px] text-error mb-1.5">{chatError}</p>}
-              <form onSubmit={handleSendChat} className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Type a message..."
-                  value={chatText}
-                  onChange={(e) => setChatText(e.target.value)}
-                  disabled={sendingChat}
-                  maxLength={2000}
-                  className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
-                />
-                <button
-                  type="submit"
-                  disabled={sendingChat || !chatText.trim()}
-                  className="px-4 py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
-                >
-                  {sendingChat ? '...' : 'Send'}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="p-3 border-t border-border">
-              <Link
-                href="/auth/signin?callbackUrl=/chants"
-                className="block text-center text-sm text-accent hover:text-accent-hover font-medium"
-              >
-                Sign in to chat
-              </Link>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Join confirmation dialog */}
-      {showJoinDialog && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={() => setShowJoinDialog(false)}>
-          <div className="bg-surface border border-border rounded-lg p-5 max-w-md w-full shadow-xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-bold text-foreground mb-3">Confirm & Subscribe</h3>
-
-            <div className="mb-4 p-3 bg-background rounded-lg border border-border">
-              <p className="text-xs font-semibold text-muted mb-1">Your idea:</p>
-              <p className="text-sm text-foreground leading-relaxed">{pendingIdea}</p>
-            </div>
-
-            <p className="text-xs text-muted mb-4">
-              Confirming will subscribe you to this chant. You'll receive updates and can participate in voting.
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowJoinDialog(false)
-                  setPendingIdea('')
-                }}
-                disabled={submitting}
-                className="flex-1 py-2 px-4 bg-surface border border-border text-foreground rounded-lg hover:bg-background transition-colors text-sm font-medium disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmJoinAndSubmit}
-                disabled={submitting}
-                className="flex-1 py-2 px-4 bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
-              >
-                {submitting ? 'Submitting...' : 'Confirm & Subscribe'}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-    </div>
+    <Suspense fallback={<div className="flex items-center justify-center h-screen bg-background text-muted">Loading...</div>}>
+      <ChantsPageContent />
+    </Suspense>
   )
-}
-
-function VoteTabContent({ chantId, chant }: { chantId: string; chant: Chant }) {
-  const { data: session } = useSession()
-  const router = useRouter()
-  const { showToast } = useToast()
-  const [cells, setCells] = useState<Cell[]>([])
-  const [loading, setLoading] = useState(true)
-  const [voting, setVoting] = useState<string | null>(null)
-  const [showVoteConfirm, setShowVoteConfirm] = useState(false)
-  const [pendingVote, setPendingVote] = useState<{ cellId: string; allocations: { ideaId: string; points: number }[] } | null>(null)
-  const [enterError, setEnterError] = useState<string | null>(null)
-  const [debugInfo, setDebugInfo] = useState<any>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-  const [userFetchError, setUserFetchError] = useState<string | null>(null)
-
-  // Fetch current user ID
-  useEffect(() => {
-    if (session?.user?.email) {
-      setUserFetchError(null)
-      fetch('/api/user/me')
-        .then(res => {
-          if (!res.ok) {
-            return res.text().then(text => {
-              throw new Error(`HTTP ${res.status}: ${text}`)
-            })
-          }
-          return res.json()
-        })
-        .then(data => {
-          console.log('Fetched user:', data)
-          if (data.user?.id) {
-            setUserId(data.user.id)
-          } else {
-            setUserFetchError('User data missing ID')
-          }
-        })
-        .catch(err => {
-          console.error('Failed to fetch userId:', err)
-          setUserFetchError(err.message)
-        })
-    } else {
-      setUserId(null)
-      setUserFetchError(null)
-    }
-  }, [session])
-
-  const fetchCells = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/deliberations/${chantId}/cells`)
-      if (res.ok) {
-        const data = await res.json()
-        setCells(data || [])
-        setDebugInfo(prev => ({ ...prev, cellsCount: data.length, step: 'cells-fetched' }))
-      } else {
-        const errorText = await res.text()
-        console.error('Failed to fetch cells:', errorText)
-        setDebugInfo(prev => ({ ...prev, cellsError: errorText, step: 'cells-failed' }))
-      }
-    } catch (err) {
-      console.error('Failed to fetch cells:', err)
-      setDebugInfo(prev => ({ ...prev, cellsError: String(err), step: 'cells-error' }))
-    } finally {
-      setLoading(false)
-    }
-  }, [chantId])
-
-  // Auto-enter voting when user views the tab, then fetch cells
-  useEffect(() => {
-    const autoEnter = async () => {
-      setEnterError(null)
-      setDebugInfo(null)
-
-      if (chant.phase === 'VOTING' && userId) {
-        try {
-          const res = await fetch(`/api/deliberations/${chantId}/enter`, { method: 'POST' })
-          const data = await res.json()
-
-          if (res.ok) {
-            console.log('Auto-entered voting successfully:', data)
-            setDebugInfo({ enter: data, step: 'entered' })
-            // Wait a moment for DB to update, then fetch cells
-            await new Promise(resolve => setTimeout(resolve, 500))
-          } else {
-            console.error('Auto-enter failed:', data)
-            setDebugInfo({ enter: data, step: 'enter-failed', status: res.status })
-            // Don't show "already in cell" as an error
-            if (!data.alreadyInCell) {
-              if (data.error) {
-                setEnterError(data.error)
-              } else if (data.roundFull) {
-                setEnterError('All cells are full - waiting for next round')
-              } else {
-                setEnterError(`Failed to join (HTTP ${res.status})`)
-              }
-            }
-          }
-        } catch (err) {
-          console.error('Auto-enter error:', err)
-          setDebugInfo({ error: String(err), step: 'enter-error' })
-          setEnterError('Failed to join voting cell')
-        }
-        // Always fetch cells after attempting to enter
-        await fetchCells()
-      } else {
-        setDebugInfo({ phase: chant.phase, userId, step: 'skip-enter' })
-        // If not in voting phase or no userId, just fetch cells
-        await fetchCells()
-      }
-    }
-    autoEnter()
-
-    const interval = setInterval(fetchCells, 15000)
-    return () => clearInterval(interval)
-  }, [chantId, chant.phase, userId, fetchCells])
-
-  const handleVote = async (cellId: string, allocations: { ideaId: string; points: number }[]) => {
-    // If not a member, show confirmation
-    if (!chant.userStatus?.isMember) {
-      setPendingVote({ cellId, allocations })
-      setShowVoteConfirm(true)
-      return
-    }
-
-    // Otherwise submit directly
-    await submitVote(cellId, allocations)
-  }
-
-  const submitVote = async (cellId: string, allocations: { ideaId: string; points: number }[]) => {
-    setVoting(cellId)
-    try {
-      const res = await fetch(`/api/deliberations/${chantId}/vote`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cellId, allocations }),
-      })
-
-      if (res.ok) {
-        showToast('Vote submitted successfully!', 'success')
-        fetchCells()
-      } else {
-        const data = await res.json()
-        showToast(data.error || 'Failed to submit vote', 'error')
-      }
-    } catch (err) {
-      console.error('Vote error:', err)
-      showToast('Failed to submit vote', 'error')
-    } finally {
-      setVoting(null)
-    }
-  }
-
-  const handleConfirmVote = async () => {
-    if (!pendingVote) return
-
-    setShowVoteConfirm(false)
-    await submitVote(pendingVote.cellId, pendingVote.allocations)
-    setPendingVote(null)
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="text-muted text-sm animate-pulse">Loading voting cells...</div>
-      </div>
-    )
-  }
-
-  const activeCells = cells.filter(c => c.status === 'VOTING')
-  const userCells = userId ? activeCells.filter(c =>
-    c.participants.some(p => p.userId === userId)
-  ) : []
-  const userActiveCells = userCells.filter(c => c.votes.length === 0)
-  const userVotedCells = userCells.filter(c => c.votes.length > 0)
-
-  const voteDebug = {
-    phase: chant.phase,
-    userId: userId || 'NULL',
-    totalCells: cells.length,
-    activeCells: activeCells.length,
-    userCells: userCells.length,
-    userActiveCells: userActiveCells.length,
-    userVotedCells: userVotedCells.length,
-    cellParticipants: activeCells.map(c => ({
-      cellId: c.id.slice(0, 8),
-      status: c.status,
-      participantIds: c.participants.map(p => p.userId?.slice(0, 8) || p.user?.id?.slice(0, 8) || 'unknown')
-    }))
-  }
-  console.log('Vote tab debug:', voteDebug)
-
-  return (
-    <div className="space-y-4">
-      {/* Active voting cells */}
-      {userActiveCells.length > 0 && userActiveCells.map(cell => (
-        <VotingCell
-          key={cell.id}
-          cell={cell}
-          onVote={handleVote}
-          voting={voting}
-          onRefresh={fetchCells}
-          currentTier={chant.currentTier}
-        />
-      ))}
-
-      {/* Already voted cells */}
-      {userVotedCells.length > 0 && userVotedCells.map(cell => (
-        <VotingCell
-          key={cell.id}
-          cell={cell}
-          onVote={handleVote}
-          voting={voting}
-          onRefresh={fetchCells}
-          currentTier={chant.currentTier}
-        />
-      ))}
-
-      {/* No cells yet */}
-      {userActiveCells.length === 0 && userVotedCells.length === 0 && chant.phase === 'VOTING' && (
-        <div className={`rounded-lg border p-4 ${
-          enterError ? 'bg-warning-bg border-warning' : !userId ? 'bg-accent-light border-accent' : 'bg-surface/90 border-border'
-        }`}>
-          <p className={`text-sm mb-2 ${enterError ? 'text-foreground' : !userId ? 'text-accent' : 'text-muted'}`}>
-            {enterError || (!userId && !session ? 'Sign in to participate in voting' : !userId && session ? 'Loading your profile...' : (cells.length === 0 ? 'No voting cells available yet' : 'Placing you in a voting cell...'))}
-          </p>
-          {!enterError && userId && (
-            <p className="text-xs text-muted mb-3">
-              {cells.length === 0 ? 'Voting may not have started yet' : 'This usually takes a moment'}
-            </p>
-          )}
-          {!userId && !session && (
-            <button
-              onClick={() => router.push('/auth/signin')}
-              className="mt-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              Sign In
-            </button>
-          )}
-
-          {/* Debug info */}
-          <details className="text-left mt-3">
-            <summary className="text-xs text-muted cursor-pointer hover:text-foreground">Debug Info</summary>
-            <div className="mt-2 p-2 bg-background rounded text-xs font-mono space-y-1">
-              <div><strong>Session Info:</strong></div>
-              <pre className="text-[10px] overflow-auto">{JSON.stringify({
-                hasSession: !!session,
-                email: session?.user?.email || 'none',
-                userFetchError: userFetchError || 'none'
-              }, null, 2)}</pre>
-              <div className="mt-2"><strong>Enter Response:</strong></div>
-              <pre className="text-[10px] overflow-auto">{JSON.stringify(debugInfo, null, 2)}</pre>
-              <div className="mt-2"><strong>Vote Tab State:</strong></div>
-              <pre className="text-[10px] overflow-auto">{JSON.stringify(voteDebug, null, 2)}</pre>
-            </div>
-          </details>
-        </div>
-      )}
-
-      {/* Not in voting phase */}
-      {chant.phase !== 'VOTING' && (
-        <div className="bg-surface/90 backdrop-blur-sm rounded-lg border border-border p-4 text-center">
-          <p className="text-sm text-muted">
-            {chant.phase === 'SUBMISSION' && 'Submit ideas and wait for voting to begin'}
-            {chant.phase === 'ACCUMULATING' && 'Submit challenger ideas to enter Round 2'}
-            {chant.phase === 'COMPLETED' && 'Voting has concluded'}
-          </p>
-        </div>
-      )}
-
-      {/* Vote confirmation dialog */}
-      {showVoteConfirm && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[100]">
-          <div className="bg-background border border-border rounded-lg max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold text-foreground mb-3">Confirm Your Vote</h3>
-            <p className="text-sm text-muted mb-4">
-              Submitting your vote will subscribe you to this chant. You'll receive updates and can participate in future rounds.
-            </p>
-
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowVoteConfirm(false)
-                  setPendingVote(null)
-                }}
-                disabled={!!voting}
-                className="flex-1 py-2 px-4 bg-surface border border-border text-foreground rounded-lg hover:bg-background transition-colors text-sm font-medium disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmVote}
-                disabled={!!voting}
-                className="flex-1 py-2 px-4 bg-accent hover:bg-accent-hover text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
-              >
-                {voting ? 'Submitting...' : 'Confirm & Vote'}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
-  )
-}
-
-
-function PhaseBadge({ phase }: { phase: string }) {
-  const config: Record<string, { label: string; color: string }> = {
-    SUBMISSION: { label: 'Ideas', color: 'bg-accent/15 text-accent' },
-    VOTING: { label: 'Voting', color: 'bg-warning/15 text-warning' },
-    PAUSED: { label: 'Paused', color: 'bg-error/15 text-error' },
-    COMPLETED: { label: 'Done', color: 'bg-success/15 text-success' },
-  }
-  const { label, color } = config[phase] || { label: phase, color: 'bg-muted/15 text-muted' }
-  return <span className={`px-2 py-0.5 text-[11px] rounded-full font-medium shrink-0 ${color}`}>{label}</span>
-}
-
-function ChantTypeBadge({ chant }: { chant: Chant }) {
-  const isAskAI = chant.tags?.includes('ask-ai')
-  if (isAskAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning/10 text-warning font-medium">Ask AI</span>
-  if (chant.continuousFlow) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple/10 text-purple font-medium">Endless</span>
-  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue/10 text-blue font-medium">Human Managed</span>
-}
-
-function ParticipantBadge({ chant }: { chant: Chant }) {
-  const isAskAI = chant.tags?.includes('ask-ai')
-  if (isAskAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted">AI</span>
-  if (!chant.allowAI) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted">Human</span>
-  return <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-muted">AI + Human</span>
 }
