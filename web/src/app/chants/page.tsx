@@ -14,6 +14,9 @@ import type { Chant } from './useChantsFeed'
 import { useInactivityTimer } from './useInactivityTimer'
 import { useAdmin } from '@/hooks/useAdmin'
 import AuthOverlay from '@/components/AuthOverlay'
+import WelcomeGuide from '@/components/WelcomeGuide'
+import MarkdownEditor from '@/components/MarkdownEditor'
+import ReactMarkdown from 'react-markdown'
 
 // ── PRESENCE COLORS (deterministic from user ID) ──
 const PRESENCE_COLORS = [
@@ -225,6 +228,8 @@ function ChantsPageContent() {
   // Podium create state
   const [createPodiumTitle, setCreatePodiumTitle] = useState('')
   const [createPodiumBody, setCreatePodiumBody] = useState('')
+  const [createPodiumDelibId, setCreatePodiumDelibId] = useState<string | null>(null)
+  const [createPodiumDelibSearch, setCreatePodiumDelibSearch] = useState('')
   // Group create state
   const [createGroupName, setCreateGroupName] = useState('')
   const [createGroupDescription, setCreateGroupDescription] = useState('')
@@ -255,6 +260,14 @@ function ChantsPageContent() {
   const [submittingIdea, setSubmittingIdea] = useState(false)
   const [submittedIdeas, setSubmittedIdeas] = useState<Record<string, string>>({})
   const [kickedMessage, setKickedMessage] = useState(false)
+
+  // Welcome guide state
+  const [welcomeGuideOpen, setWelcomeGuideOpen] = useState(false)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !localStorage.getItem('welcome-guide-seen')) {
+      setWelcomeGuideOpen(true)
+    }
+  }, [])
 
   // Auth overlay state
   const [authOverlayOpen, setAuthOverlayOpen] = useState(false)
@@ -664,6 +677,8 @@ function ChantsPageContent() {
       setCreateDescription('')
       setCreatePodiumTitle('')
       setCreatePodiumBody('')
+      setCreatePodiumDelibId(null)
+      setCreatePodiumDelibSearch('')
       setCreateGroupName('')
       setCreateGroupDescription('')
       setCreateGroupPublic(true)
@@ -897,7 +912,7 @@ function ChantsPageContent() {
       const res = await fetch('/api/podiums', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, body: createPodiumBody.trim() || '' }),
+        body: JSON.stringify({ title, body: createPodiumBody.trim() || '', ...(createPodiumDelibId ? { deliberationId: createPodiumDelibId } : {}) }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -908,6 +923,8 @@ function ChantsPageContent() {
       setCreateMode(false)
       setCreatePodiumTitle('')
       setCreatePodiumBody('')
+      setCreatePodiumDelibId(null)
+      setCreatePodiumDelibSearch('')
       setPodiums(prev => [{
         id: podium.id,
         title: podium.title,
@@ -925,7 +942,7 @@ function ChantsPageContent() {
     } finally {
       setCreating(false)
     }
-  }, [createPodiumTitle, createPodiumBody])
+  }, [createPodiumTitle, createPodiumBody, createPodiumDelibId])
 
   const handleGroupCreateSubmit = useCallback(async () => {
     const name = createGroupName.trim()
@@ -1744,7 +1761,7 @@ function ChantsPageContent() {
             </div>
           )}
           {/* INLINE CREATE FORM — tab-aware */}
-          <div className={`overflow-hidden transition-all duration-300 ease-out ${createMode ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+          <div className={`overflow-hidden transition-all duration-300 ease-out ${createMode ? (activeTab === 'podiums' ? 'max-h-[800px]' : 'max-h-[500px]') + ' opacity-100' : 'max-h-0 opacity-0'}`}>
             <div className="px-3 pb-3 space-y-3 max-w-2xl mx-auto">
               {activeTab === 'podiums' ? (
                 /* PODIUM CREATE FORM */
@@ -1759,15 +1776,48 @@ function ChantsPageContent() {
                     disabled={creating}
                     autoFocus={createMode}
                   />
-                  <textarea
+                  <MarkdownEditor
                     value={createPodiumBody}
-                    onChange={e => setCreatePodiumBody(e.target.value)}
-                    placeholder="Write your post (markdown supported)"
-                    rows={4}
-                    className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none transition-all resize-none"
-                    style={{ borderColor: createPodiumBody.trim() ? '#a78bfa66' : undefined }}
-                    disabled={creating}
+                    onChange={setCreatePodiumBody}
+                    placeholder="Write your post... Use the toolbar for formatting."
+                    minHeight="200px"
                   />
+                  {/* Link a chant */}
+                  {createPodiumDelibId ? (
+                    <div className="flex items-center gap-2 bg-[#a78bfa]/10 border border-[#a78bfa]/25 rounded px-3 py-2">
+                      <span className="text-xs text-foreground flex-1 truncate">
+                        Linked: {chants.find(c => c.id === createPodiumDelibId)?.question || 'Chant'}
+                      </span>
+                      <button onClick={() => setCreatePodiumDelibId(null)} className="text-muted hover:text-foreground text-sm">&times;</button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={createPodiumDelibSearch}
+                        onChange={e => setCreatePodiumDelibSearch(e.target.value)}
+                        placeholder="Link a chant (optional)"
+                        className="w-full bg-surface border border-border/30 rounded px-3 py-2 text-xs text-foreground placeholder:text-muted-light outline-none transition-all"
+                      />
+                      {createPodiumDelibSearch && (
+                        <div className="absolute left-0 right-0 top-full mt-1 bg-surface border border-border rounded overflow-hidden max-h-36 overflow-y-auto z-10">
+                          {chants.filter(c => c.question.toLowerCase().includes(createPodiumDelibSearch.toLowerCase())).slice(0, 5).map(c => (
+                            <button
+                              key={c.id}
+                              onClick={() => { setCreatePodiumDelibId(c.id); setCreatePodiumDelibSearch('') }}
+                              className="w-full text-left px-3 py-2 hover:bg-background transition-colors border-b border-border last:border-0"
+                            >
+                              <div className="text-xs text-foreground truncate">{c.question}</div>
+                              <div className="text-[10px] text-muted">{c.phase}</div>
+                            </button>
+                          ))}
+                          {chants.filter(c => c.question.toLowerCase().includes(createPodiumDelibSearch.toLowerCase())).length === 0 && (
+                            <div className="text-xs text-muted px-3 py-2">No matching chants</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               ) : activeTab === 'groups' ? (
                 /* GROUP CREATE FORM */
@@ -2110,14 +2160,24 @@ function ChantsPageContent() {
                       </div>
                     ) : (
                     <>
-                    {/* Body content — render markdown-like */}
-                    <div className="prose-dark text-sm text-foreground/90 leading-relaxed space-y-3">
-                      {dockedPodium.body.split('\n\n').map((para, i) => {
-                        if (para.startsWith('## ')) return <h2 key={i} className="text-lg font-serif mt-4 mb-2" style={{ color: '#a78bfa' }}>{para.slice(3)}</h2>
-                        if (para.startsWith('### ')) return <h3 key={i} className="text-base font-serif mt-3 mb-1.5" style={{ color: '#a78bfab3' }}>{para.slice(4)}</h3>
-                        if (para.startsWith('> ')) return <blockquote key={i} className="border-l-2 pl-3 italic text-muted-light" style={{ borderColor: '#a78bfa4d' }}>{para.slice(2)}</blockquote>
-                        return <p key={i}>{para}</p>
-                      })}
+                    {/* Body content — render markdown */}
+                    <div className="prose-podium text-sm text-foreground/90 leading-relaxed">
+                      <ReactMarkdown
+                        components={{
+                          h2: ({ children }) => <h2 className="text-lg font-serif mt-4 mb-2" style={{ color: '#a78bfa' }}>{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-base font-serif mt-3 mb-1.5" style={{ color: '#a78bfab3' }}>{children}</h3>,
+                          p: ({ children }) => <p className="mb-3">{children}</p>,
+                          blockquote: ({ children }) => <blockquote className="border-l-2 pl-3 italic text-muted-light" style={{ borderColor: '#a78bfa4d' }}>{children}</blockquote>,
+                          ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-1">{children}</ol>,
+                          a: ({ href, children }) => <a href={href} className="text-accent underline" target="_blank" rel="noopener noreferrer">{children}</a>,
+                          code: ({ children }) => <code className="bg-surface border border-border px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+                          strong: ({ children }) => <strong className="font-bold text-foreground">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                        }}
+                      >
+                        {dockedPodium.body}
+                      </ReactMarkdown>
                     </div>
                     </>
                     )}
@@ -2255,13 +2315,13 @@ function ChantsPageContent() {
                             <div className="relative">
                             <DropCircle
                               id={`podium:${p.id}`}
-                              isActive={false}
+                              isActive={isDraggingDockstar && nearestDrop === `podium:${p.id}`}
                               isDocked={false}
                               userInitial="P"
                               registerRef={registerDropZone}
                               onClick={() => handleDock(`podium:${p.id}`)}
-                              flashDocks={false}
-                              glowDrag={false}
+                              flashDocks={flashDocks}
+                              glowDrag={isDraggingDockstar}
                               accentColor="#a78bfa"
                             />
                             {podiumPlayers.length > 0 && podiumPlayers.slice(0, 8).map((pl, i) => {
@@ -2795,13 +2855,13 @@ function ChantsPageContent() {
                             <div className="relative">
                             <DropCircle
                               id={`group:${g.slug}`}
-                              isActive={false}
+                              isActive={isDraggingDockstar && nearestDrop === `group:${g.slug}`}
                               isDocked={false}
                               userInitial="G"
                               registerRef={registerDropZone}
                               onClick={() => handleDock(`group:${g.slug}`)}
-                              flashDocks={false}
-                              glowDrag={false}
+                              flashDocks={flashDocks}
+                              glowDrag={isDraggingDockstar}
                               accentColor="#fbbf24"
                             />
                             {groupPlayers.length > 0 && groupPlayers.slice(0, 8).map((pl, i) => {
@@ -3772,6 +3832,8 @@ function ChantsPageContent() {
 
       </div>
 
+
+      <WelcomeGuide open={welcomeGuideOpen} onClose={() => setWelcomeGuideOpen(false)} />
 
       <AuthOverlay
         open={authOverlayOpen}
