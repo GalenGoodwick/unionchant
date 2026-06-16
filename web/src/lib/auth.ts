@@ -16,6 +16,7 @@ export const authOptions: NextAuthOptions = {
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            allowDangerousEmailAccountLinking: true,
           }),
         ]
       : []),
@@ -26,6 +27,7 @@ export const authOptions: NextAuthOptions = {
           GitHubProvider({
             clientId: process.env.GITHUB_ID,
             clientSecret: process.env.GITHUB_SECRET,
+            allowDangerousEmailAccountLinking: true,
           }),
         ]
       : []),
@@ -122,6 +124,7 @@ export const authOptions: NextAuthOptions = {
         session.user.id = (token.sub || token.id) as string
         if (token.picture) session.user.image = token.picture as string
         if (token.name) session.user.name = token.name as string
+        if (token.isTemp) session.user.isTemp = true
       }
       return session
     },
@@ -131,12 +134,21 @@ export const authOptions: NextAuthOptions = {
         token.sub = user.id
         if (user.image) token.picture = user.image
         if (user.name) token.name = user.name
+
+        // Check if this is a temp anonymous account (no challenge passed)
+        const dbUser = await prisma.user.findUnique({
+          where: { id: user.id },
+          select: { isAnonymous: true, lastChallengePassedAt: true },
+        })
+        token.isTemp = !!(dbUser?.isAnonymous && !dbUser.lastChallengePassedAt)
       }
 
-      // When session is updated (e.g. onboarding name change), persist to token
+      // When session is updated (e.g. onboarding name change, account upgrade), persist to token
       if (trigger === 'update' && session) {
         if (session.name) token.name = session.name
         if (session.image) token.picture = session.image
+        // Allow clearing isTemp when account is upgraded
+        if (session.isTemp === false) token.isTemp = false
       }
       return token
     },
@@ -144,4 +156,9 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: '/auth/signin',
   },
+}
+
+/** Check if a user record is a temp anonymous account (can browse but not act) */
+export function isTempUser(user: { isAnonymous: boolean; lastChallengePassedAt: Date | null }): boolean {
+  return user.isAnonymous && !user.lastChallengePassedAt
 }

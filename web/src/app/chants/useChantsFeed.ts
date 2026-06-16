@@ -27,6 +27,7 @@ export interface Chant {
   isPinned: boolean
   tags: string[]
   continuousFlow: boolean
+  podiumContext?: { id: string; title: string } | null
 }
 
 const POLL_INTERVAL = 30_000
@@ -84,6 +85,7 @@ export function useChantsFeed() {
         isPinned: d.isPinned ?? false,
         tags: d.tags || [],
         continuousFlow: d.continuousFlow ?? false,
+        podiumContext: d.podiumContext || null,
       }))
 
       setChants(mapped)

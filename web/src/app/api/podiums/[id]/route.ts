@@ -28,6 +28,15 @@ export async function GET(
             _count: { select: { members: true, ideas: true } },
           },
         },
+        linkedChants: {
+          select: {
+            id: true,
+            question: true,
+            phase: true,
+            _count: { select: { members: true, ideas: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     })
 

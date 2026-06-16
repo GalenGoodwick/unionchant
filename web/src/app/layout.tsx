@@ -83,6 +83,16 @@ export default function RootLayout({
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
         <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem('theme')==='light')document.documentElement.classList.add('light')}catch(e){}` }} />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: 'Unity Chant',
+            alternateName: 'UnityChant',
+            url: process.env.NEXTAUTH_URL || 'https://unitychant.com',
+          }) }}
+        />
       </head>
       <body className={`${libreFranklin.variable} ${sourceSerif.variable} ${ibmPlexMono.variable} font-sans`}>
         <Providers>

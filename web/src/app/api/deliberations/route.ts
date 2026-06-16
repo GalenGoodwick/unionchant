@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { cached } from '@/lib/cache'
 
 import { isAdmin } from '@/lib/admin'
+import { isTempUser } from '@/lib/auth'
 import { sendEmail } from '@/lib/email'
 import { followedNewDelibEmail } from '@/lib/email-templates'
 import { getViewerCounts } from '@/lib/viewers'
@@ -80,6 +81,9 @@ export async function GET(req: NextRequest) {
             select: { id: true, title: true },
             take: 1,
             orderBy: { createdAt: 'desc' as const },
+          },
+          podiumContext: {
+            select: { id: true, title: true },
           },
           cells: {
             select: {
@@ -207,6 +211,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    if (isTempUser(user)) {
+      return NextResponse.json({ error: 'Sign in to create chants', code: 'TEMP_ACCOUNT' }, { status: 403 })
+    }
+
     const body = await req.json()
     const {
       question,
@@ -226,6 +234,8 @@ export async function POST(req: NextRequest) {
       // Community integration
       communityId,
       communityOnly,
+      // Podium context (on-ramp linking)
+      podiumContextId,
     } = body
 
     if (!question?.trim()) {
@@ -292,6 +302,17 @@ export async function POST(req: NextRequest) {
       ? tags.map((t: string) => t.trim().toLowerCase()).filter((t: string) => t.length > 0).slice(0, 5)
       : []
 
+    // Validate podium context if provided
+    if (podiumContextId) {
+      const podium = await prisma.podium.findUnique({
+        where: { id: podiumContextId },
+        select: { id: true },
+      })
+      if (!podium) {
+        return NextResponse.json({ error: 'Linked podium not found' }, { status: 404 })
+      }
+    }
+
     // Generate a short, readable invite code
     const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
 
@@ -324,6 +345,8 @@ export async function POST(req: NextRequest) {
         // Community integration
         ...(communityId && { communityId }),
         ...(communityOnly && communityId && { isPublic: false }),
+        // Podium context (on-ramp linking)
+        ...(podiumContextId && { podiumContextId }),
         members: {
           create: {
             userId: user.id,

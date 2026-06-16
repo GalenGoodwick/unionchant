@@ -31,7 +31,7 @@ test.describe('Header Navigation', () => {
 
   test('clicking logo navigates to /', async ({ page }) => {
     await page.goto('/feed')
-    await page.locator('header').getByRole('link', { name: /union chant/i }).click()
+    await page.locator('header').getByRole('link', { name: /unity chant/i }).click()
     await expect(page).toHaveURL('/')
   })
 

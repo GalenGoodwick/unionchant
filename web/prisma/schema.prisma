@@ -295,6 +295,10 @@ model Deliberation {
   communityId   String?
   community     Community?  @relation(fields: [communityId], references: [id], onDelete: SetNull)
 
+  // Podium context — the podium that inspired this chant (on-ramp linking)
+  podiumContextId   String?
+  podiumContext     Podium?       @relation("ChantContext", fields: [podiumContextId], references: [id], onDelete: SetNull)
+
   // Showcase flag (for AI-populated deliberation)
   isShowcase    Boolean  @default(false)
   // Created from collective chat (one per user)
@@ -331,6 +335,7 @@ model Deliberation {
   @@index([isPublic, phase])
   @@index([organization])
   @@index([communityId])
+  @@index([podiumContextId])
   @@index([submissionEndsAt])
   @@index([currentTierStartedAt])
   @@index([phase, createdAt])
@@ -892,6 +897,9 @@ model Podium {
   published       Boolean  @default(true)
 
   comments        GroupMessage[] @relation("PodiumMessages")
+
+  // Chants that reference this podium as context/on-ramp
+  linkedChants    Deliberation[] @relation("ChantContext")
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

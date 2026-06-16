@@ -288,9 +288,11 @@ interface DropCircleProps {
   glowDrag?: boolean
   /** Custom accent color (hex). Defaults to cyan (#22d3ee / accent). */
   accentColor?: string
+  /** Custom icon to replace the default compass. */
+  icon?: 'chat' | 'default'
 }
 
-export function DropCircle({ id, isActive, isDocked, userInitial, registerRef, onClick, onDragUndock, flashDocks, faded, glowDrag, accentColor }: DropCircleProps) {
+export function DropCircle({ id, isActive, isDocked, userInitial, registerRef, onClick, onDragUndock, flashDocks, faded, glowDrag, accentColor, icon }: DropCircleProps) {
   const ref = useRef<HTMLDivElement>(null)
   const dragStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null)
   const hasDraggedRef = useRef(false)
@@ -345,7 +347,11 @@ export function DropCircle({ id, isActive, isDocked, userInitial, registerRef, o
           backgroundColor: `${accentColor}0d`,
         }) : undefined}
       >
-        {isDocked ? (
+        {icon === 'chat' ? (
+          <svg className={`w-5 h-5 transition-colors ${isDocked ? (faded ? 'fill-header/50 stroke-header/50' : 'fill-header stroke-header') : !accentColor && (flashDocks || glowDrag) ? 'fill-none stroke-[#f59e0b]' : !accentColor && isActive ? 'fill-none stroke-accent' : !accentColor ? 'fill-none stroke-accent/40' : 'fill-none'}`} viewBox="0 0 24 24" strokeWidth={1.8} style={!isDocked && accentColor ? { stroke: `${accentColor}66` } : undefined}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+          </svg>
+        ) : isDocked ? (
           <svg className={`w-5 h-5 ${faded ? 'fill-header/50' : 'fill-header'}`} viewBox="0 0 24 24"><path d="M4 4l7.07 17 2.51-7.39L21 11.07z" /></svg>
         ) : (
           <svg className={`w-5 h-5 transition-colors ${!accentColor && (flashDocks || glowDrag) ? 'fill-[#f59e0b]' : !accentColor && isActive ? 'fill-accent' : !accentColor ? 'fill-accent/40' : ''}`} viewBox="0 0 24 24" style={accentColor ? { fill: `${accentColor}66` } : undefined}>
@@ -404,8 +410,8 @@ export function NavDropCircle({ id, label, icon, isActive, registerRef, onClick,
               left: `calc(50% + ${Math.cos(angle) * r}px - 5px)`,
               top: `calc(50% + ${Math.sin(angle) * r}px - 3.5px)`,
               filter: `drop-shadow(0 0 3px ${p.color}80)`,
-              animation: `presence-drift ${2.5 + Math.random() * 2}s ease-in-out infinite`,
-              animationDelay: `${-Math.random() * 3}s`,
+              animation: `presence-drift ${2.5 + (i * 0.7) % 2}s ease-in-out infinite`,
+              animationDelay: `${-(i * 1.3) % 3}s`,
             }}
             title={p.name}
           >

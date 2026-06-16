@@ -26,46 +26,6 @@ const CSRF_EXEMPT_PATTERNS = [
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // ── First-time visitors → /how ──
-  if (pathname === '/' || pathname === '/chants') {
-    const visited = req.cookies.get('uc_visited')
-    const hasSession = req.cookies.get('next-auth.session-token') ||
-                       req.cookies.get('__Secure-next-auth.session-token')
-    if (!visited && !hasSession) {
-      const response = NextResponse.redirect(new URL('/how', req.url))
-      response.cookies.set('uc_visited', '1', {
-        maxAge: 60 * 60 * 24 * 365, // 1 year
-        path: '/',
-        sameSite: 'lax',
-      })
-      return response
-    }
-    // Logged-in user without uc_visited cookie — set it silently
-    if (!visited && hasSession) {
-      const response = NextResponse.next()
-      response.cookies.set('uc_visited', '1', {
-        maxAge: 60 * 60 * 24 * 365,
-        path: '/',
-        sameSite: 'lax',
-      })
-      return response
-    }
-  }
-
-  // ── Direct /how visit — set uc_visited cookie if missing ──
-  if (pathname === '/how') {
-    const visited = req.cookies.get('uc_visited')
-    if (!visited) {
-      const response = NextResponse.next()
-      response.cookies.set('uc_visited', '1', {
-        maxAge: 60 * 60 * 24 * 365,
-        path: '/',
-        sameSite: 'lax',
-      })
-      return response
-    }
-  }
-
   // ── CORS preflight for embed API routes ──
   if (req.method === 'OPTIONS' && pathname.startsWith('/api/embed/')) {
     return new NextResponse(null, {
@@ -112,5 +72,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/chants', '/how', '/talks/:path*', '/api/:path*'],
+  matcher: ['/', '/chants', '/talks/:path*', '/api/:path*'],
 }

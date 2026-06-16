@@ -73,6 +73,9 @@ export async function GET(
                 },
               },
             },
+            podiumContext: {
+              select: { id: true, title: true },
+            },
             members: userId ? {
               where: { userId },
               select: { id: true },
@@ -209,6 +212,7 @@ export async function GET(
         accumulationEnabled: deliberation.accumulationEnabled,
         ideaGoal: deliberation.ideaGoal,
         memberGoal: deliberation.memberGoal,
+        podiumContext: deliberation.podiumContext || null,
         myCellIds: allParticipations.map(p => p.cellId),
         myIdea: myIdea ? { id: myIdea.id, text: myIdea.text } : null,
       }

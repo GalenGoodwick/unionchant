@@ -90,7 +90,8 @@ export default function AnonymousSignIn() {
         setError('Failed to sign in')
         setLoading(false)
       } else {
-        router.push('/')
+        const params = new URLSearchParams(window.location.search)
+        router.push(params.get('callbackUrl') || '/')
       }
     } catch {
       setError('Something went wrong')

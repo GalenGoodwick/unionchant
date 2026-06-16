@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { isTempUser } from '@/lib/auth'
 import { Prisma } from '@prisma/client'
 
 // POST /api/cells/[cellId]/vote - Cast a vote
@@ -28,8 +29,13 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    // Email verification gate: OAuth users auto-verified, password users must verify
-    if (!user.emailVerified && user.passwordHash) {
+    if (isTempUser(user)) {
+      return NextResponse.json({ error: 'Sign in to vote', code: 'TEMP_ACCOUNT' }, { status: 403 })
+    }
+
+    // Email verification gate: OAuth users auto-verified, synthetic emails (passkey/anon) skip
+    const isSyntheticEmail = user.email?.endsWith('.unitychant.com')
+    if (!user.emailVerified && user.passwordHash && !isSyntheticEmail) {
       return NextResponse.json({
         error: 'Please verify your email before voting',
         code: 'EMAIL_NOT_VERIFIED',

@@ -40,7 +40,7 @@ This same algorithm operates at three scales:
 
 ### 1. Human Collective Intelligence (the platform)
 - Tiered voting: ideas compete in 5-person cells, winners advance
-- Deliberation first: each cell discusses before voting
+- Idea subspace: per-idea discussion within cells via real-time subspace
 - Rolling mode: champion can be challenged continuously
 - Scale: 1,000,000 participants → ~9 tiers → days/weeks to consensus
 
@@ -238,23 +238,16 @@ SUBMISSION → VOTING → COMPLETED
 
 ### Target Flow (design complete, implementation pending)
 ```
-Join → Submit Idea → Deliberate → Vote → (Next tier) → ... → Final → Priority
-                                                                         ↓
-                                                              (if rolling mode)
-                                                                         ↓
-                                                              Accepting New Ideas ←──┐
-                                                                         ↓           │
-                                                                 Deliberate (Round 2) │
-                                                                         ↓           │
-                                                                    Vote ─────────────┘
+Join → Submit Idea → Vote → (Next tier) → ... → Final → Priority
+                                                                ↓
+                                                     (if rolling mode)
+                                                                ↓
+                                                     Accepting New Ideas ←──┐
+                                                                ↓           │
+                                                          Vote (Round 2) ───┘
 ```
 
-**Key change:** Discussion/deliberation is now a defined phase PER TIER. After cells are
-formed, members read all 5 ideas and discuss before voting opens. This uses the existing
-`DELIBERATING` CellStatus. Backend needs:
-- `discussionDurationMs` field on Deliberation model (default: 2 hours)
-- Timer to transition cells from DELIBERATING → VOTING after discussion period
-- New "discuss" feed card type mapping
+Discussion happens organically via idea subspace within cells during voting — no formal timed discussion phase needed.
 
 ### Terminology Map (UI ↔ Backend)
 
@@ -268,7 +261,6 @@ formed, members read all 5 ideas and discuss before voting opens. This uses the 
 | Accepting New Ideas | Accumulating | UI renamed, backend pending |
 | Round 2 | Challenge Round | UI renamed, backend pending |
 | Cell | Cell | Same (no change) |
-| Deliberate | DELIBERATING (CellStatus) | Already exists in schema |
 
 ### Universal Theming / Terminology System
 
@@ -303,10 +295,6 @@ Questions can start voting in three ways:
 3. **Participants goal**: Auto-starts when X participants join
 
 Set via `ideaGoal` or `participantGoal` fields in deliberation creation.
-
-### Discussion Settings (new)
-- **Timed discussion**: Cells deliberate for N hours before voting (default: 2h)
-- **No discussion**: Voting opens immediately when cells form (legacy behavior)
 
 ---
 
@@ -512,7 +500,6 @@ vercel                   # Deploy preview
 | Card | Color | Phase | Action |
 |------|-------|-------|--------|
 | Submit Ideas | cyan/accent | SUBMISSION | Add your idea |
-| Deliberate | blue (#3b82f6) | DELIBERATING | Read ideas & discuss |
 | Vote Now | amber/warning | VOTING | Pick the strongest answer |
 | Round 2 | orange | Challenge voting | Vote to keep or replace |
 | Accepting New Ideas | purple | ACCUMULATING | Submit challenger idea |
@@ -530,7 +517,6 @@ The feed has 3 tabs: **Your Turn**, **Activity**, **Results**. Each card maps to
 | Card | Current Backend | Changes Needed |
 |------|----------------|----------------|
 | **Vote Now** (amber) | `vote_now` type, query cells where user is participant + `status: VOTING` | None — works today |
-| **💬 Deliberate** (blue) | Does not exist | **NEW** `discuss` card type (see below) |
 | **⚔ Round 2** (orange) | `challenge` type, query cells in challenge round | Rename label only in UI component |
 | **Join · Open** (cyan) | `join_voting` type, query open questions user hasn't joined | Rename label, show during any open phase (not just VOTING) |
 | **💡 Submit Ideas** (cyan) | `submit_ideas` type, query `phase: SUBMISSION` | None — works today |
@@ -538,36 +524,10 @@ The feed has 3 tabs: **Your Turn**, **Activity**, **Results**. Each card maps to
 | **🎉 Your Pick Advanced** (green) | Notification-driven | May need dedicated query: user's voted idea has `status: ADVANCING` |
 | **⏳ Waiting** (gray) | `vote_now` with `hasVoted: true` | Add cell member avatars + vote status to response |
 
-#### New: `discuss` Card Type — Full Spec
-
-**When shown:** User has a cell with `status: DELIBERATING` (cell created, voting not yet open).
-
-**Data needed from API:**
-```
-{
-  type: 'discuss',
-  deliberationId, title, participantCount,
-  cell: {
-    id, discussionEndsAt,
-    ideas: [ { id, text, authorName } ],  // all 5 ideas in cell
-    latestComment: { text, authorName },   // most recent comment
-    memberCount, commentCount
-  }
-}
-```
-
-**Priority:** 95 (between `vote_now` at 100 and `join_voting` at 75).
-
-**Backend work:**
-1. `src/app/api/feed/route.ts` — Add query for cells with `status: 'DELIBERATING'` where user is participant. Join CellIdea → Idea for idea text. Join Comment for latest comment.
-2. `src/types/feed.ts` — Add `'discuss'` to `FeedItemType` union. Add `cellIdeas` and `latestComment` fields.
-3. `src/components/feed/cards/DiscussCard.tsx` — New component. Blue theme. Shows 5 ideas, latest comment, countdown to voting.
-
 #### Activity Tab — Backend Mapping
 
 | Event | Icon | Source | Changes Needed |
 |-------|------|--------|----------------|
-| Discussion opened | 💬 | Cell status → DELIBERATING | **NEW** notification type |
 | Round N started | ⚔️ | Challenge round started | Exists (rename label) |
 | Tier completed | ✅ | Tier completion | Exists as notification |
 | Voting in progress | 🗳️ | Cells in VOTING | Exists |
@@ -582,30 +542,6 @@ The feed has 3 tabs: **Your Turn**, **Activity**, **Results**. Each card maps to
 | Your Idea Advanced (cyan) | User's idea `status: ADVANCING` | May need dedicated query |
 | Completed (dimmed) | `phase: COMPLETED`, no user involvement | None |
 | Prediction Correct (amber) | Prediction system | None |
-
-#### Schema Changes for Discussion Phase
-
-```prisma
-// Add to Deliberation model:
-discussionDurationMs  Int?      // null = no discussion phase (legacy behavior)
-
-// Add to Cell model:
-discussionEndsAt      DateTime? // when discussion period ends for this cell
-```
-
-#### Code Changes by File
-
-| File | Change |
-|------|--------|
-| `prisma/schema.prisma` | Add `discussionDurationMs` to Deliberation, `discussionEndsAt` to Cell |
-| `src/lib/voting.ts` | In `startVotingPhase` + `checkTierCompletion`: if `discussionDurationMs` set, create cells as `DELIBERATING` with `discussionEndsAt = now + ms`; else create as `VOTING` (current) |
-| `src/lib/timer-processor.ts` | Add `processExpiredDiscussions()`: query cells where `status = DELIBERATING` and `discussionEndsAt <= now`, transition to `VOTING` |
-| `src/app/api/feed/route.ts` | Add `discuss` card type query, include cell ideas + latest comment |
-| `src/types/feed.ts` | Add `'discuss'` to FeedItemType, add discussion fields |
-| `src/components/feed/cards/DiscussCard.tsx` | New component — blue theme, 5 ideas list, latest comment, countdown |
-| `src/app/api/deliberations/route.ts` | Accept `discussionDurationMs` in POST body |
-| `src/app/deliberations/new/page.tsx` | Add discussion time input to create form |
-| `src/app/globals.css` | Add `--color-blue: #3b82f6` + bg/hover variants to `@theme` |
 
 #### Terminology Renames (UI-only, not DB columns)
 

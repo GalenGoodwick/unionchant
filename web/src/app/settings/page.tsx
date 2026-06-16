@@ -336,7 +336,7 @@ export default function SettingsPage() {
         {/* Account */}
         <section className={sectionClass}>
           <h3 className="text-xs font-semibold text-foreground mb-2">Account</h3>
-          <p className="text-xs text-muted mb-2">Signed in as <span className="text-foreground">{session.user?.email}</span></p>
+          <p className="text-xs text-muted mb-2">{session.user?.email?.endsWith('.unitychant.com') ? <span className="text-foreground">Device-based account (only accessible on this device)</span> : <>Signed in as <span className="text-foreground">{session.user?.email}</span></>}</p>
           <button onClick={() => signOut({ callbackUrl: '/' })}
             className="px-3 py-1.5 border border-border text-foreground rounded-lg hover:bg-surface text-xs transition-colors">
             Sign Out

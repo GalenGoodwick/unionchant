@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useSession, signIn } from 'next-auth/react'
+import { useSession, signIn, signOut } from 'next-auth/react'
 import Dockstar, { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
 import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
@@ -12,6 +12,8 @@ import { useChantsFeed } from './useChantsFeed'
 import { useChantDetail } from './useChantDetail'
 import type { Chant } from './useChantsFeed'
 import { useInactivityTimer } from './useInactivityTimer'
+import { useAdmin } from '@/hooks/useAdmin'
+import AuthOverlay from '@/components/AuthOverlay'
 
 // ── PRESENCE COLORS (deterministic from user ID) ──
 const PRESENCE_COLORS = [
@@ -34,14 +36,17 @@ function presenceColor(userId: string): string {
 
 // ── PRESENCE EYE (small eye icon with drift animation) ──
 function PresenceEye({ color, name, style, className }: { color: string; name: string; style?: React.CSSProperties; className?: string }) {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = ((h << 5) - h + name.charCodeAt(i)) | 0
+  const seed = Math.abs(h)
   return (
     <div
       className={`${className || ''}`}
       style={{
         ...style,
         filter: `drop-shadow(0 0 3px ${color}80)`,
-        animation: `presence-drift ${2.5 + Math.random() * 2}s ease-in-out infinite`,
-        animationDelay: `${-Math.random() * 3}s`,
+        animation: `presence-drift ${2.5 + (seed % 200) / 100}s ease-in-out infinite`,
+        animationDelay: `${-((seed >> 8) % 300) / 100}s`,
       }}
       title={name}
     >
@@ -129,22 +134,63 @@ function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onCl
 
 function ChantsPageContent() {
   // ── Data hooks ──
-  const { data: session } = useSession()
+  const { data: session, status: sessionStatus, update: updateSession } = useSession()
+  const { isAdmin } = useAdmin()
   const searchParams = useSearchParams()
   const { chants, loading: feedLoading, error: feedError, refresh: refreshFeed, prepend: prependChant } = useChantsFeed()
   const [dockedPostId, setDockedPostId] = useState<string | null>(searchParams.get('dock'))
   const chantDetailId = dockedPostId === '__create_chant__' || dockedPostId?.startsWith('podium:') || dockedPostId?.startsWith('group:') ? null : dockedPostId
   const { detail, loading: detailLoading, error: detailError, refresh: refreshDetail, submitVote, submitIdea, joinChant, leaveChant } = useChantDetail(chantDetailId, !session?.user)
+  const autoAnonRef = useRef(false)
+
+  // ── Auto-anonymous: create temp account so unauthenticated users can browse/dock ──
+  useEffect(() => {
+    if (sessionStatus !== 'unauthenticated' || autoAnonRef.current) return
+    autoAnonRef.current = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/anonymous', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auto: true }),
+        })
+        if (!res.ok) { autoAnonRef.current = false; return }
+        const { email, password } = await res.json()
+        const result = await signIn('credentials', { email, password, redirect: false })
+        if (result?.error) autoAnonRef.current = false
+      } catch {
+        autoAnonRef.current = false
+      }
+    })()
+  }, [sessionStatus])
 
   // ── Feed state ──
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'new' | 'hot' | 'top'>('new')
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups'>('chants')
+  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>('chants')
   const [podiums, setPodiums] = useState<{ id: string; title: string; body: string; views: number; pinned?: boolean; createdAt: string; author: { id?: string; name: string | null }; deliberation: { id: string; question: string } | null }[]>([])
   const [podiumsLoading, setPodiumsLoading] = useState(false)
   const [groups, setGroups] = useState<{ id: string; name: string; slug: string; description: string | null; isPublic: boolean; _count: { members: number; deliberations: number }; creator: { name: string | null } }[]>([])
   const [groupsLoading, setGroupsLoading] = useState(false)
+  const [profileData, setProfileData] = useState<{
+    id: string; name: string; image: string | null; bio: string | null; joinedAt: string; totalXP: number
+    followersCount: number; followingCount: number
+    stats: {
+      ideas: number; votes: number; comments: number; deliberationsCreated: number; deliberationsJoined: number
+      deliberationsVotedIn: number; totalPredictions: number; correctPredictions: number; accuracy: number | null
+      championPicks: number; currentStreak: number; bestStreak: number; ideasWon: number; winRate: number | null
+      highestTierReached: number; ideasAdvanced: number; tierBreakdown: Array<{ tier: number; count: number }>
+      highestUpPollinateTier: number; totalUpvotesReceived: number; totalCommentUpvotes: number
+    }
+    recentActivity: Array<{ deliberationId: string; question: string; phase: string; lastActive: string }>
+    recentIdeas: Array<{ id: string; text: string; status: string; deliberationId: string; question: string; createdAt: string }>
+  } | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
+  const [profileView, setProfileView] = useState<'me' | 'friends'>('me')
+  const [friendsList, setFriendsList] = useState<{ id: string; name: string; image: string | null; bio: string | null }[] | null>(null)
+  const [friendsLoading, setFriendsLoading] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [xpAllocations, setXpAllocations] = useState<Record<string, Record<string, number>>>({})
   const [nearestDrop, setNearestDrop] = useState<string | null>(null)
   const [isDraggingDockstar, setIsDraggingDockstar] = useState(false)
@@ -167,6 +213,7 @@ function ChantsPageContent() {
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
   const [createCommunityId, setCreateCommunityId] = useState<string | null>(null)
+  const [createPodiumContextId, setCreatePodiumContextId] = useState<string | null>(null)
   const [userGroups, setUserGroups] = useState<{ id: string; name: string; slug: string }[]>([])
   const [userGroupsLoaded, setUserGroupsLoaded] = useState(false)
   const [groupCreateOpen, setGroupCreateOpen] = useState(false)
@@ -174,6 +221,7 @@ function ChantsPageContent() {
   const [groupCreateDescription, setGroupCreateDescription] = useState('')
   const [groupCreating, setGroupCreating] = useState(false)
   const [groupCreateError, setGroupCreateError] = useState('')
+  const [groupCreatePodiumContextId, setGroupCreatePodiumContextId] = useState<string | null>(null)
   // Podium create state
   const [createPodiumTitle, setCreatePodiumTitle] = useState('')
   const [createPodiumBody, setCreatePodiumBody] = useState('')
@@ -207,6 +255,32 @@ function ChantsPageContent() {
   const [submittingIdea, setSubmittingIdea] = useState(false)
   const [submittedIdeas, setSubmittedIdeas] = useState<Record<string, string>>({})
   const [kickedMessage, setKickedMessage] = useState(false)
+
+  // Auth overlay state
+  const [authOverlayOpen, setAuthOverlayOpen] = useState(false)
+  const [authCallbackAction, setAuthCallbackAction] = useState<(() => void) | null>(null)
+
+  const requireAuth = useCallback((action: () => void) => {
+    if (session?.user && !session.user.isTemp) { action(); return }
+    setAuthCallbackAction(() => action)
+    setAuthOverlayOpen(true)
+  }, [session])
+
+  const handleAuthSuccess = useCallback(async () => {
+    setAuthOverlayOpen(false)
+    // Refresh session to clear isTemp flag after upgrade/sign-in
+    await updateSession({ isTemp: false })
+    // Execute pending action after a brief delay for session to update
+    if (authCallbackAction) {
+      setTimeout(() => { authCallbackAction(); setAuthCallbackAction(null) }, 500)
+    }
+  }, [authCallbackAction, updateSession])
+
+  // Temp accounts can browse but not act — they need proper sign-in to submit/vote
+  const needsAuth = !session?.user || !!session.user.isTemp
+
+  // Build callbackUrl preserving current dock state
+  const authCallbackUrl = dockedPostId ? `/chants?dock=${encodeURIComponent(dockedPostId)}` : '/chants'
 
   const dropZoneRefs = useRef<Map<string, HTMLElement>>(new Map())
   const instanceCanvasRefs = useRef<Map<string, HTMLElement>>(new Map())
@@ -337,6 +411,119 @@ function ChantsPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── BROWSER HISTORY (back/forward button support) ──
+  const isRestoringHistoryRef = useRef(false)
+  const lastHistoryKeyRef = useRef('')
+  const historyRafRef = useRef(0)
+  const currentNavRef = useRef({ dock: dockedPostId as string | null, subspace: activeSubspaceId as string | null, tab: activeTab as string })
+
+  // Replace initial history entry with current state
+  useEffect(() => {
+    const initial = searchParams.get('dock') || null
+    const state = { dock: initial, subspace: null as string | null, tab: 'chants' }
+    window.history.replaceState(state, '')
+    lastHistoryKeyRef.current = JSON.stringify(state)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Keep current nav state in ref for popstate handler (avoids stale closures)
+  useEffect(() => {
+    currentNavRef.current = { dock: dockedPostId, subspace: activeSubspaceId, tab: activeTab }
+  }, [dockedPostId, activeSubspaceId, activeTab])
+
+  // Push history entry when navigation state changes (batched via rAF to coalesce rapid updates)
+  useEffect(() => {
+    cancelAnimationFrame(historyRafRef.current)
+    historyRafRef.current = requestAnimationFrame(() => {
+      if (isRestoringHistoryRef.current) {
+        isRestoringHistoryRef.current = false
+        lastHistoryKeyRef.current = JSON.stringify({ dock: dockedPostId, subspace: activeSubspaceId, tab: activeTab })
+        return
+      }
+      const state = { dock: dockedPostId, subspace: activeSubspaceId, tab: activeTab }
+      const key = JSON.stringify(state)
+      if (key === lastHistoryKeyRef.current) return
+      lastHistoryKeyRef.current = key
+      const url = new URL(window.location.href)
+      if (dockedPostId) url.searchParams.set('dock', dockedPostId)
+      else url.searchParams.delete('dock')
+      window.history.pushState(state, '', url.pathname + url.search)
+    })
+    return () => cancelAnimationFrame(historyRafRef.current)
+  }, [dockedPostId, activeSubspaceId, activeTab])
+
+  // Handle browser back/forward buttons
+  useEffect(() => {
+    const onPopstate = (e: PopStateEvent) => {
+      isRestoringHistoryRef.current = true
+      const s = e.state as { dock?: string | null; subspace?: string | null; tab?: string } | null
+      const targetDock = s?.dock ?? null
+      const targetSubspace = s?.subspace ?? null
+      const targetTab = (s?.tab || 'chants') as typeof activeTab
+      const cur = currentNavRef.current
+
+      if (!targetDock && cur.dock) {
+        // Back to feed — clean undock without confirmation
+        setDockedPostId(null)
+        setDockedIdeaId(null)
+        setActiveSubspaceId(null)
+        setDockedPodium(null)
+        setDockedGroup(null)
+        setCreateMode(false)
+        setXpAllocations({})
+        setPendingInput('')
+        setPendingInputType(null)
+        setManageMode(false)
+        setGroupCreateOpen(false)
+        setGroupSettingsOpen(false)
+        setPodiumSettingsOpen(false)
+        refreshFeed()
+      } else if (!targetSubspace && cur.subspace && targetDock === cur.dock) {
+        // Back from subspace to docked view
+        setActiveSubspaceId(null)
+        setDockedIdeaId(null)
+      } else if (targetDock && targetDock !== cur.dock) {
+        // Re-dock (forward button or dock-to-dock navigation)
+        setDockedPostId(targetDock)
+        setDockedIdeaId(null)
+        setActiveSubspaceId(targetSubspace)
+        setDockedPodium(null)
+        setDockedGroup(null)
+        setCreateMode(targetDock === '__create_chant__')
+        if (targetDock.startsWith('podium:')) {
+          const pid = targetDock.slice(7)
+          setDockedPodiumLoading(true)
+          fetch(`/api/podiums/${pid}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+              if (d) {
+                setDockedPodium(d)
+                fetch(`/api/podiums/${d.id}/comments`).then(r => r.ok ? r.json() : null).then(c => { if (c?.comments) setPodiumCommentPreview(c.comments.slice(-10)) }).catch(() => {})
+              }
+            })
+            .finally(() => setDockedPodiumLoading(false))
+        } else if (targetDock.startsWith('group:')) {
+          const slug = targetDock.slice(6)
+          setDockedGroupLoading(true)
+          fetch(`/api/communities/${slug}`)
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) setDockedGroup(d) })
+            .finally(() => setDockedGroupLoading(false))
+        }
+      } else if (targetSubspace && targetSubspace !== cur.subspace) {
+        // Re-enter subspace (forward button)
+        setActiveSubspaceId(targetSubspace)
+        setDockedIdeaId(targetSubspace)
+      }
+
+      if (targetTab !== cur.tab) {
+        setActiveTab(targetTab)
+      }
+    }
+    window.addEventListener('popstate', onPopstate)
+    return () => window.removeEventListener('popstate', onPopstate)
+  }, [refreshFeed])
+
   // Fetch podiums when tab active
   useEffect(() => {
     if (activeTab !== 'podiums' || podiums.length > 0) return
@@ -348,6 +535,15 @@ function ChantsPageContent() {
       .finally(() => setPodiumsLoading(false))
   }, [activeTab, podiums.length])
 
+  // Also fetch podiums when create form opens (for podium context selector)
+  useEffect(() => {
+    if ((!createMode && !groupCreateOpen) || podiums.length > 0) return
+    fetch('/api/podiums?limit=20')
+      .then(r => r.json())
+      .then(data => setPodiums(data.items || []))
+      .catch(() => {})
+  }, [createMode, groupCreateOpen, podiums.length])
+
   // Fetch groups when tab active
   useEffect(() => {
     if (activeTab !== 'groups' || groups.length > 0) return
@@ -358,6 +554,30 @@ function ChantsPageContent() {
       .catch(() => {})
       .finally(() => setGroupsLoading(false))
   }, [activeTab, groups.length])
+
+  // Fetch profile when tab active
+  useEffect(() => {
+    if (activeTab !== 'profile' || profileData || needsAuth) return
+    setProfileLoading(true)
+    fetch('/api/user/me')
+      .then(r => r.json())
+      .then(me => fetch(`/api/user/${me.user.id}`))
+      .then(r => r.json())
+      .then(data => setProfileData(data.user))
+      .catch(() => {})
+      .finally(() => setProfileLoading(false))
+  }, [activeTab, profileData, needsAuth])
+
+  // Fetch friends list when switching to friends view
+  useEffect(() => {
+    if (activeTab !== 'profile' || profileView !== 'friends' || friendsList || needsAuth) return
+    setFriendsLoading(true)
+    fetch('/api/user/me/following')
+      .then(r => r.json())
+      .then(data => setFriendsList(data.users || []))
+      .catch(() => setFriendsList([]))
+      .finally(() => setFriendsLoading(false))
+  }, [activeTab, profileView, friendsList, needsAuth])
 
   // Track scroll
   useEffect(() => {
@@ -468,11 +688,12 @@ function ChantsPageContent() {
       setXpAllocations({})
       setPendingInput('')
       setPendingInputType(null)
+      if (id === '__nav_profile__') { setActiveTab('profile'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
       const nav = NAV_ITEMS.find(n => n.id === id)
       if (nav) {
-        if (nav.href === '/podiums') { setActiveTab('podiums'); setSearchQuery(''); setSortBy('new'); return }
-        if (nav.href === '/groups') { setActiveTab('groups'); setSearchQuery(''); setSortBy('new'); return }
-        if (nav.href === '/chants') { setActiveTab('chants'); setSearchQuery(''); setSortBy('new'); return }
+        if (nav.href === '/podiums') { setActiveTab('podiums'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
+        if (nav.href === '/groups') { setActiveTab('groups'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
+        if (nav.href === '/chants') { setActiveTab('chants'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
         window.location.href = nav.href
       }
       return
@@ -581,8 +802,8 @@ function ChantsPageContent() {
       leaveChant()
     }
     setUndockingAnim(true)
-    setActiveSubspaceId(null)
     setTimeout(() => {
+      setActiveSubspaceId(null)
       setDockedPostId(null)
       setDockedIdeaId(null)
       setDockedPodium(null)
@@ -621,7 +842,7 @@ function ChantsPageContent() {
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, description: createDescription.trim() || undefined, ...(createCommunityId ? { communityId: createCommunityId } : {}) }),
+        body: JSON.stringify({ question: q, description: createDescription.trim() || undefined, ...(createCommunityId ? { communityId: createCommunityId } : {}), ...(createPodiumContextId ? { podiumContextId: createPodiumContextId } : {}) }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -632,6 +853,7 @@ function ChantsPageContent() {
       setCreateMode(false)
       setCreateQuestion('')
       setCreateDescription('')
+      setCreatePodiumContextId(null)
       prependChant({
         id: delib.id,
         question: delib.question,
@@ -664,7 +886,7 @@ function ChantsPageContent() {
     } finally {
       setCreating(false)
     }
-  }, [createQuestion, createDescription, createCommunityId, prependChant])
+  }, [createQuestion, createDescription, createCommunityId, createPodiumContextId, prependChant])
 
   const handlePodiumCreateSubmit = useCallback(async () => {
     const title = createPodiumTitle.trim()
@@ -761,7 +983,7 @@ function ChantsPageContent() {
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, description: groupCreateDescription.trim() || undefined, communityId: dockedGroup.id }),
+        body: JSON.stringify({ question: q, description: groupCreateDescription.trim() || undefined, communityId: dockedGroup.id, ...(groupCreatePodiumContextId ? { podiumContextId: groupCreatePodiumContextId } : {}) }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -773,6 +995,7 @@ function ChantsPageContent() {
       setGroupCreateOpen(false)
       setGroupCreateQuestion('')
       setGroupCreateDescription('')
+      setGroupCreatePodiumContextId(null)
       prependChant({
         id: delib.id, question: delib.question, description: delib.description || null, phase: 'SUBMISSION', tier: 0, participants: 1, ideas: 0, cells: 0, upvotes: 0,
         community: dockedGroup.name, creator: 'You', createdAt: 'now', createdAtRaw: new Date().toISOString(), champion: null,
@@ -783,7 +1006,7 @@ function ChantsPageContent() {
     } finally {
       setGroupCreating(false)
     }
-  }, [dockedGroup, groupCreateQuestion, groupCreateDescription, prependChant])
+  }, [dockedGroup, groupCreateQuestion, groupCreateDescription, groupCreatePodiumContextId, prependChant])
 
   // Dock to a chant and directly open manage mode
   const handleDockToSettings = useCallback((id: string, fromGroup?: { question: string; phase: string; community: string; _count?: { members: number; ideas: number } }) => {
@@ -833,7 +1056,7 @@ function ChantsPageContent() {
 
   // ── SUBSPACE ──
   const enterSubspace = useCallback((ideaId: string) => {
-    if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=${dockedPostId}` }); return }
+    if (needsAuth) { requireAuth(() => { setActiveSubspaceId(ideaId); setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId]) }); return }
     setActiveSubspaceId(ideaId)
     setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId])
   }, [session, dockedPostId])
@@ -845,6 +1068,7 @@ function ChantsPageContent() {
   // ── DERIVED DATA ──
   const tabAccentColor = activeTab === 'podiums' ? '#a78bfa'
     : activeTab === 'groups' ? '#fbbf24'
+    : activeTab === 'profile' ? '#e2e8f0'
     : '#22d3ee'
 
   const filteredChants = chants
@@ -943,8 +1167,35 @@ function ChantsPageContent() {
   }, [dockedPostId, xpAllocations, submitVote, submittingVote])
 
   // ── IDEA SUBMIT ──
+  // pendingInput is preserved in state, so after auth completes the callback re-reads it
+  const pendingInputRef = useRef(pendingInput)
+  pendingInputRef.current = pendingInput
+  const dockedPostIdRef = useRef(dockedPostId)
+  dockedPostIdRef.current = dockedPostId
+
   const handleIdeaSubmit = useCallback(async () => {
-    if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=${dockedPostId}` }); return }
+    if (needsAuth) {
+      // Store a callback that submits directly (skips auth check on retry)
+      requireAuth(async () => {
+        const text = pendingInputRef.current.trim()
+        const docked = dockedPostIdRef.current
+        if (!text || !docked) return
+        setSubmittingIdea(true)
+        try {
+          await submitIdea(text)
+          setSubmittedIdeas(prev => ({ ...prev, [docked]: text }))
+          setPendingInput('')
+          setPendingInputType(null)
+          setPendingInputTargetId(null)
+          setPendingDockContext(null)
+        } catch (err) {
+          console.error('Idea submit failed:', err)
+        } finally {
+          setSubmittingIdea(false)
+        }
+      })
+      return
+    }
     if (!dockedPostId || submittingIdea) return
     const text = pendingInput.trim()
     if (!text) return
@@ -962,7 +1213,7 @@ function ChantsPageContent() {
     } finally {
       setSubmittingIdea(false)
     }
-  }, [session, dockedPostId, pendingInput, submitIdea, submittingIdea])
+  }, [needsAuth, dockedPostId, pendingInput, submitIdea, submittingIdea, requireAuth])
 
   // ── JOIN ──
   const [joining, setJoining] = useState(false)
@@ -1150,20 +1401,21 @@ function ChantsPageContent() {
                   />
                 </div>
               </>
-            ) : isDockedToChant && dockedChant ? (
+            ) : isDockedToChant && (dockedChant || detail) ? (
               /* DOCKED state */
               <>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-serif text-foreground/80 truncate leading-snug">
-                    {dockedChant.question}
+                    {dockedChant?.question || detail?.question || '...'}
                   </h3>
                   <div className="flex items-center gap-1.5 text-xs mt-0.5">
-                    <span className="font-mono text-accent">{dockedChant.community}</span>
+                    <span className="font-mono text-accent">{dockedChant?.community || 'Public'}</span>
                     <span className="text-muted-light/50">/</span>
-                    <span className="text-muted-light">{dockedChant.creator}</span>
+                    <span className="text-muted-light">{dockedChant?.creator || detail?.creator?.name || ''}</span>
                     {/* Presence dots for other users docked to this chant */}
                     {(() => {
-                      const dockedPeers = getInstancePlayers(dockedChant.id, true).filter(p => p.id !== presenceUserId)
+                      const chantId = dockedChant?.id || dockedPostId || ''
+                      const dockedPeers = getInstancePlayers(chantId, true).filter(p => p.id !== presenceUserId)
                       return dockedPeers.length > 0 ? (
                         <>
                           <span className="text-muted-light/50">&middot;</span>
@@ -1186,8 +1438,8 @@ function ChantsPageContent() {
                   >
                     <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
                   </button>
-                  <ShareMenu url={`/?dock=${dockedChant.id}`} text={dockedChant.question} variant="icon" />
-                  {dockedChant.isCreator && (
+                  <ShareMenu url={`/?dock=${dockedChant?.id || dockedPostId}`} text={dockedChant?.question || detail?.question || ''} variant="icon" />
+                  {dockedChant?.isCreator && (
                     <button
                       data-interactive
                       onClick={() => setManageMode(!manageMode)}
@@ -1201,7 +1453,7 @@ function ChantsPageContent() {
                     </button>
                   )}
                   <DropCircle
-                    id={dockedChant.id}
+                    id={dockedChant?.id || dockedPostId || ''}
                     isActive={false}
                     isDocked={true}
                     userInitial="G"
@@ -1348,77 +1600,78 @@ function ChantsPageContent() {
                   glowDrag={isDraggingDockstar && nearestDrop !== '__create_chant__'}
                   accentColor={tabAccentColor}
                 />
-                {activeTab === 'chants' ? (
+                {activeTab === 'profile' ? (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {(['new', 'hot', 'top'] as const).map(s => (
+                      {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }] as const).map(v => (
                         <button
-                          key={s}
+                          key={v.key}
                           data-interactive
-                          onClick={() => setSortBy(s)}
-                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-purple/15 text-purple border border-purple/30' : 'text-purple/60 hover:text-purple border border-transparent'}`}
+                          onClick={() => setProfileView(v.key)}
+                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${profileView === v.key ? 'bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/30' : 'text-[#4ade80]/60 hover:text-[#4ade80] border border-transparent'}`}
                         >
-                          {s}
+                          {v.label}
                         </button>
                       ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="Search..."
-                        className="w-full bg-transparent border border-purple/30 rounded px-2 py-1 text-sm text-purple placeholder:text-purple/40 outline-none focus:border-purple/60 font-mono"
-                      />
+                    <div className="flex-1" />
+                  </>
+                ) : activeTab === 'chants' ? (
+                  <>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(['new', 'hot', 'top'] as const).map(s => (
+                        <button key={s} data-interactive onClick={() => setSortBy(s)}
+                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-purple/15 text-purple border border-purple/30' : 'text-purple/60 hover:text-purple border border-transparent'}`}
+                        >{s}</button>
+                      ))}
                     </div>
+                    <div className="hidden sm:flex flex-1 min-w-0">
+                      <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search..."
+                        className="w-full bg-transparent border border-purple/30 rounded px-2 py-1 text-sm text-purple placeholder:text-purple/40 outline-none focus:border-purple/60 font-mono" />
+                    </div>
+                    <div className="flex-1 sm:hidden" />
+                    <button data-interactive onClick={() => { setSearchOpen(o => !o); if (searchOpen) setSearchQuery('') }}
+                      className={`sm:hidden w-8 h-8 rounded-full border flex items-center justify-center shrink-0 transition-colors ${searchOpen ? 'border-foreground/40 bg-foreground/10' : 'border-border bg-transparent'}`}>
+                      <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="7" /><path strokeLinecap="round" d="M21 21l-4.35-4.35" /></svg>
+                    </button>
                   </>
                 ) : activeTab === 'podiums' ? (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {(['new', 'hot', 'top'] as const).map(s => (
-                        <button
-                          key={s}
-                          data-interactive
-                          onClick={() => setSortBy(s)}
+                        <button key={s} data-interactive onClick={() => setSortBy(s)}
                           className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-[#a78bfa]/15 text-[#a78bfa] border border-[#a78bfa]/30' : 'text-[#a78bfa]/60 hover:text-[#a78bfa] border border-transparent'}`}
-                        >
-                          {s}
-                        </button>
+                        >{s}</button>
                       ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="Search podiums..."
-                        className="w-full bg-transparent border border-[#a78bfa]/30 rounded px-2 py-1 text-sm text-[#a78bfa] placeholder:text-[#a78bfa]/40 outline-none focus:border-[#a78bfa]/60 font-mono"
-                      />
+                    <div className="hidden sm:flex flex-1 min-w-0">
+                      <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search podiums..."
+                        className="w-full bg-transparent border border-[#a78bfa]/30 rounded px-2 py-1 text-sm text-[#a78bfa] placeholder:text-[#a78bfa]/40 outline-none focus:border-[#a78bfa]/60 font-mono" />
                     </div>
+                    <div className="flex-1 sm:hidden" />
+                    <button data-interactive onClick={() => { setSearchOpen(o => !o); if (searchOpen) setSearchQuery('') }}
+                      className={`sm:hidden w-8 h-8 rounded-full border flex items-center justify-center shrink-0 transition-colors ${searchOpen ? 'border-foreground/40 bg-foreground/10' : 'border-border bg-transparent'}`}>
+                      <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="7" /><path strokeLinecap="round" d="M21 21l-4.35-4.35" /></svg>
+                    </button>
                   </>
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {(['new', 'hot', 'top'] as const).map(s => (
-                        <button
-                          key={s}
-                          data-interactive
-                          onClick={() => setSortBy(s)}
+                        <button key={s} data-interactive onClick={() => setSortBy(s)}
                           className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30' : 'text-[#fbbf24]/60 hover:text-[#fbbf24] border border-transparent'}`}
-                        >
-                          {s}
-                        </button>
+                        >{s}</button>
                       ))}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="Search groups..."
-                        className="w-full bg-transparent border border-[#fbbf24]/30 rounded px-2 py-1 text-sm text-[#fbbf24] placeholder:text-[#fbbf24]/40 outline-none focus:border-[#fbbf24]/60 font-mono"
-                      />
+                    <div className="hidden sm:flex flex-1 min-w-0">
+                      <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search groups..."
+                        className="w-full bg-transparent border border-[#fbbf24]/30 rounded px-2 py-1 text-sm text-[#fbbf24] placeholder:text-[#fbbf24]/40 outline-none focus:border-[#fbbf24]/60 font-mono" />
                     </div>
+                    <div className="flex-1 sm:hidden" />
+                    <button data-interactive onClick={() => { setSearchOpen(o => !o); if (searchOpen) setSearchQuery('') }}
+                      className={`sm:hidden w-8 h-8 rounded-full border flex items-center justify-center shrink-0 transition-colors ${searchOpen ? 'border-foreground/40 bg-foreground/10' : 'border-border bg-transparent'}`}>
+                      <svg className="w-4 h-4 text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="7" /><path strokeLinecap="round" d="M21 21l-4.35-4.35" /></svg>
+                    </button>
                   </>
                 )}
                 {/* Inline Dockstar — drag to dock, click to undock */}
@@ -1459,6 +1712,23 @@ function ChantsPageContent() {
               </>
             )}
           </div>
+          {/* MOBILE SEARCH BAR — slides down below toolbar */}
+          {searchOpen && activeTab !== 'profile' && !dockedPostId && !activeSubspaceId && (
+            <div className="sm:hidden px-3 pb-2 max-w-2xl mx-auto">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder={activeTab === 'podiums' ? 'Search podiums...' : activeTab === 'groups' ? 'Search groups...' : 'Search...'}
+                className={`w-full bg-transparent border rounded px-2 py-1.5 text-sm outline-none font-mono ${
+                  activeTab === 'podiums' ? 'border-[#a78bfa]/30 text-[#a78bfa] placeholder:text-[#a78bfa]/40 focus:border-[#a78bfa]/60'
+                  : activeTab === 'groups' ? 'border-[#fbbf24]/30 text-[#fbbf24] placeholder:text-[#fbbf24]/40 focus:border-[#fbbf24]/60'
+                  : 'border-purple/30 text-purple placeholder:text-purple/40 focus:border-purple/60'
+                }`}
+                autoFocus
+              />
+            </div>
+          )}
           {/* INACTIVITY WARNING */}
           {inactivityWarning && (
             <div className="px-3 py-2 bg-warning/10 border-t border-warning/30 flex items-center gap-2 max-w-2xl mx-auto">
@@ -1592,6 +1862,20 @@ function ChantsPageContent() {
                       ))}
                     </select>
                   )}
+                  {podiums.length > 0 && (
+                    <select
+                      value={createPodiumContextId || ''}
+                      onChange={e => setCreatePodiumContextId(e.target.value || null)}
+                      className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-xs font-mono outline-none focus:border-accent transition-all appearance-none cursor-pointer"
+                      style={{ color: createPodiumContextId ? '#a855f7' : '#64748b', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                      disabled={creating}
+                    >
+                      <option value="">No context podium</option>
+                      {podiums.map(p => (
+                        <option key={p.id} value={p.id}>{p.title}</option>
+                      ))}
+                    </select>
+                  )}
                 </>
               )}
               {createError && (
@@ -1637,6 +1921,20 @@ function ChantsPageContent() {
             <div className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-xs font-mono text-muted-light/60">
               Posting to <span style={{ color: '#fbbf24' }}>{dockedGroup?.name}</span>
             </div>
+            {podiums.length > 0 && (
+              <select
+                value={groupCreatePodiumContextId || ''}
+                onChange={e => setGroupCreatePodiumContextId(e.target.value || null)}
+                className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-xs font-mono outline-none focus:border-accent transition-all appearance-none cursor-pointer"
+                style={{ color: groupCreatePodiumContextId ? '#a855f7' : '#64748b', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                disabled={groupCreating}
+              >
+                <option value="">No context podium</option>
+                {podiums.map(p => (
+                  <option key={p.id} value={p.id}>{p.title}</option>
+                ))}
+              </select>
+            )}
             {groupCreateError && <p className="text-xs text-error font-mono">{groupCreateError}</p>}
           </div>
         </div>
@@ -2020,7 +2318,7 @@ function ChantsPageContent() {
                                 data-interactive
                                 disabled={joiningGroup}
                                 onClick={async () => {
-                                  if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=group:${dockedGroup.slug}&invite=${inviteParam}` }); return }
+                                  if (needsAuth) { setAuthOverlayOpen(true); return }
                                   setJoiningGroup(true)
                                   try {
                                     const res = await fetch(`/api/communities/invite/${inviteParam}/join`, { method: 'POST' })
@@ -2044,7 +2342,7 @@ function ChantsPageContent() {
                           }
                           return (
                             <div className="text-xs text-muted-light/50 font-mono">
-                              {session?.user ? 'You need an invite link to join this group.' : 'Sign in with an invite link to join.'}
+                              {!needsAuth ? 'You need an invite link to join this group.' : 'Sign in with an invite link to join.'}
                             </div>
                           )
                         })()}
@@ -2062,7 +2360,7 @@ function ChantsPageContent() {
                             data-interactive
                             disabled={joiningGroup}
                             onClick={async () => {
-                              if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=group:${dockedGroup.slug}` }); return }
+                              if (needsAuth) { setAuthOverlayOpen(true); return }
                               setJoiningGroup(true)
                               try {
                                 const res = await fetch(`/api/communities/${dockedGroup.slug}/join`, { method: 'POST' })
@@ -2535,10 +2833,242 @@ function ChantsPageContent() {
             )}
             <div className="h-32" />
           </div>
+        ) : activeTab === 'profile' ? (
+          /* PROFILE TAB */
+          <div className="max-w-2xl mx-auto px-3 py-4">
+            {profileView === 'friends' ? (
+              /* FRIENDS LIST */
+              friendsLoading ? (
+                <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
+              ) : needsAuth ? (
+                <div className="py-8 text-center">
+                  <p className="text-xs text-muted mb-2">Sign in to see your friends</p>
+                  <button onClick={() => setAuthOverlayOpen(true)} className="text-xs text-accent hover:underline">Sign in</button>
+                </div>
+              ) : friendsList && friendsList.length > 0 ? (
+                <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
+                  {friendsList.map(friend => (
+                    <button
+                      key={friend.id}
+                      onClick={() => window.location.href = `/user/${friend.id}`}
+                      className="flex items-center gap-3 p-3 w-full text-left hover:bg-surface transition-colors"
+                    >
+                      {friend.image ? (
+                        <img src={friend.image} alt="" className="w-9 h-9 rounded-full" />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-[#4ade80]/20 flex items-center justify-center">
+                          <span className="text-sm text-[#4ade80] font-semibold">{(friend.name || '?').charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-foreground truncate">{friend.name || 'Anonymous'}</div>
+                        {friend.bio && <div className="text-xs text-muted truncate">{friend.bio}</div>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-muted">
+                  <p className="text-xs">Not following anyone yet</p>
+                </div>
+              )
+            ) : profileLoading ? (
+              <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
+            ) : profileData ? (
+              <div className="space-y-4">
+                {/* Profile Header */}
+                <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    {profileData.image ? (
+                      <img src={profileData.image} alt="" className="w-14 h-14 rounded-full" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-accent/20 flex items-center justify-center">
+                        <span className="text-xl text-accent font-semibold">{profileData.name.charAt(0).toUpperCase()}</span>
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="text-sm font-bold text-foreground truncate">{profileData.name}</h2>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => window.location.href = '/profile/manage'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Manage</button>
+                          <button onClick={() => window.location.href = '/billing'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Billing</button>
+                          <button onClick={() => window.location.href = '/settings'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Settings</button>
+                          <button onClick={() => signOut({ callbackUrl: '/' })} className="text-xs text-error hover:text-error-hover border border-error/30 rounded-lg px-2 py-1 transition-colors">Sign out</button>
+                        </div>
+                      </div>
+                      {profileData.bio && <p className="text-xs text-muted mt-1">{profileData.bio}</p>}
+                      <div className="flex items-center gap-3 mt-1 text-xs">
+                        <span className="text-foreground"><strong>{profileData.followersCount}</strong> <span className="text-muted">followers</span></span>
+                        <span className="text-foreground"><strong>{profileData.followingCount}</strong> <span className="text-muted">following</span></span>
+                      </div>
+                      <p className="text-xs text-subtle mt-0.5">Joined {new Date(profileData.joinedAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Stats Grid */}
+                <div>
+                  <h3 className="text-xs font-semibold text-foreground mb-2">Activity</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: 'Vote Points', value: profileData.totalXP || 0, icon: 'VP' },
+                      { label: 'Ideas', value: profileData.stats.ideas, icon: '\u{1F4A1}' },
+                      { label: 'Comments', value: profileData.stats.comments, icon: '\u{1F4AC}' },
+                      { label: 'Created', value: profileData.stats.deliberationsCreated, icon: '\u{1F4DD}' },
+                      { label: 'Joined', value: profileData.stats.deliberationsJoined, icon: '\u{1F465}' },
+                      { label: 'Accuracy', value: profileData.stats.accuracy !== null ? `${profileData.stats.accuracy}%` : '-', icon: '\u{1F3AF}' },
+                    ].map(s => (
+                      <div key={s.label} className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+                        <div className="flex items-center gap-1.5 text-muted text-xs mb-0.5"><span>{s.icon}</span><span>{s.label}</span></div>
+                        <div className="text-lg font-bold text-foreground font-mono">{s.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Win Record */}
+                {profileData.stats.ideasWon > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-foreground mb-2">Win Record</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Ideas Won', value: profileData.stats.ideasWon, icon: '\u{1F3C6}' },
+                        { label: 'Win Rate', value: profileData.stats.winRate !== null ? `${profileData.stats.winRate}%` : '-', icon: '\u{1F4CA}' },
+                        { label: 'Highest Tier', value: profileData.stats.highestTierReached || '-', icon: '\u{2B06}\u{FE0F}' },
+                        { label: 'Advanced', value: profileData.stats.ideasAdvanced, icon: '\u{1F680}' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+                          <div className="flex items-center gap-1.5 text-muted text-xs mb-0.5"><span>{s.icon}</span><span>{s.label}</span></div>
+                          <div className="text-lg font-bold text-foreground font-mono">{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {profileData.stats.tierBreakdown.length > 0 && (
+                      <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mt-2">
+                        <div className="text-xs text-muted mb-1.5">Tier breakdown</div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          {profileData.stats.tierBreakdown.map(t => (
+                            <span key={t.tier} className="bg-surface border border-border rounded px-1.5 py-0.5 text-xs font-mono">T{t.tier}: {t.count}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Comments Stats */}
+                {profileData.stats.comments > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-foreground mb-2">Comments</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Comments', value: profileData.stats.comments, icon: '\u{1F4AC}' },
+                        { label: 'Upvotes', value: profileData.stats.totalUpvotesReceived, icon: '\u{1F44D}' },
+                        { label: 'Up-Pollinate', value: `Tier ${profileData.stats.highestUpPollinateTier}`, icon: '\u{1F338}' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+                          <div className="flex items-center gap-1.5 text-muted text-xs mb-0.5"><span>{s.icon}</span><span>{s.label}</span></div>
+                          <div className="text-lg font-bold text-foreground font-mono">{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Prediction Stats */}
+                {profileData.stats.totalPredictions > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-foreground mb-2">Predictions</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Total', value: profileData.stats.totalPredictions, icon: '\u{1F52E}' },
+                        { label: 'Correct', value: profileData.stats.correctPredictions, icon: '\u{2705}' },
+                        { label: 'Priorities', value: profileData.stats.championPicks, icon: '\u{1F451}' },
+                        { label: 'Best Streak', value: profileData.stats.bestStreak, icon: '\u{1F525}' },
+                      ].map(s => (
+                        <div key={s.label} className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
+                          <div className="flex items-center gap-1.5 text-muted text-xs mb-0.5"><span>{s.icon}</span><span>{s.label}</span></div>
+                          <div className="text-lg font-bold text-foreground font-mono">{s.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Ideas */}
+                {profileData.recentIdeas.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-foreground mb-2">Recent Ideas</h3>
+                    <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
+                      {profileData.recentIdeas.map(idea => (
+                        <button
+                          key={idea.id}
+                          onClick={() => handleDock(idea.deliberationId)}
+                          className="block w-full text-left p-3 hover:bg-surface transition-colors"
+                        >
+                          <p className="text-xs text-foreground">{idea.text}</p>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-xs">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              idea.status === 'WINNER' ? 'bg-success-bg text-success'
+                                : idea.status === 'ADVANCING' ? 'bg-accent-light text-accent'
+                                : idea.status === 'IN_VOTING' ? 'bg-warning-bg text-warning'
+                                : idea.status === 'ELIMINATED' ? 'bg-error-bg text-error'
+                                : 'bg-surface text-muted'
+                            }`}>{idea.status}</span>
+                            <span className="text-muted truncate">{idea.question}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent Activity */}
+                {profileData.recentActivity.length > 0 && (
+                  <div>
+                    <h3 className="text-xs font-semibold text-foreground mb-2">Recent Activity</h3>
+                    <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
+                      {profileData.recentActivity.map(activity => (
+                        <button
+                          key={activity.deliberationId}
+                          onClick={() => handleDock(activity.deliberationId)}
+                          className="block w-full text-left p-3 hover:bg-surface transition-colors"
+                        >
+                          <p className="text-xs text-foreground">{activity.question}</p>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-xs">
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                              activity.phase === 'VOTING' ? 'bg-warning-bg text-warning'
+                                : activity.phase === 'ACCUMULATING' ? 'bg-purple-bg text-purple'
+                                : activity.phase === 'COMPLETED' ? 'bg-success-bg text-success'
+                                : 'bg-surface text-muted'
+                            }`}>{activity.phase}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {profileData.recentIdeas.length === 0 && profileData.recentActivity.length === 0 && (
+                  <div className="text-center py-6 text-muted">
+                    <p className="text-xs">No activity yet</p>
+                    <button onClick={() => { setActiveTab('chants') }} className="text-xs text-accent hover:underline mt-1.5 inline-block">Join a chant to get started</button>
+                  </div>
+                )}
+              </div>
+            ) : needsAuth ? (
+              <div className="py-8 text-center">
+                <p className="text-xs text-muted mb-2">Sign in to view your profile</p>
+                <button onClick={() => setAuthOverlayOpen(true)} className="text-xs text-accent hover:underline">Sign in</button>
+              </div>
+            ) : null}
+            <div className="h-32" />
+          </div>
         ) : (
           /* CHANTS FEED */
           <div className="max-w-2xl mx-auto">
-          {feedLoading ? (
+          {feedLoading && !isDockedToChant ? (
             <div className="space-y-4 px-3 py-4">
               {Array.from({ length: 3 }, (_, i) => (
                 <div key={i} className="animate-pulse">
@@ -2550,7 +3080,28 @@ function ChantsPageContent() {
             </div>
           ) : (
           <div className="divide-y divide-border/30">
-            {(dockedPostId && dockedPostId !== '__create_chant__' ? filteredChants.filter(c => c.id === dockedPostId) : filteredChants).map(chant => {
+            {(isDockedToChant ? (() => {
+              const found = filteredChants.filter(c => c.id === dockedPostId)
+              if (found.length > 0) return found
+              // Chant not in feed (e.g. invite link or feed still loading) — synthesize from detail
+              if (detail) return [{
+                id: detail.id, question: detail.question, description: detail.description, phase: detail.phase,
+                tier: detail.currentTier, participants: detail.memberCount, ideas: detail.ideaCount, cells: 0,
+                upvotes: 0, community: 'Public', creator: detail.creator?.name || 'Anonymous',
+                createdAt: '', createdAtRaw: new Date().toISOString(), champion: detail.champion ? { text: detail.champion.text } : null,
+                userHasUpvoted: false, isMember: detail.isMember, isCreator: false, hasSubmittedIdea: !!detail.myIdea,
+                hasVoted: detail.hasVoted, viewerCount: 0, voteCount: 0, isPinned: false, tags: [] as string[],
+                continuousFlow: detail.continuousFlow, podiumContext: detail.podiumContext,
+              } satisfies Chant]
+              // Detail not loaded yet — show a minimal placeholder card
+              return [{ id: dockedPostId!, question: '...', description: null, phase: 'SUBMISSION' as const,
+                tier: 0, participants: 0, ideas: 0, cells: 0, upvotes: 0, community: '', creator: '',
+                createdAt: '', createdAtRaw: new Date().toISOString(), champion: null,
+                userHasUpvoted: false, isMember: false, isCreator: false, hasSubmittedIdea: false,
+                hasVoted: false, viewerCount: 0, voteCount: 0, isPinned: false, tags: [] as string[],
+                continuousFlow: false, podiumContext: null,
+              } satisfies Chant]
+            })() : filteredChants).map(chant => {
               const isDocked = dockedPostId === chant.id
               const badge = phaseBadge(chant.phase, chant.tier)
               const isNearDrop = isDraggingDockstar && nearestDrop === chant.id
@@ -2685,14 +3236,30 @@ function ChantsPageContent() {
                           </div>
                         )}
 
-                        {/* Auto-join status — only show if not in SUBMISSION (which has its own Joining indicator) */}
-                        {!manageMode && !detailLoading && detail && !detail.isMember && detail.phase !== 'COMPLETED' && detail.phase !== 'SUBMISSION' && (
+                        {/* Auto-join status — only show for logged-in users (unauthenticated can browse without joining) */}
+                        {!manageMode && !detailLoading && detail && !detail.isMember && detail.phase !== 'COMPLETED' && detail.phase !== 'SUBMISSION' && session?.user && (
                           <div className="mb-2.5 py-1 text-center text-muted-light text-xs font-mono animate-pulse">Joining...</div>
                         )}
 
                         {/* Description */}
                         {!manageMode && !detailLoading && detail?.description && (
                           <div className="mb-2.5 text-sm text-muted-light leading-snug">{detail.description}</div>
+                        )}
+
+                        {/* Podium context — on-ramp card linking to the podium that inspired this chant */}
+                        {!manageMode && !detailLoading && detail?.podiumContext && (
+                          <button
+                            data-interactive
+                            onClick={() => {
+                              setDockedPostId(`podium:${detail.podiumContext!.id}`)
+                              setDockedIdeaId(null)
+                              setActiveSubspaceId(null)
+                            }}
+                            className="w-full mb-3 text-left bg-[#a855f7]/8 border border-[#a855f7]/25 rounded px-3 py-2.5 hover:bg-[#a855f7]/15 transition-colors group"
+                          >
+                            <div className="text-[10px] font-mono uppercase tracking-wider mb-1" style={{ color: '#a855f7' }}>Context</div>
+                            <div className="text-sm font-serif text-foreground/90 leading-snug group-hover:text-foreground transition-colors">{detail.podiumContext.title}</div>
+                          </button>
                         )}
 
                         {/* SUBMISSION phase */}
@@ -2718,21 +3285,45 @@ function ChantsPageContent() {
                                       onDragUndock={undefined}
                                       flashDocks={flashDocks}
                                       glowDrag={isDraggingDockstar && dockedIdeaId !== detail.myIdea.id}
+                                      icon="chat"
                                     />
                                   )}
                                 </div>
                               </div>
-                            ) : detail.isMember ? (
-                              <div className="relative">
-                                <input id="idea-input" type="text" placeholder="Your idea..." value={pendingInputType === 'idea' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'idea', chant.id)} onKeyDown={e => { if (e.key === 'Enter' && pendingInput.trim()) handleIdeaSubmit() }} autoFocus className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
-                                <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
-                                  <svg className={`w-3 h-3 transition-colors ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M4 4l7.07 17 2.51-7.39L21 11.07z" /></svg>
-                                </div>
-                              </div>
                             ) : (
-                              <div className="py-4 text-center text-muted-light/50 text-sm font-mono">Joining...</div>
+                              <div className="relative">
+                                <input id="idea-input" type="text" placeholder="Your idea..." value={pendingInputType === 'idea' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'idea', chant.id)} onKeyDown={e => { if (e.key === 'Enter' && pendingInput.trim()) handleIdeaSubmit() }} autoFocus className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
+                              </div>
                             )}
                             <div className="mt-2 text-center text-xs font-mono text-muted-light/50">{fmt(detail.ideaCount)} ideas submitted</div>
+
+                            {/* Other submitted ideas */}
+                            {detail.ideas.length > 0 && (
+                              <div className="mt-3 space-y-1">
+                                {detail.ideas
+                                  .filter(idea => idea.id !== detail.myIdea?.id)
+                                  .map(idea => (
+                                  <div key={idea.id} className="flex items-start gap-2 rounded border border-border/20 bg-surface/50 px-2.5 py-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-serif text-foreground/80 leading-snug">{idea.text}</div>
+                                      <div className="text-[10px] font-mono text-muted-light mt-0.5">{idea.author.name}</div>
+                                    </div>
+                                    <DropCircle
+                                      id={`idea:${idea.id}`}
+                                      isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
+                                      isDocked={dockedIdeaId === idea.id}
+                                      userInitial={idea.author.name?.charAt(0)?.toUpperCase() || '?'}
+                                      registerRef={registerDropZone}
+                                      onClick={() => { enterSubspace(idea.id); setDockedIdeaId(idea.id) }}
+                                      onDragUndock={undefined}
+                                      flashDocks={flashDocks}
+                                      glowDrag={isDraggingDockstar && dockedIdeaId !== idea.id}
+                                      icon="chat"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           )
                         })()}
@@ -2770,19 +3361,25 @@ function ChantsPageContent() {
                                           </div>
                                           <span className={`text-2xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
                                         </div>
-                                        {/* XP dots — disabled if already voted */}
+                                        {/* XP slider */}
                                         <div className="flex items-center gap-2">
-                                          <div className="flex items-center gap-1 flex-1" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
-                                            {canVote && Array.from({ length: 10 }, (_, i) => {
+                                          <div className="flex items-center gap-2 flex-1" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+                                            {canVote && (() => {
                                               const currentXp = (xpAllocations[chant.id] || {})[idea.id] || 0
                                               return (
-                                                <div key={i} onClick={() => handleXpChange(chant.id, idea.id, currentXp === i + 1 ? 0 : i + 1)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${i < currentXp ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : isIdeaDocked ? 'border-accent/40 bg-accent/5 shadow-[0_0_4px_rgba(34,211,238,0.15)]' : 'border-border/40 bg-transparent hover:border-muted-light/60'} ${flashDocks ? 'animate-flash-gold' : ''}`}>
-                                                  <svg className={`w-2.5 h-2.5 transition-colors ${i < currentXp ? 'fill-accent' : isIdeaDocked ? 'fill-accent/30' : 'fill-muted-light/30'}`} viewBox="0 0 24 24">
-                                                    <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
-                                                  </svg>
-                                                </div>
+                                                <input
+                                                  type="range"
+                                                  min={0}
+                                                  max={10}
+                                                  value={currentXp}
+                                                  onChange={e => handleXpChange(chant.id, idea.id, parseInt(e.target.value))}
+                                                  className="xp-slider flex-1 h-2 appearance-none rounded-full cursor-pointer"
+                                                  style={{
+                                                    background: `linear-gradient(to right, #0891b2 0%, #0891b2 ${currentXp * 10}%, #1e293b ${currentXp * 10}%, #1e293b 100%)`,
+                                                  }}
+                                                />
                                               )
-                                            })}
+                                            })()}
                                             {!canVote && (
                                               <span className="text-xs font-mono text-muted-light">{idea.totalXP} XP / {idea.totalVotes} votes</span>
                                             )}
@@ -2802,6 +3399,7 @@ function ChantsPageContent() {
                                                   flashDocks={flashDocks}
                                                   faded={isIdeaDocked}
                                                   glowDrag={isDraggingDockstar && !isIdeaDocked}
+                                                  icon="chat"
                                                 />
                                                 {ideaPlayers.length > 0 && ideaPlayers.slice(0, 8).map((p, i) => {
                                                   const ring = i < 6 ? 0 : 1
@@ -2835,12 +3433,64 @@ function ChantsPageContent() {
                           </div>
                         )}
 
-                        {/* VOTING phase — no cell yet (not assigned) */}
-                        {!manageMode && !detailLoading && detail?.phase === 'VOTING' && dockedCellIdeas.length === 0 && detail.isMember && (
-                          <div className="py-6 text-center text-muted-light text-sm font-mono">
-                            Waiting for cell assignment...
+                        {/* VOTING phase — no cell yet (not assigned or browsing) — show competing ideas */}
+                        {!manageMode && !detailLoading && detail?.phase === 'VOTING' && dockedCellIdeas.length === 0 && (() => {
+                          const votingIdeas = detail.ideas.filter(i => i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER').slice(0, 5)
+                          return (
+                          <div>
+                            <div className="flex gap-4 text-center text-xs font-mono mb-2.5 justify-center">
+                              <div><span className="text-foreground">{fmt(detail.memberCount)}</span> <span className="text-muted-light">people</span></div>
+                              <div><span className="text-foreground">{fmt(votingIdeas.length)}</span> <span className="text-muted-light">competing</span></div>
+                              <div><span className="text-foreground">T{detail.currentTier}</span> <span className="text-muted-light">tier</span></div>
+                            </div>
+                            {detail.isMember && !needsAuth && (
+                              <div className="text-center text-muted-light text-xs font-mono mb-3 animate-pulse">
+                                Waiting for cell assignment...
+                              </div>
+                            )}
+                            {needsAuth && (
+                              <div className="text-center text-xs font-mono mb-3">
+                                <button onClick={() => setAuthOverlayOpen(true)} className="text-accent hover:underline">Sign in to vote</button>
+                              </div>
+                            )}
+                            {/* Browse competing ideas */}
+                            {votingIdeas.length > 0 && (
+                              <div className="space-y-1.5">
+                                {votingIdeas.map(idea => {
+                                  const isIdeaDocked = dockedIdeaId === idea.id
+                                  return (
+                                    <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                      <div className="px-2.5 py-2">
+                                        <div className="flex items-start gap-2">
+                                          <div className="flex-1 min-w-0">
+                                            <div className="text-sm font-serif text-purple leading-snug">{idea.text}</div>
+                                            <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Anonymous'}</div>
+                                          </div>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className={`text-lg font-mono font-bold ${idea.totalXP > 0 ? 'text-accent/60' : 'text-muted-light/20'}`}>{idea.totalXP}</span>
+                                            <DropCircle
+                                              id={`idea:${idea.id}`}
+                                              isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
+                                              isDocked={isIdeaDocked}
+                                              userInitial={idea.author?.name?.charAt(0)?.toUpperCase() || '?'}
+                                              registerRef={registerDropZone}
+                                              onClick={() => { enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
+                                              onDragUndock={undefined}
+                                              flashDocks={flashDocks}
+                                              glowDrag={isDraggingDockstar && !isIdeaDocked}
+                                              icon="chat"
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
-                        )}
+                          )
+                        })()}
 
                         {/* COMPLETED phase — show top ideas */}
                         {!manageMode && !detailLoading && detail?.phase === 'COMPLETED' && (
@@ -2875,6 +3525,7 @@ function ChantsPageContent() {
                                           flashDocks={flashDocks}
                                           faded={isIdeaDocked}
                                           glowDrag={isDraggingDockstar && !isIdeaDocked}
+                                          icon="chat"
                                         />
                                         {(() => {
                                           const sp = getInstancePlayers(`subspace:${chant.id}:${idea.id}`).filter(p => p.id !== presenceUserId)
@@ -3042,6 +3693,52 @@ function ChantsPageContent() {
                         <NavDropCircle key={nav.id} id={nav.id} label={nav.label} icon={nav.icon} isActive={isDraggingDockstar && nearestDrop === nav.id} registerRef={registerDropZone} glowDrag={isDraggingDockstar && nearestDrop !== nav.id} onClick={() => handleDock(nav.id)} color={nav.color} players={navPlayers} />
                       )
                     })}
+                    {isAdmin && (
+                      <NavDropCircle
+                        id="__nav_admin__"
+                        label="Admin"
+                        icon={
+                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                        }
+                        isActive={false}
+                        registerRef={registerDropZone}
+                        onClick={() => { window.location.href = '/admin' }}
+                        color="#f59e0b"
+                      />
+                    )}
+                    <NavDropCircle
+                      id="__nav_profile__"
+                      label={needsAuth ? 'Sign in' : 'Profile'}
+                      icon={
+                        needsAuth ? (
+                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                          </svg>
+                        ) : (
+                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                          </svg>
+                        )
+                      }
+                      isActive={false}
+                      registerRef={registerDropZone}
+                      onClick={() => {
+                        if (needsAuth) { setAuthOverlayOpen(true); return }
+                        setActiveTab('profile')
+                        setProfileView('me')
+                        setDockedPostId(null)
+                        setDockedIdeaId(null)
+                        setDockedPodium(null)
+                        setDockedGroup(null)
+                        setSearchQuery('')
+                        setSortBy('new')
+                        setSearchOpen(false)
+                      }}
+                      color={needsAuth ? '#0891b2' : '#4ade80'}
+                    />
                   </div>
                 ) : null}
               </div>
@@ -3076,7 +3773,35 @@ function ChantsPageContent() {
       </div>
 
 
+      <AuthOverlay
+        open={authOverlayOpen}
+        onClose={() => { setAuthOverlayOpen(false); setAuthCallbackAction(null) }}
+        onAuthSuccess={handleAuthSuccess}
+        callbackUrl={authCallbackUrl}
+        tempUserId={session?.user?.isTemp ? session.user.id : undefined}
+      />
+
       <style jsx global>{`
+        .xp-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: #0891b2;
+          border: 2px solid #22d3ee;
+          box-shadow: 0 0 8px rgba(8, 145, 178, 0.5);
+          cursor: pointer;
+        }
+        .xp-slider::-moz-range-thumb {
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background: #0891b2;
+          border: 2px solid #22d3ee;
+          box-shadow: 0 0 8px rgba(8, 145, 178, 0.5);
+          cursor: pointer;
+        }
         @keyframes slideDown {
           from { opacity: 0; max-height: 0; }
           to { opacity: 1; max-height: 2000px; }

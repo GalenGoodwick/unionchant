@@ -40,6 +40,7 @@ export interface ChantDetail {
   inviteCode: string | null
   continuousFlow: boolean
   myIdea: { id: string; text: string } | null
+  podiumContext: { id: string; title: string } | null
 }
 
 export function useChantDetail(chantId: string | null, skipAutoJoin = false) {
@@ -103,6 +104,7 @@ export function useChantDetail(chantId: string | null, skipAutoJoin = false) {
         inviteCode: data.inviteCode || null,
         continuousFlow: data.continuousFlow ?? false,
         myIdea: data.myIdea || null,
+        podiumContext: data.podiumContext || null,
       }
 
       setDetail(mapped)
@@ -125,21 +127,27 @@ export function useChantDetail(chantId: string | null, skipAutoJoin = false) {
       prevIdRef.current = null
       return
     }
-    if (chantId !== prevIdRef.current) {
-      prevIdRef.current = chantId
+    // Re-run when skipAutoJoin flips (e.g. session loaded) or chantId changes
+    const needsJoin = !skipAutoJoin && !autoJoinedRef.current.has(chantId)
+    const isNewChant = chantId !== prevIdRef.current
+    if (!isNewChant && !needsJoin) return
+
+    prevIdRef.current = chantId
+    if (isNewChant) {
       setLoading(true)
       setDetail(null)
+    }
 
-      // Fire join + fetch in parallel — join is idempotent so it's safe to call eagerly
-      if (!skipAutoJoin && !autoJoinedRef.current.has(chantId)) {
-        autoJoinedRef.current.add(chantId)
-        // Join first, then fetch (so the fetch reflects membership)
-        fetch(`/api/deliberations/${chantId}/join`, { method: 'POST' })
-          .then(() => { if (mountedRef.current) fetchDetail(chantId, true) })
-          .catch(() => { if (mountedRef.current) fetchDetail(chantId, true) })
-      } else {
-        fetchDetail(chantId, true)
-      }
+    // Fire join + fetch — join is idempotent so it's safe to call eagerly
+    if (needsJoin) {
+      autoJoinedRef.current.add(chantId)
+      // Fetch immediately for fast UI, then re-fetch after join completes (join may update isMember)
+      fetchDetail(chantId, isNewChant)
+      fetch(`/api/deliberations/${chantId}/join`, { method: 'POST' })
+        .then(r => { if (r.ok && mountedRef.current) setTimeout(() => fetchDetail(chantId, false), 500) })
+        .catch(() => {})
+    } else {
+      fetchDetail(chantId, isNewChant)
     }
     return () => { mountedRef.current = false }
   }, [chantId, fetchDetail, skipAutoJoin])

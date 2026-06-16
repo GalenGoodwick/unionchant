@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
-
 // POST /api/anonymous — Create anonymous account (kept permanently to preserve entries)
 export async function POST(req: NextRequest) {
+
   // CRITICAL: Actively reject and delete IP data before processing
   const headers = new Headers(req.headers)
   headers.delete('x-forwarded-for')
@@ -13,6 +13,9 @@ export async function POST(req: NextRequest) {
   headers.delete('x-client-ip')
 
   try {
+    const body = await req.json().catch(() => ({}))
+    const isAutoTemp = body.auto === true
+
     // Generate anonymous account — kept permanently to preserve entries
     const anonId = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     const email = `anon_${anonId}@temporary.unitychant.com`
@@ -27,7 +30,8 @@ export async function POST(req: NextRequest) {
         passwordHash,
         emailVerified: new Date(),
         isAnonymous: true,
-        lastChallengePassedAt: new Date(),
+        // Auto-temp accounts can browse but not act — proper sign-in upgrades them
+        ...(isAutoTemp ? {} : { lastChallengePassedAt: new Date() }),
       },
     })
 

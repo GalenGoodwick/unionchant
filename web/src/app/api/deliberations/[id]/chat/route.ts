@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
 import { checkRateLimit, incrementChatStrike } from '@/lib/rate-limit'
+import { isTempUser } from '@/lib/auth'
 
 // GET /api/deliberations/[id]/chat — List messages (reuses GroupMessage)
 export async function GET(
@@ -75,6 +76,10 @@ export async function POST(
 
     const user = await prisma.user.findUnique({ where: { email: session.user.email } })
     if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+
+    if (isTempUser(user)) {
+      return NextResponse.json({ error: 'Sign in to send messages', code: 'TEMP_ACCOUNT' }, { status: 403 })
+    }
 
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },

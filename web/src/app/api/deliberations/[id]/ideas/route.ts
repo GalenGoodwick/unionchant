@@ -6,6 +6,7 @@ import { startVotingPhase, tryCreateContinuousFlowCell } from '@/lib/voting'
 import { moderateContent } from '@/lib/moderation'
 import { checkDeliberationAccess } from '@/lib/privacy'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { isTempUser } from '@/lib/auth'
 
 // POST /api/deliberations/[id]/ideas - Submit a new idea
 export async function POST(
@@ -34,6 +35,10 @@ export async function POST(
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    if (isTempUser(user)) {
+      return NextResponse.json({ error: 'Sign in to submit ideas', code: 'TEMP_ACCOUNT' }, { status: 403 })
+    }
+
     const deliberation = await prisma.deliberation.findUnique({
       where: { id },
     })
@@ -56,8 +61,9 @@ export async function POST(
       return NextResponse.json({ error: 'Must be a member to submit ideas' }, { status: 403 })
     }
 
-    // Email verification gate
-    if (!user.emailVerified && user.passwordHash) {
+    // Email verification gate: OAuth users auto-verified, synthetic emails (passkey/anon) skip
+    const isSyntheticEmail = user.email?.endsWith('.unitychant.com')
+    if (!user.emailVerified && user.passwordHash && !isSyntheticEmail) {
       return NextResponse.json({
         error: 'Please verify your email before submitting ideas',
         code: 'EMAIL_NOT_VERIFIED',
