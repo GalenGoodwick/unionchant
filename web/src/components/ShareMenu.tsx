@@ -51,8 +51,19 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
   const encodedUrl = encodeURIComponent(fullUrl)
   const encodedText = encodeURIComponent(text)
 
-  const handleShare = () => {
+  const [copied, setCopied] = useState(false)
+
+  const handleShare = (e: React.MouseEvent) => {
+    e.stopPropagation()
     setOpen(!open)
+  }
+
+  const handleCopyLink = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }).catch(() => {})
   }
 
   const shareOptions = [
@@ -112,6 +123,7 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
   const dropdown = open && typeof document !== 'undefined' ? createPortal(
     <div
       ref={menuRef}
+      onClick={e => e.stopPropagation()}
       className="fixed bg-background border border-border rounded-lg shadow-lg z-[9999] min-w-[180px] py-1"
       style={{
         top: dropUp ? undefined : pos.top,
@@ -121,6 +133,20 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
         position: 'absolute',
       }}
     >
+      <button
+        className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-surface transition-colors w-full text-left"
+        onClick={handleCopyLink}
+      >
+        <span className="text-muted">
+          {copied ? (
+            <svg className="w-4 h-4 text-success" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-1.135a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.81 7.757" /></svg>
+          )}
+        </span>
+        {copied ? 'Copied!' : 'Copy Link'}
+      </button>
+      <div className="border-t border-border/50 my-1" />
       {shareOptions.map((option) => (
           <a
             key={option.label}
@@ -144,11 +170,12 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
         <button
           ref={buttonRef}
           onClick={handleShare}
-          className="text-muted hover:text-foreground transition-colors p-2"
+          data-interactive
+          className="w-10 h-10 rounded-full border-2 border-accent/30 bg-accent/8 flex items-center justify-center hover:bg-accent/15 hover:border-accent/50 transition-colors"
           title="Share"
           aria-label="Share"
         >
-          {shareIcon}
+          <span className="text-accent">{shareIcon}</span>
         </button>
       ) : (
         <button

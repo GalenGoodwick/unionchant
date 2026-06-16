@@ -52,6 +52,20 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  // ── Direct /how visit — set uc_visited cookie if missing ──
+  if (pathname === '/how') {
+    const visited = req.cookies.get('uc_visited')
+    if (!visited) {
+      const response = NextResponse.next()
+      response.cookies.set('uc_visited', '1', {
+        maxAge: 60 * 60 * 24 * 365,
+        path: '/',
+        sameSite: 'lax',
+      })
+      return response
+    }
+  }
+
   // ── CORS preflight for embed API routes ──
   if (req.method === 'OPTIONS' && pathname.startsWith('/api/embed/')) {
     return new NextResponse(null, {
@@ -98,5 +112,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/chants', '/talks/:path*', '/api/:path*'],
+  matcher: ['/', '/chants', '/how', '/talks/:path*', '/api/:path*'],
 }

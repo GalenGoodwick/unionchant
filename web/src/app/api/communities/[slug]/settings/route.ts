@@ -34,10 +34,41 @@ export async function PATCH(
 
     const community = await prisma.community.findUnique({
       where: { slug },
-      select: { id: true },
+      select: { id: true, isPublic: true, creatorId: true },
     })
     if (!community) {
       return NextResponse.json({ error: 'Community not found' }, { status: 404 })
+    }
+
+    // Switching from public to private requires Pro subscription
+    if (isPublic === false && community.isPublic) {
+      const creator = await prisma.user.findUnique({
+        where: { id: community.creatorId },
+        select: { subscriptionTier: true, email: true },
+      })
+      const isAdmin = process.env.ADMIN_EMAILS?.split(',').map(e => e.trim()).includes(creator?.email || '')
+      if (!isAdmin) {
+        const tier = creator?.subscriptionTier || 'free'
+        const privateGroupLimits: Record<string, number> = { free: 0, pro: 1, business: 2 }
+        if (tier in privateGroupLimits) {
+          const maxPrivate = privateGroupLimits[tier]
+          if (maxPrivate === 0) {
+            return NextResponse.json({
+              error: 'PRO_REQUIRED',
+              message: 'Upgrade to Pro to make groups private',
+            }, { status: 403 })
+          }
+          const existingPrivate = await prisma.community.count({
+            where: { creatorId: community.creatorId, isPublic: false },
+          })
+          if (existingPrivate >= maxPrivate) {
+            return NextResponse.json({
+              error: 'PRIVATE_GROUP_LIMIT',
+              message: `You've reached your limit of ${maxPrivate} private group${maxPrivate > 1 ? 's' : ''}.`,
+            }, { status: 403 })
+          }
+        }
+      }
     }
 
     // Validate postingPermission

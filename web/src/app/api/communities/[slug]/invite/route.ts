@@ -6,6 +6,93 @@ import { getCommunityMemberRole } from '@/lib/community'
 import { sendEmail } from '@/lib/email'
 import { communityInviteEmail } from '@/lib/email-templates'
 
+// GET /api/communities/[slug]/invite - Get or generate invite code
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  try {
+    const { slug } = await params
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    const role = await getCommunityMemberRole(slug, user.id)
+    if (role !== 'OWNER' && role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Only owners and admins can view invite links' }, { status: 403 })
+    }
+
+    const community = await prisma.community.findUnique({
+      where: { slug },
+      select: { inviteCode: true },
+    })
+    if (!community) {
+      return NextResponse.json({ error: 'Community not found' }, { status: 404 })
+    }
+
+    let inviteCode = community.inviteCode
+    if (!inviteCode) {
+      inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+      await prisma.community.update({
+        where: { slug },
+        data: { inviteCode },
+      })
+    }
+
+    return NextResponse.json({ inviteCode })
+  } catch (error) {
+    console.error('Error fetching invite code:', error)
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+  }
+}
+
+// PUT /api/communities/[slug]/invite - Reset invite code
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: Promise<{ slug: string }> }
+) {
+  try {
+    const { slug } = await params
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: session.user.email },
+      select: { id: true },
+    })
+    if (!user) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    }
+
+    const role = await getCommunityMemberRole(slug, user.id)
+    if (role !== 'OWNER') {
+      return NextResponse.json({ error: 'Only owners can reset invite links' }, { status: 403 })
+    }
+
+    const inviteCode = crypto.randomUUID().replace(/-/g, '').slice(0, 16)
+    await prisma.community.update({
+      where: { slug },
+      data: { inviteCode },
+    })
+
+    return NextResponse.json({ inviteCode })
+  } catch (error) {
+    console.error('Error resetting invite code:', error)
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+  }
+}
+
 // POST /api/communities/[slug]/invite - Send email invites
 export async function POST(
   req: NextRequest,

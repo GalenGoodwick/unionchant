@@ -289,6 +289,7 @@ model Deliberation {
   submissionEndsAt    DateTime?
   completedAt         DateTime?
   accumulationEndsAt  DateTime? // When the accumulation period ends
+  analyticsCache      Json?     // Cached AI synthesis (objections, synergies)
 
   // Community FK
   communityId   String?
@@ -549,8 +550,8 @@ model Vote {
 
 model Comment {
   id              String   @id @default(cuid())
-  cellId          String
-  cell            Cell     @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  cellId          String?
+  cell            Cell?    @relation(fields: [cellId], references: [id], onDelete: Cascade)
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   ideaId          String?  // Optional: link comment to specific idea (follows idea across tiers)
@@ -890,6 +891,8 @@ model Podium {
   pinned          Boolean  @default(false)
   published       Boolean  @default(true)
 
+  comments        GroupMessage[] @relation("PodiumMessages")
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -1042,6 +1045,8 @@ model GroupMessage {
   deliberation    Deliberation? @relation("GroupMessages", fields: [deliberationId], references: [id], onDelete: Cascade)
   cellId          String?       // Cell discussion during voting
   cell            Cell?         @relation(fields: [cellId], references: [id], onDelete: Cascade)
+  podiumId        String?       // Podium post comments
+  podium          Podium?       @relation("PodiumMessages", fields: [podiumId], references: [id], onDelete: Cascade)
   // Author
   userId          String
   user            User          @relation("GroupMessages", fields: [userId], references: [id], onDelete: Cascade)
@@ -1052,6 +1057,7 @@ model GroupMessage {
   @@index([communityId, createdAt])
   @@index([deliberationId, createdAt])
   @@index([cellId, createdAt])
+  @@index([podiumId, createdAt])
 }
 
 // ============ CHALLENGE LOG ============

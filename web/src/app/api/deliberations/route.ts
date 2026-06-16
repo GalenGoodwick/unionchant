@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
               : []),
           ],
         },
-        orderBy: { updatedAt: 'desc' },
+        orderBy: { createdAt: 'desc' },
         select: {
           id: true,
           question: true,
@@ -63,7 +63,10 @@ export async function GET(req: NextRequest) {
           createdAt: true,
           creatorId: true,
           creator: {
-            select: { name: true, status: true },
+            select: { id: true, name: true, status: true },
+          },
+          community: {
+            select: { id: true, name: true },
           },
           ideas: {
             where: { status: 'WINNER' },
@@ -160,7 +163,8 @@ export async function GET(req: NextRequest) {
             isMember,
             hasSubmittedIdea,
             isInActiveCell,
-            hasVotedInCurrentTier
+            hasVotedInCurrentTier,
+            isCreator: delib.creatorId === userId,
           })
         }
       }

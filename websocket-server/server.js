@@ -1,138 +1,206 @@
-const WebSocket = require('ws')
 const http = require('http')
+const { Server } = require('socket.io')
 
 const PORT = process.env.PORT || 8080
-const SPATIAL_RANGE = 2000 // Only broadcast to players within 2000 units
 
-// Create HTTP server for health checks
-const server = http.createServer((req, res) => {
+const ALLOWED_ORIGINS = [
+  'https://unionchant.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:3001',
+]
+
+// ── HTTP server for health checks ──
+
+const httpServer = http.createServer((req, res) => {
+  // CORS for HTTP endpoints
+  const origin = req.headers.origin
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET')
+
   if (req.url === '/health') {
+    const instanceCounts = {}
+    for (const [instanceId, room] of rooms.entries()) {
+      instanceCounts[instanceId] = room.size
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       status: 'ok',
-      players: players.size,
-      timestamp: Date.now()
+      totalPlayers: sockets.size,
+      instances: instanceCounts,
+      timestamp: Date.now(),
     }))
+  } else if (req.url === '/instances') {
+    // Returns all active instances with player details (for feed presence dots)
+    const result = {}
+    for (const [instanceId, room] of rooms.entries()) {
+      result[instanceId] = Array.from(room.values()).map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+      }))
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
   } else {
     res.writeHead(404)
     res.end('Not Found')
   }
 })
 
-// WebSocket server
-const wss = new WebSocket.Server({ server })
+// ── Socket.IO server ──
 
-// Player store: userId -> { ws, x, y, angle, userName, deliberationId, lastUpdate }
-const players = new Map()
+const io = new Server(httpServer, {
+  cors: {
+    origin: ALLOWED_ORIGINS,
+    methods: ['GET', 'POST'],
+  },
+  pingInterval: 10000,
+  pingTimeout: 5000,
+})
 
-// Broadcast interval (30fps = ~33ms)
-const BROADCAST_INTERVAL = 100 // 10fps for now (can increase to 33ms for 30fps)
+// ── State ──
 
-// Calculate distance between two points
-function distance(x1, y1, x2, y2) {
-  const dx = x2 - x1
-  const dy = y2 - y1
-  return Math.sqrt(dx * dx + dy * dy)
-}
+// rooms: instanceId -> Map<socketId, player>
+const rooms = new Map()
 
-// Get nearby players (spatial culling)
-function getNearbyPlayers(x, y, excludeUserId) {
-  const nearby = []
+// sockets: socketId -> { userId, name, color, currentInstance }
+const sockets = new Map()
 
-  for (const [userId, player] of players.entries()) {
-    if (userId === excludeUserId) continue
-
-    const dist = distance(x, y, player.x, player.y)
-    if (dist <= SPATIAL_RANGE) {
-      nearby.push({
-        userId,
-        userName: player.userName,
-        x: player.x,
-        y: player.y,
-        angle: player.angle
-      })
-    }
+function getRoom(instanceId) {
+  if (!rooms.has(instanceId)) {
+    rooms.set(instanceId, new Map())
   }
-
-  return nearby
+  return rooms.get(instanceId)
 }
 
-// Broadcast player positions
-function broadcastPositions() {
-  for (const [userId, player] of players.entries()) {
-    if (player.ws.readyState !== WebSocket.OPEN) continue
-
-    const nearbyPlayers = getNearbyPlayers(player.x, player.y, userId)
-
-    // Only send if there are nearby players
-    if (nearbyPlayers.length > 0) {
-      player.ws.send(JSON.stringify({
-        type: 'players',
-        players: nearbyPlayers
-      }))
-    }
+function cleanupEmptyRooms() {
+  for (const [id, room] of rooms.entries()) {
+    if (room.size === 0) rooms.delete(id)
   }
 }
 
-// Start broadcast loop
-setInterval(broadcastPositions, BROADCAST_INTERVAL)
+// ── Connection handling ──
 
-wss.on('connection', (ws) => {
-  let currentUserId = null
+io.on('connection', (socket) => {
+  console.log(`Connected: ${socket.id}`)
 
-  console.log('Client connected')
+  // Client sends auth with identity
+  socket.on('auth', ({ userId, name, color }) => {
+    const playerInfo = {
+      userId,
+      name,
+      color,
+      currentInstance: null,
+    }
+    sockets.set(socket.id, playerInfo)
+    console.log(`Authenticated: ${userId} (${name})`)
+  })
 
-  ws.on('message', (data) => {
-    try {
-      const msg = JSON.parse(data.toString())
+  // Client joins an instance (room)
+  socket.on('join-instance', ({ instance }) => {
+    const playerInfo = sockets.get(socket.id)
+    if (!playerInfo) return
 
-      if (msg.type === 'position') {
-        const { userId, userName, x, y, angle, deliberationId } = msg
+    const previousInstance = playerInfo.currentInstance
 
-        currentUserId = userId
-
-        // Update player position
-        players.set(userId, {
-          ws,
-          x,
-          y,
-          angle,
-          userName,
-          deliberationId,
-          lastUpdate: Date.now()
+    // Leave previous room
+    if (previousInstance) {
+      const prevRoom = rooms.get(previousInstance)
+      if (prevRoom) {
+        prevRoom.delete(socket.id)
+        if (prevRoom.size === 0) rooms.delete(previousInstance)
+        // Notify others in the old room
+        socket.to(previousInstance).emit('player-left', {
+          playerId: playerInfo.userId,
+          instance: previousInstance,
         })
       }
-    } catch (err) {
-      console.error('Message parse error:', err)
+      socket.leave(previousInstance)
     }
+
+    // Join new room
+    playerInfo.currentInstance = instance
+    const newRoom = getRoom(instance)
+    const player = {
+      id: playerInfo.userId,
+      name: playerInfo.name,
+      color: playerInfo.color,
+      rx: playerInfo.rx || 0.5,
+      ry: playerInfo.ry || 0.5,
+    }
+    newRoom.set(socket.id, player)
+    socket.join(instance)
+
+    // Send full room state to the joining client
+    const players = Array.from(newRoom.values())
+    socket.emit('instance-state', { instance, players })
+
+    // Notify others in the new room
+    socket.to(instance).emit('player-joined', { player, instance })
+
+    // Broadcast transition to ALL connected clients (for animation)
+    if (previousInstance) {
+      io.emit('player-transition', {
+        playerId: playerInfo.userId,
+        playerColor: playerInfo.color,
+        playerName: playerInfo.name,
+        from: previousInstance,
+        to: instance,
+      })
+    }
+
+    console.log(`${playerInfo.name}: ${previousInstance || '(none)'} -> ${instance} (${newRoom.size} in room)`)
   })
 
-  ws.on('close', () => {
-    if (currentUserId) {
-      players.delete(currentUserId)
-      console.log(`Player ${currentUserId} disconnected. Active players: ${players.size}`)
+  // Position update — player tapped/dragged to new location
+  socket.on('position', ({ rx, ry }) => {
+    const playerInfo = sockets.get(socket.id)
+    if (!playerInfo || !playerInfo.currentInstance) return
+    playerInfo.rx = rx
+    playerInfo.ry = ry
+    const room = rooms.get(playerInfo.currentInstance)
+    if (room) {
+      const player = room.get(socket.id)
+      if (player) {
+        player.rx = rx
+        player.ry = ry
+      }
     }
+    socket.to(playerInfo.currentInstance).emit('player-moved', {
+      playerId: playerInfo.userId,
+      instance: playerInfo.currentInstance,
+      rx,
+      ry,
+    })
   })
 
-  ws.on('error', (err) => {
-    console.error('WebSocket error:', err)
+  // Disconnect cleanup
+  socket.on('disconnect', () => {
+    const playerInfo = sockets.get(socket.id)
+    if (playerInfo && playerInfo.currentInstance) {
+      const room = rooms.get(playerInfo.currentInstance)
+      if (room) {
+        room.delete(socket.id)
+        socket.to(playerInfo.currentInstance).emit('player-left', {
+          playerId: playerInfo.userId,
+          instance: playerInfo.currentInstance,
+        })
+        if (room.size === 0) rooms.delete(playerInfo.currentInstance)
+      }
+    }
+    sockets.delete(socket.id)
+    if (playerInfo) {
+      console.log(`Disconnected: ${playerInfo.name}`)
+    }
   })
 })
 
-// Cleanup stale players (haven't updated in 30 seconds)
-setInterval(() => {
-  const now = Date.now()
-  const STALE_THRESHOLD = 30000 // 30 seconds
+// Cleanup empty rooms periodically
+setInterval(cleanupEmptyRooms, 30000)
 
-  for (const [userId, player] of players.entries()) {
-    if (now - player.lastUpdate > STALE_THRESHOLD) {
-      players.delete(userId)
-      console.log(`Removed stale player ${userId}`)
-    }
-  }
-}, 10000) // Check every 10 seconds
-
-server.listen(PORT, () => {
-  console.log(`WebSocket server running on port ${PORT}`)
+httpServer.listen(PORT, () => {
+  console.log(`Presence server running on port ${PORT}`)
   console.log(`Health check: http://localhost:${PORT}/health`)
 })

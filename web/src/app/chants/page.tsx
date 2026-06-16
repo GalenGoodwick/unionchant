@@ -1,174 +1,80 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useSession, signIn } from 'next-auth/react'
 import Dockstar, { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
-import PlayerOverlay from './PlayerOverlay'
-import type { PlayerPixel } from './PlayerOverlay'
 import IdeaSubspace from './IdeaSubspace'
-import BookmarkSidebar from './BookmarkSidebar'
-import { getSubspace } from './subspace-data'
+import TransitionOverlay from './TransitionOverlay'
+import ShareMenu from '@/components/ShareMenu'
+import { usePresence } from './usePresence'
+import { useChantsFeed } from './useChantsFeed'
+import { useChantDetail } from './useChantDetail'
+import type { Chant } from './useChantsFeed'
+import { useInactivityTimer } from './useInactivityTimer'
 
-// ── MOCK PLAYERS — each has an instance + optional dockedTo for dock point presence ──
-const MOCK_PLAYERS: PlayerPixel[] = [
-  // Players browsing the list
-  { id: 'p1', name: 'citizen_pdx', color: '#34d399', x: 280, y: 320, instance: 'list' },
-  { id: 'p2', name: 'urbanplanner', color: '#a78bfa', x: 350, y: 580, instance: 'list', dockedTo: '2' },
-  { id: 'p4', name: 'fiscal_hawk', color: '#f472b6', x: 200, y: 720, instance: 'list', dockedTo: '1' },
-  // Players docked into specific posts (inside detail view)
-  { id: 'p3', name: 'safety_first', color: '#f97316', x: 310, y: 450, instance: '1', dockedTo: 'idea:i1' },
-  { id: 'p5', name: 'bike_commuter', color: '#38bdf8', x: 340, y: 500, instance: '1', dockedTo: 'idea:i4' },
+// ── PRESENCE COLORS (deterministic from user ID) ──
+const PRESENCE_COLORS = [
+  '#f472b6', // pink
+  '#fb923c', // orange
+  '#34d399', // emerald
+  '#fbbf24', // amber
+  '#60a5fa', // blue
+  '#f87171', // red
+  '#2dd4bf', // teal
+  '#4ade80', // green
+  '#e879f9', // fuchsia
+  '#facc15', // yellow
 ]
-
-// ── MOCK DATA ──
-
-interface MockComment {
-  id: string
-  author: string
-  text: string
-  time: string
-  upvotes: number
-  isUpPollinated?: boolean
+function presenceColor(userId: string): string {
+  let hash = 0
+  for (let i = 0; i < userId.length; i++) hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0
+  return PRESENCE_COLORS[Math.abs(hash) % PRESENCE_COLORS.length]
 }
 
-interface MockIdea {
-  id: string
-  text: string
-  author: string
-  xp: number
-  votes: number
-  comments: MockComment[]
+// ── PRESENCE EYE (small eye icon with drift animation) ──
+function PresenceEye({ color, name, style, className }: { color: string; name: string; style?: React.CSSProperties; className?: string }) {
+  return (
+    <div
+      className={`${className || ''}`}
+      style={{
+        ...style,
+        filter: `drop-shadow(0 0 3px ${color}80)`,
+        animation: `presence-drift ${2.5 + Math.random() * 2}s ease-in-out infinite`,
+        animationDelay: `${-Math.random() * 3}s`,
+      }}
+      title={name}
+    >
+      <svg width="12" height="8" viewBox="0 0 20 14" fill="none">
+        <path d="M10 0C4 0 0 7 0 7s4 7 10 7 10-7 10-7S16 0 10 0z" fill="#e2e8f0" stroke={color} strokeWidth="1.5" />
+        <ellipse cx="10" cy="7" rx="3.5" ry="3.5" fill={color} />
+        <ellipse cx="10" cy="7" rx="1.5" ry="1.5" fill="#020617" />
+      </svg>
+    </div>
+  )
 }
-
-interface MockCell {
-  id: string
-  number: number
-  tier: number
-  ideas: MockIdea[]
-}
-
-interface MockGroupMessage {
-  id: string
-  author: string
-  text: string
-  time: string
-}
-
-interface MockChant {
-  id: string
-  question: string
-  phase: 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING'
-  tier: number
-  participants: number
-  ideas: number
-  cells: number
-  upvotes: number
-  community: string
-  creator: string
-  createdAt: string
-  duration?: string
-  champion?: { text: string; author: string }
-  topIdeas?: { id: string; text: string; author: string; tier: number; xp: number; groupChat?: MockGroupMessage[] }[]
-  mockCell?: MockCell
-  isCreator?: boolean
-}
-
-const MOCK_COMMUNITIES = ['All', 'Portland Gov', 'Austin TX', 'Workers Union 503', 'UC Berkeley']
-
-const MOCK_COMMENTS: MockComment[] = [
-  { id: 'c1', author: 'citizen_pdx', text: 'Schools built before 1970 are the biggest risk. This directly saves lives.', time: '2h ago', upvotes: 47 },
-  { id: 'c2', author: 'urbanplanner', text: 'The cost-benefit analysis strongly favors this. Every $1 in seismic retrofit saves $4 in expected losses.', time: '4h ago', upvotes: 31, isUpPollinated: true },
-  { id: 'c3', author: 'parent_of_3', text: 'My kids go to Buckman Elementary. The building is from 1925. I lose sleep over this.', time: '6h ago', upvotes: 28 },
-  { id: 'c4', author: 'fiscal_hawk', text: 'Where is the detailed cost breakdown? $50M may not cover all schools.', time: '3h ago', upvotes: 19 },
-  { id: 'c5', author: 'ne_resident', text: 'What about the emergency shelters? Some of those are in worse shape than the schools.', time: '5h ago', upvotes: 14 },
-]
-
-const MOCK_CELL: MockCell = {
-  id: 'cell-847',
-  number: 847,
-  tier: 3,
-  ideas: [
-    { id: 'i1', text: 'Seismic retrofit of public schools and emergency shelters', author: 'safety_first', xp: 0, votes: 0, comments: [MOCK_COMMENTS[0], MOCK_COMMENTS[1], MOCK_COMMENTS[2]] },
-    { id: 'i2', text: 'Repair and expand the stormwater drainage system in East Portland', author: 'waterworks_pdx', xp: 0, votes: 0, comments: [
-      { id: 'c6', author: 'flood_victim', text: 'Division St floods every winter. This would actually fix it.', time: '1h ago', upvotes: 12 },
-      { id: 'c7', author: 'engineer42', text: 'The current system is 60 years old. Patching it costs more than replacing.', time: '3h ago', upvotes: 8 },
-    ]},
-    { id: 'i3', text: 'Build protected bike lane network connecting all neighborhoods', author: 'bike_commuter', xp: 0, votes: 0, comments: [
-      { id: 'c8', author: 'daily_rider', text: 'Hawthorne to downtown is terrifying. Protected lanes save lives.', time: '2h ago', upvotes: 9 },
-    ]},
-    { id: 'i4', text: 'Upgrade aging water mains to prevent lead contamination', author: 'clean_water', xp: 0, votes: 0, comments: [
-      { id: 'c9', author: 'health_dept', text: 'Lead pipe inventory shows 12,000 service lines need replacement.', time: '4h ago', upvotes: 15 },
-      { id: 'c10', author: 'parent_of_3', text: 'We had lead in our water last year. My daughter was tested. This is urgent.', time: '5h ago', upvotes: 22 },
-    ]},
-    { id: 'i5', text: 'Install solar panels on all city-owned buildings', author: 'green_future', xp: 0, votes: 0, comments: [
-      { id: 'c11', author: 'budget_guy', text: 'ROI on municipal solar is 7-10 years. Long-term savings are real.', time: '3h ago', upvotes: 6 },
-    ]},
-  ],
-}
-
-const MOCK_CHANTS: MockChant[] = [
-  // VOTING — active cell with XP allocation
-  { id: '1', question: 'What should Portland allocate its $50M infrastructure bond to?', phase: 'VOTING', tier: 3, participants: 2847, ideas: 11203, cells: 569, upvotes: 342, community: 'Portland Gov', creator: 'Mayor Wheeler', createdAt: '9d', mockCell: MOCK_CELL },
-  // SUBMISSION — collecting ideas
-  { id: '2', question: 'How should we reform the residential zoning code to address housing affordability?', phase: 'SUBMISSION', tier: 0, participants: 1203, ideas: 890, cells: 0, upvotes: 218, community: 'Portland Gov', creator: 'Planning Bureau', createdAt: '3d', topIdeas: [
-    { id: 's1', text: 'Allow fourplexes in all residential zones', author: 'housing_advocate', tier: 0, xp: 0 },
-    { id: 's2', text: 'Require 20% affordable units in new developments', author: 'equity_first', tier: 0, xp: 0 },
-    { id: 's3', text: 'Tax vacant lots to incentivize building', author: 'land_use_nerd', tier: 0, xp: 0 },
-    { id: 's4', text: 'Streamline permitting for ADUs', author: 'backyard_builder', tier: 0, xp: 0 },
-  ]},
-  // COMPLETED — decided with champion + group chats
-  { id: '4', question: 'How should we prioritize park maintenance with the reduced budget?', phase: 'COMPLETED', tier: 4, participants: 3200, ideas: 2100, cells: 640, upvotes: 567, community: 'Portland Gov', creator: 'Parks Dept', createdAt: '21d', duration: '11 days', champion: { text: 'Restore community gardens and convert unused lots to green space', author: 'garden_collective' }, topIdeas: [
-    { id: 'p1', text: 'Restore community gardens and convert unused lots to green space', author: 'garden_collective', tier: 4, xp: 847, groupChat: [
-      { id: 'g1', author: 'garden_collective', text: 'The city identified 23 vacant lots in East Portland alone. Lets coordinate which ones to target first.', time: '2h ago' },
-      { id: 'g2', author: 'parks_volunteer', text: 'Lents Park community garden has a waitlist of 40 families. We need more plots.', time: '1h ago' },
-      { id: 'g3', author: 'urban_farmer', text: 'Has anyone connected with the Bureau of Environmental Services? They have composting grants.', time: '45m ago' },
-      { id: 'g4', author: 'ne_gardener', text: 'Im organizing a seed swap at Woodstock Park next Saturday. All welcome.', time: '20m ago' },
-    ]},
-    { id: 'p2', text: 'Fix playground equipment in underserved neighborhoods first', author: 'equity_parks', tier: 4, xp: 623, groupChat: [
-      { id: 'g5', author: 'equity_parks', text: 'Mapped all playgrounds with safety violations — 14 in East Portland, 3 in St Johns.', time: '5h ago' },
-      { id: 'g6', author: 'parent_coalition', text: 'Lents Park swingset has been broken since September. Kids deserve better.', time: '3h ago' },
-      { id: 'g7', author: 'parks_board', text: 'Budget memo going to council next Tuesday. Speak at public comment if you can.', time: '1h ago' },
-    ]},
-    { id: 'p3', text: 'Plant 10,000 native trees for urban canopy', author: 'tree_hugger', tier: 3, xp: 412, groupChat: [
-      { id: 'g8', author: 'tree_hugger', text: 'Friends of Trees has capacity for 3,000 plantings this season. Who else can help scale?', time: '8h ago' },
-      { id: 'g9', author: 'urban_forestry', text: 'Priority zones: areas with less than 15% canopy coverage. See the city heat map.', time: '4h ago' },
-    ]},
-  ]},
-  // MANAGE — creator's own chant in submission phase
-  { id: '5', question: 'What improvements should we make to the school lunch program?', phase: 'SUBMISSION', tier: 0, participants: 87, ideas: 42, cells: 0, upvotes: 31, community: 'Portland Gov', creator: 'You', createdAt: '1d', isCreator: true, topIdeas: [
-    { id: 'm1', text: 'Source ingredients from local farms within 50 miles', author: 'farm_to_school', tier: 0, xp: 0 },
-    { id: 'm2', text: 'Eliminate all processed foods and added sugars', author: 'health_parent', tier: 0, xp: 0 },
-    { id: 'm3', text: 'Free lunch for all students regardless of income', author: 'equity_now', tier: 0, xp: 0 },
-  ]},
-  // ACCUMULATING — challenging the champion
-  { id: '7', question: 'How should the university invest its $2M sustainability fund?', phase: 'ACCUMULATING', tier: 5, participants: 560, ideas: 430, cells: 112, upvotes: 203, community: 'UC Berkeley', creator: 'Student Senate', createdAt: '14d', champion: { text: 'Campus-wide composting program with student employment', author: 'zero_waste_cal' } },
-]
 
 // ── NAV ITEMS (bottom bar drop spots) ──
 
 const NAV_ITEMS = [
-  { id: '__nav_chants__', label: 'Chants', href: '/chants', icon: (
+  { id: '__nav_chants__', label: 'Chants', href: '/chants', color: '#22d3ee', icon: (
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
     </svg>
   )},
-  { id: '__nav_podiums__', label: 'Podiums', href: '/podiums', icon: (
+  { id: '__nav_podiums__', label: 'Podiums', href: '/podiums', color: '#a78bfa', icon: (
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
     </svg>
   )},
-  { id: '__nav_groups__', label: 'Groups', href: '/groups', icon: (
+  { id: '__nav_groups__', label: 'Groups', href: '/groups', color: '#fbbf24', icon: (
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
     </svg>
   )},
-  { id: '__nav_how__', label: 'How', href: '/how', icon: (
+  { id: '__nav_how__', label: 'How', href: '/how', color: '#e2e8f0', icon: (
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-    </svg>
-  )},
-  { id: '__nav_search__', label: 'Search', href: '#search', icon: (
-    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
     </svg>
   )},
 ]
@@ -177,10 +83,9 @@ const NAV_ITEMS = [
 
 function phaseBadge(phase: string, tier: number) {
   switch (phase) {
-    case 'VOTING': return { label: 'VOTING', sublabel: tier > 0 ? `T${tier}` : '', color: 'bg-warning/15 text-warning border-warning/30' }
-    case 'SUBMISSION': return { label: 'IDEAS', sublabel: '', color: 'bg-accent/15 text-accent border-accent/30' }
-    case 'COMPLETED': return { label: 'DECIDED', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
-    case 'ACCUMULATING': return { label: 'CHALLENGING', sublabel: '', color: 'bg-purple/15 text-purple border-purple/30' }
+    case 'VOTING': return { label: 'Voting Phase', sublabel: tier > 0 ? `T${tier}` : '', color: 'bg-warning/15 text-warning border-warning/30' }
+    case 'SUBMISSION': return { label: 'Submission Phase', sublabel: '', color: 'bg-accent/15 text-accent border-accent/30' }
+    case 'COMPLETED': return { label: 'Priority Set', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
     default: return { label: phase, sublabel: '', color: 'bg-surface text-muted border-border' }
   }
 }
@@ -192,8 +97,9 @@ function fmt(n: number): string {
 
 // ── CREATE DROP ZONE — orb-sized circle, drop target + tappable ──
 
-function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onClick, glowDrag }: { id: string; isActive: boolean; isDocked?: boolean; userInitial?: string; registerRef: (id: string, el: HTMLElement | null) => void; onClick: () => void; glowDrag: boolean }) {
+function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onClick, glowDrag, accentColor }: { id: string; isActive: boolean; isDocked?: boolean; userInitial?: string; registerRef: (id: string, el: HTMLElement | null) => void; onClick: () => void; glowDrag: boolean; accentColor?: string }) {
   const ref = useRef<HTMLDivElement>(null)
+  const ac = accentColor || '#22d3ee'
   useEffect(() => {
     registerRef(id, ref.current)
     return () => registerRef(id, null)
@@ -202,12 +108,18 @@ function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onCl
     <div
       ref={ref}
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); (document.activeElement as HTMLElement)?.blur(); onClick() }}
-      className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer select-none transition-all duration-200 ${isDocked ? 'bg-accent border-accent text-header shadow-[0_0_12px_rgba(34,211,238,0.4)]' : isActive ? 'border-accent bg-accent/20 text-accent scale-110 shadow-[0_0_12px_rgba(34,211,238,0.4)]' : glowDrag ? 'border-[#f59e0b]/60 bg-[#f59e0b]/10 text-[#f59e0b] shadow-[0_0_8px_rgba(245,158,11,0.3)]' : 'border-accent/50 bg-transparent text-accent hover:border-accent hover:bg-accent/10'}`}
+      className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer select-none transition-all duration-200 text-header ${glowDrag ? 'border-[#f59e0b]/60 bg-[#f59e0b]/10 text-[#f59e0b] shadow-[0_0_8px_rgba(245,158,11,0.3)]' : ''}`}
+      style={!glowDrag ? {
+        backgroundColor: ac,
+        borderColor: ac,
+        boxShadow: isDocked || isActive ? `0 0 12px ${ac}66` : undefined,
+        transform: isActive ? 'scale(1.1)' : undefined,
+      } : undefined}
     >
       {isDocked ? (
-        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
       ) : (
-        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
       )}
     </div>
   )
@@ -216,54 +128,242 @@ function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onCl
 // ── MAIN PAGE ──
 
 function ChantsPageContent() {
+  // ── Data hooks ──
+  const { data: session } = useSession()
+  const searchParams = useSearchParams()
+  const { chants, loading: feedLoading, error: feedError, refresh: refreshFeed, prepend: prependChant } = useChantsFeed()
+  const [dockedPostId, setDockedPostId] = useState<string | null>(searchParams.get('dock'))
+  const chantDetailId = dockedPostId === '__create_chant__' || dockedPostId?.startsWith('podium:') || dockedPostId?.startsWith('group:') ? null : dockedPostId
+  const { detail, loading: detailLoading, error: detailError, refresh: refreshDetail, submitVote, submitIdea, joinChant, leaveChant } = useChantDetail(chantDetailId, !session?.user)
+
   // ── Feed state ──
-  const [dockedPostId, setDockedPostId] = useState<string | null>(null)
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
-  const [selectedCommunity, setSelectedCommunity] = useState('All')
-  const [sortBy, setSortBy] = useState<'hot' | 'new' | 'top'>('hot')
-  const [showCommunityViewer, setShowCommunityViewer] = useState(false)
+  const [sortBy, setSortBy] = useState<'new' | 'hot' | 'top'>('new')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups'>('chants')
+  const [podiums, setPodiums] = useState<{ id: string; title: string; body: string; views: number; pinned?: boolean; createdAt: string; author: { id?: string; name: string | null }; deliberation: { id: string; question: string } | null }[]>([])
+  const [podiumsLoading, setPodiumsLoading] = useState(false)
+  const [groups, setGroups] = useState<{ id: string; name: string; slug: string; description: string | null; isPublic: boolean; _count: { members: number; deliberations: number }; creator: { name: string | null } }[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
   const [xpAllocations, setXpAllocations] = useState<Record<string, Record<string, number>>>({})
   const [nearestDrop, setNearestDrop] = useState<string | null>(null)
   const [isDraggingDockstar, setIsDraggingDockstar] = useState(false)
   const [scrollY, setScrollY] = useState(0)
-  const [linkCopied, setLinkCopied] = useState<string | null>(null)
+  const [manageMode, setManageMode] = useState(false)
+  const [manageMsg, setManageMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
+  const [startingVoting, setStartingVoting] = useState(false)
   const [dockedPostVisible, setDockedPostVisible] = useState(true)
-  const [selfPixelPos, setSelfPixelPos] = useState<{ x: number; y: number } | null>(null)
   const [flashDocks, setFlashDocks] = useState(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [tetherPoints, setTetherPoints] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
-  const [externalDragStart] = useState<{ x: number; y: number } | null>(null)
+  const [externalDragStart, setExternalDragStart] = useState<{ x: number; y: number } | null>(null)
   const [undockingAnim, setUndockingAnim] = useState(false)
-  // pendingDock removed — drag-and-drop auto-confirms
   const [pendingInput, setPendingInput] = useState<string>('')
-  const [pendingInputType, setPendingInputType] = useState<'comment' | 'idea' | 'chat' | 'challenge' | null>(null)
+  const [pendingInputType, setPendingInputType] = useState<'comment' | 'idea' | 'chat' | null>(null)
   const [pendingDockContext, setPendingDockContext] = useState<{ postId: string; ideaId: string | null } | null>(null)
   const [pendingInputTargetId, setPendingInputTargetId] = useState<string | null>(null)
-  // Footer pinned (toggled by clicking dockstar at home)
-  const [footerPinned, setFooterPinned] = useState(false)
-  // Create mode
   const [createMode, setCreateMode] = useState(false)
   const [createQuestion, setCreateQuestion] = useState('')
   const [createDescription, setCreateDescription] = useState('')
   const [createError, setCreateError] = useState('')
   const [creating, setCreating] = useState(false)
-  // Subspace state
+  const [createCommunityId, setCreateCommunityId] = useState<string | null>(null)
+  const [userGroups, setUserGroups] = useState<{ id: string; name: string; slug: string }[]>([])
+  const [userGroupsLoaded, setUserGroupsLoaded] = useState(false)
+  const [groupCreateOpen, setGroupCreateOpen] = useState(false)
+  const [groupCreateQuestion, setGroupCreateQuestion] = useState('')
+  const [groupCreateDescription, setGroupCreateDescription] = useState('')
+  const [groupCreating, setGroupCreating] = useState(false)
+  const [groupCreateError, setGroupCreateError] = useState('')
+  // Podium create state
+  const [createPodiumTitle, setCreatePodiumTitle] = useState('')
+  const [createPodiumBody, setCreatePodiumBody] = useState('')
+  // Group create state
+  const [createGroupName, setCreateGroupName] = useState('')
+  const [createGroupDescription, setCreateGroupDescription] = useState('')
+  const [createGroupPublic, setCreateGroupPublic] = useState(true)
+  // Podium docking state
+  const [dockedPodium, setDockedPodium] = useState<{ id: string; title: string; body: string; views: number; createdAt: string; author: { id: string; name: string | null; image: string | null }; deliberation: { id: string; question: string; phase: string; _count: { members: number; ideas: number } } | null } | null>(null)
+  const [podiumSettingsOpen, setPodiumSettingsOpen] = useState(false)
+  const [podiumSettingsForm, setPodiumSettingsForm] = useState({ title: '', body: '' })
+  const [podiumSettingsSaving, setPodiumSettingsSaving] = useState(false)
+  const [podiumSettingsMsg, setPodiumSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [dockedPodiumLoading, setDockedPodiumLoading] = useState(false)
+  const [podiumCommentPreview, setPodiumCommentPreview] = useState<{ id: string; text: string; createdAt: string; user: { name: string | null } }[]>([])
+  // Group docking state
+  const [dockedGroup, setDockedGroup] = useState<{ id: string; name: string; slug: string; description: string | null; isPublic: boolean; userRole: string | null; _count: { members: number; deliberations: number }; creator: { name: string | null }; members: { user: { id: string; name: string; image: string | null } }[]; deliberations: { id: string; question: string; phase: string; creator?: { id: string; name: string | null }; _count: { members: number; ideas: number } }[]; _private_gate?: boolean } | null>(null)
+  const [dockedGroupLoading, setDockedGroupLoading] = useState(false)
   const [activeSubspaceId, setActiveSubspaceId] = useState<string | null>(null)
+  const [joiningGroup, setJoiningGroup] = useState(false)
+  const [groupNotice, setGroupNotice] = useState<string | null>(null)
+  const [groupSettingsOpen, setGroupSettingsOpen] = useState(false)
+  const [groupSettingsForm, setGroupSettingsForm] = useState({ name: '', description: '', isPublic: true })
+  const [groupSettingsSaving, setGroupSettingsSaving] = useState(false)
+  const [groupSettingsMsg, setGroupSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [groupInviteCode, setGroupInviteCode] = useState<string | null>(null)
+  const [groupInviteLoading, setGroupInviteLoading] = useState(false)
+  const [groupChatPreview, setGroupChatPreview] = useState<{ id: string; text: string; user: { name: string | null } }[]>([])
   const [bookmarks, setBookmarks] = useState<string[]>([])
+  const [submittingVote, setSubmittingVote] = useState(false)
+  const [submittingIdea, setSubmittingIdea] = useState(false)
+  const [submittedIdeas, setSubmittedIdeas] = useState<Record<string, string>>({})
+  const [kickedMessage, setKickedMessage] = useState(false)
 
   const dropZoneRefs = useRef<Map<string, HTMLElement>>(new Map())
+  const instanceCanvasRefs = useRef<Map<string, HTMLElement>>(new Map())
 
-  // Active dock target — idea DropCircle if docked to idea, else chant DropCircle
-  // Hide dockstar orb when docked to create (CreateDropZone shows X instead)
+  // ── PRESENCE ──
+  const currentInstance = activeSubspaceId
+    ? (activeSubspaceId.startsWith('podiumchat:') || activeSubspaceId.startsWith('groupchat:'))
+      ? `subspace:${activeSubspaceId}`
+      : `subspace:${dockedPostId}:${activeSubspaceId}`
+    : dockedIdeaId
+    ? `idea:${dockedPostId}:${dockedIdeaId}`
+    : dockedPostId || `list:${activeTab}`
+
+  const presenceUserId = session?.user?.id || 'anon'
+  const presenceName = session?.user?.name || 'You'
+
+  const { players: presencePlayers, transitions, moveToPosition } = usePresence({
+    userId: presenceUserId,
+    name: presenceName,
+    color: '#22d3ee',
+    currentInstance,
+  })
+
+  const [selfRatio, setSelfRatio] = useState<{ rx: number; ry: number }>({ rx: 0.5, ry: 0.5 })
+
+  // Get players at an instance, optionally aggregating child instances (for feed-level views)
+  const getInstancePlayers = useCallback((instanceId: string, aggregate = false) => {
+    if (!aggregate) {
+      // Precise mode — exact instance only (for inside docked views)
+      const remote = (presencePlayers.get(instanceId) || []).filter(p => p.id !== presenceUserId)
+      if (instanceId === currentInstance) {
+        return [{ id: presenceUserId, name: presenceName, color: '#22d3ee', isSelf: true, rx: selfRatio.rx, ry: selfRatio.ry }, ...remote]
+      }
+      return remote
+    }
+
+    // Aggregate mode — include child instances (for feed cards / nav items)
+    const isChild = (key: string) => {
+      if (key === instanceId) return true
+      // podium:X includes subspace:podiumchat:X
+      if (instanceId.startsWith('podium:')) return key === `subspace:podiumchat:${instanceId.slice(7)}`
+      // group:slug includes subspace:groupchat:slug
+      if (instanceId.startsWith('group:')) return key === `subspace:groupchat:${instanceId.slice(6)}`
+      // list:chants includes all chant IDs + their subspaces/ideas (anything not podium/group/list)
+      if (instanceId === 'list:chants') return !key.startsWith('list:') && !key.startsWith('podium:') && !key.startsWith('group:') && !key.startsWith('subspace:podiumchat:') && !key.startsWith('subspace:groupchat:')
+      // list:podiums includes all podium:* and subspace:podiumchat:*
+      if (instanceId === 'list:podiums') return key.startsWith('podium:') || key.startsWith('subspace:podiumchat:')
+      // list:groups includes all group:* and subspace:groupchat:*
+      if (instanceId === 'list:groups') return key.startsWith('group:') || key.startsWith('subspace:groupchat:')
+      // chant ID (raw cuid) — children are subspace:{chantId}:{ideaId} and idea:{chantId}:{ideaId}
+      if (!instanceId.startsWith('list:') && !instanceId.startsWith('podium:') && !instanceId.startsWith('group:') && !instanceId.startsWith('subspace:')) {
+        return key.startsWith(`subspace:${instanceId}:`) || key.startsWith(`idea:${instanceId}:`)
+      }
+      return false
+    }
+
+    const seen = new Set<string>()
+    const result: { id: string; name: string; color: string; isSelf?: boolean; rx?: number; ry?: number }[] = []
+
+    // Check if self is in this hierarchy
+    if (isChild(currentInstance)) {
+      result.push({ id: presenceUserId, name: presenceName, color: '#22d3ee', isSelf: true, rx: selfRatio.rx, ry: selfRatio.ry })
+      seen.add(presenceUserId)
+    }
+
+    for (const [key, players] of presencePlayers.entries()) {
+      if (isChild(key)) {
+        for (const p of players) {
+          if (p.id !== presenceUserId && !seen.has(p.id)) {
+            seen.add(p.id)
+            result.push(p)
+          }
+        }
+      }
+    }
+
+    return result
+  }, [presencePlayers, currentInstance, selfRatio, presenceUserId, presenceName])
+
+  const registerInstanceCanvas = useCallback((id: string, el: HTMLElement | null) => {
+    if (el) instanceCanvasRefs.current.set(id, el)
+    else instanceCanvasRefs.current.delete(id)
+  }, [])
+
   const activeDockTarget = dockedPostId === '__create_chant__' ? '__create_chant__' : dockedIdeaId ? `idea:${dockedIdeaId}` : dockedPostId
 
-  // Track scroll — updates player pixel position (scrolling moves pixel down)
-  // + docked target visibility
+  // Handle initial dock from URL param (podium:/group: prefixes)
+  useEffect(() => {
+    const initial = searchParams.get('dock')
+    if (!initial) return
+    if (initial.startsWith('podium:')) {
+      const podiumId = initial.slice(7)
+      setActiveTab('podiums')
+      setDockedPodiumLoading(true)
+      fetch(`/api/podiums/${podiumId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            setDockedPodium(data)
+            fetch(`/api/podiums/${data.id}/comments`)
+              .then(r => r.ok ? r.json() : null)
+              .then(c => { if (c?.comments) setPodiumCommentPreview(c.comments.slice(-10)) })
+              .catch(() => {})
+          }
+        })
+        .catch(() => {})
+        .finally(() => setDockedPodiumLoading(false))
+    } else if (initial.startsWith('group:')) {
+      const slug = initial.slice(6)
+      setActiveTab('groups')
+      setDockedGroupLoading(true)
+      fetch(`/api/communities/${slug}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            setDockedGroup(data)
+            if (data.userRole) {
+              fetch(`/api/communities/${data.slug}/chat`)
+                .then(r => r.ok ? r.json() : null)
+                .then(chat => { if (chat?.messages) setGroupChatPreview(chat.messages.slice(-3)) })
+                .catch(() => {})
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setDockedGroupLoading(false))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Fetch podiums when tab active
+  useEffect(() => {
+    if (activeTab !== 'podiums' || podiums.length > 0) return
+    setPodiumsLoading(true)
+    fetch('/api/podiums?limit=20')
+      .then(r => r.json())
+      .then(data => setPodiums(data.items || []))
+      .catch(() => {})
+      .finally(() => setPodiumsLoading(false))
+  }, [activeTab, podiums.length])
+
+  // Fetch groups when tab active
+  useEffect(() => {
+    if (activeTab !== 'groups' || groups.length > 0) return
+    setGroupsLoading(true)
+    fetch('/api/communities?limit=20')
+      .then(r => r.json())
+      .then(data => setGroups(data.communities || []))
+      .catch(() => {})
+      .finally(() => setGroupsLoading(false))
+  }, [activeTab, groups.length])
+
+  // Track scroll
   useEffect(() => {
     const onScroll = () => {
       const sy = window.scrollY
       setScrollY(sy)
-      // Check if the active dock target's DropCircle is on screen
       const target = dockedIdeaId ? `idea:${dockedIdeaId}` : dockedPostId
       if (target) {
         const el = dropZoneRefs.current.get(target)
@@ -278,156 +378,239 @@ function ChantsPageContent() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [dockedPostId, dockedIdeaId])
 
-  // Initialize self pixel at center of viewport
   useEffect(() => {
-    setSelfPixelPos({ x: window.innerWidth / 2, y: window.innerHeight / 2 + window.scrollY })
-  }, [])
+    setSelfRatio({ rx: 0.5, ry: 0.5 })
+  }, [currentInstance])
 
-  // Track tether line from sidebar orb to docked idea's DropCircle
-  useEffect(() => {
-    if (!dockedIdeaId) { setTetherPoints(null); return }
-    const el = dropZoneRefs.current.get(`idea:${dockedIdeaId}`)
-    if (el) {
-      const rect = el.getBoundingClientRect()
-      setTetherPoints({
-        x1: window.innerWidth - 20,
-        y1: 26,
-        x2: rect.left + rect.width / 2,
-        y2: rect.top + rect.height / 2,
-      })
-    } else {
-      setTetherPoints(null)
-    }
-  }, [dockedIdeaId, scrollY])
-
-  // Page tap — place pixel + flash docks on miss
   const handlePageClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement
     const isForm = target.closest('input, textarea, select')
     if (isForm) return
+    const selection = window.getSelection()
+    if (selection && selection.toString().length > 0) return
 
-    // Place self pixel at tap location only when NOT docked (dockstar stays pinned when docked)
-    if (!dockedPostId) {
-      setSelfPixelPos({ x: e.clientX, y: e.clientY + window.scrollY })
-    }
-
-    // Flash docks gold if tap missed dockpoint/dockstar/interactive
     const isDockTarget = target.closest('[data-dockstar], [data-dockpoint]')
     const isInteractive = target.closest('button, a, [data-interactive]')
+
     if (!isDockTarget && !isInteractive) {
+      if (dockedPostId && dockedPostId !== '__create_chant__') {
+        const instanceEl = activeSubspaceId
+          ? document.getElementById('subspace-container')
+          : document.getElementById(`chant-${dockedPostId}`)
+
+        if (instanceEl) {
+          const rect = instanceEl.getBoundingClientRect()
+          const cx = e.clientX, cy = e.clientY
+
+          if (cx < rect.left || cx > rect.right || cy < rect.top || cy > rect.bottom) {
+            const clampedX = Math.max(rect.left, Math.min(rect.right, cx))
+            const clampedY = Math.max(rect.top, Math.min(rect.bottom, cy))
+            const rx = Math.max(0.05, Math.min(0.95, (clampedX - rect.left) / rect.width))
+            const ry = Math.max(0.05, Math.min(0.95, (clampedY - rect.top) / rect.height))
+            setSelfRatio({ rx, ry })
+            moveToPosition(rx, ry)
+          }
+        }
+      }
+
       setFlashDocks(true)
       if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current)
       flashTimeoutRef.current = setTimeout(() => setFlashDocks(false), 600)
     }
-  }, [dockedPostId])
+  }, [dockedPostId, activeSubspaceId, moveToPosition])
 
-  // Share link for docked chant — slug-style URL from chant title
-  const handleShareLink = useCallback((chant: MockChant) => {
-    const slug = chant.question
-      .replace(/[^a-zA-Z0-9\s]/g, '')
-      .trim()
-      .replace(/\s+/g, '-')
-      .slice(0, 60)
-      .replace(/-$/, '')
-    const url = `${window.location.origin}/chants/${slug}`
-    navigator.clipboard.writeText(url).then(() => {
-      setLinkCopied(chant.id)
-      setTimeout(() => setLinkCopied(null), 2000)
-    })
-  }, [])
-
-  // ── Feed handlers ──
   const registerDropZone = useCallback((id: string, el: HTMLElement | null) => {
     if (el) dropZoneRefs.current.set(id, el)
     else dropZoneRefs.current.delete(id)
   }, [])
 
   const handleDock = useCallback((id: string) => {
-    setFooterPinned(false)
-    // Warn if leaving unsaved work for a different dock target
     if (dockedPostId && id !== dockedPostId && !id.startsWith('idea:')) {
       const hasUnsavedText = pendingInput.trim().length > 0
-      const hasUnsavedCreate = createMode && createQuestion.trim().length > 0
-      const hasUnsavedVotes = dockedPostId !== '__create_chant__' && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
+      const hasUnsavedCreate = createMode && (createQuestion.trim().length > 0 || createPodiumTitle.trim().length > 0 || createGroupName.trim().length > 0)
+      const hasUnsavedVotes = dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:') && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
       if ((hasUnsavedText || hasUnsavedCreate || hasUnsavedVotes) && !window.confirm('You have unsubmitted work. Leave and discard?')) return
     }
     if (id === '__create_chant__') {
+      // If docked on a group, capture group context for chant creation
+      const groupContext = dockedPostId?.startsWith('group:') && dockedGroup ? dockedGroup.id : null
       setDockedPostId('__create_chant__')
       setDockedIdeaId(null)
+      setDockedPodium(null)
+      // Keep dockedGroup if creating from group context
+      if (!groupContext) setDockedGroup(null)
       setCreateMode(true)
       setCreateQuestion('')
       setCreateDescription('')
+      setCreatePodiumTitle('')
+      setCreatePodiumBody('')
+      setCreateGroupName('')
+      setCreateGroupDescription('')
+      setCreateGroupPublic(true)
+      setCreateCommunityId(groupContext)
       setCreateError('')
+      // If creating from group, switch to chants tab for the chant form
+      if (groupContext) setActiveTab('chants')
+      // Fetch user's groups for the group selector
+      if (!userGroupsLoaded) {
+        fetch('/api/communities/mine').then(r => r.ok ? r.json() : []).then(data => {
+          setUserGroups(Array.isArray(data) ? data.map((g: { id: string; name: string; slug: string }) => ({ id: g.id, name: g.name, slug: g.slug })) : [])
+          setUserGroupsLoaded(true)
+        }).catch(() => {})
+      }
       return
     }
     if (id.startsWith('__nav_')) {
-      // Undock from current position before navigating
       setDockedPostId(null)
       setDockedIdeaId(null)
+      setDockedPodium(null)
+      setDockedGroup(null)
       setXpAllocations({})
       setPendingInput('')
       setPendingInputType(null)
       const nav = NAV_ITEMS.find(n => n.id === id)
       if (nav) {
-        if (nav.href === '#search') {
-          setShowCommunityViewer(true)
-        } else if (nav.href !== '/chants') {
-          window.location.href = nav.href
-        }
+        if (nav.href === '/podiums') { setActiveTab('podiums'); setSearchQuery(''); setSortBy('new'); return }
+        if (nav.href === '/groups') { setActiveTab('groups'); setSearchQuery(''); setSortBy('new'); return }
+        if (nav.href === '/chants') { setActiveTab('chants'); setSearchQuery(''); setSortBy('new'); return }
+        window.location.href = nav.href
       }
       return
     }
-    // Bookmark dock — bookmark + enter subspace
     if (id.startsWith('bookmark:')) {
       const ideaId = id.slice(9)
       setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId])
       enterSubspace(ideaId)
       return
     }
-    // Idea-level dock (drag-dropped onto an idea DropCircle)
-    if (id.startsWith('idea:')) {
-      setDockedIdeaId(id.slice(5))
+    if (id.startsWith('groupchat:') || id.startsWith('podiumchat:')) {
+      setActiveSubspaceId(id)
+      setDockedIdeaId(id)
       setDockedPostVisible(true)
-      // Prevent comment input from auto-focusing
       requestAnimationFrame(() => (document.activeElement as HTMLElement)?.blur())
       return
     }
-    // Chant-level dock — scroll to top
+    if (id.startsWith('idea:')) {
+      const ideaId = id.slice(5)
+      setDockedIdeaId(ideaId)
+      setActiveSubspaceId(ideaId)
+      setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId])
+      setDockedPostVisible(true)
+      requestAnimationFrame(() => (document.activeElement as HTMLElement)?.blur())
+      return
+    }
+    if (id.startsWith('podium:')) {
+      const podiumId = id.slice(7)
+      setDockedPostId(id)
+      setDockedIdeaId(null)
+      setDockedGroup(null)
+      setCreateMode(false)
+      setDockedPodiumLoading(true)
+      setDockedPodium(null)
+      setPodiumCommentPreview([])
+      fetch(`/api/podiums/${podiumId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            setDockedPodium(data)
+            fetch(`/api/podiums/${data.id}/comments`)
+              .then(r => r.ok ? r.json() : null)
+              .then(c => { if (c?.comments) setPodiumCommentPreview(c.comments.slice(-10)) })
+              .catch(() => {})
+          }
+        })
+        .catch(() => {})
+        .finally(() => setDockedPodiumLoading(false))
+      return
+    }
+    if (id.startsWith('group:')) {
+      const parts = id.slice(6)
+      // parts is slug
+      setDockedPostId(id)
+      setDockedIdeaId(null)
+      setDockedPodium(null)
+      setCreateMode(false)
+      setDockedGroupLoading(true)
+      setDockedGroup(null)
+      setGroupChatPreview([])
+      fetch(`/api/communities/${parts}`)
+        .then(async r => {
+          if (r.ok) return r.json()
+          // Private group — try to get preview info
+          if (r.status === 404) {
+            const preview = await fetch(`/api/communities/${parts}/preview`).then(r2 => r2.ok ? r2.json() : null).catch(() => null)
+            if (preview) return { ...preview, _private_gate: true }
+          }
+          return null
+        })
+        .then(data => {
+          if (data) {
+            if (data._private_gate) {
+              setDockedGroup({ id: data.id, name: data.name, slug: parts, description: data.description, isPublic: false, userRole: null, _count: data._count || { members: 0, deliberations: 0 }, creator: data.creator || { name: null }, members: [], deliberations: [], _private_gate: true })
+            } else {
+              setDockedGroup({ ...data, _private_gate: false })
+              if (data.userRole) {
+                fetch(`/api/communities/${data.slug}/chat`)
+                  .then(r => r.ok ? r.json() : null)
+                  .then(chat => { if (chat?.messages) setGroupChatPreview(chat.messages.slice(-3)) })
+                  .catch(() => {})
+              }
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setDockedGroupLoading(false))
+      return
+    }
     setCreateMode(false)
+    setDockedPodium(null)
+    setDockedGroup(null)
     setDockedPostId(id)
     setDockedIdeaId(null)
     setDockedPostVisible(true)
+    setActiveTab('chants')
     requestAnimationFrame(() => {
       const el = document.getElementById(`chant-${id}`)
       if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
-  }, [])
+  }, [session])
+
+  // Force undock — no confirmation dialog (used by inactivity kick)
+  const forceUndock = useCallback(() => {
+    if (dockedPostId && dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:')) {
+      leaveChant()
+    }
+    setUndockingAnim(true)
+    setActiveSubspaceId(null)
+    setTimeout(() => {
+      setDockedPostId(null)
+      setDockedIdeaId(null)
+      setDockedPodium(null)
+      setDockedGroup(null)
+      setXpAllocations({})
+      setPendingInput('')
+      setPendingInputType(null)
+      setCreateMode(false)
+      setManageMode(false)
+      setGroupCreateOpen(false)
+      setGroupSettingsOpen(false)
+      setPodiumSettingsOpen(false)
+      setUndockingAnim(false)
+      refreshFeed()
+    }, 200)
+  }, [dockedPostId, leaveChant, refreshFeed])
 
   const handleUndock = useCallback(() => {
     if (dockedPostId) {
-      // Warn if unsaved work
       const hasUnsavedText = pendingInput.trim().length > 0
-      const hasUnsavedCreate = createMode && createQuestion.trim().length > 0
-      const hasUnsavedVotes = dockedPostId !== '__create_chant__' && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
+      const hasUnsavedCreate = createMode && (createQuestion.trim().length > 0 || createPodiumTitle.trim().length > 0 || createGroupName.trim().length > 0)
+      const hasUnsavedVotes = dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:') && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
       if (hasUnsavedText || hasUnsavedCreate || hasUnsavedVotes) {
         if (!window.confirm('You have unsubmitted work. Leave and discard?')) return
       }
-      setUndockingAnim(true)
-      setActiveSubspaceId(null)
-      setTimeout(() => {
-        setDockedPostId(null)
-        setDockedIdeaId(null)
-        setXpAllocations({})
-        setPendingInput('')
-        setPendingInputType(null)
-        setCreateMode(false)
-        setUndockingAnim(false)
-      }, 200)
-    } else {
-      // Not docked — toggle footer
-      setFooterPinned(prev => !prev)
+      forceUndock()
     }
-  }, [dockedPostId, pendingInput, createMode, createQuestion, xpAllocations])
+  }, [dockedPostId, pendingInput, createMode, createQuestion, createPodiumTitle, createGroupName, xpAllocations, forceUndock])
 
   const handleCreateSubmit = useCallback(async () => {
     const q = createQuestion.trim()
@@ -438,7 +621,7 @@ function ChantsPageContent() {
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, description: createDescription.trim() || undefined }),
+        body: JSON.stringify({ question: q, description: createDescription.trim() || undefined, ...(createCommunityId ? { communityId: createCommunityId } : {}) }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -449,20 +632,186 @@ function ChantsPageContent() {
       setCreateMode(false)
       setCreateQuestion('')
       setCreateDescription('')
-      // Dock into the newly created chant — for now navigate to it
-      window.location.href = `/chants/${delib.id}`
+      prependChant({
+        id: delib.id,
+        question: delib.question,
+        description: delib.description || null,
+        phase: 'SUBMISSION',
+        tier: 0,
+        participants: 1,
+        ideas: 0,
+        cells: 0,
+        upvotes: 0,
+        community: 'Public',
+        creator: 'You',
+        createdAt: 'now',
+        createdAtRaw: new Date().toISOString(),
+        champion: null,
+        userHasUpvoted: false,
+        isMember: true,
+        isCreator: true,
+        hasSubmittedIdea: false,
+        hasVoted: false,
+        viewerCount: 0,
+        voteCount: 0,
+        isPinned: false,
+        tags: [],
+        continuousFlow: false,
+      })
+      setDockedPostId(delib.id)
     } catch {
       setCreateError('Network error')
     } finally {
       setCreating(false)
     }
-  }, [createQuestion, createDescription])
+  }, [createQuestion, createDescription, createCommunityId, prependChant])
+
+  const handlePodiumCreateSubmit = useCallback(async () => {
+    const title = createPodiumTitle.trim()
+    if (!title) { setCreateError('Title is required'); return }
+    setCreating(true)
+    setCreateError('')
+    try {
+      const res = await fetch('/api/podiums', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body: createPodiumBody.trim() || '' }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setCreateError(data.error || 'Failed to create podium')
+        return
+      }
+      const podium = await res.json()
+      setCreateMode(false)
+      setCreatePodiumTitle('')
+      setCreatePodiumBody('')
+      setPodiums(prev => [{
+        id: podium.id,
+        title: podium.title,
+        body: podium.body,
+        views: 0,
+        createdAt: new Date().toISOString(),
+        author: { name: podium.author?.name || 'You' },
+        deliberation: podium.deliberation || null,
+      }, ...prev])
+      // Dock to the new podium
+      setDockedPostId(`podium:${podium.id}`)
+      setDockedPodium({ ...podium, views: 0, createdAt: new Date().toISOString() })
+    } catch {
+      setCreateError('Network error')
+    } finally {
+      setCreating(false)
+    }
+  }, [createPodiumTitle, createPodiumBody])
+
+  const handleGroupCreateSubmit = useCallback(async () => {
+    const name = createGroupName.trim()
+    if (!name) { setCreateError('Name is required'); return }
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+    if (slug.length < 3) { setCreateError('Name must produce a valid slug (at least 3 chars)'); return }
+    setCreating(true)
+    setCreateError('')
+    try {
+      const res = await fetch('/api/communities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, slug, description: createGroupDescription.trim() || undefined, isPublic: createGroupPublic }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        if (data.error === 'PRO_REQUIRED' || data.error === 'PRIVATE_GROUP_LIMIT') {
+          setCreateError(data.message || 'Upgrade required for private groups')
+        } else {
+          setCreateError(data.error || 'Failed to create group')
+        }
+        return
+      }
+      const group = await res.json()
+      setCreateMode(false)
+      setCreateGroupName('')
+      setCreateGroupDescription('')
+      setCreateGroupPublic(true)
+      setGroups(prev => [{
+        id: group.id,
+        name: group.name,
+        slug: group.slug,
+        description: group.description,
+        isPublic: group.isPublic,
+        _count: { members: 1, deliberations: 0 },
+        creator: { name: 'You' },
+      }, ...prev])
+      // Dock to the new group
+      setDockedPostId(`group:${group.slug}`)
+      setDockedGroup({ ...group, _count: { members: 1, deliberations: 0 }, creator: { name: 'You' }, members: [], deliberations: [] })
+    } catch {
+      setCreateError('Network error')
+    } finally {
+      setCreating(false)
+    }
+  }, [createGroupName, createGroupDescription, createGroupPublic])
+
+  const handleGroupChantCreate = useCallback(async () => {
+    if (!dockedGroup) return
+    const q = groupCreateQuestion.trim()
+    if (!q || q.length < 2) { setGroupCreateError('Question must be at least 2 characters'); return }
+    setGroupCreating(true)
+    setGroupCreateError('')
+    try {
+      const res = await fetch('/api/deliberations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q, description: groupCreateDescription.trim() || undefined, communityId: dockedGroup.id }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setGroupCreateError(data.error || 'Failed to create chant')
+        return
+      }
+      const delib = await res.json()
+      setDockedGroup(prev => prev ? { ...prev, deliberations: [{ id: delib.id, question: delib.question, phase: 'SUBMISSION', _count: { members: 1, ideas: 0 } }, ...prev.deliberations] } : prev)
+      setGroupCreateOpen(false)
+      setGroupCreateQuestion('')
+      setGroupCreateDescription('')
+      prependChant({
+        id: delib.id, question: delib.question, description: delib.description || null, phase: 'SUBMISSION', tier: 0, participants: 1, ideas: 0, cells: 0, upvotes: 0,
+        community: dockedGroup.name, creator: 'You', createdAt: 'now', createdAtRaw: new Date().toISOString(), champion: null,
+        userHasUpvoted: false, isMember: true, isCreator: true, hasSubmittedIdea: false, hasVoted: false, viewerCount: 0, voteCount: 0, isPinned: false, tags: [], continuousFlow: false,
+      })
+    } catch {
+      setGroupCreateError('Network error')
+    } finally {
+      setGroupCreating(false)
+    }
+  }, [dockedGroup, groupCreateQuestion, groupCreateDescription, prependChant])
+
+  // Dock to a chant and directly open manage mode
+  const handleDockToSettings = useCallback((id: string, fromGroup?: { question: string; phase: string; community: string; _count?: { members: number; ideas: number } }) => {
+    // If coming from group context, ensure the chant is in the feed so the card renders
+    if (fromGroup) {
+      const exists = chants.some(c => c.id === id)
+      if (!exists) {
+        prependChant({
+          id, question: fromGroup.question, description: null, phase: fromGroup.phase as 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING', tier: 0,
+          participants: fromGroup._count?.members || 0, ideas: fromGroup._count?.ideas || 0, cells: 0, upvotes: 0,
+          community: fromGroup.community, creator: 'You', createdAt: '', createdAtRaw: new Date().toISOString(),
+          champion: null, userHasUpvoted: false, isMember: true, isCreator: true, hasSubmittedIdea: false, hasVoted: false,
+          viewerCount: 0, voteCount: 0, isPinned: false, tags: [], continuousFlow: false,
+        })
+      }
+    }
+    handleDock(id)
+    setManageMode(true)
+  }, [handleDock, chants, prependChant])
 
   const handleDragState = useCallback((dragging: boolean, nearest: string | null) => {
     setIsDraggingDockstar(dragging)
     setNearestDrop(nearest)
   }, [])
 
+  const handleDropCircleDrag = useCallback((x: number, y: number) => {
+    setExternalDragStart({ x, y })
+  }, [])
 
   const handleXpChange = useCallback((chantId: string, ideaId: string, value: number) => {
     setXpAllocations(prev => {
@@ -473,7 +822,7 @@ function ChantsPageContent() {
     })
   }, [])
 
-  const handleTextInput = useCallback((value: string, type: 'comment' | 'idea' | 'chat' | 'challenge', targetId: string) => {
+  const handleTextInput = useCallback((value: string, type: 'comment' | 'idea' | 'chat', targetId: string) => {
     setPendingInput(value)
     setPendingInputType(type)
     setPendingInputTargetId(targetId)
@@ -484,20 +833,62 @@ function ChantsPageContent() {
 
   // ── SUBSPACE ──
   const enterSubspace = useCallback((ideaId: string) => {
+    if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=${dockedPostId}` }); return }
     setActiveSubspaceId(ideaId)
     setBookmarks(prev => prev.includes(ideaId) ? prev : [...prev, ideaId])
-  }, [])
+  }, [session, dockedPostId])
 
   const exitSubspace = useCallback(() => {
     setActiveSubspaceId(null)
   }, [])
 
-  const filteredChants = MOCK_CHANTS
-    .filter(c => selectedCommunity === 'All' || c.community === selectedCommunity)
+  // ── DERIVED DATA ──
+  const tabAccentColor = activeTab === 'podiums' ? '#a78bfa'
+    : activeTab === 'groups' ? '#fbbf24'
+    : '#22d3ee'
+
+  const filteredChants = chants
+    .filter(c => {
+      if (!searchQuery.trim()) return true
+      const q = searchQuery.toLowerCase()
+      return c.question.toLowerCase().includes(q) || c.creator.toLowerCase().includes(q) || c.community.toLowerCase().includes(q)
+    })
     .sort((a, b) => {
-      if (sortBy === 'top') return b.upvotes - a.upvotes
-      if (sortBy === 'new') return 0
-      return (b.upvotes + b.participants) - (a.upvotes + a.participants)
+      if (sortBy === 'top') return (b.ideas + b.voteCount) - (a.ideas + a.voteCount)
+      if (sortBy === 'hot') return b.viewerCount - a.viewerCount
+      return new Date(b.createdAtRaw).getTime() - new Date(a.createdAtRaw).getTime()
+    })
+
+  const filteredPodiums = podiums
+    .filter(p => {
+      if (!searchQuery.trim()) return true
+      const q = searchQuery.toLowerCase()
+      return p.title.toLowerCase().includes(q) || (p.author?.name || '').toLowerCase().includes(q) || p.body.toLowerCase().includes(q)
+    })
+    .sort((a, b) => {
+      if (sortBy === 'top') return (b.views || 0) - (a.views || 0)
+      if (sortBy === 'hot') {
+        const aViewers = getInstancePlayers(`podium:${a.id}`, true).length
+        const bViewers = getInstancePlayers(`podium:${b.id}`, true).length
+        return bViewers - aViewers
+      }
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    })
+
+  const filteredGroups = groups
+    .filter(g => {
+      if (!searchQuery.trim()) return true
+      const q = searchQuery.toLowerCase()
+      return g.name.toLowerCase().includes(q) || (g.description || '').toLowerCase().includes(q) || (g.creator?.name || '').toLowerCase().includes(q)
+    })
+    .sort((a, b) => {
+      if (sortBy === 'top') return (b._count?.members || 0) - (a._count?.members || 0)
+      if (sortBy === 'hot') {
+        const aViewers = getInstancePlayers(`group:${a.slug}`, true).length
+        const bViewers = getInstancePlayers(`group:${b.slug}`, true).length
+        return bViewers - aViewers
+      }
+      return 0 // default order from API (newest first)
     })
 
   const getXpTotal = (chantId: string) => {
@@ -505,23 +896,129 @@ function ChantsPageContent() {
     return Object.values(alloc).reduce((s, v) => s + v, 0)
   }
 
+  // Get cell ideas for the docked voting chant — user's VOTING cell, or any VOTING cell at current tier as fallback
+  const myVotingCell = detail?.cells.find(c => detail.myCellIds.includes(c.id) && c.status === 'VOTING') || null
+  const fallbackCell = !myVotingCell && detail?.phase === 'VOTING'
+    ? detail.cells.find(c => c.status === 'VOTING' && c.tier === detail.currentTier) || null
+    : null
+  const dockedCell = myVotingCell || fallbackCell
+  const dockedCellIdeas = dockedCell?.ideas || []
+  const canVote = !!myVotingCell && !detail?.hasVoted
+
+  // For subspace header: find the idea text/author
+  const activeSubspaceIdea = detail?.ideas.find(i => i.id === activeSubspaceId)
+  // For docked header
+  const dockedChant = chants.find(c => c.id === dockedPostId)
+  const isDockedToChant = dockedPostId && dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:')
+
+  // ── INACTIVITY TIMER ── (10 min idle = boot, 1 min warning)
+  const handleInactivityBoot = useCallback(() => {
+    forceUndock()
+    setKickedMessage(true)
+  }, [forceUndock])
+
+  const { warning: inactivityWarning, secondsLeft: inactivitySecondsLeft, dismissWarning } = useInactivityTimer({
+    enabled: !!isDockedToChant && detail?.phase === 'VOTING' && canVote,
+    onBoot: handleInactivityBoot,
+  })
+
+  // ── VOTE SUBMIT ──
+  const handleVoteSubmit = useCallback(async () => {
+    if (!dockedPostId || submittingVote) return
+    const alloc = xpAllocations[dockedPostId] || {}
+    const allocations = Object.entries(alloc)
+      .filter(([, pts]) => pts > 0)
+      .map(([ideaId, points]) => ({ ideaId, points }))
+    if (allocations.length === 0) return
+
+    setSubmittingVote(true)
+    try {
+      await submitVote(allocations)
+      setXpAllocations(prev => { const next = { ...prev }; delete next[dockedPostId]; return next })
+    } catch (err) {
+      console.error('Vote failed:', err)
+    } finally {
+      setSubmittingVote(false)
+    }
+  }, [dockedPostId, xpAllocations, submitVote, submittingVote])
+
+  // ── IDEA SUBMIT ──
+  const handleIdeaSubmit = useCallback(async () => {
+    if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=${dockedPostId}` }); return }
+    if (!dockedPostId || submittingIdea) return
+    const text = pendingInput.trim()
+    if (!text) return
+
+    setSubmittingIdea(true)
+    try {
+      await submitIdea(text)
+      setSubmittedIdeas(prev => ({ ...prev, [dockedPostId]: text }))
+      setPendingInput('')
+      setPendingInputType(null)
+      setPendingInputTargetId(null)
+      setPendingDockContext(null)
+    } catch (err) {
+      console.error('Idea submit failed:', err)
+    } finally {
+      setSubmittingIdea(false)
+    }
+  }, [session, dockedPostId, pendingInput, submitIdea, submittingIdea])
+
+  // ── JOIN ──
+  const [joining, setJoining] = useState(false)
+  const handleJoin = useCallback(async () => {
+    if (!dockedPostId || joining) return
+    setJoining(true)
+    try {
+      await joinChant()
+      refreshFeed()
+    } catch (err) {
+      console.error('Join failed:', err)
+    } finally {
+      setJoining(false)
+    }
+  }, [dockedPostId, joining, joinChant, refreshFeed])
+
+  // ── START VOTING ──
+  const handleStartVoting = useCallback(async () => {
+    if (!dockedPostId || startingVoting) return
+    setManageMsg(null)
+    setStartingVoting(true)
+    try {
+      const res = await fetch(`/api/deliberations/${dockedPostId}/start-voting`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setManageMsg({ type: 'error', text: data.error || 'Failed to start voting' })
+        return
+      }
+      if (data.reason === 'NO_IDEAS') {
+        setManageMsg({ type: 'error', text: 'Need at least 1 idea to start voting' })
+      } else if (data.reason === 'INSUFFICIENT_PARTICIPANTS') {
+        setManageMsg({ type: 'error', text: 'Need at least 1 participant to start voting' })
+      } else if (data.reason === 'SINGLE_IDEA') {
+        setManageMsg({ type: 'success', text: 'Only 1 idea — declared champion automatically' })
+        refreshDetail()
+        setManageMode(false)
+      } else {
+        setManageMsg({ type: 'success', text: `Voting started! ${data.cellsCreated || ''} cells created` })
+        refreshDetail()
+        refreshFeed()
+        setManageMode(false)
+      }
+    } catch {
+      setManageMsg({ type: 'error', text: 'Network error' })
+    } finally {
+      setStartingVoting(false)
+    }
+  }, [dockedPostId, startingVoting, refreshDetail, refreshFeed])
+
   return (
     <DockstarGlowContext.Provider value={{ nearestDrop, isDragging: isDraggingDockstar }}>
-      {/* ═══ BOOKMARK SIDEBAR — left edge ═══ */}
-      <BookmarkSidebar
-        bookmarks={bookmarks}
-        activeSubspaceId={activeSubspaceId}
-        onNavigate={enterSubspace}
-        onRemove={(id) => setBookmarks(prev => prev.filter(b => b !== id))}
-      />
-
       <div
-        className="min-h-screen bg-background text-foreground cursor-none"
-        style={{ marginLeft: bookmarks.length > 0 ? '36px' : undefined }}
+        className="min-h-screen bg-background text-foreground relative"
         onClick={handlePageClick}
-        onPointerMove={(e) => setSelfPixelPos({ x: e.clientX, y: e.clientY + window.scrollY })}
       >
-        {/* ═══ DOCKSTAR ORB ═══ */}
+        {/* DOCKSTAR ORB */}
         <Dockstar
           userInitial="G"
           dockedPostId={activeDockTarget}
@@ -532,122 +1029,1528 @@ function ChantsPageContent() {
           onDragStateChange={handleDragState}
           flashDocks={flashDocks}
           externalDragStart={externalDragStart}
-          onExternalDragHandled={() => {}}
+          onExternalDragHandled={() => setExternalDragStart(null)}
+          isSubspace={!!activeSubspaceId}
+          onExitSubspace={exitSubspace}
+          accentColor={tabAccentColor}
         />
 
-        {/* ═══ PLAYER OVERLAY — filtered to current instance ═══ */}
-        <PlayerOverlay
-          players={[
-            ...MOCK_PLAYERS.filter(p => p.instance === (dockedPostId || 'list')),
-            ...(selfPixelPos ? [{ id: 'self', name: 'You', color: '#22d3ee', x: selfPixelPos.x, y: selfPixelPos.y }] : []),
-          ]}
-          scrollY={scrollY}
-        />
+        <TransitionOverlay transitions={transitions} instanceRefs={instanceCanvasRefs} />
 
-        {/* ═══ TOP BAR — always visible, masks list ═══ */}
-        <div className={`fixed top-0 left-0 z-[60] bg-header/95 backdrop-blur-sm border-b border-border/30 transition-all duration-300 ${dockedPostId && dockedPostId !== '__create_chant__' ? 'right-12' : 'right-0'}`}>
-          <div className="px-3 py-3 flex items-center gap-2">
-            {(!dockedPostId || dockedPostId === '__create_chant__') && (
-              <CreateDropZone
-                id="__create_chant__"
-                isActive={isDraggingDockstar && nearestDrop === '__create_chant__'}
-                isDocked={createMode}
-                userInitial="G"
-                registerRef={registerDropZone}
-                onClick={() => createMode ? handleUndock() : handleDock('__create_chant__')}
-                glowDrag={isDraggingDockstar && nearestDrop !== '__create_chant__'}
-              />
-            )}
-            {dockedPostId && dockedPostId !== '__create_chant__' ? (
-              <h2 className={`flex-1 text-xs font-serif text-foreground/80 truncate transition-all duration-300 ${undockingAnim ? '-translate-x-full opacity-0' : ''}`}>
-                {MOCK_CHANTS.find(c => c.id === dockedPostId)?.question}
-              </h2>
+        {/* UNIFIED HEADER — same container for all states */}
+        <div className="sticky top-0 z-[60] bg-header border-b border-border/30">
+          <div className="px-3 py-2.5 flex items-center gap-2.5 max-w-2xl mx-auto min-h-[52px]">
+            {activeSubspaceId?.startsWith('podiumchat:') && dockedPodium ? (
+              /* PODIUM SUBSPACE state */
+              <>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-serif truncate leading-snug" style={{ color: '#a78bfa' }}>
+                    {dockedPodium.title}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                    <span className="font-mono" style={{ color: '#a78bfa99' }}>Podium</span>
+                    <span className="text-muted-light/50">/</span>
+                    <span className="text-muted-light">{dockedPodium.author?.name || 'Anonymous'}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    data-interactive
+                    onClick={exitSubspace}
+                    className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors"
+                    style={{ borderColor: '#a78bfa4d', backgroundColor: '#a78bfa14' }}
+                  >
+                    <svg className="w-4 h-4" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
+                  </button>
+                  <ShareMenu url={`/?dock=podium:${dockedPodium.id}`} text={dockedPodium.title} variant="icon" />
+                  <DropCircle
+                    id={dockedPostId || '__header__'}
+                    isActive={false}
+                    isDocked={true}
+                    userInitial="P"
+                    registerRef={registerDropZone}
+                    onClick={handleUndock}
+                    onDragUndock={handleDropCircleDrag}
+                    flashDocks={flashDocks}
+                    accentColor="#a78bfa"
+                  />
+                </div>
+              </>
+            ) : activeSubspaceId?.startsWith('groupchat:') && dockedGroup ? (
+              /* GROUP SUBSPACE state */
+              <>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-serif truncate leading-snug" style={{ color: '#fbbf24' }}>
+                    {dockedGroup.name}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                    <span className="font-mono" style={{ color: '#fbbf2499' }}>Group</span>
+                    <span className="text-muted-light/50">/</span>
+                    <span className="text-muted-light">{fmt(dockedGroup._count.members)} members</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    data-interactive
+                    onClick={exitSubspace}
+                    className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors"
+                    style={{ borderColor: '#fbbf244d', backgroundColor: '#fbbf2414' }}
+                  >
+                    <svg className="w-4 h-4" style={{ color: '#fbbf24' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
+                  </button>
+                  <ShareMenu url={`/?dock=group:${dockedGroup.slug}`} text={dockedGroup.name} variant="icon" />
+                  <DropCircle
+                    id={dockedPostId || '__header__'}
+                    isActive={false}
+                    isDocked={true}
+                    userInitial="G"
+                    registerRef={registerDropZone}
+                    onClick={handleUndock}
+                    onDragUndock={handleDropCircleDrag}
+                    flashDocks={flashDocks}
+                    accentColor="#fbbf24"
+                  />
+                </div>
+              </>
+            ) : activeSubspaceId ? (
+              /* IDEA SUBSPACE state */
+              <>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-serif text-foreground/80 truncate leading-snug">
+                    {activeSubspaceIdea?.text || 'Subspace'}
+                  </h3>
+                  {detail && (
+                    <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                      <span className="font-mono text-accent">Chant</span>
+                      <span className="text-muted-light/50">/</span>
+                      <span className="text-muted-light">{detail.creator?.name || 'Anonymous'}</span>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    data-interactive
+                    onClick={exitSubspace}
+                    className="w-10 h-10 rounded-full border-2 border-accent/30 bg-accent/8 flex items-center justify-center hover:bg-accent/15 hover:border-accent/50 transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
+                  </button>
+                  {detail && (
+                    <ShareMenu url={`/?dock=${detail.id}`} text={detail.question} variant="icon" />
+                  )}
+                  <DropCircle
+                    id={dockedPostId || '__header__'}
+                    isActive={false}
+                    isDocked={true}
+                    userInitial="G"
+                    registerRef={registerDropZone}
+                    onClick={handleUndock}
+                    onDragUndock={handleDropCircleDrag}
+                    flashDocks={flashDocks}
+                  />
+                </div>
+              </>
+            ) : isDockedToChant && dockedChant ? (
+              /* DOCKED state */
+              <>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-serif text-foreground/80 truncate leading-snug">
+                    {dockedChant.question}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                    <span className="font-mono text-accent">{dockedChant.community}</span>
+                    <span className="text-muted-light/50">/</span>
+                    <span className="text-muted-light">{dockedChant.creator}</span>
+                    {/* Presence dots for other users docked to this chant */}
+                    {(() => {
+                      const dockedPeers = getInstancePlayers(dockedChant.id, true).filter(p => p.id !== presenceUserId)
+                      return dockedPeers.length > 0 ? (
+                        <>
+                          <span className="text-muted-light/50">&middot;</span>
+                          <span className="flex items-center gap-1.5">
+                            {dockedPeers.slice(0, 5).map(p => (
+                              <PresenceEye key={p.id} color={presenceColor(p.id)} name={p.name} />
+                            ))}
+                            {dockedPeers.length > 5 && <span className="text-[9px] text-muted-light font-mono">+{dockedPeers.length - 5}</span>}
+                          </span>
+                        </>
+                      ) : null
+                    })()}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    data-interactive
+                    onClick={handleUndock}
+                    className="w-10 h-10 rounded-full border-2 border-accent/30 bg-accent/8 flex items-center justify-center hover:bg-accent/15 hover:border-accent/50 transition-colors"
+                  >
+                    <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+                  </button>
+                  <ShareMenu url={`/?dock=${dockedChant.id}`} text={dockedChant.question} variant="icon" />
+                  {dockedChant.isCreator && (
+                    <button
+                      data-interactive
+                      onClick={() => setManageMode(!manageMode)}
+                      className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors ${manageMode ? 'border-accent bg-accent/20 hover:bg-accent/30' : 'border-accent/30 bg-accent/8 hover:bg-accent/15 hover:border-accent/50'}`}
+                    >
+                      {manageMode ? (
+                        <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      ) : (
+                        <svg className="w-4 h-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><circle cx="12" cy="12" r="3" /></svg>
+                      )}
+                    </button>
+                  )}
+                  <DropCircle
+                    id={dockedChant.id}
+                    isActive={false}
+                    isDocked={true}
+                    userInitial="G"
+                    registerRef={registerDropZone}
+                    onClick={handleUndock}
+                    onDragUndock={handleDropCircleDrag}
+                    flashDocks={flashDocks}
+                  />
+                </div>
+              </>
+            ) : dockedPostId?.startsWith('podium:') && dockedPodium ? (
+              /* PODIUM DOCKED state — top bar */
+              <>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-serif truncate leading-snug" style={{ color: '#a78bfa' }}>
+                    {dockedPodium.title}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                    <span style={{ color: '#a78bfa99' }}>{dockedPodium.author?.name || 'Anonymous'}</span>
+                    <span className="text-muted-light/40">&middot;</span>
+                    <span className="text-muted-light">{fmt(dockedPodium.views)} views</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    data-interactive
+                    onClick={handleUndock}
+                    className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors"
+                    style={{ borderColor: '#a78bfa4d', backgroundColor: '#a78bfa14' }}
+                  >
+                    <svg className="w-4 h-4" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+                  </button>
+                  {dockedPodium.author?.id === session?.user?.id && (
+                    <button
+                      data-interactive
+                      onClick={() => {
+                        setPodiumSettingsOpen(o => {
+                          if (!o) setPodiumSettingsForm({ title: dockedPodium.title, body: dockedPodium.body })
+                          return !o
+                        })
+                        setPodiumSettingsMsg(null)
+                      }}
+                      className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors"
+                      style={{ borderColor: podiumSettingsOpen ? '#a78bfa' : '#a78bfa4d', backgroundColor: podiumSettingsOpen ? '#a78bfa22' : '#a78bfa14' }}
+                      title="Podium Settings"
+                    >
+                      {podiumSettingsOpen ? (
+                        <svg className="w-4 h-4" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      ) : (
+                        <svg className="w-4 h-4" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      )}
+                    </button>
+                  )}
+                  <ShareMenu url={`/?dock=podium:${dockedPodium.id}`} text={dockedPodium.title} variant="icon" />
+                  <DropCircle
+                    id={dockedPostId}
+                    isActive={false}
+                    isDocked={true}
+                    userInitial="P"
+                    registerRef={registerDropZone}
+                    onClick={handleUndock}
+                    onDragUndock={handleDropCircleDrag}
+                    flashDocks={flashDocks}
+                    accentColor="#a78bfa"
+                  />
+                </div>
+              </>
+            ) : dockedPostId?.startsWith('group:') && dockedGroup ? (
+              /* GROUP DOCKED state — top bar */
+              <>
+                <button
+                  data-interactive
+                  onClick={() => { setGroupCreateOpen(o => !o); setGroupCreateQuestion(''); setGroupCreateDescription(''); setGroupCreateError('') }}
+                  className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors shrink-0"
+                  style={{ borderColor: groupCreateOpen ? '#22d3ee' : '#22d3ee4d', backgroundColor: groupCreateOpen ? '#22d3ee22' : '#22d3ee14' }}
+                  title="Create Chant"
+                >
+                  <svg className="w-5 h-5" style={{ color: '#22d3ee' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d={groupCreateOpen ? "M6 18L18 6M6 6l12 12" : "M12 4.5v15m7.5-7.5h-15"} /></svg>
+                </button>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-serif truncate leading-snug" style={{ color: '#fbbf24' }}>
+                    {dockedGroup.name}
+                  </h3>
+                  <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                    <span style={{ color: '#fbbf2499' }}>{dockedGroup.creator?.name || 'Anonymous'}</span>
+                    <span className="text-muted-light/40">&middot;</span>
+                    <span className="text-muted-light">{fmt(dockedGroup._count.members)} members</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    data-interactive
+                    onClick={handleUndock}
+                    className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors"
+                    style={{ borderColor: '#fbbf244d', backgroundColor: '#fbbf2414' }}
+                  >
+                    <svg className="w-4 h-4" style={{ color: '#fbbf24' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
+                  </button>
+                  {(dockedGroup.userRole === 'OWNER' || dockedGroup.userRole === 'ADMIN') && (
+                    <button
+                      data-interactive
+                      onClick={() => {
+                        setGroupSettingsOpen(o => {
+                          if (!o) {
+                            setGroupSettingsForm({ name: dockedGroup.name, description: dockedGroup.description || '', isPublic: dockedGroup.isPublic })
+                            // Fetch existing invite code
+                            fetch(`/api/communities/${dockedGroup.slug}/invite`).then(r => r.ok ? r.json() : null).then(d => { if (d?.inviteCode) setGroupInviteCode(d.inviteCode) }).catch(() => {})
+                          }
+                          return !o
+                        })
+                        setGroupSettingsMsg(null)
+                      }}
+                      className="w-10 h-10 rounded-full border-2 flex items-center justify-center transition-colors"
+                      style={{ borderColor: '#fbbf244d', backgroundColor: '#fbbf2414' }}
+                      title="Group Settings"
+                    >
+                      <svg className="w-4 h-4" style={{ color: '#fbbf24' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    </button>
+                  )}
+                  <ShareMenu url={`/?dock=group:${dockedGroup.slug}`} text={dockedGroup.name} variant="icon" />
+                  <DropCircle
+                    id={dockedPostId}
+                    isActive={false}
+                    isDocked={true}
+                    userInitial="G"
+                    registerRef={registerDropZone}
+                    onClick={handleUndock}
+                    onDragUndock={handleDropCircleDrag}
+                    flashDocks={flashDocks}
+                    accentColor="#fbbf24"
+                  />
+                </div>
+              </>
             ) : (
-              <h2 className="flex-1 text-xs font-serif text-foreground/80">{createMode ? 'New Chant' : 'Create'}</h2>
+              /* FEED / CREATE state */
+              <>
+                <CreateDropZone
+                  id="__create_chant__"
+                  isActive={isDraggingDockstar && nearestDrop === '__create_chant__'}
+                  isDocked={createMode}
+                  userInitial="G"
+                  registerRef={registerDropZone}
+                  onClick={() => createMode ? handleUndock() : handleDock('__create_chant__')}
+                  glowDrag={isDraggingDockstar && nearestDrop !== '__create_chant__'}
+                  accentColor={tabAccentColor}
+                />
+                {activeTab === 'chants' ? (
+                  <>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(['new', 'hot', 'top'] as const).map(s => (
+                        <button
+                          key={s}
+                          data-interactive
+                          onClick={() => setSortBy(s)}
+                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-purple/15 text-purple border border-purple/30' : 'text-purple/60 hover:text-purple border border-transparent'}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="Search..."
+                        className="w-full bg-transparent border border-purple/30 rounded px-2 py-1 text-sm text-purple placeholder:text-purple/40 outline-none focus:border-purple/60 font-mono"
+                      />
+                    </div>
+                  </>
+                ) : activeTab === 'podiums' ? (
+                  <>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(['new', 'hot', 'top'] as const).map(s => (
+                        <button
+                          key={s}
+                          data-interactive
+                          onClick={() => setSortBy(s)}
+                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-[#a78bfa]/15 text-[#a78bfa] border border-[#a78bfa]/30' : 'text-[#a78bfa]/60 hover:text-[#a78bfa] border border-transparent'}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="Search podiums..."
+                        className="w-full bg-transparent border border-[#a78bfa]/30 rounded px-2 py-1 text-sm text-[#a78bfa] placeholder:text-[#a78bfa]/40 outline-none focus:border-[#a78bfa]/60 font-mono"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {(['new', 'hot', 'top'] as const).map(s => (
+                        <button
+                          key={s}
+                          data-interactive
+                          onClick={() => setSortBy(s)}
+                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30' : 'text-[#fbbf24]/60 hover:text-[#fbbf24] border border-transparent'}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="Search groups..."
+                        className="w-full bg-transparent border border-[#fbbf24]/30 rounded px-2 py-1 text-sm text-[#fbbf24] placeholder:text-[#fbbf24]/40 outline-none focus:border-[#fbbf24]/60 font-mono"
+                      />
+                    </div>
+                  </>
+                )}
+                {/* Inline Dockstar — drag to dock, click to undock */}
+                <div
+                  data-dockstar
+                  className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 cursor-grab select-none touch-none transition-all duration-200 text-header ${flashDocks ? 'animate-flash-gold' : ''}`}
+                  style={{
+                    backgroundColor: tabAccentColor,
+                    borderColor: tabAccentColor,
+                    boxShadow: `0 0 12px ${tabAccentColor}66`,
+                  }}
+                  onPointerDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const startX = e.clientX, startY = e.clientY
+                    let dragged = false
+                    const onMove = (ev: PointerEvent) => {
+                      if (!dragged && Math.hypot(ev.clientX - startX, ev.clientY - startY) >= 5) {
+                        dragged = true
+                        // Hand off to floating Dockstar for drag
+                        handleDropCircleDrag(ev.clientX, ev.clientY)
+                        // Remove our listeners — floating Dockstar takes over
+                        window.removeEventListener('pointermove', onMove)
+                        window.removeEventListener('pointerup', onUp)
+                      }
+                    }
+                    const onUp = () => {
+                      if (!dragged) handleUndock()
+                      window.removeEventListener('pointermove', onMove)
+                      window.removeEventListener('pointerup', onUp)
+                    }
+                    window.addEventListener('pointermove', onMove)
+                    window.addEventListener('pointerup', onUp)
+                  }}
+                >
+                  <svg className="w-6 h-6 fill-header" viewBox="0 0 24 24"><path d="M4 4l7.07 17 2.51-7.39L21 11.07z" /></svg>
+                </div>
+              </>
             )}
           </div>
-          {/* ── INLINE CREATE FORM ── */}
-          <div className={`overflow-hidden transition-all duration-300 ease-out ${createMode ? 'max-h-[400px] opacity-100' : 'max-h-0 opacity-0'}`}>
-            <div className="px-3 pb-3 space-y-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={createQuestion}
-                  onChange={e => { setCreateQuestion(e.target.value); setCreateError('') }}
-                  placeholder="What should we deliberate?"
-                  className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all"
-                  disabled={creating}
-                  autoFocus={createMode}
-                />
-                <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${createQuestion.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
-                  <svg className={`w-3 h-3 transition-colors ${createQuestion.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" /></svg>
-                </div>
-              </div>
-              <textarea
-                value={createDescription}
-                onChange={e => setCreateDescription(e.target.value)}
-                placeholder="Add context (optional)"
-                rows={2}
-                className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all resize-none"
-                disabled={creating}
-              />
+          {/* INACTIVITY WARNING */}
+          {inactivityWarning && (
+            <div className="px-3 py-2 bg-warning/10 border-t border-warning/30 flex items-center gap-2 max-w-2xl mx-auto">
+              <span className="text-warning font-mono text-sm font-bold">{inactivitySecondsLeft}s</span>
+              <span className="text-warning/80 text-xs flex-1">Inactive — you will be removed from this cell</span>
+              <button
+                data-interactive
+                onClick={dismissWarning}
+                className="px-3 py-1 rounded bg-warning/20 border border-warning/40 text-warning text-xs font-mono hover:bg-warning/30 transition-colors"
+              >
+                I'm here
+              </button>
+            </div>
+          )}
+          {/* INLINE CREATE FORM — tab-aware */}
+          <div className={`overflow-hidden transition-all duration-300 ease-out ${createMode ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+            <div className="px-3 pb-3 space-y-3 max-w-2xl mx-auto">
+              {activeTab === 'podiums' ? (
+                /* PODIUM CREATE FORM */
+                <>
+                  <input
+                    type="text"
+                    value={createPodiumTitle}
+                    onChange={e => { setCreatePodiumTitle(e.target.value.slice(0, 200)); setCreateError('') }}
+                    placeholder="Podium title"
+                    className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 text-sm text-foreground placeholder:text-muted-light outline-none transition-all"
+                    style={{ borderColor: createPodiumTitle.trim() ? '#a78bfa' : undefined, boxShadow: createPodiumTitle.trim() ? '0 0 16px #a78bfa33' : undefined }}
+                    disabled={creating}
+                    autoFocus={createMode}
+                  />
+                  <textarea
+                    value={createPodiumBody}
+                    onChange={e => setCreatePodiumBody(e.target.value)}
+                    placeholder="Write your post (markdown supported)"
+                    rows={4}
+                    className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none transition-all resize-none"
+                    style={{ borderColor: createPodiumBody.trim() ? '#a78bfa66' : undefined }}
+                    disabled={creating}
+                  />
+                </>
+              ) : activeTab === 'groups' ? (
+                /* GROUP CREATE FORM */
+                <>
+                  <input
+                    type="text"
+                    value={createGroupName}
+                    onChange={e => { setCreateGroupName(e.target.value); setCreateError('') }}
+                    placeholder="Group name"
+                    className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 text-sm text-foreground placeholder:text-muted-light outline-none transition-all"
+                    style={{ borderColor: createGroupName.trim() ? '#fbbf24' : undefined, boxShadow: createGroupName.trim() ? '0 0 16px #fbbf2433' : undefined }}
+                    disabled={creating}
+                    autoFocus={createMode}
+                  />
+                  <textarea
+                    value={createGroupDescription}
+                    onChange={e => setCreateGroupDescription(e.target.value)}
+                    placeholder="Description (optional)"
+                    rows={2}
+                    className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none transition-all resize-none"
+                    style={{ borderColor: createGroupDescription.trim() ? '#fbbf2466' : undefined }}
+                    disabled={creating}
+                  />
+                  <button
+                    data-interactive
+                    onClick={() => {
+                      if (createGroupPublic) {
+                        // Toggling to private — check if backend will allow it (error handled on submit)
+                        setCreateGroupPublic(false)
+                      } else {
+                        setCreateGroupPublic(true)
+                      }
+                    }}
+                    className="flex items-center gap-2 text-xs font-mono transition-colors"
+                    style={{ color: '#fbbf24' }}
+                  >
+                    <div className="w-8 h-4 rounded-full border transition-colors relative" style={{ borderColor: '#fbbf2466', backgroundColor: createGroupPublic ? '#fbbf2433' : 'transparent' }}>
+                      <div className="absolute top-0.5 w-3 h-3 rounded-full transition-all" style={{ backgroundColor: '#fbbf24', left: createGroupPublic ? '14px' : '2px' }} />
+                    </div>
+                    {createGroupPublic ? 'Public' : 'Private'}
+                  </button>
+                  {!createGroupPublic && (
+                    <div className="rounded border border-[#fbbf24]/20 bg-[#fbbf24]/[0.04] px-3 py-2 text-xs text-muted-light">
+                      Private groups require a <a href="/pricing" className="font-bold underline" style={{ color: '#fbbf24' }}>Pro plan</a>. Members join via invite link only.
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* CHANT CREATE FORM (default) */
+                <>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={createQuestion}
+                      onChange={e => { setCreateQuestion(e.target.value); setCreateError('') }}
+                      onKeyDown={e => { if (e.key === 'Enter' && createQuestion.trim().length >= 2) handleCreateSubmit() }}
+                      placeholder="What should we deliberate?"
+                      className="flex-1 bg-surface border-2 border-border/30 rounded px-3 py-3 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all"
+                      disabled={creating}
+                      autoFocus={createMode}
+                    />
+                    <button
+                      onClick={handleCreateSubmit}
+                      disabled={createQuestion.trim().length < 2 || creating}
+                      data-interactive
+                      className="px-3 py-2.5 rounded bg-accent/20 border border-accent/40 text-accent text-sm font-mono hover:bg-accent/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                      </svg>
+                    </button>
+                  </div>
+                  <textarea
+                    value={createDescription}
+                    onChange={e => setCreateDescription(e.target.value)}
+                    placeholder="Add context (optional)"
+                    rows={2}
+                    className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all resize-none"
+                    disabled={creating}
+                  />
+                  {userGroups.length > 0 && (
+                    <select
+                      value={createCommunityId || ''}
+                      onChange={e => setCreateCommunityId(e.target.value || null)}
+                      className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-xs font-mono text-foreground outline-none focus:border-accent transition-all appearance-none cursor-pointer"
+                      style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 10px center' }}
+                      disabled={creating}
+                    >
+                      <option value="">Public (no group)</option>
+                      {userGroups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </>
+              )}
               {createError && (
                 <p className="text-xs text-error font-mono">{createError}</p>
               )}
             </div>
           </div>
         </div>
-
-        {/* ═══ DOCKED RIGHT BAR — permanent sidebar (orb is in Dockstar component) ═══ */}
-        {dockedPostId && (() => {
-          const docked = MOCK_CHANTS.find(c => c.id === dockedPostId)
-          if (!docked) return null
-          const badge = phaseBadge(docked.phase, docked.tier)
-          return (
-            <div className="fixed top-0 right-0 bottom-0 z-[70] w-12 bg-header border-l border-border/30 flex flex-col items-center py-2 gap-3 pointer-events-none">
-              {/* Spacer for Dockstar orb (rendered by Dockstar component at z-[9999]) */}
-              <div className="w-10 h-10 shrink-0" />
-
-              {/* Phase badge — vertical */}
-              <span className={`inline-flex items-center px-1 py-0.5 rounded border text-[8px] font-mono pointer-events-auto ${badge.color}`} style={{ writingMode: 'vertical-lr', textOrientation: 'mixed' }}>
-                {badge.label}
-              </span>
-
-              {/* Undock button (X) */}
+        {/* GROUP CHANT CREATE — drops down from top bar when docked to group */}
+        <div className={`overflow-hidden transition-all duration-300 ease-out bg-header ${groupCreateOpen && dockedPostId?.startsWith('group:') ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+          <div className="px-3 pb-3 space-y-3 max-w-2xl mx-auto">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={groupCreateQuestion}
+                onChange={e => { setGroupCreateQuestion(e.target.value); setGroupCreateError('') }}
+                onKeyDown={e => { if (e.key === 'Enter' && groupCreateQuestion.trim().length >= 2) handleGroupChantCreate() }}
+                placeholder="What should we deliberate?"
+                className="flex-1 bg-surface border-2 border-border/30 rounded px-3 py-3 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all"
+                disabled={groupCreating}
+                autoFocus={groupCreateOpen}
+              />
               <button
-                onClick={handleUndock}
+                onClick={handleGroupChantCreate}
+                disabled={groupCreateQuestion.trim().length < 2 || groupCreating}
                 data-interactive
-                className="w-6 h-6 rounded flex items-center justify-center text-muted-light hover:text-error hover:bg-white/10 transition-colors pointer-events-auto"
-                title="Deselect"
+                className="px-3 py-2.5 rounded text-sm font-mono disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                style={{ backgroundColor: '#fbbf2433', border: '1px solid #fbbf2466', color: '#fbbf24' }}
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                 </svg>
               </button>
             </div>
-          )
-        })()}
-
-        {/* ═══ TETHER LINE — sidebar orb to docked idea ═══ */}
-        {tetherPoints && (
-          <svg className="fixed inset-0 z-[65] pointer-events-none" style={{ width: '100vw', height: '100vh' }}>
-            <line
-              x1={tetherPoints.x1} y1={tetherPoints.y1}
-              x2={tetherPoints.x2} y2={tetherPoints.y2}
-              stroke="rgba(34,211,238,0.2)"
-              strokeWidth={1.5}
-              strokeDasharray="6 3"
+            <textarea
+              value={groupCreateDescription}
+              onChange={e => setGroupCreateDescription(e.target.value)}
+              placeholder="Add context (optional)"
+              rows={2}
+              className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-accent focus:shadow-[0_0_16px_rgba(8,145,178,0.2)] transition-all resize-none"
+              disabled={groupCreating}
             />
-          </svg>
-        )}
+            <div className="w-full bg-surface border-2 border-border/30 rounded px-3 py-2 text-xs font-mono text-muted-light/60">
+              Posting to <span style={{ color: '#fbbf24' }}>{dockedGroup?.name}</span>
+            </div>
+            {groupCreateError && <p className="text-xs text-error font-mono">{groupCreateError}</p>}
+          </div>
+        </div>
 
-        {/* ── Top spacer for header ── */}
-        <div className="h-16" />
-
-        {/* ── CHANTS FEED ── */}
-        <div className={`${activeSubspaceId ? 'max-w-xl ml-4' : 'max-w-2xl mx-auto'} ${dockedPostId ? 'pr-14' : ''}`}>
+        {activeSubspaceId?.startsWith('podiumchat:') ? (
+          /* PODIUM SUBSPACE VIEW — uses IdeaSubspace with podium comments API */
+          <div
+            id="subspace-container"
+            className="relative max-w-2xl mx-auto flex flex-col select-none"
+            style={{ height: 'calc(100vh - 64px)' }}
+          >
+            {dockedPodium ? (
+              <IdeaSubspace
+                ideaId={activeSubspaceId}
+                deliberationId=""
+                onClose={exitSubspace}
+                onNavigateToSubspace={() => {}}
+                bookmarks={[]}
+                players={getInstancePlayers(`podium:${dockedPodium.id}`, true)}
+                onMovePosition={(rx, ry) => { setSelfRatio({ rx, ry }); moveToPosition(rx, ry) }}
+                commentEndpoint={`/api/podiums/${dockedPodium.id}/comments`}
+                accentColor="#a78bfa"
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-muted-light text-sm font-mono animate-pulse">Loading subspace...</div>
+              </div>
+            )}
+          </div>
+        ) : activeSubspaceId?.startsWith('groupchat:') ? (
+          /* GROUP SUBSPACE VIEW — uses IdeaSubspace with community chat API */
+          <div
+            id="subspace-container"
+            className="relative max-w-2xl mx-auto flex flex-col select-none"
+            style={{ height: 'calc(100vh - 64px)' }}
+          >
+            {dockedGroup ? (
+              <IdeaSubspace
+                ideaId={activeSubspaceId}
+                deliberationId=""
+                onClose={exitSubspace}
+                onNavigateToSubspace={() => {}}
+                bookmarks={[]}
+                players={getInstancePlayers(`group:${dockedGroup.slug}`, true)}
+                onMovePosition={(rx, ry) => { setSelfRatio({ rx, ry }); moveToPosition(rx, ry) }}
+                commentEndpoint={`/api/communities/${dockedGroup.slug}/chat`}
+                accentColor="#fbbf24"
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-muted-light text-sm font-mono animate-pulse">Loading subspace...</div>
+              </div>
+            )}
+          </div>
+        ) : activeSubspaceId ? (
+          /* IDEA SUBSPACE VIEW */
+          <div
+            id="subspace-container"
+            className="relative max-w-2xl mx-auto flex flex-col select-none"
+            style={{ height: 'calc(100vh - 64px)' }}
+          >
+            {(() => {
+              const xpVal = dockedPostId ? (xpAllocations[dockedPostId] || {})[activeSubspaceId] || 0 : 0
+              return (
+                <IdeaSubspace
+                  ideaId={activeSubspaceId}
+                  deliberationId={dockedPostId || ''}
+                  ideaText={activeSubspaceIdea?.text}
+                  ideaAuthor={activeSubspaceIdea?.author?.name}
+                  onClose={exitSubspace}
+                  onNavigateToSubspace={(id) => { setActiveSubspaceId(id); setDockedIdeaId(id) }}
+                  bookmarks={bookmarks}
+                  xp={xpVal}
+                  onXpChange={detail?.phase === 'VOTING' && canVote && dockedPostId ? (val) => handleXpChange(dockedPostId, activeSubspaceId, val) : undefined}
+                  flashDocks={flashDocks}
+                  players={getInstancePlayers(currentInstance)}
+                  onMovePosition={(rx, ry) => { setSelfRatio({ rx, ry }); moveToPosition(rx, ry) }}
+                />
+              )
+            })()}
+          </div>
+        ) : activeTab === 'podiums' ? (
+          /* PODIUMS LIST (with inline docking) */
+          <div className="max-w-2xl mx-auto">
+            {/* DOCKED PODIUM CONTENT */}
+            {dockedPostId?.startsWith('podium:') ? (
+              <div className="px-3 py-4">
+                {dockedPodiumLoading ? (
+                  <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
+                ) : dockedPodium ? (
+                  <div className="animate-slideDown space-y-2.5">
+                    {/* PODIUM SETTINGS PANEL */}
+                    {podiumSettingsOpen ? (
+                      <div className="rounded border border-[#a78bfa]/30 bg-surface/90 p-3 space-y-3">
+                        <div className="text-xs font-mono uppercase tracking-wider" style={{ color: '#a78bfa' }}>Podium Settings</div>
+                        {podiumSettingsMsg && (
+                          <div className={`text-xs font-mono px-2 py-1 rounded ${podiumSettingsMsg.type === 'success' ? 'bg-success/10 text-success border border-success/30' : 'bg-error/10 text-error border border-error/30'}`}>
+                            {podiumSettingsMsg.text}
+                          </div>
+                        )}
+                        <input
+                          type="text"
+                          value={podiumSettingsForm.title}
+                          onChange={e => setPodiumSettingsForm(f => ({ ...f, title: e.target.value.slice(0, 200) }))}
+                          placeholder="Title"
+                          className="w-full bg-background border border-border/50 rounded px-2.5 py-2 text-xs text-foreground outline-none focus:border-[#a78bfa]/50 transition-colors"
+                        />
+                        <textarea
+                          value={podiumSettingsForm.body}
+                          onChange={e => setPodiumSettingsForm(f => ({ ...f, body: e.target.value }))}
+                          placeholder="Body (markdown)"
+                          rows={6}
+                          className="w-full bg-background border border-border/50 rounded px-2.5 py-2 text-xs text-foreground outline-none focus:border-[#a78bfa]/50 transition-colors resize-none"
+                        />
+                        <div className="flex items-center gap-3 text-xs font-mono text-muted-light">
+                          <span>{fmt(dockedPodium.views)} views</span>
+                          <span className="text-muted-light/40">&middot;</span>
+                          <span>{podiumCommentPreview.length} comments</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            data-interactive
+                            disabled={podiumSettingsSaving || !podiumSettingsForm.title.trim()}
+                            onClick={async () => {
+                              setPodiumSettingsSaving(true)
+                              setPodiumSettingsMsg(null)
+                              try {
+                                const res = await fetch(`/api/podiums/${dockedPodium.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ title: podiumSettingsForm.title.trim(), body: podiumSettingsForm.body.trim() }),
+                                })
+                                if (!res.ok) {
+                                  const data = await res.json().catch(() => ({}))
+                                  setPodiumSettingsMsg({ type: 'error', text: data.error || 'Failed to save' })
+                                  return
+                                }
+                                setPodiumSettingsMsg({ type: 'success', text: 'Saved' })
+                                setDockedPodium(prev => prev ? { ...prev, title: podiumSettingsForm.title.trim(), body: podiumSettingsForm.body.trim() } : prev)
+                                // Update in feed list too
+                                setPodiums(prev => prev.map(p => p.id === dockedPodium.id ? { ...p, title: podiumSettingsForm.title.trim(), body: podiumSettingsForm.body.trim() } : p))
+                                setTimeout(() => setPodiumSettingsMsg(null), 2000)
+                              } catch {
+                                setPodiumSettingsMsg({ type: 'error', text: 'Network error' })
+                              } finally {
+                                setPodiumSettingsSaving(false)
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded text-xs font-mono font-bold transition-colors disabled:opacity-50"
+                            style={{ backgroundColor: '#a78bfa', color: '#020617' }}
+                          >
+                            {podiumSettingsSaving ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            data-interactive
+                            onClick={async () => {
+                              if (!confirm(`Delete "${dockedPodium.title}"? This cannot be undone.`)) return
+                              if (!confirm('Are you sure?')) return
+                              try {
+                                const res = await fetch(`/api/podiums/${dockedPodium.id}`, { method: 'DELETE' })
+                                if (res.ok) {
+                                  setPodiumSettingsOpen(false)
+                                  setPodiums(prev => prev.filter(p => p.id !== dockedPodium.id))
+                                  forceUndock()
+                                }
+                              } catch {}
+                            }}
+                            className="px-3 py-1.5 rounded text-xs font-mono bg-error text-white hover:bg-error-hover transition-colors"
+                          >
+                            Delete Podium
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                    <>
+                    {/* Body content — render markdown-like */}
+                    <div className="prose-dark text-sm text-foreground/90 leading-relaxed space-y-3">
+                      {dockedPodium.body.split('\n\n').map((para, i) => {
+                        if (para.startsWith('## ')) return <h2 key={i} className="text-lg font-serif mt-4 mb-2" style={{ color: '#a78bfa' }}>{para.slice(3)}</h2>
+                        if (para.startsWith('### ')) return <h3 key={i} className="text-base font-serif mt-3 mb-1.5" style={{ color: '#a78bfab3' }}>{para.slice(4)}</h3>
+                        if (para.startsWith('> ')) return <blockquote key={i} className="border-l-2 pl-3 italic text-muted-light" style={{ borderColor: '#a78bfa4d' }}>{para.slice(2)}</blockquote>
+                        return <p key={i}>{para}</p>
+                      })}
+                    </div>
+                    </>
+                    )}
+                    {/* Linked deliberation */}
+                    {dockedPodium.deliberation && (
+                      <div
+                        className="mt-4 p-3 rounded border cursor-pointer hover:bg-accent/5 transition-colors"
+                        style={{ borderColor: '#22d3ee4d' }}
+                        onClick={() => handleDock(dockedPodium.deliberation!.id)}
+                      >
+                        <div className="text-[10px] font-mono text-accent uppercase tracking-wider mb-1">Linked Chant</div>
+                        <div className="text-sm font-serif text-foreground">{dockedPodium.deliberation.question}</div>
+                        <div className="text-xs font-mono text-muted-light mt-1">
+                          {dockedPodium.deliberation.phase} &middot; {dockedPodium.deliberation._count?.members || 0} members &middot; {dockedPodium.deliberation._count?.ideas || 0} ideas
+                        </div>
+                      </div>
+                    )}
+                    {/* Chat card — dockable into podium subspace (comments) */}
+                    {(() => {
+                      const isPodiumChatDocked = activeSubspaceId === `podiumchat:${dockedPodium.id}`
+                      const chatPlayers = getInstancePlayers(`podium:${dockedPodium.id}`).filter(p => p.id !== presenceUserId)
+                      return (
+                        <div className={`mt-4 rounded border transition-colors ${isPodiumChatDocked ? 'border-[#a78bfa]/50 bg-[#a78bfa]/10' : 'border-[#a78bfa]/25 bg-[#a78bfa]/[0.04]'}`}>
+                          <div className="px-2.5 py-2">
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-mono uppercase tracking-wider mb-1" style={{ color: '#a78bfa99' }}>Comments</div>
+                                {podiumCommentPreview.length > 0 ? (
+                                  <div className="space-y-0.5">
+                                    {podiumCommentPreview.map(msg => (
+                                      <div key={msg.id} className="text-[11px] font-mono leading-snug truncate">
+                                        <span style={{ color: '#a78bfa99' }}>{msg.user?.name || 'Anon'}</span>
+                                        <span className="text-muted-light/30 mx-1">·</span>
+                                        <span className="text-foreground/50">{msg.text}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] text-muted-light/40 font-mono">No comments yet</div>
+                                )}
+                              </div>
+                              <div className="relative">
+                                <DropCircle
+                                  id={`podiumchat:${dockedPodium.id}`}
+                                  isActive={isDraggingDockstar && nearestDrop === `podiumchat:${dockedPodium.id}`}
+                                  isDocked={isPodiumChatDocked}
+                                  userInitial="P"
+                                  registerRef={registerDropZone}
+                                  onClick={() => { if (!isPodiumChatDocked) handleDock(`podiumchat:${dockedPodium.id}`) }}
+                                  flashDocks={flashDocks}
+                                  faded={isPodiumChatDocked}
+                                  glowDrag={isDraggingDockstar && !isPodiumChatDocked}
+                                  accentColor="#a78bfa"
+                                />
+                                {chatPlayers.length > 0 && chatPlayers.slice(0, 6).map((p, i) => {
+                                  const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                                  const r = 24
+                                  return (
+                                    <PresenceEye
+                                      key={p.id}
+                                      color={presenceColor(p.id)}
+                                      name={p.name}
+                                      className="absolute"
+                                      style={{
+                                        left: `calc(50% + ${Math.cos(angle) * r}px - 5px)`,
+                                        top: `calc(50% + ${Math.sin(angle) * r}px - 3.5px)`,
+                                      }}
+                                    />
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-error/70 text-sm font-mono">Podium not found</div>
+                )}
+              </div>
+            ) : (
+              /* PODIUMS FEED */
+              <>
+                {podiumsLoading ? (
+                  <div className="space-y-4 px-3 py-4">
+                    {Array.from({ length: 3 }, (_, i) => (
+                      <div key={i} className="animate-pulse">
+                        <div className="h-4 bg-surface rounded w-3/4 mb-2" />
+                        <div className="h-3 bg-surface rounded w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredPodiums.length === 0 ? (
+                  <div className="text-center py-16 text-muted-light text-sm">{podiums.length === 0 ? 'No podiums yet.' : 'No matching podiums.'}</div>
+                ) : (
+                  <div className="divide-y divide-border/30">
+                    {filteredPodiums.map(p => {
+                      const podiumPlayers = getInstancePlayers(`podium:${p.id}`, true).filter(pl => pl.id !== presenceUserId)
+                      return (
+                        <div key={p.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface/30 transition-colors cursor-pointer" onClick={() => handleDock(`podium:${p.id}`)}>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-base font-serif text-foreground leading-snug mb-0.5">{p.title}</h3>
+                            <div className="flex items-center gap-1.5 text-xs mb-1">
+                              <span style={{ color: '#a78bfab3' }}>{p.author?.name || 'Anonymous'}</span>
+                              <span className="text-muted-light/40">&middot;</span>
+                              <span className="text-muted-light">{fmt(p.views)} views</span>
+                              {p.pinned && <span className="text-accent text-[10px] font-mono">PINNED</span>}
+                            </div>
+                            <p className="text-sm text-muted-light/70 line-clamp-2">{p.body.replace(/\n/g, ' ').slice(0, 180)}</p>
+                            {p.deliberation && (
+                              <div className="mt-1 text-xs text-accent/60 font-mono truncate">Linked: {p.deliberation.question}</div>
+                            )}
+                          </div>
+                          <div className="relative pt-1 self-center flex items-center gap-2">
+                            {p.author?.id === session?.user?.id && (
+                              <button
+                                data-interactive
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleDock(`podium:${p.id}`)
+                                  setTimeout(() => {
+                                    setPodiumSettingsOpen(true)
+                                    setPodiumSettingsForm({ title: p.title, body: p.body })
+                                  }, 100)
+                                }}
+                                className="w-8 h-8 rounded-full border flex items-center justify-center hover:bg-[#a78bfa]/15 transition-colors"
+                                style={{ borderColor: '#a78bfa4d', backgroundColor: '#a78bfa08' }}
+                                title="Edit Podium"
+                              >
+                                <svg className="w-3.5 h-3.5" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                              </button>
+                            )}
+                            <ShareMenu url={`/?dock=podium:${p.id}`} text={p.title} variant="icon" />
+                            <div className="relative">
+                            <DropCircle
+                              id={`podium:${p.id}`}
+                              isActive={false}
+                              isDocked={false}
+                              userInitial="P"
+                              registerRef={registerDropZone}
+                              onClick={() => handleDock(`podium:${p.id}`)}
+                              flashDocks={false}
+                              glowDrag={false}
+                              accentColor="#a78bfa"
+                            />
+                            {podiumPlayers.length > 0 && podiumPlayers.slice(0, 8).map((pl, i) => {
+                              const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                              const r = 24
+                              const ox = Math.cos(angle) * r
+                              const oy = Math.sin(angle) * r
+                              return (
+                                <PresenceEye
+                                  key={pl.id}
+                                  color={presenceColor(pl.id)}
+                                  name={pl.name}
+                                  className="absolute"
+                                  style={{
+                                    left: `calc(50% + ${ox}px - 5px)`,
+                                    top: `calc(50% + ${oy}px - 3.5px)`,
+                                  }}
+                                />
+                              )
+                            })}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+            <div className="h-32" />
+          </div>
+        ) : activeTab === 'groups' ? (
+          /* GROUPS LIST (with inline docking) */
+          <div className="max-w-2xl mx-auto">
+            {/* DOCKED GROUP CONTENT */}
+            {dockedPostId?.startsWith('group:') ? (
+              <div className="px-3 py-4">
+                {dockedGroupLoading ? (
+                  <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
+                ) : dockedGroup ? (
+                  <div className="animate-slideDown space-y-2.5">
+                    {/* Private gate — shown for private groups without membership */}
+                    {dockedGroup._private_gate && (
+                      <div className="rounded border border-[#fbbf24]/30 bg-surface/90 px-4 py-6 text-center space-y-3">
+                        <div className="text-2xl">🔒</div>
+                        <div className="text-sm font-serif" style={{ color: '#fbbf24' }}>{dockedGroup.name}</div>
+                        {dockedGroup.description && <div className="text-xs text-muted-light">{dockedGroup.description}</div>}
+                        <div className="text-xs text-muted-light/60 font-mono">{fmt(dockedGroup._count.members)} members &middot; Private</div>
+                        {(() => {
+                          const inviteParam = searchParams.get('invite')
+                          if (inviteParam) {
+                            return (
+                              <button
+                                data-interactive
+                                disabled={joiningGroup}
+                                onClick={async () => {
+                                  if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=group:${dockedGroup.slug}&invite=${inviteParam}` }); return }
+                                  setJoiningGroup(true)
+                                  try {
+                                    const res = await fetch(`/api/communities/invite/${inviteParam}/join`, { method: 'POST' })
+                                    const data = await res.json()
+                                    if (res.ok) {
+                                      // Refetch full group data now that we're a member
+                                      const full = await fetch(`/api/communities/${dockedGroup.slug}`).then(r => r.ok ? r.json() : null)
+                                      if (full) setDockedGroup({ ...full, _private_gate: false })
+                                    } else {
+                                      alert(data.message || data.error || 'Failed to join')
+                                    }
+                                  } catch { alert('Network error') }
+                                  setJoiningGroup(false)
+                                }}
+                                className="px-5 py-2.5 rounded text-sm font-mono font-bold transition-colors disabled:opacity-50"
+                                style={{ backgroundColor: '#fbbf24', color: '#020617', boxShadow: '0 0 16px #fbbf2466' }}
+                              >
+                                {joiningGroup ? 'Joining...' : 'Join with Invite'}
+                              </button>
+                            )
+                          }
+                          return (
+                            <div className="text-xs text-muted-light/50 font-mono">
+                              {session?.user ? 'You need an invite link to join this group.' : 'Sign in with an invite link to join.'}
+                            </div>
+                          )
+                        })()}
+                      </div>
+                    )}
+                    {/* Join card — shown for public groups when not a member */}
+                    {!dockedGroup._private_gate && !dockedGroup.userRole && (
+                      <div className="rounded border border-[#fbbf24]/30 bg-[#fbbf24]/[0.06] px-3 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-serif" style={{ color: '#fbbf24' }}>Join {dockedGroup.name}</div>
+                            <div className="text-xs text-muted-light mt-0.5">{fmt(dockedGroup._count.members)} members &middot; Public</div>
+                          </div>
+                          <button
+                            data-interactive
+                            disabled={joiningGroup}
+                            onClick={async () => {
+                              if (!session?.user) { signIn(undefined, { callbackUrl: `/chants?dock=group:${dockedGroup.slug}` }); return }
+                              setJoiningGroup(true)
+                              try {
+                                const res = await fetch(`/api/communities/${dockedGroup.slug}/join`, { method: 'POST' })
+                                if (res.ok) {
+                                  setDockedGroup(prev => prev ? { ...prev, userRole: 'MEMBER', _count: { ...prev._count, members: prev._count.members + 1 } } : prev)
+                                }
+                              } catch {}
+                              setJoiningGroup(false)
+                            }}
+                            className="px-4 py-2 rounded text-sm font-mono font-bold transition-colors disabled:opacity-50"
+                            style={{ backgroundColor: '#fbbf24', color: '#020617', boxShadow: '0 0 12px #fbbf2466' }}
+                          >
+                            {joiningGroup ? 'Joining...' : 'Join'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {/* Group content — hidden behind private gate */}
+                    {!dockedGroup._private_gate && (<>
+                    {/* Chat card — dockable into group subspace */}
+                    {(() => {
+                      const isGroupChatDocked = activeSubspaceId === `groupchat:${dockedGroup.slug}`
+                      const chatPlayers = getInstancePlayers(`group:${dockedGroup.slug}`).filter(p => p.id !== presenceUserId)
+                      return (
+                        <div className={`rounded border transition-colors ${isGroupChatDocked ? 'border-[#fbbf24]/50 bg-[#fbbf24]/10' : 'border-[#fbbf24]/25 bg-[#fbbf24]/[0.04]'}`}>
+                          <div className="px-2.5 py-2">
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-serif leading-snug" style={{ color: '#fbbf24' }}>General Chat</div>
+                                <div className="flex items-center gap-2 text-xs font-mono text-muted-light mt-1">
+                                  <span>{fmt(dockedGroup._count.members)} members</span>
+                                </div>
+                                {dockedGroup.userRole ? (
+                                  groupChatPreview.length > 0 ? (
+                                    <div className="mt-1.5 space-y-0.5">
+                                      {groupChatPreview.map(msg => (
+                                        <div key={msg.id} className="text-[11px] font-mono leading-snug truncate">
+                                          <span className="text-[#fbbf24]/60">{msg.user?.name || 'Anon'}</span>
+                                          <span className="text-muted-light/30 mx-1">·</span>
+                                          <span className="text-foreground/50">{msg.text}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[11px] text-muted-light/40 font-mono mt-1.5">No messages yet</div>
+                                  )
+                                ) : (
+                                  <div className="text-[11px] text-muted-light/40 font-mono mt-1.5">Join to chat</div>
+                                )}
+                              </div>
+                              <div className="relative">
+                                <DropCircle
+                                  id={`groupchat:${dockedGroup.slug}`}
+                                  isActive={isDraggingDockstar && nearestDrop === `groupchat:${dockedGroup.slug}`}
+                                  isDocked={isGroupChatDocked}
+                                  userInitial="G"
+                                  registerRef={registerDropZone}
+                                  onClick={() => {
+                                    if (isGroupChatDocked) return
+                                    if (!dockedGroup.userRole) {
+                                      setGroupNotice('Join the group to enter chat')
+                                      setTimeout(() => setGroupNotice(null), 2500)
+                                      return
+                                    }
+                                    handleDock(`groupchat:${dockedGroup.slug}`)
+                                  }}
+                                  flashDocks={flashDocks}
+                                  faded={isGroupChatDocked || !dockedGroup.userRole}
+                                  glowDrag={isDraggingDockstar && !isGroupChatDocked}
+                                  accentColor="#fbbf24"
+                                />
+                                {chatPlayers.length > 0 && chatPlayers.slice(0, 6).map((p, i) => {
+                                  const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                                  const r = 24
+                                  return (
+                                    <PresenceEye
+                                      key={p.id}
+                                      color={presenceColor(p.id)}
+                                      name={p.name}
+                                      className="absolute"
+                                      style={{
+                                        left: `calc(50% + ${Math.cos(angle) * r}px - 5px)`,
+                                        top: `calc(50% + ${Math.sin(angle) * r}px - 3.5px)`,
+                                      }}
+                                    />
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    {groupNotice && (
+                      <div className="rounded border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-mono text-warning animate-slideDown">
+                        {groupNotice}
+                      </div>
+                    )}
+                    {/* INLINE GROUP SETTINGS */}
+                    {groupSettingsOpen && (
+                      <div className="rounded border border-[#fbbf24]/30 bg-surface/90 p-3 space-y-3">
+                        <div className="text-xs font-mono uppercase tracking-wider" style={{ color: '#fbbf24' }}>Group Settings</div>
+                        {groupSettingsMsg && (
+                          <div className={`text-xs font-mono px-2 py-1 rounded ${groupSettingsMsg.type === 'success' ? 'bg-success/10 text-success border border-success/30' : 'bg-error/10 text-error border border-error/30'}`}>
+                            {groupSettingsMsg.text}
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={groupSettingsForm.name}
+                            onChange={e => setGroupSettingsForm(f => ({ ...f, name: e.target.value }))}
+                            placeholder="Group name"
+                            className="w-full bg-background border border-border/50 rounded px-2.5 py-2 text-xs text-foreground outline-none focus:border-[#fbbf24]/50 transition-colors"
+                          />
+                          <textarea
+                            value={groupSettingsForm.description}
+                            onChange={e => setGroupSettingsForm(f => ({ ...f, description: e.target.value }))}
+                            placeholder="Description"
+                            rows={2}
+                            className="w-full bg-background border border-border/50 rounded px-2.5 py-2 text-xs text-foreground outline-none focus:border-[#fbbf24]/50 transition-colors resize-none"
+                          />
+                          <button
+                            data-interactive
+                            onClick={() => setGroupSettingsForm(f => ({ ...f, isPublic: !f.isPublic }))}
+                            className="flex items-center gap-2 text-xs font-mono transition-colors"
+                            style={{ color: '#fbbf24' }}
+                          >
+                            <div className="w-7 h-3.5 rounded-full border transition-colors relative" style={{ borderColor: '#fbbf2466', backgroundColor: groupSettingsForm.isPublic ? '#fbbf2433' : 'transparent' }}>
+                              <div className="absolute top-0.5 w-2.5 h-2.5 rounded-full transition-all" style={{ backgroundColor: '#fbbf24', left: groupSettingsForm.isPublic ? '12px' : '2px' }} />
+                            </div>
+                            {groupSettingsForm.isPublic ? 'Public' : 'Private'}
+                          </button>
+                          {!groupSettingsForm.isPublic && dockedGroup.isPublic && (
+                            <div className="rounded border border-[#fbbf24]/20 bg-[#fbbf24]/[0.04] px-2.5 py-1.5 text-[10px] text-muted-light">
+                              Switching to private requires a <a href="/pricing" className="font-bold underline" style={{ color: '#fbbf24' }}>Pro plan</a>. Existing members keep access.
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            data-interactive
+                            disabled={groupSettingsSaving}
+                            onClick={async () => {
+                              setGroupSettingsSaving(true)
+                              setGroupSettingsMsg(null)
+                              try {
+                                const res = await fetch(`/api/communities/${dockedGroup.slug}/settings`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify(groupSettingsForm),
+                                })
+                                if (!res.ok) {
+                                  const data = await res.json().catch(() => ({}))
+                                  const msg = (data.error === 'PRO_REQUIRED' || data.error === 'PRIVATE_GROUP_LIMIT') ? data.message : (data.error || 'Failed to save')
+                                  setGroupSettingsMsg({ type: 'error', text: msg })
+                                  return
+                                }
+                                setGroupSettingsMsg({ type: 'success', text: 'Saved' })
+                                setDockedGroup(prev => prev ? { ...prev, name: groupSettingsForm.name, description: groupSettingsForm.description, isPublic: groupSettingsForm.isPublic } : prev)
+                                setTimeout(() => setGroupSettingsMsg(null), 2000)
+                              } catch {
+                                setGroupSettingsMsg({ type: 'error', text: 'Network error' })
+                              } finally {
+                                setGroupSettingsSaving(false)
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded text-xs font-mono font-bold transition-colors disabled:opacity-50"
+                            style={{ backgroundColor: '#fbbf24', color: '#020617' }}
+                          >
+                            {groupSettingsSaving ? 'Saving...' : 'Save'}
+                          </button>
+                          {dockedGroup.userRole === 'OWNER' && (
+                            <>
+                              <button
+                                data-interactive
+                                onClick={async () => {
+                                  if (!confirm('Delete ALL chat messages? This cannot be undone.')) return
+                                  try {
+                                    const res = await fetch(`/api/communities/${dockedGroup.slug}/chat`, { method: 'DELETE' })
+                                    if (res.ok) {
+                                      const data = await res.json()
+                                      setGroupSettingsMsg({ type: 'success', text: `Purged ${data.deleted} message(s)` })
+                                      setGroupChatPreview([])
+                                    }
+                                  } catch {}
+                                }}
+                                className="px-3 py-1.5 rounded text-xs font-mono border border-error/30 text-error hover:bg-error/10 transition-colors"
+                              >
+                                Purge Chat
+                              </button>
+                              <button
+                                data-interactive
+                                onClick={async () => {
+                                  if (!confirm(`Delete "${dockedGroup.name}"? This cannot be undone.`)) return
+                                  if (!confirm('Are you sure?')) return
+                                  try {
+                                    const res = await fetch(`/api/communities/${dockedGroup.slug}`, { method: 'DELETE' })
+                                    if (res.ok) {
+                                      setGroupSettingsOpen(false)
+                                      forceUndock()
+                                    }
+                                  } catch {}
+                                }}
+                                className="px-3 py-1.5 rounded text-xs font-mono bg-error text-white hover:bg-error-hover transition-colors"
+                              >
+                                Delete Group
+                              </button>
+                            </>
+                          )}
+                        </div>
+                        {/* Invite Link Management */}
+                        {(dockedGroup.userRole === 'OWNER' || dockedGroup.userRole === 'ADMIN') && (
+                          <div className="border-t border-border/30 pt-2 space-y-2">
+                            <div className="text-[10px] font-mono text-muted-light">Invite Link</div>
+                            {groupInviteCode ? (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    readOnly
+                                    value={`${typeof window !== 'undefined' ? window.location.origin : ''}/chants?dock=group:${dockedGroup.slug}&invite=${groupInviteCode}`}
+                                    className="flex-1 bg-background border border-border/50 rounded px-2 py-1.5 text-[10px] font-mono text-foreground/70 outline-none select-all"
+                                    onClick={e => (e.target as HTMLInputElement).select()}
+                                  />
+                                  <button
+                                    data-interactive
+                                    onClick={() => {
+                                      const url = `${window.location.origin}/chants?dock=group:${dockedGroup.slug}&invite=${groupInviteCode}`
+                                      navigator.clipboard.writeText(url)
+                                      setGroupSettingsMsg({ type: 'success', text: 'Copied!' })
+                                      setTimeout(() => setGroupSettingsMsg(null), 1500)
+                                    }}
+                                    className="px-2 py-1.5 rounded text-[10px] font-mono border border-[#fbbf24]/30 hover:bg-[#fbbf24]/10 transition-colors"
+                                    style={{ color: '#fbbf24' }}
+                                  >
+                                    Copy
+                                  </button>
+                                </div>
+                                <button
+                                  data-interactive
+                                  onClick={async () => {
+                                    if (!confirm('Reset invite link? The old link will stop working.')) return
+                                    setGroupInviteLoading(true)
+                                    try {
+                                      const res = await fetch(`/api/communities/${dockedGroup.slug}/invite`, { method: 'PUT' })
+                                      const data = await res.json()
+                                      if (data.inviteCode) setGroupInviteCode(data.inviteCode)
+                                    } catch {}
+                                    setGroupInviteLoading(false)
+                                  }}
+                                  className="text-[10px] font-mono text-error/60 hover:text-error transition-colors"
+                                >
+                                  Reset Link
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                data-interactive
+                                disabled={groupInviteLoading}
+                                onClick={async () => {
+                                  setGroupInviteLoading(true)
+                                  try {
+                                    const res = await fetch(`/api/communities/${dockedGroup.slug}/invite`, { method: 'POST' })
+                                    const data = await res.json()
+                                    if (data.inviteCode) setGroupInviteCode(data.inviteCode)
+                                  } catch {}
+                                  setGroupInviteLoading(false)
+                                }}
+                                className="px-3 py-1.5 rounded text-xs font-mono border border-[#fbbf24]/30 hover:bg-[#fbbf24]/10 transition-colors disabled:opacity-50"
+                                style={{ color: '#fbbf24' }}
+                              >
+                                {groupInviteLoading ? 'Generating...' : 'Generate Invite Link'}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {/* Member list */}
+                        <div className="border-t border-border/30 pt-2">
+                          <div className="text-[10px] font-mono text-muted-light mb-1.5">Members ({dockedGroup._count.members})</div>
+                          <div className="space-y-1">
+                            {dockedGroup.members.map(m => (
+                              <div key={m.user.id} className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-5 h-5 rounded-full bg-[#fbbf24]/20 flex items-center justify-center text-[9px] font-bold" style={{ color: '#fbbf24' }}>
+                                    {(m.user.name || '?').charAt(0).toUpperCase()}
+                                  </div>
+                                  <span className="text-foreground/80 font-mono">{m.user.name || 'Anon'}</span>
+                                </div>
+                                {dockedGroup.userRole === 'OWNER' && m.user.id !== dockedGroup.members.find(mm => dockedGroup.creator.name === mm.user.name)?.user.id && (
+                                  <button
+                                    data-interactive
+                                    onClick={async () => {
+                                      if (!confirm(`Remove ${m.user.name || 'this user'}?`)) return
+                                      try {
+                                        await fetch(`/api/communities/${dockedGroup.slug}/members/${m.user.id}`, { method: 'DELETE' })
+                                        setDockedGroup(prev => prev ? { ...prev, members: prev.members.filter(mm => mm.user.id !== m.user.id), _count: { ...prev._count, members: prev._count.members - 1 } } : prev)
+                                      } catch {}
+                                    }}
+                                    className="text-[10px] font-mono text-error/60 hover:text-error transition-colors"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* Group's chants — same as main feed cards */}
+                    {!groupSettingsOpen && dockedGroup.deliberations && dockedGroup.deliberations.length > 0 && (
+                      <div className="divide-y divide-border/30">
+                        {dockedGroup.deliberations.map(d => {
+                          const dBadge = phaseBadge(d.phase, 0)
+                          const isNearChant = isDraggingDockstar && nearestDrop === d.id
+                          const chantPlayers = getInstancePlayers(d.id, true).filter(p => p.id !== presenceUserId)
+                          return (
+                            <div
+                              key={d.id}
+                              className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-200"
+                              onClick={(e) => {
+                                const target = e.target as HTMLElement
+                                if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
+                                handleDock(d.id)
+                              }}
+                            >
+                              <div className="relative z-10 flex-1 min-w-0">
+                                <h3 className="text-base font-serif text-foreground leading-snug mb-1">{d.question}</h3>
+                                <div className="flex items-center gap-1.5 mb-1.5 text-xs">
+                                  <span className="font-mono" style={{ color: '#fbbf24' }}>{dockedGroup.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2 flex-wrap text-xs font-mono">
+                                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-px rounded border ${dBadge.color}`}>
+                                    {dBadge.label}
+                                  </span>
+                                  <span className="text-muted">{fmt(d._count.members)}</span>
+                                  <span className="text-muted-light/40">&middot;</span>
+                                  <span className="text-muted">{fmt(d._count.ideas)} ideas</span>
+                                </div>
+                              </div>
+                              <div className="relative z-10 pt-1 self-center flex items-center gap-2">
+                                {d.creator?.id === session?.user?.id && dockedGroup && (
+                                  <button
+                                    data-interactive
+                                    onClick={(e) => { e.stopPropagation(); handleDockToSettings(d.id, { question: d.question, phase: d.phase, community: dockedGroup.name, _count: d._count }) }}
+                                    className="w-8 h-8 rounded-full border border-accent/30 bg-accent/8 flex items-center justify-center hover:bg-accent/15 hover:border-accent/50 transition-colors"
+                                    title="Manage"
+                                  >
+                                    <svg className="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                                  </button>
+                                )}
+                                <ShareMenu url={`/?dock=${d.id}`} text={d.question} variant="icon" />
+                                <div className="relative">
+                                  <DropCircle
+                                    id={d.id}
+                                    isActive={isNearChant}
+                                    isDocked={false}
+                                    userInitial="G"
+                                    registerRef={registerDropZone}
+                                    onClick={() => handleDock(d.id)}
+                                    flashDocks={flashDocks}
+                                    glowDrag={isDraggingDockstar}
+                                  />
+                                  {chantPlayers.length > 0 && chantPlayers.slice(0, 6).map((p, i) => {
+                                    const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                                    const r = 24
+                                    return (
+                                      <PresenceEye
+                                        key={p.id}
+                                        color={presenceColor(p.id)}
+                                        name={p.name}
+                                        className="absolute"
+                                        style={{
+                                          left: `calc(50% + ${Math.cos(angle) * r}px - 5px)`,
+                                          top: `calc(50% + ${Math.sin(angle) * r}px - 3.5px)`,
+                                        }}
+                                      />
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {dockedGroup.deliberations?.length === 0 && (
+                      <div className="py-4 text-center text-muted-light text-xs font-mono">No chants in this group yet</div>
+                    )}
+                    </>)}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-error/70 text-sm font-mono">Group not found</div>
+                )}
+              </div>
+            ) : (
+              /* GROUPS FEED */
+              <>
+                {groupsLoading ? (
+                  <div className="space-y-4 px-3 py-4">
+                    {Array.from({ length: 3 }, (_, i) => (
+                      <div key={i} className="animate-pulse">
+                        <div className="h-4 bg-surface rounded w-3/4 mb-2" />
+                        <div className="h-3 bg-surface rounded w-1/2" />
+                      </div>
+                    ))}
+                  </div>
+                ) : filteredGroups.length === 0 ? (
+                  <div className="text-center py-16 text-muted-light text-sm">{groups.length === 0 ? 'No groups yet.' : 'No matching groups.'}</div>
+                ) : (
+                  <div className="divide-y divide-border/30">
+                    {filteredGroups.map(g => {
+                      const groupPlayers = getInstancePlayers(`group:${g.slug}`, true).filter(pl => pl.id !== presenceUserId)
+                      return (
+                        <div key={g.id} className="flex items-start gap-2.5 px-3 py-2.5 hover:bg-surface/30 transition-colors cursor-pointer" onClick={() => handleDock(`group:${g.slug}`)}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <h3 className="text-base font-serif text-foreground leading-snug">{g.name}</h3>
+                              {!g.isPublic && <span className="text-[10px] font-mono text-warning/70 border border-warning/30 rounded px-1">PRIVATE</span>}
+                            </div>
+                            {g.description && <p className="text-sm text-muted-light/70 line-clamp-2 mb-1">{g.description}</p>}
+                            <div className="flex items-center gap-2 text-xs font-mono text-muted-light">
+                              <span>{fmt(g._count.members)} members</span>
+                              <span className="text-muted-light/40">&middot;</span>
+                              <span>{fmt(g._count.deliberations)} chants</span>
+                              <span className="text-muted-light/40">&middot;</span>
+                              <span style={{ color: '#a78bfa99' }}>{g.creator?.name || 'Anonymous'}</span>
+                            </div>
+                          </div>
+                          <div className="relative pt-1 self-center flex items-center gap-2">
+                            <ShareMenu url={`/?dock=group:${g.slug}`} text={g.name} variant="icon" />
+                            <div className="relative">
+                            <DropCircle
+                              id={`group:${g.slug}`}
+                              isActive={false}
+                              isDocked={false}
+                              userInitial="G"
+                              registerRef={registerDropZone}
+                              onClick={() => handleDock(`group:${g.slug}`)}
+                              flashDocks={false}
+                              glowDrag={false}
+                              accentColor="#fbbf24"
+                            />
+                            {groupPlayers.length > 0 && groupPlayers.slice(0, 8).map((pl, i) => {
+                              const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                              const r = 24
+                              const ox = Math.cos(angle) * r
+                              const oy = Math.sin(angle) * r
+                              return (
+                                <PresenceEye
+                                  key={pl.id}
+                                  color={presenceColor(pl.id)}
+                                  name={pl.name}
+                                  className="absolute"
+                                  style={{
+                                    left: `calc(50% + ${ox}px - 5px)`,
+                                    top: `calc(50% + ${oy}px - 3.5px)`,
+                                  }}
+                                />
+                              )
+                            })}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+            <div className="h-32" />
+          </div>
+        ) : (
+          /* CHANTS FEED */
+          <div className="max-w-2xl mx-auto">
+          {feedLoading ? (
+            <div className="space-y-4 px-3 py-4">
+              {Array.from({ length: 3 }, (_, i) => (
+                <div key={i} className="animate-pulse">
+                  <div className="h-4 bg-surface rounded w-3/4 mb-2" />
+                  <div className="h-3 bg-surface rounded w-1/2 mb-1" />
+                  <div className="h-3 bg-surface rounded w-1/3" />
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="divide-y divide-border/30">
-            {filteredChants.map(chant => {
+            {(dockedPostId && dockedPostId !== '__create_chant__' ? filteredChants.filter(c => c.id === dockedPostId) : filteredChants).map(chant => {
               const isDocked = dockedPostId === chant.id
               const badge = phaseBadge(chant.phase, chant.tier)
               const isNearDrop = isDraggingDockstar && nearestDrop === chant.id
@@ -655,12 +2558,27 @@ function ChantsPageContent() {
               return (
                 <div
                   key={chant.id}
-                  id={`chant-${chant.id}`}
-                  className={`transition-colors duration-200 ${isDocked ? 'bg-surface/40' : ''}`}
+                  className={`relative transition-colors duration-200 ${isDocked ? '' : 'overflow-hidden'}`}
                 >
                   {/* Card header */}
-                  <div className="flex items-start gap-2.5 px-3 py-2.5">
-                    <div className="flex-1 min-w-0">
+                  <div
+                    id={`chant-${chant.id}`}
+                    className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5"
+                    onClick={(e) => {
+                      const target = e.target as HTMLElement
+                      if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
+                      const sel = window.getSelection()
+                      if (sel && sel.toString().length > 0) return
+                      if (currentInstance === chant.id || (isDocked && currentInstance === chant.id)) {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const rx = Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width))
+                        const ry = Math.max(0.1, Math.min(0.9, (e.clientY - rect.top) / rect.height))
+                        setSelfRatio({ rx, ry })
+                        moveToPosition(rx, ry)
+                      }
+                    }}
+                  >
+                    <div className="relative z-10 flex-1 min-w-0">
                       <h3 className="text-base font-serif text-foreground leading-snug mb-1">
                         {chant.question}
                       </h3>
@@ -676,17 +2594,20 @@ function ChantsPageContent() {
                           {badge.label}{badge.sublabel && <span className="opacity-60"> {badge.sublabel}</span>}
                         </span>
                         {chant.isCreator && (
-                          <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded border bg-accent/10 text-accent border-accent/30 text-[10px]">
-                            <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            YOURS
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded border bg-accent/10 text-accent border-accent/30">YOURS</span>
+                        )}
+                        {chant.hasVoted && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded border bg-purple/10 text-purple border-purple/30">
+                            <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                            VOTED
                           </span>
+                        )}
+                        {!chant.hasVoted && chant.hasSubmittedIdea && (
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded border bg-purple/10 text-purple border-purple/30">SUBMITTED</span>
                         )}
                         <span className="text-muted">{fmt(chant.participants)}</span>
                         <span className="text-muted-light/40">&middot;</span>
                         <span className="text-muted">{fmt(chant.ideas)} ideas</span>
-                        <span className="ml-auto text-muted flex items-center gap-0.5">
-                          <span className="text-accent/70">&uarr;</span>{fmt(chant.upvotes)}
-                        </span>
                       </div>
                       {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (
                         <div className="mt-1.5 px-2 py-1.5 bg-gold/6 border-l-2 border-gold/30 text-sm text-gold/80">
@@ -694,329 +2615,340 @@ function ChantsPageContent() {
                         </div>
                       )}
                     </div>
-                    <div className="pt-1 self-center">
-                      <DropCircle
-                        id={chant.id}
-                        isActive={isNearDrop}
-                        isDocked={isDocked}
-                        userInitial="G"
-                        registerRef={registerDropZone}
-                        onClick={() => isDocked ? handleUndock() : handleDock(chant.id)}
-                        onDragUndock={undefined}
-                        flashDocks={flashDocks}
-                        glowDrag={isDraggingDockstar && !isDocked}
-                        dockedPlayers={MOCK_PLAYERS.filter(p => p.dockedTo === chant.id).map(p => ({ id: p.id, color: p.color }))}
-                      />
-                    </div>
+                    {!isDocked && (() => {
+                      const remotePlayers = getInstancePlayers(chant.id, true).filter(p => p.id !== presenceUserId)
+                      return (
+                        <div className="relative z-10 pt-1 self-center flex items-center gap-2">
+                          {chant.isCreator && (
+                            <button
+                              data-interactive
+                              onClick={(e) => { e.stopPropagation(); handleDockToSettings(chant.id) }}
+                              className="w-8 h-8 rounded-full border border-accent/30 bg-accent/8 flex items-center justify-center hover:bg-accent/15 hover:border-accent/50 transition-colors"
+                              title="Manage"
+                            >
+                              <svg className="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.991l1.004.827c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            </button>
+                          )}
+                          <ShareMenu url={`/?dock=${chant.id}`} text={chant.question} variant="icon" />
+                          <div className="relative">
+                            <DropCircle
+                              id={chant.id}
+                              isActive={isNearDrop}
+                              isDocked={false}
+                              userInitial="G"
+                              registerRef={registerDropZone}
+                              onClick={() => handleDock(chant.id)}
+                              flashDocks={flashDocks}
+                              glowDrag={isDraggingDockstar}
+                            />
+                            {remotePlayers.length > 0 && remotePlayers.slice(0, 12).map((p, i) => {
+                              const ring = i < 6 ? 0 : 1
+                              const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                              const r = 24 + ring * 10
+                              const ox = Math.cos(angle) * r
+                              const oy = Math.sin(angle) * r
+                              return (
+                                <PresenceEye
+                                  key={p.id}
+                                  color={presenceColor(p.id)}
+                                  name={p.name}
+                                  className="absolute"
+                                  style={{
+                                    left: `calc(50% + ${ox}px - 5px)`,
+                                    top: `calc(50% + ${oy}px - 3.5px)`,
+                                  }}
+                                />
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
 
-                  {/* ── EXPANDED (docked) ── */}
+                  {/* EXPANDED (docked) */}
                   {isDocked && (
-                    <div
-                      className="px-3 pb-3 pl-12 animate-slideDown"
-                      onPointerMove={(e) => setSelfPixelPos({ x: e.clientX, y: e.clientY + window.scrollY })}
-                      onPointerLeave={() => setSelfPixelPos(null)}
-                    >
+                    <div className="relative z-10 px-3 pb-3 animate-slideDown">
                       <div className="border-t border-border/30 pt-2.5">
-                        {/* SUBMISSION */}
-                        {chant.phase === 'SUBMISSION' && !activeSubspaceId && (
-                          <div>
-                            <div className="mb-2.5 relative">
-                              <input id="idea-input" type="text" placeholder="Your idea..." value={pendingInputType === 'idea' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'idea', chant.id)} className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
-                              <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
-                                <svg className={`w-3 h-3 transition-colors ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" /></svg>
-                              </div>
-                            </div>
-                            {chant.topIdeas?.map((idea, i) => (
-                              <div key={i} className="bg-purple/12 border border-purple/30 rounded px-2.5 py-1.5 mb-1">
-                                <div className="text-sm font-serif text-purple/70 leading-snug">{idea.text}</div>
-                                <div className="text-xs text-purple/40 mt-0.5">{idea.author}</div>
-                              </div>
-                            ))}
+                        {/* Loading indicator — shown in both normal and manage mode */}
+                        {detailLoading && (
+                          <div className="py-6 text-center">
+                            <div className="text-muted-light text-sm font-mono animate-pulse">Loading...</div>
                           </div>
                         )}
 
-                        {/* VOTING */}
-                        {chant.phase === 'VOTING' && chant.mockCell && !activeSubspaceId && (
+                        {/* Detail error */}
+                        {!detailLoading && detailError && (
+                          <div className="py-4 text-center">
+                            <div className="text-error/70 text-sm font-mono mb-1">{detailError}</div>
+                            <button data-interactive onClick={refreshDetail} className="text-xs text-accent font-mono hover:underline">Retry</button>
+                          </div>
+                        )}
+
+                        {/* Auto-join status — only show if not in SUBMISSION (which has its own Joining indicator) */}
+                        {!manageMode && !detailLoading && detail && !detail.isMember && detail.phase !== 'COMPLETED' && detail.phase !== 'SUBMISSION' && (
+                          <div className="mb-2.5 py-1 text-center text-muted-light text-xs font-mono animate-pulse">Joining...</div>
+                        )}
+
+                        {/* Description */}
+                        {!manageMode && !detailLoading && detail?.description && (
+                          <div className="mb-2.5 text-sm text-muted-light leading-snug">{detail.description}</div>
+                        )}
+
+                        {/* SUBMISSION phase */}
+                        {!manageMode && !detailLoading && detail?.phase === 'SUBMISSION' && (() => {
+                          const myIdeaText = submittedIdeas[chant.id] || detail.myIdea?.text
+                          return (
                           <div>
-                              <div>
-                                <div className="flex items-center justify-between mb-2">
-                                  <span className="text-[10px] font-mono text-muted-light">Cell #{chant.mockCell.number} / Tier {chant.mockCell.tier}</span>
+                            {myIdeaText ? (
+                              <div className="bg-accent/10 border border-accent/30 rounded px-3 py-3">
+                                <div className="flex items-start gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-mono text-accent uppercase tracking-wider mb-1.5">Your idea</div>
+                                    <div className="text-base font-serif text-foreground leading-relaxed">{myIdeaText}</div>
+                                  </div>
+                                  {detail.myIdea?.id && (
+                                    <DropCircle
+                                      id={`idea:${detail.myIdea.id}`}
+                                      isActive={isDraggingDockstar && nearestDrop === `idea:${detail.myIdea.id}`}
+                                      isDocked={dockedIdeaId === detail.myIdea.id}
+                                      userInitial="G"
+                                      registerRef={registerDropZone}
+                                      onClick={() => { enterSubspace(detail.myIdea!.id); setDockedIdeaId(detail.myIdea!.id) }}
+                                      onDragUndock={undefined}
+                                      flashDocks={flashDocks}
+                                      glowDrag={isDraggingDockstar && dockedIdeaId !== detail.myIdea.id}
+                                    />
+                                  )}
+                                </div>
+                              </div>
+                            ) : detail.isMember ? (
+                              <div className="relative">
+                                <input id="idea-input" type="text" placeholder="Your idea..." value={pendingInputType === 'idea' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'idea', chant.id)} onKeyDown={e => { if (e.key === 'Enter' && pendingInput.trim()) handleIdeaSubmit() }} autoFocus className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
+                                <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
+                                  <svg className={`w-3 h-3 transition-colors ${pendingInputType === 'idea' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M4 4l7.07 17 2.51-7.39L21 11.07z" /></svg>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="py-4 text-center text-muted-light/50 text-sm font-mono">Joining...</div>
+                            )}
+                            <div className="mt-2 text-center text-xs font-mono text-muted-light/50">{fmt(detail.ideaCount)} ideas submitted</div>
+                          </div>
+                          )
+                        })()}
+
+                        {/* VOTING phase */}
+                        {!manageMode && !detailLoading && detail?.phase === 'VOTING' && dockedCellIdeas.length > 0 && (
+                          <div>
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[10px] font-mono text-muted-light">
+                                  {dockedCell ? `Cell / Tier ${dockedCell.tier}` : `Tier ${detail.currentTier}`}
+                                </span>
+                                {canVote ? (
                                   <span className={`text-xl font-mono font-bold ${getXpTotal(chant.id) === 10 ? 'text-success' : 'text-accent'}`}>
                                     {getXpTotal(chant.id)}<span className="text-sm text-muted-light/60">/10 XP</span>
                                   </span>
-                                </div>
-                                <div className="space-y-px">
-                                  {chant.mockCell.ideas.map(idea => {
-                                    const xp = (xpAllocations[chant.id] || {})[idea.id] || 0
-                                    const isIdeaDocked = dockedIdeaId === idea.id
-                                    return (
-                                      <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
-                                        <div className="px-2.5 py-2">
-                                          <div className="flex items-start gap-2 mb-1.5">
-                                            <div className="flex-1 min-w-0">
-                                              <div className={`text-sm font-serif leading-snug ${isIdeaDocked ? 'text-purple' : 'text-purple/70'}`}>{idea.text}</div>
-                                              <div className="text-xs text-purple/40 mt-0.5">{idea.author}</div>
-                                            </div>
-                                            <span className={`text-2xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
+                                ) : detail.hasVoted ? (
+                                  <span className="text-xs font-mono text-success flex items-center gap-1">
+                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                                    Voted
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="space-y-1.5">
+                                {dockedCellIdeas.map(idea => {
+                                  const xp = !canVote ? idea.totalXP : ((xpAllocations[chant.id] || {})[idea.id] || 0)
+                                  const isIdeaDocked = dockedIdeaId === idea.id
+                                  return (
+                                    <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                      <div className="px-2.5 py-2">
+                                        <div className="flex items-start gap-2 mb-1.5">
+                                          <div className="flex-1 min-w-0">
+                                            <div className={`text-sm font-serif leading-snug ${isIdeaDocked ? 'text-purple' : 'text-purple'}`}>{idea.text}</div>
+                                            <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Anonymous'}</div>
                                           </div>
-                                          {/* Slider + dock port */}
-                                          <div className="flex items-center gap-2">
-                                            <div className="flex items-center gap-1 flex-1" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
-                                              {Array.from({ length: 10 }, (_, i) => (
-                                                <div key={i} onClick={() => handleXpChange(chant.id, idea.id, xp === i + 1 ? 0 : i + 1)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${flashDocks ? 'animate-flash-gold' : ''} ${i < xp ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : isIdeaDocked ? 'border-accent/40 bg-accent/5 shadow-[0_0_4px_rgba(34,211,238,0.15)]' : 'border-border/40 bg-transparent hover:border-muted-light/60'}`}>
-                                                  <svg className={`w-2.5 h-2.5 transition-colors ${i < xp ? 'fill-accent' : isIdeaDocked ? 'fill-accent/30' : 'fill-muted-light/30'}`} viewBox="0 0 24 24">
-                                                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+                                          <span className={`text-2xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
+                                        </div>
+                                        {/* XP dots — disabled if already voted */}
+                                        <div className="flex items-center gap-2">
+                                          <div className="flex items-center gap-1 flex-1" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()}>
+                                            {canVote && Array.from({ length: 10 }, (_, i) => {
+                                              const currentXp = (xpAllocations[chant.id] || {})[idea.id] || 0
+                                              return (
+                                                <div key={i} onClick={() => handleXpChange(chant.id, idea.id, currentXp === i + 1 ? 0 : i + 1)} className={`w-5 h-5 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${i < currentXp ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : isIdeaDocked ? 'border-accent/40 bg-accent/5 shadow-[0_0_4px_rgba(34,211,238,0.15)]' : 'border-border/40 bg-transparent hover:border-muted-light/60'} ${flashDocks ? 'animate-flash-gold' : ''}`}>
+                                                  <svg className={`w-2.5 h-2.5 transition-colors ${i < currentXp ? 'fill-accent' : isIdeaDocked ? 'fill-accent/30' : 'fill-muted-light/30'}`} viewBox="0 0 24 24">
+                                                    <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
                                                   </svg>
                                                 </div>
-                                              ))}
-                                            </div>
-                                            <DropCircle
-                                              id={`idea:${idea.id}`}
-                                              isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
-                                              isDocked={isIdeaDocked}
-                                              userInitial="G"
-                                              registerRef={registerDropZone}
-                                              onClick={() => { if (isIdeaDocked) { setDockedIdeaId(null); exitSubspace() } else { setDockedIdeaId(idea.id); enterSubspace(idea.id); setTimeout(() => { const el = document.getElementById(`idea-${idea.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 50) } }}
-                                              onDragUndock={undefined}
-                                              flashDocks={flashDocks}
-                                              faded={isIdeaDocked}
-                                              glowDrag={isDraggingDockstar && !isIdeaDocked}
-                                              dockedPlayers={MOCK_PLAYERS.filter(p => p.dockedTo === `idea:${idea.id}`).map(p => ({ id: p.id, color: p.color }))}
-                                            />
+                                              )
+                                            })}
+                                            {!canVote && (
+                                              <span className="text-xs font-mono text-muted-light">{idea.totalXP} XP / {idea.totalVotes} votes</span>
+                                            )}
                                           </div>
+                                          {(() => {
+                                            const ideaPlayers = getInstancePlayers(`subspace:${chant.id}:${idea.id}`).filter(p => p.id !== presenceUserId)
+                                            return (
+                                              <div className="relative">
+                                                <DropCircle
+                                                  id={`idea:${idea.id}`}
+                                                  isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
+                                                  isDocked={isIdeaDocked}
+                                                  userInitial="G"
+                                                  registerRef={registerDropZone}
+                                                  onClick={() => { enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
+                                                  onDragUndock={undefined}
+                                                  flashDocks={flashDocks}
+                                                  faded={isIdeaDocked}
+                                                  glowDrag={isDraggingDockstar && !isIdeaDocked}
+                                                />
+                                                {ideaPlayers.length > 0 && ideaPlayers.slice(0, 8).map((p, i) => {
+                                                  const ring = i < 6 ? 0 : 1
+                                                  const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                                                  const r = 24 + ring * 10
+                                                  const ox = Math.cos(angle) * r
+                                                  const oy = Math.sin(angle) * r
+                                                  return (
+                                                    <PresenceEye
+                                                      key={p.id}
+                                                      color={presenceColor(p.id)}
+                                                      name={p.name}
+                                                      className="absolute"
+                                                      style={{
+                                                        left: `calc(50% + ${ox}px - 5px)`,
+                                                        top: `calc(50% + ${oy}px - 3.5px)`,
+                                                      }}
+                                                    />
+                                                  )
+                                                })}
+                                              </div>
+                                            )
+                                          })()}
                                         </div>
-                                        {/* Subspace viewport — last messages + dockstar chat box */}
-                                        {(() => {
-                                          const sub = getSubspace(idea.id)
-                                          const recentMsgs = sub?.messages.slice(-3) || []
-                                          return recentMsgs.length > 0 ? (
-                                            <div
-                                              className={`border-t border-border/20 px-2.5 py-1.5 bg-header/20 cursor-pointer hover:bg-header/30 transition-colors ${isIdeaDocked ? 'animate-slideDown' : ''}`}
-                                              onClick={(e) => { e.stopPropagation(); enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
-                                              data-interactive
-                                            >
-                                              <div className="space-y-1">
-                                                {recentMsgs.map(msg => (
-                                                  <div key={msg.id} className="text-[10px]">
-                                                    <span className="font-mono text-xs" style={{ color: msg.authorColor }}>{msg.author}</span>
-                                                    <span className="text-muted-light text-xs"> &middot; {msg.time}</span>
-                                                    <p className="text-muted/80 mt-0.5 leading-snug text-sm">{msg.text}</p>
-                                                  </div>
-                                                ))}
-                                              </div>
-                                              <div className="flex items-center gap-1.5 mt-1.5 pt-1 border-t border-border/10">
-                                                <div className="flex -space-x-1">
-                                                  {(sub?.members.slice(0, 4) || []).map(m => (
-                                                    <div key={m.id} className="w-2 h-2 rounded-full border border-header" style={{ backgroundColor: m.color }} />
-                                                  ))}
-                                                </div>
-                                                <span className="text-[9px] font-mono text-muted-light/50">{sub?.members.length} in subspace</span>
-                                                <div className="ml-auto">
-                                                  <DropCircle
-                                                    id={`bookmark:${idea.id}`}
-                                                    isActive={isDraggingDockstar && nearestDrop === `bookmark:${idea.id}`}
-                                                    isDocked={bookmarks.includes(idea.id)}
-                                                    userInitial=""
-                                                    registerRef={registerDropZone}
-                                                    onClick={() => { setBookmarks(prev => prev.includes(idea.id) ? prev : [...prev, idea.id]); enterSubspace(idea.id); setDockedIdeaId(idea.id) }}
-                                                    flashDocks={flashDocks}
-                                                    faded={false}
-                                                    glowDrag={isDraggingDockstar}
-                                                    dockedPlayers={[]}
-                                                  />
-                                                </div>
-                                              </div>
-                                            </div>
-                                          ) : null
-                                        })()}
                                       </div>
-                                    )
-                                  })}
-                                </div>
+                                    </div>
+                                  )
+                                })}
                               </div>
+                            </div>
                           </div>
                         )}
 
-                        {/* COMPLETED — top ideas with group chat dock points */}
-                        {chant.phase === 'COMPLETED' && chant.champion && chant.topIdeas && !activeSubspaceId && (
+                        {/* VOTING phase — no cell yet (not assigned) */}
+                        {!manageMode && !detailLoading && detail?.phase === 'VOTING' && dockedCellIdeas.length === 0 && detail.isMember && (
+                          <div className="py-6 text-center text-muted-light text-sm font-mono">
+                            Waiting for cell assignment...
+                          </div>
+                        )}
+
+                        {/* COMPLETED phase — show top ideas */}
+                        {!manageMode && !detailLoading && detail?.phase === 'COMPLETED' && (
                           <div>
                             <div className="flex gap-4 text-center text-xs font-mono mb-2.5">
-                              <div><span className="text-foreground">{fmt(chant.participants)}</span> <span className="text-muted-light">people</span></div>
-                              <div><span className="text-foreground">{chant.tier}</span> <span className="text-muted-light">tiers</span></div>
-                              <div><span className="text-foreground">{chant.duration}</span> <span className="text-muted-light">duration</span></div>
+                              <div><span className="text-foreground">{fmt(detail.memberCount)}</span> <span className="text-muted-light">people</span></div>
+                              <div><span className="text-foreground">{detail.currentTier}</span> <span className="text-muted-light">tiers</span></div>
                             </div>
-                            {chant.topIdeas.map((idea, i) => {
-                              const isChampion = i === 0
+                            {detail.ideas.slice(0, 5).map((idea, i) => {
+                              const isChampion = idea.isChampion || i === 0
                               const isIdeaDocked = dockedIdeaId === idea.id
                               return (
                                 <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border mb-1 transition-colors ${isChampion ? (isIdeaDocked ? 'bg-gold/12 border-gold/50' : 'bg-gold/6 border-gold/30') : (isIdeaDocked ? 'bg-purple/12 border-purple/50' : 'bg-purple/6 border-purple/25')}`}>
                                   <div className="px-2.5 py-2">
                                     <div className="flex items-start gap-2">
                                       {!isChampion && <span className="text-purple/30 font-mono text-xs shrink-0 pt-0.5">{i + 1}.</span>}
-                                      {isChampion && <span className="text-gold/50 font-mono text-xs shrink-0 pt-0.5">★</span>}
+                                      {isChampion && <span className="text-gold/50 font-mono text-xs shrink-0 pt-0.5">&#9733;</span>}
                                       <div className="flex-1 min-w-0">
                                         {isChampion && <div className="text-[9px] font-mono text-gold/50 uppercase tracking-wider mb-0.5">Priority</div>}
-                                        <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple/70')}`}>{idea.text}</div>
-                                        <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/40'}`}>{idea.author} · {idea.xp}xp</div>
+                                        <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple')}`}>{idea.text}</div>
+                                        <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/70'}`}>{idea.author?.name || 'Anonymous'} &middot; {idea.totalXP}xp</div>
                                       </div>
-                                      <div className="flex flex-col items-center gap-0.5 shrink-0">
+                                      <div className="flex flex-col items-center gap-0.5 shrink-0 relative">
                                         <DropCircle
                                           id={`idea:${idea.id}`}
                                           isActive={isDraggingDockstar && nearestDrop === `idea:${idea.id}`}
                                           isDocked={isIdeaDocked}
                                           userInitial="G"
                                           registerRef={registerDropZone}
-                                          onClick={() => { if (isIdeaDocked) { setDockedIdeaId(null); exitSubspace() } else { setDockedIdeaId(idea.id); enterSubspace(idea.id); setTimeout(() => { const el = document.getElementById(`idea-${idea.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 50) } }}
+                                          onClick={() => { enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
                                           onDragUndock={undefined}
                                           flashDocks={flashDocks}
                                           faded={isIdeaDocked}
                                           glowDrag={isDraggingDockstar && !isIdeaDocked}
-                                          dockedPlayers={MOCK_PLAYERS.filter(p => p.dockedTo === `idea:${idea.id}`).map(p => ({ id: p.id, color: p.color }))}
                                         />
-                                        {(() => { const s = getSubspace(idea.id); return s && s.messages.length > 0 ? (
-                                          <span className={`text-[9px] font-mono ${isIdeaDocked ? 'text-accent' : 'text-muted-light/60'}`}>{s.messages.length}</span>
-                                        ) : null })()}
+                                        {(() => {
+                                          const sp = getInstancePlayers(`subspace:${chant.id}:${idea.id}`).filter(p => p.id !== presenceUserId)
+                                          return sp.length > 0 ? sp.slice(0, 8).map((p, i) => {
+                                            const ring = i < 6 ? 0 : 1
+                                            const angle = (i * 137.5 + 30) * (Math.PI / 180)
+                                            const r = 24 + ring * 10
+                                            const ox = Math.cos(angle) * r
+                                            const oy = Math.sin(angle) * r
+                                            return (
+                                              <PresenceEye
+                                                key={p.id}
+                                                color={presenceColor(p.id)}
+                                                name={p.name}
+                                                className="absolute"
+                                                style={{
+                                                  left: `calc(50% + ${ox}px - 5px)`,
+                                                  top: `calc(50% + ${oy}px - 3.5px)`,
+                                                }}
+                                              />
+                                            )
+                                          }) : null
+                                        })()}
                                       </div>
                                     </div>
                                   </div>
-                                  {/* Subspace viewport — last messages + dockstar chat box */}
-                                  {(() => {
-                                    const sub = getSubspace(idea.id)
-                                    const recentMsgs = sub?.messages.slice(-3) || []
-                                    return recentMsgs.length > 0 ? (
-                                      <div
-                                        className={`border-t border-border/20 px-2.5 py-1.5 bg-header/20 cursor-pointer hover:bg-header/30 transition-colors ${isIdeaDocked ? 'animate-slideDown' : ''}`}
-                                        onClick={(e) => { e.stopPropagation(); enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id) }}
-                                        data-interactive
-                                      >
-                                        <div className="space-y-1">
-                                          {recentMsgs.map(msg => (
-                                            <div key={msg.id} className="text-[10px]">
-                                              <span className="font-mono text-xs" style={{ color: msg.authorColor }}>{msg.author}</span>
-                                              <span className="text-muted-light text-xs"> &middot; {msg.time}</span>
-                                              <p className="text-muted/80 mt-0.5 leading-snug text-sm">{msg.text}</p>
-                                            </div>
-                                          ))}
-                                        </div>
-                                        <div className="flex items-center gap-1.5 mt-1.5 pt-1 border-t border-border/10">
-                                          <div className="flex -space-x-1">
-                                            {(sub?.members.slice(0, 4) || []).map(m => (
-                                              <div key={m.id} className="w-2 h-2 rounded-full border border-header" style={{ backgroundColor: m.color }} />
-                                            ))}
-                                          </div>
-                                          <span className="text-[9px] font-mono text-muted-light/50">{sub?.members.length} in subspace</span>
-                                          <div className="ml-auto">
-                                            <DropCircle
-                                              id={`bookmark:${idea.id}`}
-                                              isActive={isDraggingDockstar && nearestDrop === `bookmark:${idea.id}`}
-                                              isDocked={bookmarks.includes(idea.id)}
-                                              userInitial=""
-                                              registerRef={registerDropZone}
-                                              onClick={() => { setBookmarks(prev => prev.includes(idea.id) ? prev : [...prev, idea.id]); enterSubspace(idea.id); setDockedIdeaId(idea.id) }}
-                                              flashDocks={flashDocks}
-                                              faded={false}
-                                              glowDrag={isDraggingDockstar}
-                                              dockedPlayers={[]}
-                                            />
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ) : null
-                                  })()}
                                 </div>
                               )
                             })}
                           </div>
                         )}
 
-                        {/* ACCUMULATING */}
-                        {chant.phase === 'ACCUMULATING' && chant.champion && !activeSubspaceId && (
+                        {/* MANAGE PANEL -- creator only */}
+                        {/* MANAGE MODE — replaces normal content when active */}
+                        {!detailLoading && detail && manageMode && chant.isCreator && (
                           <div>
-                            <div className="px-2.5 py-2 bg-purple/6 border-l-2 border-purple/40 rounded-r mb-2.5">
-                              <div className="text-[9px] font-mono text-purple/50 uppercase tracking-wider">Champion</div>
-                              <div className="text-sm text-purple font-serif mt-0.5">{chant.champion.text}</div>
+                            <div className="flex items-center gap-1.5 mb-3">
+                              <svg className="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                              <span className="text-xs font-mono text-accent uppercase tracking-wider">Manage</span>
                             </div>
-                            <div className="relative">
-                              <input id="challenge-input" type="text" placeholder="Challenge with your idea..." value={pendingInputType === 'challenge' && pendingInputTargetId === chant.id ? pendingInput : ''} onChange={e => handleTextInput(e.target.value, 'challenge', chant.id)} className="w-full bg-surface border-2 border-border/30 rounded px-3 py-3 pr-10 text-sm text-foreground placeholder:text-muted-light outline-none focus:border-[#f59e0b] focus:shadow-[0_0_16px_rgba(245,158,11,0.3)] focus:placeholder:text-[#f59e0b]/40 transition-all" />
-                              <div className={`absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 pointer-events-none ${pendingInputType === 'challenge' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/40'}`}>
-                                <svg className={`w-3 h-3 transition-colors ${pendingInputType === 'challenge' && pendingInputTargetId === chant.id && pendingInput.trim().length > 0 ? 'fill-accent' : 'fill-muted-light/30'}`} viewBox="0 0 24 24"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" /></svg>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-
-                        {/* ── INLINE SUBSPACE — replaces card body content ── */}
-                        {activeSubspaceId && (() => {
-                          const hasIdea = chant.mockCell?.ideas?.some(i => i.id === activeSubspaceId) || chant.topIdeas?.some(i => i.id === activeSubspaceId)
-                          if (!hasIdea) return null
-                          const parentChant = chant
-                          const xpVal = (xpAllocations[parentChant.id] || {})[activeSubspaceId] || 0
-                          return (
-                            <div className="animate-subspaceExpand -mx-3 -mb-3 border-t border-accent/30" style={{ height: 'calc(100vh - 160px)' }}>
-                              <IdeaSubspace
-                                ideaId={activeSubspaceId}
-                                onClose={() => { setActiveSubspaceId(null); setDockedIdeaId(null) }}
-                                onNavigateToSubspace={(id) => { setActiveSubspaceId(id); setDockedIdeaId(id) }}
-                                bookmarks={bookmarks}
-                                xp={xpVal}
-                                onXpChange={parentChant.phase === 'VOTING' ? (val) => handleXpChange(parentChant.id, activeSubspaceId, val) : undefined}
-                                flashDocks={flashDocks}
-                              />
-                            </div>
-                          )
-                        })()}
-
-                        {/* Share link */}
-                        {!activeSubspaceId && (
-                        <div className="mt-3 pt-2.5 border-t border-border/20 flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-accent/70 truncate flex-1">
-                            unitychant.com/{chant.question.replace(/[^a-zA-Z0-9\s]/g, '').trim().replace(/\s+/g, '-').slice(0, 40).replace(/-$/, '')}
-                          </span>
-                          <button
-                            onClick={() => handleShareLink(chant)}
-                            data-interactive
-                            className="shrink-0 px-2 py-1 text-[10px] font-mono rounded border border-accent/30 text-accent hover:bg-accent/10 transition-colors"
-                          >
-                            {linkCopied === chant.id ? 'Copied!' : 'Share'}
-                          </button>
-                        </div>
-                        )}
-
-                        {/* ── MANAGE PANEL — creator only ── */}
-                        {chant.isCreator && !activeSubspaceId && (
-                          <div className="mt-3 pt-2.5 border-t border-border/20">
-                            <div className="flex items-center gap-1.5 mb-2">
-                              <svg className="w-3 h-3 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                              <span className="text-[10px] font-mono text-accent uppercase tracking-wider">Manage</span>
+                            <div className="flex items-center gap-3 mb-3 text-xs font-mono text-muted-light">
+                              <span>{fmt(detail.memberCount)} joined</span>
+                              <span>{fmt(detail.ideaCount)} ideas</span>
+                              <span>{detail.cells.length} cells</span>
                             </div>
                             <div className="grid grid-cols-2 gap-1.5">
-                              {chant.phase === 'SUBMISSION' && (
-                                <button data-interactive className="px-2.5 py-2 rounded border border-warning/30 bg-warning/8 text-warning text-[11px] font-mono hover:bg-warning/15 transition-colors text-left">
-                                  Start Voting
+                              {detail.phase === 'SUBMISSION' && (
+                                <button
+                                  data-interactive
+                                  onClick={handleStartVoting}
+                                  disabled={startingVoting}
+                                  className="px-2.5 py-2.5 rounded border border-warning/30 bg-warning/8 text-warning text-xs font-mono hover:bg-warning/15 transition-colors text-left disabled:opacity-50"
+                                >
+                                  {startingVoting ? 'Starting...' : detail.ideaCount < 2 ? `Start Voting (${detail.ideaCount} idea${detail.ideaCount === 1 ? '' : 's'})` : 'Start Voting'}
                                 </button>
                               )}
-                              {chant.phase === 'VOTING' && (
-                                <button data-interactive className="px-2.5 py-2 rounded border border-success/30 bg-success/8 text-success text-[11px] font-mono hover:bg-success/15 transition-colors text-left">
+                              {detail.phase === 'VOTING' && (
+                                <button data-interactive className="px-2.5 py-2.5 rounded border border-success/30 bg-success/8 text-success text-xs font-mono hover:bg-success/15 transition-colors text-left">
                                   Advance Tier
                                 </button>
                               )}
-                              <button data-interactive onClick={() => handleShareLink(chant)} className="px-2.5 py-2 rounded border border-accent/30 bg-accent/8 text-accent text-[11px] font-mono hover:bg-accent/15 transition-colors text-left">
-                                Invite
-                              </button>
-                              <button data-interactive onClick={() => window.location.href = `/chants/${chant.id}/analytics`} className="px-2.5 py-2 rounded border border-border/40 bg-surface/50 text-muted-light text-[11px] font-mono hover:text-foreground hover:bg-surface transition-colors text-left">
+                              <ShareMenu url={`/?dock=${chant.id}`} text={chant.question} />
+                              <button data-interactive onClick={() => window.location.href = `/chants/${chant.id}/analytics`} className="px-2.5 py-2.5 rounded border border-border/40 bg-surface/50 text-muted-light text-xs font-mono hover:text-foreground hover:bg-surface transition-colors text-left">
                                 Analytics
                               </button>
-                              <button data-interactive className="px-2.5 py-2 rounded border border-error/30 bg-error/8 text-error/70 text-[11px] font-mono hover:bg-error/15 hover:text-error transition-colors text-left">
-                                Close
+                              <button data-interactive className="px-2.5 py-2.5 rounded border border-error/30 bg-error/8 text-error/70 text-xs font-mono hover:bg-error/15 hover:text-error transition-colors text-left">
+                                Close Chant
                               </button>
                             </div>
-                            <div className="mt-2 flex items-center gap-3 text-[10px] font-mono text-muted-light">
-                              <span>{fmt(chant.participants)} joined</span>
-                              <span>{fmt(chant.ideas)} ideas</span>
-                              <span>{chant.cells} cells</span>
-                            </div>
+                            {manageMsg && (
+                              <div className={`mt-2 px-2.5 py-2 rounded text-xs font-mono ${manageMsg.type === 'error' ? 'bg-error/10 text-error border border-error/20' : 'bg-success/10 text-success border border-success/20'}`}>
+                                {manageMsg.text}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1026,30 +2958,53 @@ function ChantsPageContent() {
               )
             })}
           </div>
+          )}
 
-          {filteredChants.length === 0 && (
-            <div className="text-center py-16 text-muted-light text-sm">No chants found.</div>
+          {!feedLoading && filteredChants.length === 0 && (
+            <div className="text-center py-16 text-muted-light text-sm">
+              {feedError ? `Error loading chants: ${feedError}` : 'No chants found.'}
+            </div>
           )}
 
           <div className="h-32" />
         </div>
+        )}
 
-        {/* ── BOTTOM BAR — drag nav + confirm button ── */}
+        {/* BOTTOM BAR */}
         {(() => {
+          const isDocked = !!dockedPostId || !!activeSubspaceId
           const hasTextInput = pendingInput.trim().length > 0 && pendingInputType
-          const hasVoteReady = dockedPostId && dockedPostId !== '__create_chant__' ? getXpTotal(dockedPostId) === 10 : false
-          const hasCreateReady = createMode && createQuestion.trim().length >= 2
-          const showBar = isDraggingDockstar || hasTextInput || hasVoteReady || hasCreateReady || footerPinned
-          const confirmLabel = hasCreateReady && !hasTextInput ? (creating ? 'Creating...' : 'Launch Chant') : hasVoteReady && !hasTextInput ? 'Submit Vote' : pendingInputType === 'idea' ? 'Submit Idea' : pendingInputType === 'comment' ? 'Post Comment' : pendingInputType === 'chat' ? 'Send Message' : pendingInputType === 'challenge' ? 'Submit Challenge' : 'Confirm'
+          const hasVoteReady = dockedPostId && dockedPostId !== '__create_chant__' && canVote ? getXpTotal(dockedPostId) === 10 : false
+          const hasGroupChantCreate = groupCreateOpen && dockedPostId?.startsWith('group:') && groupCreateQuestion.trim().length >= 2
+          const hasCreateReady = hasGroupChantCreate || (createMode && (
+            activeTab === 'podiums' ? createPodiumTitle.trim().length > 0
+            : activeTab === 'groups' ? createGroupName.trim().length > 0
+            : createQuestion.trim().length >= 2
+          ))
+          const hasConfirm = hasTextInput || hasVoteReady || hasCreateReady
+          // Show nav bar when undocked (always), show confirm bar when docked with pending action
+          const showBar = !isDocked || hasConfirm
+          const confirmLabel = hasCreateReady && !hasTextInput
+            ? (hasGroupChantCreate ? (groupCreating ? 'Creating...' : 'Launch Chant')
+              : creating ? 'Creating...'
+              : activeTab === 'podiums' ? 'Publish Podium'
+              : activeTab === 'groups' ? 'Create Group'
+              : 'Launch Chant')
+            : hasVoteReady && !hasTextInput ? (submittingVote ? 'Submitting...' : 'Submit Vote')
+            : pendingInputType === 'idea' ? (submittingIdea ? 'Submitting...' : 'Submit Idea')
+            : pendingInputType === 'comment' ? 'Post Comment'
+            : pendingInputType === 'chat' ? 'Send Message'
+            : 'Confirm'
           return (
             <div className={`fixed bottom-0 left-0 right-0 z-[9997] transition-all duration-300 ease-out ${showBar ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none'}`}>
-              <div className="bg-header/95 backdrop-blur-sm border-t border-border/50 px-2 py-2 safe-area-bottom">
-                {/* Confirm button — text input or vote ready */}
-                {(hasTextInput || hasVoteReady || hasCreateReady) && !isDraggingDockstar ? (
+              <div className="bg-header/95 backdrop-blur-sm border-t border-border/50 px-2 py-1.5 safe-area-bottom">
+                {isDocked && hasConfirm ? (
+                  /* Confirm bar (docked with pending action) */
                   <div className="flex items-center gap-2 max-w-md mx-auto px-2">
                     <button
                       onClick={() => {
-                        if (hasCreateReady) { handleUndock() }
+                        if (hasGroupChantCreate) { setGroupCreateOpen(false); setGroupCreateQuestion(''); setGroupCreateDescription(''); setGroupCreateError('') }
+                        else if (hasCreateReady) { handleUndock() }
                         else { setPendingInput(''); setPendingInputType(null); setPendingDockContext(null); if (hasVoteReady && dockedPostId) setXpAllocations(prev => { const next = { ...prev }; delete next[dockedPostId]; return next }) }
                       }}
                       data-interactive
@@ -1059,50 +3014,66 @@ function ChantsPageContent() {
                     </button>
                     <button
                       onClick={() => {
-                        if (hasCreateReady) { handleCreateSubmit() }
+                        if (hasGroupChantCreate) { handleGroupChantCreate() }
+                        else if (hasCreateReady) {
+                          if (activeTab === 'podiums') handlePodiumCreateSubmit()
+                          else if (activeTab === 'groups') handleGroupCreateSubmit()
+                          else handleCreateSubmit()
+                        }
+                        else if (hasVoteReady) { handleVoteSubmit() }
+                        else if (hasTextInput && pendingInputType === 'idea') { handleIdeaSubmit() }
                         else if (hasTextInput) { setPendingInput(''); setPendingInputType(null); setPendingInputTargetId(null); setPendingDockContext(null) }
-                        if (hasVoteReady && dockedPostId) { setXpAllocations(prev => { const next = { ...prev }; delete next[dockedPostId]; return next }) }
                       }}
-                      disabled={hasCreateReady && creating}
+                      disabled={(hasCreateReady && (creating || groupCreating)) || submittingVote || submittingIdea}
                       data-interactive
-                      className="flex-1 py-3 rounded-lg bg-accent text-header font-mono font-bold text-sm shadow-[0_0_16px_rgba(34,211,238,0.4)] hover:bg-accent-hover disabled:opacity-40 transition-colors"
+                      className="flex-1 py-3 rounded-lg text-header font-mono font-bold text-sm disabled:opacity-40 transition-colors"
+                      style={{ backgroundColor: tabAccentColor, boxShadow: `0 0 16px ${tabAccentColor}66` }}
                     >
                       {confirmLabel}
                     </button>
                   </div>
-                ) : (
-                  /* Nav drop circles — during drag or pinned */
-                  <div className="flex items-center justify-around max-w-md mx-auto">
-                    {NAV_ITEMS.map(nav => (
-                      <NavDropCircle key={nav.id} id={nav.id} label={nav.label} icon={nav.icon} isActive={isDraggingDockstar && nearestDrop === nav.id} registerRef={registerDropZone} glowDrag={isDraggingDockstar && nearestDrop !== nav.id} onClick={footerPinned ? () => handleDock(nav.id) : undefined} />
-                    ))}
+                ) : !isDocked ? (
+                  /* Nav bar (always visible when undocked) */
+                  <div className="flex items-center justify-center gap-3 max-w-md mx-auto">
+                    {NAV_ITEMS.map(nav => {
+                      const tabKey = nav.id === '__nav_chants__' ? 'chants' : nav.id === '__nav_podiums__' ? 'podiums' : nav.id === '__nav_groups__' ? 'groups' : null
+                      const navPlayers = tabKey ? getInstancePlayers(`list:${tabKey}`, true).map(p => ({ id: p.id, name: p.name, color: ('isSelf' in p && p.isSelf) ? '#22d3ee' : presenceColor(p.id) })) : undefined
+                      return (
+                        <NavDropCircle key={nav.id} id={nav.id} label={nav.label} icon={nav.icon} isActive={isDraggingDockstar && nearestDrop === nav.id} registerRef={registerDropZone} glowDrag={isDraggingDockstar && nearestDrop !== nav.id} onClick={() => handleDock(nav.id)} color={nav.color} players={navPlayers} />
+                      )
+                    })}
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
           )
         })()}
 
-        {/* ── COMMUNITY VIEWER ── */}
-        {showCommunityViewer && (
-          <div className="fixed inset-0 z-[9990] bg-header/90 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowCommunityViewer(false)}>
-            <div className="bg-surface border border-border rounded-lg max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-serif text-foreground text-sm">Communities</h3>
-                <button onClick={() => setShowCommunityViewer(false)} className="text-muted-light hover:text-foreground">&times;</button>
-              </div>
-              <div className="space-y-1.5">
-                {MOCK_COMMUNITIES.filter(c => c !== 'All').map(c => (
-                  <button key={c} onClick={() => { setSelectedCommunity(c); setShowCommunityViewer(false) }} className="w-full text-left px-3 py-2 rounded bg-header hover:bg-surface-hover border border-border/30 transition-colors">
-                    <div className="text-xs text-foreground">{c}</div>
-                    <div className="text-[10px] text-muted-light font-mono">{MOCK_CHANTS.filter(ch => ch.community === c).length} chants</div>
-                  </button>
-                ))}
+        {/* INACTIVITY KICKED POPUP */}
+        {kickedMessage && (
+          <div className="fixed inset-0 z-[9995] bg-header/80 backdrop-blur-sm flex items-end justify-center p-4 pb-24" onClick={() => setKickedMessage(false)}>
+            <div className="bg-surface border border-warning/30 rounded-lg max-w-sm w-full p-4 shadow-[0_0_24px_rgba(245,158,11,0.15)]" onClick={e => e.stopPropagation()}>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-full bg-warning/15 border border-warning/30 flex items-center justify-center shrink-0">
+                  <svg className="w-4 h-4 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-mono text-warning font-bold mb-1">Timed out</div>
+                  <div className="text-xs text-foreground/70 leading-relaxed">You were removed from the cell due to 10 minutes of inactivity. Dock back in to rejoin.</div>
+                </div>
+                <button
+                  data-interactive
+                  onClick={() => setKickedMessage(false)}
+                  className="text-muted-light hover:text-foreground text-lg leading-none shrink-0"
+                >
+                  &times;
+                </button>
               </div>
             </div>
           </div>
         )}
-      </div>{/* end feed */}
+
+      </div>
 
 
       <style jsx global>{`

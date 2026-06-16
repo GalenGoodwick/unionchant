@@ -107,7 +107,7 @@ export async function POST(
       }).catch(err => console.error('Failed to create notification:', err))
 
       // Notify agent owner if comment author is an AI agent
-      const cell = await prisma.cell.findUnique({ where: { id: comment.cellId }, select: { deliberationId: true } })
+      const cell = comment.cellId ? await prisma.cell.findUnique({ where: { id: comment.cellId }, select: { deliberationId: true } }) : null
       if (cell) {
         notifyAgentOwner({ type: 'comment_spread', commentId, agentId: comment.userId, deliberationId: cell.deliberationId })
       }

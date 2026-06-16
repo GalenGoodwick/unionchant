@@ -158,7 +158,7 @@ export async function GET(
       createdAt: comment.createdAt,
       upvoteCount: comment.upvoteCount,
       reachTier: comment.reachTier,
-      sourceTier: comment.cell.tier,
+      sourceTier: comment.cell?.tier ?? 0,
       userHasUpvoted: currentUserId ? (Array.isArray(comment.upvotes) && comment.upvotes.length > 0) : false,
       user: {
         id: comment.user.id,

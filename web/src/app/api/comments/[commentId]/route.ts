@@ -47,7 +47,7 @@ export async function DELETE(
 
     // Permission check: comment author, deliberation creator, or moderator/admin
     const isAuthor = comment.userId === user.id
-    const isDelibCreator = comment.cell.deliberation.creatorId === user.id
+    const isDelibCreator = comment.cell?.deliberation.creatorId === user.id
     const isMod = await isModerator(user.email)
 
     if (!isAuthor && !isDelibCreator && !isMod) {
@@ -87,7 +87,7 @@ export async function DELETE(
           type: 'CONTENT_REMOVED',
           title: 'Comment removed',
           body: 'Your comment was removed by a moderator.',
-          deliberationId: comment.cell.deliberation.id,
+          deliberationId: comment.cell?.deliberation.id,
           cellId: comment.cellId,
           commentId: comment.id,
         },

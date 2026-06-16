@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Comment not found' }, { status: 404 })
     }
 
-    if (comment.cell.deliberationId !== id) {
+    if (comment.cell?.deliberationId !== id) {
       return NextResponse.json({ error: 'Comment does not belong to this chant' }, { status: 400 })
     }
 

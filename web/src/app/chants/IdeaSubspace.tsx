@@ -1,205 +1,293 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { getSubspace } from './subspace-data'
-import type { SubspaceMessage } from './subspace-data'
+
+interface SubspaceComment {
+  id: string
+  text: string
+  ideaId: string | null
+  createdAt: string
+  upvoteCount: number
+  userHasUpvoted: boolean
+  user: { id: string; name: string | null; image: string | null }
+}
+
+interface PresencePlayer {
+  id: string
+  name: string
+  color: string
+  rx?: number
+  ry?: number
+  isSelf?: boolean
+}
 
 interface IdeaSubspaceProps {
   ideaId: string
+  deliberationId: string
+  ideaText?: string
+  ideaAuthor?: string
   onClose: () => void
   onNavigateToSubspace: (ideaId: string) => void
   bookmarks: string[]
   xp?: number
   onXpChange?: (value: number) => void
   flashDocks?: boolean
+  players?: PresencePlayer[]
+  onMovePosition?: (rx: number, ry: number)  => void
+  /** Override API endpoint for comments (GET returns {comments}, POST accepts {text}) */
+  commentEndpoint?: string
+  /** Accent color override for input focus (default: cyan) */
+  accentColor?: string
+}
+
+const POLL_INTERVAL = 10_000
+
+// Stable color from user name
+function nameColor(name: string): string {
+  const colors = ['#f97316', '#34d399', '#a78bfa', '#38bdf8', '#fbbf24', '#f472b6', '#22c55e', '#6366f1', '#ef4444', '#0ea5e9']
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0
+  return colors[Math.abs(hash) % colors.length]
+}
+
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diffMs = now - then
+  const diffMin = Math.floor(diffMs / 60_000)
+  if (diffMin < 1) return 'now'
+  if (diffMin < 60) return `${diffMin}m ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr}h ago`
+  const diffDay = Math.floor(diffHr / 24)
+  return `${diffDay}d ago`
 }
 
 export default function IdeaSubspace({
   ideaId,
+  deliberationId,
+  ideaText,
+  ideaAuthor,
   onClose,
   onNavigateToSubspace,
   bookmarks,
   xp = 0,
   onXpChange,
   flashDocks,
+  players = [],
+  onMovePosition,
+  commentEndpoint,
+  accentColor,
 }: IdeaSubspaceProps) {
-  const subspace = getSubspace(ideaId)
+  const [comments, setComments] = useState<SubspaceComment[]>([])
+  const [loading, setLoading] = useState(true)
   const [chatInput, setChatInput] = useState('')
-  const [localMessages, setLocalMessages] = useState<SubspaceMessage[]>([])
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const isInitialLoad = useRef(true)
+  const mountedRef = useRef(true)
 
-  // Reset messages when switching subspaces
-  useEffect(() => {
-    setLocalMessages(subspace?.messages || [])
-    setChatInput('')
-  }, [ideaId, subspace])
-
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [localMessages])
-
-  const handleSend = useCallback(() => {
-    const text = chatInput.trim()
-    if (!text) return
-    const msg: SubspaceMessage = {
-      id: `local-${Date.now()}`,
-      author: 'You',
-      authorColor: '#22d3ee',
-      text,
-      time: 'now',
+  const fetchComments = useCallback(async () => {
+    try {
+      const url = commentEndpoint || `/api/deliberations/${deliberationId}/flat-comments`
+      const res = await fetch(url)
+      if (!res.ok) return
+      const data = await res.json()
+      if (!mountedRef.current) return
+      if (commentEndpoint) {
+        // Custom endpoint — accept both {comments} and {messages} keys
+        setComments(data.comments || data.messages || [])
+      } else {
+        // Filter to this idea's comments
+        const filtered = (data.comments || []).filter(
+          (c: SubspaceComment) => c.ideaId === ideaId
+        )
+        setComments(filtered)
+      }
+    } catch {
+      // silent
+    } finally {
+      if (mountedRef.current) setLoading(false)
     }
-    setLocalMessages(prev => [...prev, msg])
-    setChatInput('')
-    inputRef.current?.focus()
-  }, [chatInput])
+  }, [deliberationId, ideaId, commentEndpoint])
 
-  if (!subspace) {
+  // Fetch on mount / ideaId change
+  useEffect(() => {
+    mountedRef.current = true
+    isInitialLoad.current = true
+    setLoading(true)
+    setComments([])
+    setChatInput('')
+    fetchComments()
+    return () => { mountedRef.current = false }
+  }, [fetchComments])
+
+  // Poll for new comments
+  useEffect(() => {
+    const timer = setInterval(fetchComments, POLL_INTERVAL)
+    return () => clearInterval(timer)
+  }, [fetchComments])
+
+  // Scroll to bottom
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: isInitialLoad.current ? 'instant' : 'smooth' })
+    isInitialLoad.current = false
+  }, [comments])
+
+  const handleSend = useCallback(async () => {
+    const text = chatInput.trim()
+    if (!text || sending) return
+    setSending(true)
+    setSendError(null)
+    try {
+      const url = commentEndpoint || `/api/deliberations/${deliberationId}/flat-comments`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(commentEndpoint ? { text } : { text, ideaId }),
+      })
+      if (res.ok) {
+        const newComment = await res.json()
+        setComments(prev => [...prev, newComment])
+        setChatInput('')
+        inputRef.current?.focus()
+      } else {
+        const data = await res.json().catch(() => ({}))
+        setSendError(data.error || 'Failed to send message')
+      }
+    } catch {
+      setSendError('Network error')
+    } finally {
+      setSending(false)
+    }
+  }, [chatInput, sending, deliberationId, ideaId, commentEndpoint])
+
+  if (loading) {
     return (
-      <div className="flex flex-col h-full bg-header items-center justify-center">
-        <div className="text-muted-light text-sm font-mono">Subspace not found</div>
-        <button onClick={onClose} className="mt-3 text-accent text-xs font-mono hover:underline">Back</button>
+      <div className="flex flex-col h-full items-center justify-center">
+        <div className="text-muted-light text-sm font-mono animate-pulse">Loading subspace...</div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-full bg-header">
-      {/* ── HEADER ── */}
-      <div className="px-3 py-3 bg-surface/30 border-b border-border/30 shrink-0">
-        <h3 className="font-serif text-sm text-foreground leading-snug mb-1">{subspace.ideaText}</h3>
-        <div className="flex items-center gap-1.5 text-[10px] font-mono text-muted-light">
-          <span className="text-accent">{subspace.ideaAuthor}</span>
-          <span className="text-muted-light/40">&middot;</span>
-          <span>Tier {subspace.highestTier}</span>
-          <span className="text-muted-light/40">&middot;</span>
-          <span>{subspace.xpAccumulated} XP</span>
-          <span className="text-muted-light/40">&middot;</span>
-          <span>{subspace.members.length} members</span>
-        </div>
-        {/* ── XP STARS ── */}
-        {onXpChange && (
-          <div className="flex items-center gap-1 mt-2">
+    <div className="flex flex-col h-full">
+      {/* XP STARS -- only in voting phase */}
+      {onXpChange && (
+        <div className="px-3 py-2 border-y border-border/20 shrink-0">
+          <div className="flex items-center gap-1">
             <div className="flex items-center gap-1 flex-1">
               {Array.from({ length: 10 }, (_, i) => (
                 <div
                   key={i}
                   onClick={() => onXpChange(xp === i + 1 ? 0 : i + 1)}
-                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${flashDocks ? 'animate-flash-gold' : ''} ${i < xp ? 'border-[#f59e0b] bg-[#f59e0b]/20 shadow-[0_0_8px_rgba(245,158,11,0.4)]' : 'border-accent/40 bg-accent/5 shadow-[0_0_4px_rgba(34,211,238,0.15)]'}`}
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center cursor-pointer transition-all duration-200 ${i < xp ? 'border-accent bg-accent/20 shadow-[0_0_8px_rgba(34,211,238,0.4)]' : 'border-border/30 bg-transparent hover:border-muted-light/50'} ${flashDocks ? 'animate-flash-gold' : ''}`}
                 >
-                  <svg className={`w-2.5 h-2.5 transition-colors ${i < xp ? 'fill-[#f59e0b]' : 'fill-accent/30'}`} viewBox="0 0 24 24">
-                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+                  <svg className={`w-2.5 h-2.5 transition-colors ${i < xp ? 'fill-accent' : 'fill-muted-light/20'}`} viewBox="0 0 24 24">
+                    <path d="M4 4l7.07 17 2.51-7.39L21 11.07z" />
                   </svg>
                 </div>
               ))}
             </div>
-            <span className="text-2xl font-mono font-bold text-[#f59e0b]">{xp}</span>
-          </div>
-        )}
-      </div>
-
-      {/* ── MEMBERS BAR ── */}
-      <div className="px-3 py-2 border-b border-border/20 shrink-0">
-        <div className="flex items-center gap-2 mb-1.5">
-          <div className="text-[9px] font-mono text-muted-light/50 uppercase tracking-wider">Members</div>
-          <button
-            data-interactive
-            className="ml-auto px-2 py-0.5 rounded border border-accent/30 text-[9px] font-mono text-accent hover:bg-accent/10 transition-colors"
-          >
-            + Invite
-          </button>
-        </div>
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-          {subspace.members.map(member => (
-            <div key={member.id} className="flex items-center gap-1 shrink-0">
-              <div
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: member.color }}
-              />
-              <span className="text-[9px] font-mono text-muted-light whitespace-nowrap">
-                {member.name}
-              </span>
-              {member.role === 'founder' && (
-                <svg className="w-2 h-2 fill-gold shrink-0" viewBox="0 0 24 24">
-                  <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
-                </svg>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── PORTALS ── */}
-      {subspace.portals.length > 0 && (
-        <div className="px-3 py-2 border-b border-border/20 shrink-0">
-          <div className="text-[9px] font-mono text-muted-light/50 uppercase tracking-wider mb-1.5">Portals</div>
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
-            {subspace.portals.map(portal => (
-              <button
-                key={portal.targetIdeaId}
-                onClick={() => onNavigateToSubspace(portal.targetIdeaId)}
-                data-interactive
-                className="flex items-center gap-1 px-2 py-1 bg-accent/8 border border-accent/20 rounded text-[10px] font-mono text-accent hover:bg-accent/15 hover:border-accent/40 transition-colors shrink-0 max-w-[200px]"
-              >
-                <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                </svg>
-                <span className="truncate">{portal.targetIdeaText}</span>
-              </button>
-            ))}
+            <span className={`text-xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
           </div>
         </div>
       )}
 
-      {/* ── CHAT FEED ── */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-        {localMessages.map(msg => (
-          <div key={msg.id}>
-            {msg.isPortal ? (
-              // Portal link message
-              <div className="flex items-start gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: msg.authorColor }} />
-                <div className="min-w-0">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-[10px] font-mono font-bold" style={{ color: msg.authorColor }}>{msg.author}</span>
-                    <span className="text-[9px] text-muted-light/40">{msg.time}</span>
-                  </div>
-                  <div className="text-xs text-muted-light mb-1">{msg.text}</div>
-                  <button
-                    onClick={() => onNavigateToSubspace(msg.isPortal!)}
-                    data-interactive
-                    className="flex items-center gap-1 px-2 py-1 bg-accent/8 border border-accent/20 rounded text-[10px] font-mono text-accent hover:bg-accent/15 transition-colors"
-                  >
-                    <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                    </svg>
-                    <span className="truncate max-w-[180px]">
-                      {getSubspace(msg.isPortal!)?.ideaText.slice(0, 40) || msg.isPortal}...
-                    </span>
-                  </button>
+      {/* CHAT AREA — eyes overlay + scrollable messages */}
+      <div
+        className="relative flex-1 overflow-hidden"
+        onClick={(e) => {
+          if (!onMovePosition) return
+          if ((e.target as HTMLElement).closest('[data-chat-msg], input, button, [data-interactive]')) return
+          const rect = e.currentTarget.getBoundingClientRect()
+          onMovePosition(
+            Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width)),
+            Math.max(0.05, Math.min(0.95, (e.clientY - rect.top) / rect.height))
+          )
+        }}
+        onPointerDown={(e) => {
+          if (!onMovePosition) return
+          if ((e.target as HTMLElement).closest('[data-chat-msg], input, button, [data-interactive]')) return
+          e.preventDefault()
+          const el = e.currentTarget
+          const onMove = (ev: PointerEvent) => {
+            const rect = el.getBoundingClientRect()
+            onMovePosition(
+              Math.max(0.05, Math.min(0.95, (ev.clientX - rect.left) / rect.width)),
+              Math.max(0.05, Math.min(0.95, (ev.clientY - rect.top) / rect.height))
+            )
+          }
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+          }
+          window.addEventListener('pointermove', onMove)
+          window.addEventListener('pointerup', onUp)
+        }}
+      >
+        {/* Player eyes */}
+        {players.map(p => {
+          const color = p.isSelf ? '#22d3ee' : nameColor(p.name)
+          const x = (p.rx ?? 0.5) * 100
+          const y = (p.ry ?? 0.5) * 100
+          return (
+            <div
+              key={`eye-${p.id}`}
+              className="absolute pointer-events-none"
+              style={{
+                left: `${x}%`,
+                top: `${y}%`,
+                transform: 'translate(-50%, -50%)',
+                transition: p.isSelf ? 'none' : 'left 0.15s linear, top 0.15s linear',
+                filter: `drop-shadow(0 0 4px ${color}80)`,
+                zIndex: p.isSelf ? 10 : 5,
+              }}
+              title={p.name}
+            >
+              <svg width="14" height="10" viewBox="0 0 20 14" fill="none">
+                <path d="M10 0C4 0 0 7 0 7s4 7 10 7 10-7 10-7S16 0 10 0z" fill="#e2e8f0" stroke={color} strokeWidth="1.5" />
+                <ellipse cx="10" cy="7" rx="3.5" ry="3.5" fill={color} />
+                <ellipse cx="10" cy="7" rx="1.5" ry="1.5" fill="#020617" />
+              </svg>
+            </div>
+          )
+        })}
+
+        {/* Scrollable chat messages */}
+        <div className="absolute inset-0 overflow-y-auto px-3 py-3 space-y-3 z-0">
+          {comments.length === 0 && !loading && (
+            <div className="text-center py-8 text-muted-light/50 text-sm font-mono">
+              No messages yet. Start the conversation.
+            </div>
+          )}
+          {comments.map(comment => {
+            const authorName = comment.user?.name || 'Anonymous'
+            const color = nameColor(authorName)
+            return (
+              <div key={comment.id} data-chat-msg>
+                <div className="flex items-baseline gap-1.5 mb-0.5">
+                  <div className="w-1.5 h-1.5 rounded-full shrink-0 translate-y-[-1px]" style={{ backgroundColor: color }} />
+                  <span className="text-xs font-mono font-bold" style={{ color }}>{authorName}</span>
+                  <span className="text-[9px] text-muted-light/30">{relativeTime(comment.createdAt)}</span>
+                </div>
+                <div className="pl-3">
+                  <div className="text-sm text-foreground/80 leading-relaxed">{comment.text}</div>
                 </div>
               </div>
-            ) : (
-              // Regular message
-              <div className="flex items-start gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: msg.authorColor }} />
-                <div className="min-w-0">
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-[10px] font-mono font-bold" style={{ color: msg.authorColor }}>{msg.author}</span>
-                    <span className="text-[9px] text-muted-light/40">{msg.time}</span>
-                  </div>
-                  <div className="text-xs text-muted-light leading-relaxed">{msg.text}</div>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-        <div ref={chatEndRef} />
+            )
+          })}
+          <div ref={chatEndRef} />
+        </div>
       </div>
 
-      {/* ── MESSAGE INPUT ── */}
-      <div className="px-3 py-2 border-t border-border/30 shrink-0 safe-area-bottom">
+      {/* MESSAGE INPUT — spans full viewport width */}
+      <div className="shrink-0 bg-header border-t border-border/30 px-3 py-2" style={{ marginLeft: 'calc(-50vw + 50%)', marginRight: 'calc(-50vw + 50%)', paddingLeft: 'max(0.75rem, calc(50vw - 336px))', paddingRight: 'max(0.75rem, calc(50vw - 336px))' }}>
+        {sendError && (
+          <div className="text-error text-xs font-mono mb-1 px-1">{sendError}</div>
+        )}
         <div className="flex gap-2">
           <input
             ref={inputRef}
@@ -208,13 +296,19 @@ export default function IdeaSubspace({
             onChange={e => setChatInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSend() }}
             placeholder="Message this subspace..."
-            className="flex-1 bg-surface border-2 border-border/30 rounded px-3 py-2.5 text-sm text-foreground placeholder:text-muted-light/40 outline-none focus:border-accent focus:shadow-[0_0_12px_rgba(8,145,178,0.15)] transition-all"
+            autoFocus
+            disabled={sending}
+            className={`flex-1 bg-surface border-2 border-border/30 rounded px-3 py-2.5 text-sm text-foreground placeholder:text-muted-light/40 outline-none transition-all disabled:opacity-50 ${!accentColor ? 'focus:border-[#f59e0b] focus:shadow-[0_0_12px_rgba(245,158,11,0.2)] focus:placeholder:text-[#f59e0b]/40' : ''}`}
+            style={accentColor ? { '--focus-color': accentColor } as React.CSSProperties : undefined}
+            onFocus={accentColor ? (e) => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.boxShadow = `0 0 12px ${accentColor}33` } : undefined}
+            onBlur={accentColor ? (e) => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = '' } : undefined}
           />
           <button
             onClick={handleSend}
-            disabled={!chatInput.trim()}
+            disabled={!chatInput.trim() || sending}
             data-interactive
-            className="px-3 py-2.5 rounded bg-accent/20 border border-accent/40 text-accent text-sm font-mono hover:bg-accent/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            className={accentColor ? "px-3 py-2.5 rounded text-sm font-mono disabled:opacity-30 disabled:cursor-not-allowed transition-colors" : "px-3 py-2.5 rounded bg-accent/20 border border-accent/40 text-accent text-sm font-mono hover:bg-accent/30 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"}
+            style={accentColor ? { backgroundColor: `${accentColor}33`, border: `1px solid ${accentColor}66`, color: accentColor } : undefined}
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />

@@ -455,9 +455,9 @@ export async function upvoteComment(
     testProgress.upvotesGiven++
 
     // Check for up-pollination (60% threshold)
-    const cellParticipantCount = comment.cell.participants.length
+    const cellParticipantCount = comment.cell?.participants.length ?? 0
     const threshold = Math.ceil(cellParticipantCount * 0.6)
-    const maxReachTier = comment.cell.deliberation.currentTier + 1
+    const maxReachTier = (comment.cell?.deliberation.currentTier ?? 0) + 1
 
     if (updated.upvoteCount >= threshold && updated.reachTier < maxReachTier) {
       // Up-pollinate!

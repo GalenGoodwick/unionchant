@@ -12,7 +12,7 @@ planning/
 
 # Root-level artifacts (app is in web/)
 node_modules/
-package.json
-package-lock.json
+/package.json
+/package-lock.json
 .env.check
 .env.verify

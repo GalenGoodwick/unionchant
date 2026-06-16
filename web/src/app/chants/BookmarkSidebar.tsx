@@ -1,7 +1,5 @@
 'use client'
 
-import { getSubspace } from './subspace-data'
-
 interface BookmarkSidebarProps {
   bookmarks: string[]
   activeSubspaceId: string | null
@@ -23,7 +21,6 @@ export default function BookmarkSidebar({
         Spaces
       </div>
       {bookmarks.map(ideaId => {
-        const sub = getSubspace(ideaId)
         const isActive = activeSubspaceId === ideaId
         return (
           <div key={ideaId} className="relative group">
@@ -35,7 +32,7 @@ export default function BookmarkSidebar({
                   ? 'bg-accent/20 border-2 border-accent shadow-[0_0_8px_rgba(34,211,238,0.4)]'
                   : 'bg-transparent border-2 border-border/30 hover:border-accent/40 hover:bg-accent/5'
               }`}
-              title={sub?.ideaText.slice(0, 40)}
+              title={ideaId.slice(0, 8)}
             >
               <svg
                 className={`w-3 h-3 transition-colors ${isActive ? 'fill-accent' : 'fill-muted-light/40 group-hover:fill-accent/60'}`}
@@ -44,13 +41,6 @@ export default function BookmarkSidebar({
                 <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
               </svg>
             </button>
-            {/* Tooltip on hover */}
-            <div className="absolute left-9 top-1/2 -translate-y-1/2 hidden group-hover:flex items-center z-[77] pointer-events-none">
-              <div className="bg-surface border border-border/50 rounded px-2 py-1 shadow-xl max-w-[180px]">
-                <div className="text-[9px] font-mono text-foreground truncate">{sub?.ideaText.slice(0, 50)}</div>
-                <div className="text-[8px] font-mono text-muted-light/50">{sub?.members.length} members</div>
-              </div>
-            </div>
             {/* Remove button on hover */}
             <button
               onClick={(e) => { e.stopPropagation(); onRemove(ideaId) }}

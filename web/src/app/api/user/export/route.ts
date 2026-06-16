@@ -124,8 +124,8 @@ export async function GET() {
       })),
       comments: user.comments.map(c => ({
         text: c.text,
-        tier: c.cell.tier,
-        deliberationId: c.cell.deliberationId,
+        tier: c.cell?.tier ?? 0,
+        deliberationId: c.cell?.deliberationId ?? '',
         createdAt: c.createdAt,
       })),
       watching: user.watches.map(w => ({

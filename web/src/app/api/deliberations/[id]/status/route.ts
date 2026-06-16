@@ -3,6 +3,7 @@ import { resolveSimulatorUser } from '@/lib/simulator-auth'
 import { prisma } from '@/lib/prisma'
 import { cached } from '@/lib/cache'
 import { recordView, removeView } from '@/lib/viewers'
+import { checkDeliberationAccess } from '@/lib/privacy'
 
 const FCFS_CELL_SIZE = 5
 
@@ -15,13 +16,20 @@ export async function GET(
     const { id } = await params
     const auth = await resolveSimulatorUser(req)
     const userId = auth.authenticated ? auth.user.id : null
+    const userEmail = auth.authenticated ? auth.user.email : null
+
+    // Private chant access control — returns 404 to avoid leaking existence
+    const access = await checkDeliberationAccess(id, userEmail)
+    if (!access.allowed) {
+      return NextResponse.json({ error: 'Chant not found' }, { status: 404 })
+    }
 
     // Record viewer presence (outside cache — fires every poll)
     recordView(id, userId || req.headers.get('x-forwarded-for') || 'anon')
 
     const body = await cached(`status:${id}:${userId || 'anon'}`, 3_000, async () => {
       // Single parallel fan-out: main query + votedTiers
-      const [deliberation, votedParticipations, allParticipations] = await Promise.all([
+      const [deliberation, votedParticipations, allParticipations, myIdea] = await Promise.all([
         prisma.deliberation.findUnique({
           where: { id },
           include: {
@@ -85,6 +93,13 @@ export async function GET(
               select: { cellId: true },
             })
           : Promise.resolve([]),
+        userId
+          ? prisma.idea.findFirst({
+              where: { deliberationId: id, authorId: userId },
+              select: { id: true, text: true },
+              orderBy: { createdAt: 'desc' },
+            })
+          : Promise.resolve(null),
       ])
 
       if (!deliberation) return null
@@ -195,6 +210,7 @@ export async function GET(
         ideaGoal: deliberation.ideaGoal,
         memberGoal: deliberation.memberGoal,
         myCellIds: allParticipations.map(p => p.cellId),
+        myIdea: myIdea ? { id: myIdea.id, text: myIdea.text } : null,
       }
     })
 

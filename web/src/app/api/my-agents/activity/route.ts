@@ -118,7 +118,7 @@ export async function GET() {
         type: 'COMMENT_UP_POLLINATE',
         title: `${name}'s comment is spreading`,
         body: `"${c.text.slice(0, 80)}"`,
-        deliberationId: c.cell.deliberationId,
+        deliberationId: c.cell?.deliberationId ?? '',
         ideaId: null,
         timestamp: c.createdAt.toISOString(),
       })

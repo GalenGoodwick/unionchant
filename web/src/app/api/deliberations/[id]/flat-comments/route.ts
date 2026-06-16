@@ -13,10 +13,17 @@ export async function GET(
     const auth = await resolveSimulatorUser(req)
     const currentUserId = auth.authenticated ? auth.user.id : null
 
+    // Find comments: either attached to a cell in this deliberation,
+    // or cellId is null but ideaId belongs to an idea in this deliberation
+    const deliberationIdeas = await prisma.idea.findMany({
+      where: { deliberationId: id },
+      select: { id: true },
+    })
+    const ideaIds = deliberationIdeas.map(i => i.id)
+
     const comments = await prisma.comment.findMany({
       where: {
-        cell: { deliberationId: id },
-        ideaId: { not: null },
+        ideaId: { in: ideaIds },
       },
       orderBy: { createdAt: 'asc' },
       include: {
@@ -100,7 +107,7 @@ export async function POST(
       return NextResponse.json({ error: 'Idea not found in this chant' }, { status: 400 })
     }
 
-    // Find user's cell (any status)
+    // Find user's cell (any status) — cellId is optional (null during SUBMISSION)
     let cellId: string | null = null
     const participation = await prisma.cellParticipation.findFirst({
       where: {
@@ -114,7 +121,7 @@ export async function POST(
     if (participation) {
       cellId = participation.cellId
     } else {
-      // No cell yet — find any cell to attach to
+      // No cell participation — try to find any cell to attach to
       const anyCell = await prisma.cell.findFirst({
         where: {
           deliberationId: id,
@@ -141,24 +148,31 @@ export async function POST(
           orderBy: { createdAt: 'desc' },
           select: { id: true },
         })
-        if (!fallbackCell) {
-          return NextResponse.json({ error: 'No cells available for commenting' }, { status: 400 })
+        if (fallbackCell) {
+          await prisma.deliberationMember.upsert({
+            where: { deliberationId_userId: { userId: auth.user.id, deliberationId: id } },
+            create: { userId: auth.user.id, deliberationId: id },
+            update: {},
+          })
+          await prisma.cellParticipation.create({
+            data: { cellId: fallbackCell.id, userId: auth.user.id, status: 'ACTIVE' },
+          })
+          cellId = fallbackCell.id
         }
-        await prisma.deliberationMember.upsert({
-          where: { deliberationId_userId: { userId: auth.user.id, deliberationId: id } },
-          create: { userId: auth.user.id, deliberationId: id },
-          update: {},
-        })
-        await prisma.cellParticipation.create({
-          data: { cellId: fallbackCell.id, userId: auth.user.id, status: 'ACTIVE' },
-        })
-        cellId = fallbackCell.id
+        // else: no cells exist (SUBMISSION phase) — cellId stays null, that's fine
       }
     }
 
+    // Ensure user is a member of the deliberation
+    await prisma.deliberationMember.upsert({
+      where: { deliberationId_userId: { userId: auth.user.id, deliberationId: id } },
+      create: { userId: auth.user.id, deliberationId: id },
+      update: {},
+    })
+
     const comment = await prisma.comment.create({
       data: {
-        cellId: cellId!,
+        ...(cellId ? { cellId } : {}),
         userId: auth.user.id,
         text: text.trim(),
         ideaId,

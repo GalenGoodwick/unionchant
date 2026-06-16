@@ -103,19 +103,7 @@ export async function POST(
         throw new Error('CELL_NOT_VOTING')
       }
 
-      // Check voting deadline — use cell-level deadline if set, otherwise deliberation-level
-      if (cell.votingDeadline) {
-        if (new Date(cell.votingDeadline) < new Date()) {
-          throw new Error('DEADLINE_PASSED')
-        }
-      } else if (cell.deliberation.currentTierStartedAt && cell.deliberation.votingTimeoutMs > 0) {
-        const deadline = new Date(
-          cell.deliberation.currentTierStartedAt.getTime() + cell.deliberation.votingTimeoutMs
-        )
-        if (deadline < new Date()) {
-          throw new Error('DEADLINE_PASSED')
-        }
-      }
+      // Voting deadlines removed — votes accepted any time while cell is VOTING
 
       // Check all ideas are in this cell
       const cellIdeaIds = new Set(cell.ideas.map((ci: { ideaId: string }) => ci.ideaId))
