@@ -7,7 +7,6 @@ const pages = [
   { section: 'Main', links: [
     { href: '/chants', label: 'Chants (Home)' },
     { href: '/podiums', label: 'Podiums' },
-    { href: '/podium/new', label: 'New Podium' },
     { href: '/groups', label: 'Groups' },
     { href: '/groups/new', label: 'New Group' },
     { href: '/humans', label: 'Humans' },
