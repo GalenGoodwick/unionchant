@@ -95,8 +95,7 @@ export async function POST(
         data: { status: 'IN_VOTING', tier: 1 },
       })
 
-      const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-      const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
+      const cellStatus = 'VOTING' as const
 
       await prisma.cell.create({
         data: {

@@ -309,7 +309,7 @@ export async function startVotingPhase(deliberationId: string) {
   const existingActiveCells = await prisma.cell.findMany({
     where: {
       deliberationId,
-      status: { in: ['VOTING', 'DELIBERATING'] },
+      status: 'VOTING',
     },
     include: {
       participants: { select: { userId: true } },
@@ -445,12 +445,7 @@ export async function startVotingPhase(deliberationId: string) {
       data: { status: 'IN_VOTING', tier: 1 },
     })
 
-    // Determine initial cell status: DELIBERATING if discussion enabled, else VOTING
-    const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-    const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-    const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
-      ? new Date(Date.now() + deliberation.discussionDurationMs!)
-      : null // -1 = manual advance, no deadline
+    const cellStatus = 'VOTING' as const
 
     // Create the cell with UNIQUE ideas
     const cell = await prisma.cell.create({
@@ -459,7 +454,6 @@ export async function startVotingPhase(deliberationId: string) {
         tier: 1,
         batch: cellNum,
         status: cellStatus,
-        discussionEndsAt,
         ideas: {
           create: cellIdeas.map(idea => ({
             ideaId: idea.id,
@@ -1434,12 +1428,7 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     // Promote top comments from completed tier to next tier
     await promoteTopComments(deliberationId, tier, advancingIdeas.map(i => i.id))
 
-    // Determine cell status for next tier: DELIBERATING if discussion enabled
-    const hasNextTierDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-    const nextTierCellStatus = hasNextTierDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-    const nextTierDiscussionEndsAt = hasNextTierDiscussion && deliberation.discussionDurationMs! > 0
-      ? new Date(Date.now() + deliberation.discussionDurationMs!)
-      : null
+    const nextTierCellStatus = 'VOTING' as const
 
     // ── FCFS mode: NO upfront cell creation — all cells created on-demand ──
     // via the enter endpoint. This applies to both final showdown (≤ cellSize ideas)
@@ -1499,7 +1488,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             batch: 0, // DEPRECATED - keep for legacy
             batchId: batch.id, // NEW - FK to Batch
             status: nextTierCellStatus,
-            discussionEndsAt: nextTierDiscussionEndsAt,
             ideas: {
               create: shuffledIdeas.map(idea => ({ ideaId: idea.id })),
             },
@@ -1567,7 +1555,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             batch: batch.batchNumber, // DEPRECATED - keep for legacy
             batchId: batch.id, // NEW - FK to Batch
             status: nextTierCellStatus,
-            discussionEndsAt: nextTierDiscussionEndsAt,
             ideas: {
               create: batch.ideas.map(idea => ({ ideaId: idea.id })),
             },
@@ -1759,12 +1746,7 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
     data: { status: 'IN_VOTING', tier: 1 },
   })
 
-  // Determine cell status based on discussion settings
-  const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-  const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-  const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
-    ? new Date(Date.now() + deliberation.discussionDurationMs!)
-    : null
+  const cellStatus = 'VOTING' as const
 
   // Determine batch number from existing tier 1 cells
   const existingCellCount = await prisma.cell.count({
@@ -1778,8 +1760,7 @@ export async function tryCreateContinuousFlowCell(deliberationId: string): Promi
       batch: existingCellCount, // Sequential batch number
       status: cellStatus,
       dynamicStatus: isFCFS ? 'forming' : null, // Dynamic cells for FCFS continuous flow
-      discussionEndsAt,
-      votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
+      votingDeadline: deliberation.votingTimeoutMs > 0
         ? new Date(Date.now() + deliberation.votingTimeoutMs)
         : null,
       ideas: {
@@ -1851,11 +1832,7 @@ export async function closeSubmissions(deliberationId: string): Promise<{ closed
     data: { status: 'IN_VOTING', tier: 1 },
   })
 
-  const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-  const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-  const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
-    ? new Date(Date.now() + deliberation.discussionDurationMs!)
-    : null
+  const cellStatus = 'VOTING' as const
 
   // Determine batch number for this leftover cell
   const existingCellCount = await prisma.cell.count({
@@ -1868,8 +1845,7 @@ export async function closeSubmissions(deliberationId: string): Promise<{ closed
       tier: 1,
       batch: existingCellCount,
       status: cellStatus,
-      discussionEndsAt,
-      votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
+      votingDeadline: deliberation.votingTimeoutMs > 0
         ? new Date(Date.now() + deliberation.votingTimeoutMs)
         : null,
       ideas: {

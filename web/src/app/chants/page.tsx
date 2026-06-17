@@ -1096,7 +1096,17 @@ function ChantsPageContent() {
     })
     .sort((a, b) => {
       if (sortBy === 'top') return (b.ideas + b.voteCount) - (a.ideas + a.voteCount)
-      if (sortBy === 'hot') return b.viewerCount - a.viewerCount
+      if (sortBy === 'hot') {
+        const diff = b.viewerCount - a.viewerCount
+        if (diff !== 0) return diff
+        // Fallback: recent activity score (votes + participants + recency)
+        const now = Date.now()
+        const aAge = (now - new Date(a.createdAtRaw).getTime()) / 3600000 // hours
+        const bAge = (now - new Date(b.createdAtRaw).getTime()) / 3600000
+        const aScore = (a.voteCount + a.participants) / Math.max(1, Math.pow(aAge / 24, 0.5))
+        const bScore = (b.voteCount + b.participants) / Math.max(1, Math.pow(bAge / 24, 0.5))
+        return bScore - aScore
+      }
       return new Date(b.createdAtRaw).getTime() - new Date(a.createdAtRaw).getTime()
     })
 
@@ -1111,7 +1121,10 @@ function ChantsPageContent() {
       if (sortBy === 'hot') {
         const aViewers = getInstancePlayers(`podium:${a.id}`, true).length
         const bViewers = getInstancePlayers(`podium:${b.id}`, true).length
-        return bViewers - aViewers
+        const diff = bViewers - aViewers
+        if (diff !== 0) return diff
+        // Fallback: total views as proxy for historical engagement
+        return (b.views || 0) - (a.views || 0)
       }
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
@@ -1127,7 +1140,10 @@ function ChantsPageContent() {
       if (sortBy === 'hot') {
         const aViewers = getInstancePlayers(`group:${a.slug}`, true).length
         const bViewers = getInstancePlayers(`group:${b.slug}`, true).length
-        return bViewers - aViewers
+        const diff = bViewers - aViewers
+        if (diff !== 0) return diff
+        // Fallback: members + chant activity as proxy
+        return ((b._count?.members || 0) + (b._count?.deliberations || 0)) - ((a._count?.members || 0) + (a._count?.deliberations || 0))
       }
       return 0 // default order from API (newest first)
     })
@@ -2231,6 +2247,7 @@ function ChantsPageContent() {
                                   faded={isPodiumChatDocked}
                                   glowDrag={isDraggingDockstar && !isPodiumChatDocked}
                                   accentColor="#a78bfa"
+                                  icon="chat"
                                 />
                                 {chatPlayers.length > 0 && chatPlayers.slice(0, 6).map((p, i) => {
                                   const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -2491,6 +2508,7 @@ function ChantsPageContent() {
                                   faded={isGroupChatDocked || !dockedGroup.userRole}
                                   glowDrag={isDraggingDockstar && !isGroupChatDocked}
                                   accentColor="#fbbf24"
+                                  icon="chat"
                                 />
                                 {chatPlayers.length > 0 && chatPlayers.slice(0, 6).map((p, i) => {
                                   const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -3503,11 +3521,18 @@ function ChantsPageContent() {
                               <div><span className="text-foreground">{fmt(votingIdeas.length)}</span> <span className="text-muted-light">competing</span></div>
                               <div><span className="text-foreground">T{detail.currentTier}</span> <span className="text-muted-light">tier</span></div>
                             </div>
-                            {detail.isMember && !needsAuth && (
-                              <div className="text-center text-muted-light text-xs font-mono mb-3 animate-pulse">
-                                Waiting for cell assignment...
-                              </div>
-                            )}
+                            {detail.isMember && !needsAuth && (() => {
+                              const allCellsComplete = detail.cells.length > 0 && detail.cells.filter(c => c.tier === detail.currentTier).every(c => c.status === 'COMPLETED')
+                              return allCellsComplete ? (
+                                <div className="text-center text-muted-light text-xs font-mono mb-3">
+                                  This round has completed. Waiting for results...
+                                </div>
+                              ) : (
+                                <div className="text-center text-muted-light text-xs font-mono mb-3 animate-pulse">
+                                  Waiting for cell assignment...
+                                </div>
+                              )
+                            })()}
                             {needsAuth && (
                               <div className="text-center text-xs font-mono mb-3">
                                 <button onClick={() => setAuthOverlayOpen(true)} className="text-accent hover:underline">Sign in to vote</button>

@@ -214,12 +214,7 @@ export async function startChallengeRound(deliberationId: string) {
   const numCells = Math.ceil(shuffledIdeas.length / IDEAS_PER_CELL)
   const newChallengeRound = deliberation.challengeRound + 1
 
-  // Discussion phase for challenge cells if enabled
-  const hasChallengeDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-  const challengeCellStatus = hasChallengeDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-  const challengeDiscussionEndsAt = hasChallengeDiscussion && deliberation.discussionDurationMs! > 0
-    ? new Date(Date.now() + deliberation.discussionDurationMs!)
-    : null
+  const challengeCellStatus = 'VOTING' as const
 
   await prisma.$transaction(async (tx) => {
     for (let i = 0; i < numCells; i++) {
@@ -232,7 +227,6 @@ export async function startChallengeRound(deliberationId: string) {
           deliberationId,
           tier: 1,
           status: challengeCellStatus,
-          discussionEndsAt: challengeDiscussionEndsAt,
           ideas: {
             create: cellIdeaIds.map(ideaId => ({ ideaId })),
           },

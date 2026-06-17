@@ -61,6 +61,17 @@ export function EmbedAuthProvider({
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
       log(`postMessage from ${event.origin}: type=${event.data?.type}`)
+      // Validate origin — only accept from our own app or known embed hosts
+      const allowedOrigins = [
+        window.location.origin,
+        'https://www.unitychant.com',
+        'https://unitychant.com',
+        'https://unionchant.vercel.app',
+      ]
+      if (!allowedOrigins.includes(event.origin)) {
+        log(`rejected postMessage from untrusted origin: ${event.origin}`)
+        return
+      }
       if (event.data?.type === 'uc-embed-auth' && event.data?.token) {
         log('got uc-embed-auth token from popup')
         setToken(event.data.token)

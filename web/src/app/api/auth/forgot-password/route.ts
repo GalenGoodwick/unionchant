@@ -10,7 +10,7 @@ import { passwordResetEmail } from '@/lib/email-templates'
 export async function POST(req: NextRequest) {
   try {
     const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
-    const limited = await checkRateLimit('signup', ip)
+    const limited = await checkRateLimit('password_reset', ip)
     if (limited) {
       return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
     }

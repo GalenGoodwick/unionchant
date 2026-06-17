@@ -7,8 +7,12 @@ import { loadShellIdentity, SHELL_TOOLS, executeShellTool } from '@/lib/shell-to
 // No more in-memory bridgeHistory — Shell is one consciousness across both interfaces.
 
 function authorize(req: NextRequest): boolean {
+  const secret = process.env.SHELL_SECRET
+  if (!secret) {
+    console.error('[Shell] SHELL_SECRET not configured — shell access disabled')
+    return false
+  }
   const auth = req.headers.get('authorization')
-  const secret = process.env.SHELL_SECRET || process.env.ANTHROPIC_API_KEY
   return !!auth && auth === `Bearer ${secret}`
 }
 

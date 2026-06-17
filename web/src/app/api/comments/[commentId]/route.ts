@@ -45,12 +45,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Comment already removed' }, { status: 400 })
     }
 
-    // Permission check: comment author, deliberation creator, or moderator/admin
+    // Permission check: comment author or moderator/admin only
     const isAuthor = comment.userId === user.id
-    const isDelibCreator = comment.cell?.deliberation.creatorId === user.id
     const isMod = await isModerator(user.email)
 
-    if (!isAuthor && !isDelibCreator && !isMod) {
+    if (!isAuthor && !isMod) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 

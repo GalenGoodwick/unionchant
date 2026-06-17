@@ -65,6 +65,20 @@ export async function POST(
     })
 
     if (existingMembership) {
+      // If voting and user has no cell, try to assign them
+      if (deliberation.phase === 'VOTING' && !(deliberation.continuousFlow && deliberation.allocationMode === 'fcfs')) {
+        const cellCount = await prisma.cellParticipation.count({
+          where: { userId: user.id, cell: { deliberationId: id, status: 'VOTING' } },
+        })
+        if (cellCount === 0) {
+          try {
+            const result = await addLateJoinerToCell(id, user.id)
+            if (result.success) {
+              return NextResponse.json({ message: 'Already a member', assignedCell: result.cellId })
+            }
+          } catch {}
+        }
+      }
       return NextResponse.json({ message: 'Already a member' })
     }
 

@@ -1,5 +1,7 @@
 .vercel
 .env*.local
+.env.prod
+.env.prod-pull
 .DS_Store
 CLAUDE.md
 

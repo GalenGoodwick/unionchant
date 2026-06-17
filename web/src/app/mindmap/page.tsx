@@ -103,8 +103,11 @@ export default function MindMapPage() {
     })
 
     try {
-      // Evaluate the expression
-      const result = eval(evaluated)
+      // Safe math evaluation — only allow numbers and operators
+      if (!/^[\d\s+\-*/().]+$/.test(evaluated)) {
+        return '#ERROR'
+      }
+      const result = Function('"use strict"; return (' + evaluated + ')')()
       return result.toString()
     } catch {
       return '#ERROR'

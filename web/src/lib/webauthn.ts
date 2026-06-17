@@ -49,7 +49,10 @@ export async function consumeChallengeAny(challenge: string): Promise<boolean> {
 const PASSKEY_TOKEN_TTL_MS = 60 * 1000 // 60 seconds
 
 function getSecret(): string {
-  return process.env.NEXTAUTH_SECRET || 'dev-secret'
+  if (!process.env.NEXTAUTH_SECRET) {
+    throw new Error('NEXTAUTH_SECRET environment variable is required')
+  }
+  return process.env.NEXTAUTH_SECRET
 }
 
 export function createPasskeyToken(userId: string): string {

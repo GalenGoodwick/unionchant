@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac } from 'crypto'
 
-const SECRET = process.env.NEXTAUTH_SECRET || 'dev-secret'
+const SECRET = process.env.NEXTAUTH_SECRET || (() => { throw new Error('NEXTAUTH_SECRET required') })()
 const MIN_ELAPSED_MS = 1500
 const MAX_ELAPSED_MS = 300000
 

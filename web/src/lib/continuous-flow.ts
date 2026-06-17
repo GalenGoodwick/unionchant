@@ -112,12 +112,7 @@ export async function tryAdvanceContinuousFlowTier(
     return false
   }
 
-  // Determine cell status (discussion phase or straight to voting)
-  const hasDiscussion = deliberation.discussionDurationMs !== null && deliberation.discussionDurationMs !== 0
-  const cellStatus = hasDiscussion ? 'DELIBERATING' as const : 'VOTING' as const
-  const discussionEndsAt = hasDiscussion && deliberation.discussionDurationMs! > 0
-    ? new Date(Date.now() + deliberation.discussionDurationMs!)
-    : null
+  const cellStatus = 'VOTING' as const
 
   // Create the next-tier cell (FCFS: no participants pre-assigned)
   const isFCFS = deliberation.allocationMode === 'fcfs'
@@ -141,8 +136,7 @@ export async function tryAdvanceContinuousFlowTier(
       status: cellStatus,
       // Dynamic cells for FCFS: heartbeat-driven formation at all tiers
       ...(isFCFS && { dynamicStatus: 'forming' }),
-      discussionEndsAt,
-      votingDeadline: !hasDiscussion && deliberation.votingTimeoutMs > 0
+      votingDeadline: deliberation.votingTimeoutMs > 0
         ? new Date(Date.now() + deliberation.votingTimeoutMs)
         : null,
       ideas: {

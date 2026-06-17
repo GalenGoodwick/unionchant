@@ -16,7 +16,6 @@ export const authOptions: NextAuthOptions = {
           GoogleProvider({
             clientId: process.env.GOOGLE_CLIENT_ID,
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-            allowDangerousEmailAccountLinking: true,
           }),
         ]
       : []),
@@ -27,7 +26,6 @@ export const authOptions: NextAuthOptions = {
           GitHubProvider({
             clientId: process.env.GITHUB_ID,
             clientSecret: process.env.GITHUB_SECRET,
-            allowDangerousEmailAccountLinking: true,
           }),
         ]
       : []),
@@ -44,6 +42,9 @@ export const authOptions: NextAuthOptions = {
 
         // Passkey signin: token-based auth from WebAuthn verify endpoint
         if (credentials.email === '__passkey__') {
+          const { checkRateLimit } = await import('./rate-limit')
+          const limited = await checkRateLimit('passkey', credentials.password?.slice(0, 8) || 'unknown')
+          if (limited) return null
           const { verifyPasskeyToken } = await import('./webauthn')
           const userId = verifyPasskeyToken(credentials.password)
           if (!userId) return null
