@@ -5,9 +5,7 @@ import FrameLayout from '@/components/FrameLayout'
 
 const pages = [
   { section: 'Main', links: [
-    { href: '/', label: 'Home (Chants Feed)' },
-    { href: '/feed', label: 'Feed' },
-    { href: '/chants', label: 'Chants' },
+    { href: '/chants', label: 'Chants (Home)' },
     { href: '/podiums', label: 'Podiums' },
     { href: '/podium/new', label: 'New Podium' },
     { href: '/groups', label: 'Groups' },
