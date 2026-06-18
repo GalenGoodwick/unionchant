@@ -146,15 +146,12 @@ export default function Dockstar({
       dragStartRef.current = null
 
       if (!hasDraggedRef.current) {
-        // Click without drag — check for double-tap to toggle spatial
-        const now = Date.now()
-        if (onToggleSpatial && now - lastTapRef.current < 300) {
-          lastTapRef.current = 0
+        // Single tap toggles spatial view
+        if (onToggleSpatial) {
           onToggleSpatial()
           setDragPos(null)
           return
         }
-        lastTapRef.current = now
         onUndock()
         setDragPos(null)
         return
