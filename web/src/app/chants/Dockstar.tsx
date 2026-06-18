@@ -22,6 +22,10 @@ interface DockstarProps {
   accentColor?: string
   /** Double-tap the orb to toggle spatial view */
   onToggleSpatial?: () => void
+  /** Whether spatial view is active — centers the orb on screen */
+  isSpatial?: boolean
+  /** Rotation angle (degrees) for the arrow in spatial mode */
+  spatialRotation?: number
 }
 
 export default function Dockstar({
@@ -39,6 +43,8 @@ export default function Dockstar({
   onExitSubspace,
   accentColor,
   onToggleSpatial,
+  isSpatial,
+  spatialRotation = 0,
 }: DockstarProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
@@ -146,13 +152,12 @@ export default function Dockstar({
       dragStartRef.current = null
 
       if (!hasDraggedRef.current) {
-        // Single tap toggles spatial view
-        if (onToggleSpatial) {
+        // When docked, tap undocks. When undocked, tap toggles spatial view.
+        if (dockedPostId) {
+          onUndock()
+        } else if (onToggleSpatial) {
           onToggleSpatial()
-          setDragPos(null)
-          return
         }
-        onUndock()
         setDragPos(null)
         return
       }
@@ -169,7 +174,7 @@ export default function Dockstar({
       setDragPos(null)
       setNearestDrop(null)
     },
-    [findNearestDropZone, onDock, onUndock, onUndockIdea, dockedPostId]
+    [findNearestDropZone, onDock, onUndock, onUndockIdea, dockedPostId, onToggleSpatial]
   )
 
   // Determine orb position — one orb, three states: home, dragging, sidebar
@@ -188,25 +193,28 @@ export default function Dockstar({
         snapY = rect.top + rect.height / 2
       }
     }
-    orbStyle = { left: snapX - 20, top: snapY - 20, right: 'auto', transition: nearestDrop ? 'left 0.15s ease-out, top 0.15s ease-out' : 'none' }
+    orbStyle = { position: 'fixed', left: snapX - 20, top: snapY - 20, right: 'auto', transition: nearestDrop ? 'left 0.15s ease-out, top 0.15s ease-out' : 'none' }
   } else if (dockedPostId) {
     // Docked — aligned with right edge of max-w-2xl content area
-    orbStyle = { top: 8, right: 'max(4px, calc(50% - 336px + 4px))', left: 'auto', transition: 'all 0.3s ease-out' }
+    orbStyle = { position: 'fixed', top: 8, right: 'max(4px, calc(50% - 336px + 4px))', left: 'auto', transition: 'all 0.3s ease-out' }
+  } else if (isSpatial) {
+    // Spatial view — center of screen
+    orbStyle = { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', transition: 'all 0.4s ease-out' }
   } else {
-    // Home — aligned with DockPorts on feed cards (right edge of max-w-2xl container + px-3 inset)
-    orbStyle = { top: 12, right: 'max(12px, calc(50% - 336px + 12px))', left: 'auto', transition: 'all 0.3s ease-out' }
+    // Home — inline in header, no fixed positioning needed
+    orbStyle = {}
   }
 
   return (
     <>
-      {/* The single orb — moves between home (top-right) and sidebar */}
+      {/* The single orb — inline at home, fixed when dragging/docked */}
       <div
         data-dockstar
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        className={`fixed z-[9999] select-none touch-none ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-        style={{ ...orbStyle, opacity: isDragging ? 1 : 0, pointerEvents: isDragging ? 'auto' : 'none' }}
+        className={`${isAtHome && !isSpatial ? 'relative' : 'fixed'} z-[9999] select-none touch-none shrink-0 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        style={orbStyle}
       >
         <div
           className={`flex items-center justify-center rounded-full border-2 select-none transition-all duration-150 w-10 h-10 ${!accentColor ? (isSubspace ? 'bg-accent/15 border-accent/60 hover:border-accent hover:bg-accent/25 shadow-[0_0_8px_rgba(34,211,238,0.2)]' : isDragging ? 'bg-accent text-header border-accent shadow-[0_0_24px_rgba(34,211,238,0.6)]' : dockedPostId ? 'bg-accent text-header border-accent shadow-[0_0_12px_rgba(34,211,238,0.4)]' : 'bg-accent text-header border-accent shadow-[0_0_12px_rgba(34,211,238,0.4)] hover:shadow-[0_0_20px_rgba(34,211,238,0.5)]') : 'text-header'} ${isAtHome && !isSubspace && !accentColor ? 'animate-pulse-slow' : ''} ${flashDocks ? 'animate-flash-gold' : ''}`}
@@ -225,6 +233,8 @@ export default function Dockstar({
         >
           {isSubspace ? (
             <svg className="w-5 h-5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
+          ) : isSpatial ? (
+            <svg className="w-6 h-6 fill-header" viewBox="0 0 24 24" style={{ transform: `rotate(${spatialRotation}deg)`, transformOrigin: 'center' }}><path d="M12 2l4.5 11h-3.5v9h-2v-9H7.5z" /></svg>
           ) : (
             <svg className="w-6 h-6 fill-header" viewBox="0 0 24 24"><path d="M4 4l7.07 17 2.51-7.39L21 11.07z" /></svg>
           )}

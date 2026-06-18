@@ -211,6 +211,7 @@ function ChantsPageContent() {
   const [undockingAnim, setUndockingAnim] = useState(false)
   // ── SPATIAL UNIVERSE STATE ──
   const [viewMode, setViewMode] = useState<'feed' | 'spatial'>('feed')
+  const [dockstarRotation, setDockstarRotation] = useState(0)
   const [dockedUserspace, setDockedUserspace] = useState<{ userId: string; userName: string; userColor: string } | null>(null)
   const [followingIds, setFollowingIds] = useState<string[]>([])
 
@@ -1379,24 +1380,6 @@ function ChantsPageContent() {
         className="min-h-screen bg-background text-foreground relative"
         onClick={handlePageClick}
       >
-        {/* DOCKSTAR ORB */}
-        <Dockstar
-          userInitial="G"
-          dockedPostId={activeDockTarget}
-          dropZoneRefs={dropZoneRefs}
-          onDock={handleDock}
-          onUndock={handleUndock}
-          onUndockIdea={() => setDockedIdeaId(null)}
-          onDragStateChange={handleDragState}
-          flashDocks={flashDocks}
-          externalDragStart={externalDragStart}
-          onExternalDragHandled={() => setExternalDragStart(null)}
-          isSubspace={!!activeSubspaceId}
-          onExitSubspace={exitSubspace}
-          accentColor={tabAccentColor}
-          onToggleSpatial={toggleSpatial}
-        />
-
         <TransitionOverlay transitions={transitions} instanceRefs={instanceCanvasRefs} />
 
         {/* SPATIAL UNIVERSE CANVAS */}
@@ -1409,6 +1392,7 @@ function ChantsPageContent() {
           followingIds={followingIds}
           onEnterSubspace={handleEnterUserspace}
           dropZoneRefs={dropZoneRefs}
+          onRotate={setDockstarRotation}
         />
 
         {/* SUBSPACE OVERLAY — when visiting someone */}
@@ -1807,41 +1791,24 @@ function ChantsPageContent() {
                     </button>
                   </>
                 )}
-                {/* Inline Dockstar — drag to dock, click to undock */}
-                <div
-                  data-dockstar
-                  className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 cursor-grab select-none touch-none transition-all duration-200 text-header ${flashDocks ? 'animate-flash-gold' : ''}`}
-                  style={{
-                    backgroundColor: tabAccentColor,
-                    borderColor: tabAccentColor,
-                    boxShadow: `0 0 12px ${tabAccentColor}66`,
-                  }}
-                  onPointerDown={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    const startX = e.clientX, startY = e.clientY
-                    let dragged = false
-                    const onMove = (ev: PointerEvent) => {
-                      if (!dragged && Math.hypot(ev.clientX - startX, ev.clientY - startY) >= 5) {
-                        dragged = true
-                        // Hand off to floating Dockstar for drag
-                        handleDropCircleDrag(ev.clientX, ev.clientY)
-                        // Remove our listeners — floating Dockstar takes over
-                        window.removeEventListener('pointermove', onMove)
-                        window.removeEventListener('pointerup', onUp)
-                      }
-                    }
-                    const onUp = () => {
-                      if (!dragged) handleUndock()
-                      window.removeEventListener('pointermove', onMove)
-                      window.removeEventListener('pointerup', onUp)
-                    }
-                    window.addEventListener('pointermove', onMove)
-                    window.addEventListener('pointerup', onUp)
-                  }}
-                >
-                  <svg className="w-6 h-6 fill-header" viewBox="0 0 24 24"><path d="M4 4l7.07 17 2.51-7.39L21 11.07z" /></svg>
-                </div>
+                <Dockstar
+                  userInitial="G"
+                  dockedPostId={activeDockTarget}
+                  dropZoneRefs={dropZoneRefs}
+                  onDock={handleDock}
+                  onUndock={handleUndock}
+                  onUndockIdea={() => setDockedIdeaId(null)}
+                  onDragStateChange={handleDragState}
+                  flashDocks={flashDocks}
+                  externalDragStart={externalDragStart}
+                  onExternalDragHandled={() => setExternalDragStart(null)}
+                  isSubspace={!!activeSubspaceId}
+                  onExitSubspace={exitSubspace}
+                  accentColor={tabAccentColor}
+                  onToggleSpatial={toggleSpatial}
+                  isSpatial={viewMode === 'spatial'}
+                  spatialRotation={dockstarRotation}
+                />
               </>
             )}
           </div>

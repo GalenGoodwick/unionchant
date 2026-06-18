@@ -12,6 +12,7 @@ interface SpatialCanvasProps {
   followingIds: string[]
   onEnterSubspace: (userId: string, name: string, color: string) => void
   dropZoneRefs: React.MutableRefObject<Map<string, HTMLElement>>
+  onRotate?: (degrees: number) => void
 }
 
 interface LayoutNode extends UserspaceNode {
@@ -30,12 +31,22 @@ export default function SpatialCanvas({
   followingIds,
   onEnterSubspace,
   dropZoneRefs,
+  onRotate,
 }: SpatialCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
   const [camera, setCamera] = useState({ x: 0, y: 0 })
-  const dragRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(null)
+  const animRef = useRef<number | null>(null)
+  const cameraRef = useRef({ x: 0, y: 0 })
+  const rotationRef = useRef(0)
+  const holdRef = useRef<{ dx: number; dy: number; startTime: number; startX: number; startY: number } | null>(null)
+  const glideTargetRef = useRef<{ x: number; y: number } | null>(null)
+  const onRotateRef = useRef(onRotate)
+  useEffect(() => { onRotateRef.current = onRotate }, [onRotate])
+
+  // Keep cameraRef in sync
+  useEffect(() => { cameraRef.current = camera }, [camera])
 
   // Layout nodes in radial pattern
   useEffect(() => {
@@ -47,7 +58,6 @@ export default function SpatialCanvas({
 
     const laid: LayoutNode[] = []
 
-    // Inner ring: followed users
     const innerRadius = 120
     followingNodes.forEach((node, i) => {
       const angle = (i / Math.max(followingNodes.length, 1)) * Math.PI * 2 - Math.PI / 2
@@ -60,7 +70,6 @@ export default function SpatialCanvas({
       })
     })
 
-    // Outer ring: other active hosts
     const outerRadius = 240
     otherNodes.forEach((node, i) => {
       const angle = (i / Math.max(otherNodes.length, 1)) * Math.PI * 2 - Math.PI / 2
@@ -75,6 +84,49 @@ export default function SpatialCanvas({
 
     setLayoutNodes(laid)
   }, [visible, nodes, followingIds])
+
+  // Unified animation loop — hold mode (continuous) or glide mode (tap target)
+  const startAnimation = useCallback(() => {
+    if (animRef.current) cancelAnimationFrame(animRef.current)
+
+    const animate = () => {
+      const hold = holdRef.current
+      const glide = glideTargetRef.current
+
+      if (hold) {
+        // Hold mode: speed proportional to distance from center (farther = faster)
+        const dist = Math.hypot(hold.dx, hold.dy)
+        if (dist > 1) {
+          const speed = dist * 0.02
+          const cur = cameraRef.current
+          setCamera({ x: cur.x - (hold.dx / dist) * speed, y: cur.y - (hold.dy / dist) * speed })
+        }
+        animRef.current = requestAnimationFrame(animate)
+      } else if (glide) {
+        // Glide mode: ease toward target point
+        const cur = cameraRef.current
+        const dx = glide.x - cur.x
+        const dy = glide.y - cur.y
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+          setCamera({ x: glide.x, y: glide.y })
+          glideTargetRef.current = null
+          animRef.current = null
+          return
+        }
+        setCamera({ x: cur.x + dx * 0.08, y: cur.y + dy * 0.08 })
+        animRef.current = requestAnimationFrame(animate)
+      } else {
+        animRef.current = null
+      }
+    }
+
+    animRef.current = requestAnimationFrame(animate)
+  }, [])
+
+  // Cleanup animation on unmount
+  useEffect(() => {
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current) }
+  }, [])
 
   // Draw canvas
   useEffect(() => {
@@ -114,37 +166,6 @@ export default function SpatialCanvas({
       ctx.stroke()
     }
 
-    // Draw ring guides
-    ctx.strokeStyle = '#1e293b'
-    ctx.lineWidth = 0.5
-    ctx.setLineDash([4, 4])
-    ctx.beginPath()
-    ctx.arc(cx, cy, 120, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.arc(cx, cy, 240, 0, Math.PI * 2)
-    ctx.stroke()
-    ctx.setLineDash([])
-
-    // Draw self node at center
-    ctx.beginPath()
-    ctx.arc(cx, cy, 14, 0, Math.PI * 2)
-    ctx.fillStyle = selfColor + '40'
-    ctx.fill()
-    ctx.strokeStyle = selfColor
-    ctx.lineWidth = 2
-    ctx.stroke()
-    // Self initial
-    ctx.fillStyle = selfColor
-    ctx.font = '10px monospace'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(selfName[0]?.toUpperCase() || '?', cx, cy)
-    // Self label
-    ctx.fillStyle = '#94a3b8'
-    ctx.font = '9px monospace'
-    ctx.fillText('you', cx, cy + 22)
-
     // Draw other nodes
     layoutNodes.forEach(node => {
       const nx = cx + node.x
@@ -153,7 +174,6 @@ export default function SpatialCanvas({
       const alpha = isFollowing ? '60' : '30'
       const strokeAlpha = isFollowing ? 'cc' : '80'
 
-      // Glow for active (has visitors)
       if (node.occupancy > 0) {
         ctx.beginPath()
         ctx.arc(nx, ny, node.radius + 6, 0, Math.PI * 2)
@@ -161,7 +181,6 @@ export default function SpatialCanvas({
         ctx.fill()
       }
 
-      // Circle
       ctx.beginPath()
       ctx.arc(nx, ny, node.radius, 0, Math.PI * 2)
       ctx.fillStyle = node.hostColor + alpha
@@ -170,19 +189,16 @@ export default function SpatialCanvas({
       ctx.lineWidth = isFollowing ? 2 : 1
       ctx.stroke()
 
-      // Initial
       ctx.fillStyle = node.hostColor
       ctx.font = `${isFollowing ? 11 : 9}px monospace`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.fillText(node.hostName[0]?.toUpperCase() || '?', nx, ny)
 
-      // Name below
       ctx.fillStyle = isFollowing ? '#e2e8f0' : '#64748b'
       ctx.font = '9px monospace'
       ctx.fillText(node.hostName.slice(0, 12), nx, ny + node.radius + 12)
 
-      // Occupancy badge (top-right)
       if (node.occupancy > 0) {
         const bx = nx + node.radius * 0.7
         const by = ny - node.radius * 0.7
@@ -197,23 +213,93 @@ export default function SpatialCanvas({
     })
   }, [visible, layoutNodes, camera, selfColor, selfName])
 
-  // Pan camera
+  // Rotate arrow toward a screen offset (dx, dy from center), shortest path
+  const rotateArrow = useCallback((dx: number, dy: number) => {
+    const targetAngle = Math.atan2(dx, -dy) * (180 / Math.PI)
+    const currentRot = rotationRef.current
+    const rawDelta = targetAngle - (((currentRot % 360) + 360) % 360)
+    const shortDelta = ((rawDelta + 540) % 360) - 180
+    const newRotation = currentRot + shortDelta
+    rotationRef.current = newRotation
+    onRotate?.(newRotation)
+  }, [onRotate])
+
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
-    dragRef.current = { startX: e.clientX, startY: e.clientY, camX: camera.x, camY: camera.y }
-  }, [camera])
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const dx = e.clientX - rect.left - rect.width / 2
+    const dy = e.clientY - rect.top - rect.height / 2
+    if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return
+
+    // Stop any glide animation
+    glideTargetRef.current = null
+
+    // Rotate arrow toward click
+    rotateArrow(dx, dy)
+
+    // Start continuous hold movement
+    holdRef.current = { dx, dy, startTime: Date.now(), startX: e.clientX, startY: e.clientY }
+    startAnimation()
+  }, [rotateArrow, startAnimation])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current) return
-    const dx = e.clientX - dragRef.current.startX
-    const dy = e.clientY - dragRef.current.startY
-    setCamera({ x: dragRef.current.camX + dx, y: dragRef.current.camY + dy })
-  }, [])
+    if (!holdRef.current) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const dx = e.clientX - rect.left - rect.width / 2
+    const dy = e.clientY - rect.top - rect.height / 2
 
-  const handlePointerUp = useCallback(() => {
-    dragRef.current = null
-  }, [])
+    // Update direction and rotation to follow cursor
+    holdRef.current.dx = dx
+    holdRef.current.dy = dy
+    rotateArrow(dx, dy)
+  }, [rotateArrow])
 
-  // Register DOM overlay drop zones for dockstar snapping
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    const hold = holdRef.current
+    holdRef.current = null
+
+    if (!hold) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    const tapX = e.clientX - rect.left
+    const tapY = e.clientY - rect.top
+    const centerX = rect.width / 2
+    const centerY = rect.height / 2
+
+    // Check if tapped on a node (short tap, small movement)
+    const isTap = Date.now() - hold.startTime < 300 &&
+      Math.abs(e.clientX - hold.startX) < 10 &&
+      Math.abs(e.clientY - hold.startY) < 10
+    if (isTap) {
+      const cx = centerX + cameraRef.current.x
+      const cy = centerY + cameraRef.current.y
+      for (const node of layoutNodes) {
+        const nx = cx + node.x
+        const ny = cy + node.y
+        if (Math.hypot(tapX - nx, tapY - ny) <= node.radius) {
+          if (animRef.current) { cancelAnimationFrame(animRef.current); animRef.current = null }
+          onEnterSubspace(node.userId, node.hostName, node.hostColor)
+          return
+        }
+      }
+    }
+
+    // Glide: animate canvas so click point arrives at center
+    const dx = tapX - centerX
+    const dy = tapY - centerY
+    glideTargetRef.current = {
+      x: cameraRef.current.x - dx,
+      y: cameraRef.current.y - dy,
+    }
+    startAnimation()
+  }, [layoutNodes, onEnterSubspace, startAnimation])
+
+  // Register DOM overlay drop zones
   useEffect(() => {
     if (!visible || !containerRef.current) return
     const container = containerRef.current
@@ -221,7 +307,6 @@ export default function SpatialCanvas({
     const cx = rect.width / 2 + camera.x
     const cy = rect.height / 2 + camera.y
 
-    // Create/update invisible drop zone divs for each node
     layoutNodes.forEach(node => {
       const dropId = `userspace:${node.userId}`
       let el = dropZoneRefs.current.get(dropId) as HTMLElement | undefined
@@ -239,7 +324,6 @@ export default function SpatialCanvas({
     })
 
     return () => {
-      // Cleanup drop zones when spatial view hides
       layoutNodes.forEach(node => {
         const dropId = `userspace:${node.userId}`
         const el = dropZoneRefs.current.get(dropId)
@@ -251,56 +335,24 @@ export default function SpatialCanvas({
     }
   }, [visible, layoutNodes, camera, dropZoneRefs])
 
-  // Tap a node directly (in addition to dockstar drag)
-  const handleCanvasTap = useCallback((e: React.PointerEvent) => {
-    if (dragRef.current) return // ignore if panning
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    const tapX = e.clientX - rect.left
-    const tapY = e.clientY - rect.top
-    const cx = rect.width / 2 + camera.x
-    const cy = rect.height / 2 + camera.y
-
-    for (const node of layoutNodes) {
-      const nx = cx + node.x
-      const ny = cy + node.y
-      const dist = Math.hypot(tapX - nx, tapY - ny)
-      if (dist <= node.radius) {
-        onEnterSubspace(node.userId, node.hostName, node.hostColor)
-        return
-      }
-    }
-  }, [layoutNodes, camera, onEnterSubspace])
-
   if (!visible) return null
 
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 z-30"
+      className="fixed inset-0 z-30"
       style={{ touchAction: 'none' }}
     >
       <canvas
         ref={canvasRef}
         className="w-full h-full"
-        onPointerDown={(e) => {
-          handlePointerDown(e)
-        }}
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={(e) => {
-          handlePointerUp()
-          // Detect tap (no drag) — enter subspace on tap
-          if (dragRef.current === null) {
-            handleCanvasTap(e)
-          }
-        }}
+        onPointerUp={handlePointerUp}
       />
-      {/* State label */}
       <div className="absolute top-3 left-3 text-[10px] font-mono text-muted-light/40">
-        SPATIAL VIEW — double-tap orb to return
+        SPATIAL VIEW — tap orb to return
       </div>
-      {/* Node count */}
       <div className="absolute top-3 right-3 text-[10px] font-mono text-muted-light/40">
         {layoutNodes.length} active {layoutNodes.length === 1 ? 'host' : 'hosts'}
       </div>
