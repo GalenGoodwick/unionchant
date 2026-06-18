@@ -174,17 +174,19 @@ io.on('connection', (socket) => {
   })
 
   // Position update — player tapped/dragged to new location
-  socket.on('position', ({ rx, ry }) => {
+  socket.on('position', ({ rx, ry, rotation }) => {
     const playerInfo = sockets.get(socket.id)
     if (!playerInfo || !playerInfo.currentInstance) return
     playerInfo.rx = rx
     playerInfo.ry = ry
+    if (rotation !== undefined) playerInfo.rotation = rotation
     const room = rooms.get(playerInfo.currentInstance)
     if (room) {
       const player = room.get(socket.id)
       if (player) {
         player.rx = rx
         player.ry = ry
+        if (rotation !== undefined) player.rotation = rotation
       }
     }
     socket.to(playerInfo.currentInstance).emit('player-moved', {
@@ -192,6 +194,7 @@ io.on('connection', (socket) => {
       instance: playerInfo.currentInstance,
       rx,
       ry,
+      rotation: rotation ?? playerInfo.rotation ?? 0,
     })
   })
 

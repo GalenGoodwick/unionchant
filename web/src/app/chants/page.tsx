@@ -9,7 +9,7 @@ import TransitionOverlay from './TransitionOverlay'
 import ShareMenu from '@/components/ShareMenu'
 import { usePresence } from './usePresence'
 import { useUserspace } from './spatial/useUserspace'
-import SpatialCanvas from './spatial/SpatialCanvas'
+import SpatialCanvas, { type SpatialCanvasHandle } from './spatial/SpatialCanvas'
 import SubspaceOverlay from './spatial/SubspaceOverlay'
 import { useChantsFeed } from './useChantsFeed'
 import { useChantDetail } from './useChantDetail'
@@ -200,6 +200,7 @@ function ChantsPageContent() {
   const [xpAllocations, setXpAllocations] = useState<Record<string, Record<string, number>>>({})
   const [nearestDrop, setNearestDrop] = useState<string | null>(null)
   const [isDraggingDockstar, setIsDraggingDockstar] = useState(false)
+  const [dockstarDragPos, setDockstarDragPos] = useState<{ x: number; y: number } | null>(null)
   const [scrollY, setScrollY] = useState(0)
   const [manageMode, setManageMode] = useState(false)
   const [manageMsg, setManageMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
@@ -213,6 +214,8 @@ function ChantsPageContent() {
   const [viewMode, setViewMode] = useState<'feed' | 'spatial'>('feed')
   const [dockstarRotation, setDockstarRotation] = useState(0)
   const [dockedUserspace, setDockedUserspace] = useState<{ userId: string; userName: string; userColor: string } | null>(null)
+  const [spatialState, setSpatialState] = useState<{ mode: 'lobby' | 'list' | 'player'; listTab?: string | null; playerName?: string | null; canGoBack: boolean }>({ mode: 'lobby', canGoBack: false })
+  const spatialCanvasRef = useRef<SpatialCanvasHandle>(null)
   const [followingIds, setFollowingIds] = useState<string[]>([])
 
   const [pendingInput, setPendingInput] = useState<string>('')
@@ -309,7 +312,9 @@ function ChantsPageContent() {
 
   // ── PRESENCE ──
   const currentInstance = viewMode === 'spatial'
-    ? 'spatial:lobby'
+    ? (spatialState.mode === 'player' && dockedUserspace
+      ? `spatial:player:${dockedUserspace.userId}`
+      : 'spatial:lobby')
     : activeSubspaceId
     ? (activeSubspaceId.startsWith('podiumchat:') || activeSubspaceId.startsWith('groupchat:'))
       ? `subspace:${activeSubspaceId}`
@@ -668,21 +673,48 @@ function ChantsPageContent() {
       .catch(() => {})
   }, [session?.user?.id])
 
-  // Toggle spatial view
+  // Toggle spatial view — push browser history
   const toggleSpatial = useCallback(() => {
-    setViewMode(prev => prev === 'feed' ? 'spatial' : 'feed')
+    setViewMode(prev => {
+      const next = prev === 'feed' ? 'spatial' : 'feed'
+      // Defer pushState to avoid setState-during-render from Next.js Router
+      queueMicrotask(() => {
+        if (next === 'spatial') {
+          window.history.pushState({ spatial: true }, '', '/chants?view=spatial')
+        } else {
+          window.history.pushState({ spatial: false }, '', '/chants')
+        }
+      })
+      return next
+    })
   }, [])
 
-  // Dock onto a frame in spatial view → exit spatial, switch to that tab
+  // Browser back button support for spatial view
+  useEffect(() => {
+    const onPopState = (e: PopStateEvent) => {
+      if (e.state?.spatial) {
+        setViewMode('spatial')
+      } else {
+        setViewMode('feed')
+      }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  // Dock onto a frame in spatial view → switch tab for list data (spatial handles the mode transition internally)
   const handleDockFrame = useCallback((tab: 'chants' | 'podiums' | 'groups') => {
     setActiveTab(tab)
-    setViewMode('feed')
   }, [])
 
   // Spatial multiplayer — remote players in the lobby
   const spatialPlayers = useMemo(() => {
-    const lobby = presencePlayers.get('spatial:lobby') || []
-    return lobby
+    // Pull players from the current spatial instance (lobby or a specific player's space)
+    const instanceKey = spatialState.mode === 'player' && dockedUserspace
+      ? `spatial:player:${dockedUserspace.userId}`
+      : 'spatial:lobby'
+    const players = presencePlayers.get(instanceKey) || []
+    return players
       .filter(p => p.id !== presenceUserId)
       .map(p => ({
         id: p.id,
@@ -690,15 +722,16 @@ function ChantsPageContent() {
         color: p.color,
         rx: p.rx ?? 0.5,
         ry: p.ry ?? 0.5,
+        rotation: p.rotation ?? 0,
       }))
-  }, [presencePlayers, presenceUserId])
+  }, [presencePlayers, presenceUserId, spatialState.mode, dockedUserspace])
 
-  // Broadcast camera position to spatial lobby
-  const handleSpatialCameraMove = useCallback((camX: number, camY: number) => {
+  // Broadcast camera position + rotation to spatial lobby
+  const handleSpatialCameraMove = useCallback((camX: number, camY: number, rotation?: number) => {
     // Normalize camera to 0-1 within bounds
     const rx = (camX - (-600)) / 1200  // BOUNDS.minX=-600, range=1200
     const ry = (camY - (-400)) / 800   // BOUNDS.minY=-400, range=800
-    moveToPosition(rx, ry)
+    moveToPosition(rx, ry, rotation)
   }, [moveToPosition])
 
   // Enter a user's subspace from spatial canvas
@@ -758,7 +791,51 @@ function ChantsPageContent() {
     else dropZoneRefs.current.delete(id)
   }, [])
 
+  // Refs for spatial-mode variables used in handleDock (which has [session] dep only)
+  const viewModeRef = useRef(viewMode)
+  const spatialStateRef = useRef(spatialState)
+  const spatialPlayersRef = useRef(spatialPlayers)
+  const activeSubspacesRef = useRef(activeSubspaces)
+  const dockedUserspaceRef = useRef(dockedUserspace)
+  const handleDockPlayerRef = useRef<((id: string, name: string, color: string) => void) | null>(null)
+
   const handleDock = useCallback((id: string) => {
+    // In spatial mode, only allow player: and userspace: drops — ignore nav/create/post drops
+    if (viewModeRef.current === 'spatial') {
+      if (id.startsWith('player:')) {
+        const playerId = id.slice(7)
+        // Prevent nesting on yourself if already in your own space
+        if (playerId === presenceUserId && spatialStateRef.current.mode === 'player' && dockedUserspaceRef.current?.userId === presenceUserId) {
+          return
+        }
+        // Self dock — enter your own space
+        if (playerId === presenceUserId) {
+          handleDockPlayerRef.current?.(presenceUserId, presenceName, '#22d3ee')
+          return
+        }
+        const player = spatialPlayersRef.current.find(p => p.id === playerId)
+        if (player) {
+          handleDockPlayerRef.current?.(playerId, player.name, player.color)
+        }
+        return
+      }
+      if (id.startsWith('userspace:')) {
+        const userId = id.slice(10)
+        const node = activeSubspacesRef.current.find(n => n.userId === userId)
+        if (node) {
+          handleDockPlayerRef.current?.(userId, node.hostName, node.hostColor)
+        } else {
+          enterUserspace(userId)
+        }
+        return
+      }
+      // Nav drops in spatial → trigger list mode
+      if (id === '__nav_chants__') { spatialCanvasRef.current?.dockFrame('chants'); return }
+      if (id === '__nav_podiums__') { spatialCanvasRef.current?.dockFrame('podiums'); return }
+      if (id === '__nav_groups__') { spatialCanvasRef.current?.dockFrame('groups'); return }
+      // Ignore all other dock targets in spatial mode
+      return
+    }
     if (dockedPostId && id !== dockedPostId && !id.startsWith('idea:')) {
       const hasUnsavedText = pendingInput.trim().length > 0
       const hasUnsavedCreate = createMode && (createQuestion.trim().length > 0 || createPodiumTitle.trim().length > 0 || createGroupName.trim().length > 0)
@@ -811,6 +888,7 @@ function ChantsPageContent() {
       setXpAllocations({})
       setPendingInput('')
       setPendingInputType(null)
+      setViewMode('feed')
       if (id === '__nav_profile__') { setActiveTab('profile'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
       const nav = NAV_ITEMS.find(n => n.id === id)
       if (nav) {
@@ -955,6 +1033,78 @@ function ChantsPageContent() {
       forceUndock()
     }
   }, [dockedPostId, pendingInput, createMode, createQuestion, createPodiumTitle, createGroupName, xpAllocations, forceUndock])
+
+  // Dock on an item from spatial list view → exit spatial, dock to that chant
+  const handleDockItem = useCallback((itemId: string) => {
+    setViewMode('feed')
+    handleDock(itemId)
+  }, [handleDock])
+
+  // Dock on a player in spatial → enter their userspace (stay in spatial)
+  const handleDockPlayerFromSpatial = useCallback((id: string, name: string, color: string) => {
+    setDockedUserspace({ userId: id, userName: name, userColor: color })
+    enterUserspace(id)
+    // Trigger SpatialCanvas internal player mode transition
+    spatialCanvasRef.current?.enterPlayerMode(id, name, color)
+  }, [enterUserspace])
+
+  // Sync spatial refs for handleDock's stale closure
+  useEffect(() => {
+    viewModeRef.current = viewMode
+    spatialStateRef.current = spatialState
+    spatialPlayersRef.current = spatialPlayers
+    activeSubspacesRef.current = activeSubspaces
+    dockedUserspaceRef.current = dockedUserspace
+    handleDockPlayerRef.current = handleDockPlayerFromSpatial
+  })
+
+  // Follow host — mirror host's current nav state
+  const handleFollowHost = useCallback(() => {
+    if (!hostNavState?.dockedPostId) return
+    setViewMode('feed')
+    handleDock(hostNavState.dockedPostId)
+  }, [hostNavState, handleDock])
+
+  // Clean up userspace when spatial exits player mode (host disconnected, back to lobby, etc.)
+  const prevSpatialModeRef = useRef(spatialState.mode)
+  useEffect(() => {
+    if (prevSpatialModeRef.current === 'player' && spatialState.mode !== 'player' && dockedUserspace) {
+      leaveUserspace(dockedUserspace.userId)
+      setDockedUserspace(null)
+    }
+    prevSpatialModeRef.current = spatialState.mode
+  }, [spatialState.mode, dockedUserspace, leaveUserspace])
+
+  // Back from spatial entirely — go back in browser history or just exit
+  const handleBackFromSpatial = useCallback(() => {
+    setViewMode('feed')
+    queueMicrotask(() => window.history.pushState({ spatial: false }, '', '/chants'))
+  }, [])
+
+  // Build list items for spatial list mode based on active tab
+  const spatialListItems = useMemo(() => {
+    if (activeTab === 'chants') {
+      return chants.map(c => ({
+        id: c.id,
+        title: c.question,
+        phase: c.phase,
+        tier: c.tier,
+      }))
+    }
+    if (activeTab === 'podiums') {
+      return podiums.map(p => ({
+        id: `podium:${p.id}`,
+        title: p.title,
+      }))
+    }
+    if (activeTab === 'groups') {
+      return groups.map(g => ({
+        id: `group:${g.slug}`,
+        title: g.name,
+      }))
+    }
+    return []
+  }, [activeTab, chants, podiums, groups])
 
   const handleCreateSubmit = useCallback(async () => {
     const q = createQuestion.trim()
@@ -1414,8 +1564,9 @@ function ChantsPageContent() {
 
         {/* SPATIAL UNIVERSE CANVAS */}
         <SpatialCanvas
+          ref={spatialCanvasRef}
           visible={viewMode === 'spatial'}
-          nodes={activeSubspaces}
+          nodes={activeSubspaces.filter(n => n.userId !== presenceUserId && !spatialPlayers.some(p => p.id === n.userId))}
           selfUserId={presenceUserId}
           selfName={presenceName}
           selfColor="#22d3ee"
@@ -1431,10 +1582,46 @@ function ChantsPageContent() {
           onDockFrame={handleDockFrame}
           remotePlayers={spatialPlayers}
           onCameraMove={handleSpatialCameraMove}
+          listItems={spatialListItems}
+          onDockItem={handleDockItem}
+          isDraggingDockstar={isDraggingDockstar}
+          dragPosition={dockstarDragPos}
+          onDockPlayer={handleDockPlayerFromSpatial}
+          hostNavState={hostNavState}
+          onFollowHost={handleFollowHost}
+          onBackFromSpatial={handleBackFromSpatial}
+          onSpatialStateChange={setSpatialState}
         />
 
+        {/* SPATIAL DOCKSTAR — centered on canvas */}
+        {viewMode === 'spatial' && (
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center pointer-events-none">
+            <div className="pointer-events-auto">
+              <Dockstar
+                userInitial="G"
+                dockedPostId={activeDockTarget}
+                dropZoneRefs={dropZoneRefs}
+                onDock={handleDock}
+                onUndock={handleUndock}
+                onUndockIdea={() => setDockedIdeaId(null)}
+                onDragStateChange={handleDragState}
+                onDragPositionChange={setDockstarDragPos}
+                flashDocks={flashDocks}
+                externalDragStart={externalDragStart}
+                onExternalDragHandled={() => setExternalDragStart(null)}
+                isSubspace={!!activeSubspaceId}
+                onExitSubspace={exitSubspace}
+                accentColor={tabAccentColor}
+                onToggleSpatial={toggleSpatial}
+                isSpatial={true}
+                spatialRotation={dockstarRotation}
+              />
+            </div>
+          </div>
+        )}
+
         {/* SUBSPACE OVERLAY — when visiting someone */}
-        {dockedUserspace && (
+        {dockedUserspace && viewMode !== 'spatial' && (
           <SubspaceOverlay
             hostName={dockedUserspace.userName}
             hostColor={dockedUserspace.userColor}
@@ -1742,6 +1929,32 @@ function ChantsPageContent() {
                   />
                 </div>
               </>
+            ) : viewMode === 'spatial' ? (
+              /* SPATIAL state — back button + location label + dockstar (dockstar hidden in player mode, rendered centered instead) */
+              <>
+                <button
+                  data-interactive
+                  onClick={() => {
+                    if (spatialState.canGoBack) {
+                      spatialCanvasRef.current?.back()
+                    } else {
+                      handleBackFromSpatial()
+                    }
+                  }}
+                  className="w-10 h-10 rounded-full border-2 border-border/50 bg-surface/50 flex items-center justify-center hover:border-foreground/30 transition-colors"
+                >
+                  <svg className="w-4 h-4 text-foreground/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  </svg>
+                </button>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[11px] font-mono text-muted-light/50 uppercase tracking-wider">
+                    {spatialState.mode === 'lobby' && 'Spatial Lobby'}
+                    {spatialState.mode === 'list' && spatialState.listTab && `${spatialState.listTab.charAt(0).toUpperCase() + spatialState.listTab.slice(1)}`}
+                    {spatialState.mode === 'player' && spatialState.playerName && `Following ${spatialState.playerName}`}
+                  </span>
+                </div>
+              </>
             ) : (
               /* FEED / CREATE state */
               <>
@@ -1837,6 +2050,7 @@ function ChantsPageContent() {
                   onUndock={handleUndock}
                   onUndockIdea={() => setDockedIdeaId(null)}
                   onDragStateChange={handleDragState}
+                  onDragPositionChange={setDockstarDragPos}
                   flashDocks={flashDocks}
                   externalDragStart={externalDragStart}
                   onExternalDragHandled={() => setExternalDragStart(null)}
@@ -1844,7 +2058,7 @@ function ChantsPageContent() {
                   onExitSubspace={exitSubspace}
                   accentColor={tabAccentColor}
                   onToggleSpatial={toggleSpatial}
-                  isSpatial={viewMode === 'spatial'}
+                  isSpatial={false}
                   spatialRotation={dockstarRotation}
                 />
               </>
@@ -3824,7 +4038,9 @@ function ChantsPageContent() {
           ))
           const hasConfirm = hasTextInput || hasVoteReady || hasCreateReady
           // Show nav bar when undocked (always), show confirm bar when docked with pending action
-          const showBar = !isDocked || hasConfirm
+          // Hide entirely in spatial mode — drop targets are on the canvas
+          // In spatial mode, only show bottom bar when dragging dockstar (reveals nav drop targets)
+          const showBar = viewMode === 'spatial' ? isDraggingDockstar : (!isDocked || hasConfirm)
           const confirmLabel = hasCreateReady && !hasTextInput
             ? (hasGroupChantCreate ? (groupCreating ? 'Creating...' : 'Launch Chant')
               : creating ? 'Creating...'

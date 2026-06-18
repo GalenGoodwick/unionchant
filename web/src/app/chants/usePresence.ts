@@ -9,6 +9,7 @@ export interface PresencePlayer {
   color: string
   rx?: number  // ratio x position (0-1) within instance
   ry?: number  // ratio y position (0-1) within instance
+  rotation?: number  // arrow facing direction in degrees
 }
 
 export interface PlayerTransition {
@@ -35,7 +36,7 @@ interface UsePresenceReturn {
   /** Recent transitions (for animation) */
   transitions: PlayerTransition[]
   /** Move self pixel to a ratio position within current instance */
-  moveToPosition: (rx: number, ry: number) => void
+  moveToPosition: (rx: number, ry: number, rotation?: number) => void
   /** Socket ref for userspace hook to attach listeners */
   socketRef: React.MutableRefObject<Socket | null>
 }
@@ -99,27 +100,25 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
     })
 
     // Player moved within an instance
-    socket.on('player-moved', ({ playerId, instance, rx, ry }: { playerId: string; instance?: string; rx: number; ry: number }) => {
+    socket.on('player-moved', ({ playerId, instance, rx, ry, rotation }: { playerId: string; instance?: string; rx: number; ry: number; rotation?: number }) => {
       setPlayers(prev => {
         const next = new Map(prev)
         if (instance) {
-          // Direct update when instance is known
           const list = next.get(instance)
           if (list) {
             const idx = list.findIndex(p => p.id === playerId)
             if (idx !== -1) {
               const updated = [...list]
-              updated[idx] = { ...updated[idx], rx, ry }
+              updated[idx] = { ...updated[idx], rx, ry, rotation }
               next.set(instance, updated)
             }
           }
         } else {
-          // Fallback: search all instances
           for (const [inst, list] of next.entries()) {
             const idx = list.findIndex(p => p.id === playerId)
             if (idx !== -1) {
               const updated = [...list]
-              updated[idx] = { ...updated[idx], rx, ry }
+              updated[idx] = { ...updated[idx], rx, ry, rotation }
               next.set(inst, updated)
               break
             }
@@ -167,32 +166,32 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
 
   // Move self pixel position — throttled to avoid flooding the socket
   const lastEmitRef = useRef(0)
-  const pendingRef = useRef<{ rx: number; ry: number } | null>(null)
+  const pendingRef = useRef<{ rx: number; ry: number; rotation?: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const moveToPosition = useCallback((rx: number, ry: number) => {
+  const moveToPosition = useCallback((rx: number, ry: number, rotation?: number) => {
     const socket = socketRef.current
     if (!socket?.connected) return
     const now = Date.now()
     const emit = () => {
       lastEmitRef.current = Date.now()
       pendingRef.current = null
-      socket.emit('position', { rx, ry })
+      socket.emit('position', { rx, ry, rotation })
     }
-    if (now - lastEmitRef.current >= 50) {
+    if (now - lastEmitRef.current >= 33) {
       emit()
     } else {
-      pendingRef.current = { rx, ry }
+      pendingRef.current = { rx, ry, rotation }
       if (!timerRef.current) {
         timerRef.current = setTimeout(() => {
           timerRef.current = null
           if (pendingRef.current) {
-            const { rx: prx, ry: pry } = pendingRef.current
+            const { rx: prx, ry: pry, rotation: prot } = pendingRef.current
             lastEmitRef.current = Date.now()
             pendingRef.current = null
-            socket.emit('position', { rx: prx, ry: pry })
+            socket.emit('position', { rx: prx, ry: pry, rotation: prot })
           }
-        }, 50 - (now - lastEmitRef.current))
+        }, 33 - (now - lastEmitRef.current))
       }
     }
   }, [])

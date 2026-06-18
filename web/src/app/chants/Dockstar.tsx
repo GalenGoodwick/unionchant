@@ -10,6 +10,7 @@ interface DockstarProps {
   onUndock: () => void
   onUndockIdea?: () => void
   onDragStateChange?: (isDragging: boolean, nearestDrop: string | null) => void
+  onDragPositionChange?: (pos: { x: number; y: number } | null) => void
   // Flash gold on miss-tap
   flashDocks?: boolean
   // External drag trigger — sidebar sets this to initiate drag from its position
@@ -45,6 +46,7 @@ export default function Dockstar({
   onToggleSpatial,
   isSpatial,
   spatialRotation = 0,
+  onDragPositionChange,
 }: DockstarProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
@@ -57,6 +59,11 @@ export default function Dockstar({
   useEffect(() => {
     onDragStateChange?.(isDragging, nearestDrop)
   }, [isDragging, nearestDrop, onDragStateChange])
+
+  // Notify parent of drag position for ring expansion
+  useEffect(() => {
+    onDragPositionChange?.(isDragging ? dragPos : null)
+  }, [isDragging, dragPos, onDragPositionChange])
 
   // Find nearest drop zone
   const findNearestDropZone = useCallback(
