@@ -8,6 +8,9 @@ import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
 import ShareMenu from '@/components/ShareMenu'
 import { usePresence } from './usePresence'
+import { useUserspace } from './spatial/useUserspace'
+import SpatialCanvas from './spatial/SpatialCanvas'
+import SubspaceOverlay from './spatial/SubspaceOverlay'
 import { useChantsFeed } from './useChantsFeed'
 import { useChantDetail } from './useChantDetail'
 import type { Chant } from './useChantsFeed'
@@ -206,6 +209,11 @@ function ChantsPageContent() {
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [externalDragStart, setExternalDragStart] = useState<{ x: number; y: number } | null>(null)
   const [undockingAnim, setUndockingAnim] = useState(false)
+  // ── SPATIAL UNIVERSE STATE ──
+  const [viewMode, setViewMode] = useState<'feed' | 'spatial'>('feed')
+  const [dockedUserspace, setDockedUserspace] = useState<{ userId: string; userName: string; userColor: string } | null>(null)
+  const [followingIds, setFollowingIds] = useState<string[]>([])
+
   const [pendingInput, setPendingInput] = useState<string>('')
   const [pendingInputType, setPendingInputType] = useState<'comment' | 'idea' | 'chat' | null>(null)
   const [pendingDockContext, setPendingDockContext] = useState<{ postId: string; ideaId: string | null } | null>(null)
@@ -310,12 +318,21 @@ function ChantsPageContent() {
   const presenceUserId = session?.user?.id || 'anon'
   const presenceName = session?.user?.name || 'You'
 
-  const { players: presencePlayers, transitions, moveToPosition } = usePresence({
+  const { players: presencePlayers, transitions, moveToPosition, socketRef } = usePresence({
     userId: presenceUserId,
     name: presenceName,
     color: '#22d3ee',
     currentInstance,
   })
+
+  const {
+    activeSubspaces,
+    hostNavState,
+    visitors,
+    enterUserspace,
+    leaveUserspace,
+    broadcastNavUpdate,
+  } = useUserspace({ socketRef, userId: presenceUserId, connected: true })
 
   const [selfRatio, setSelfRatio] = useState<{ rx: number; ry: number }>({ rx: 0.5, ry: 0.5 })
 
@@ -615,6 +632,59 @@ function ChantsPageContent() {
     setSelfRatio({ rx: 0.5, ry: 0.5 })
   }, [currentInstance])
 
+  // ── SPATIAL UNIVERSE: Leader-follow effect ──
+  // When visiting someone's subspace, mirror their navigation
+  useEffect(() => {
+    if (!dockedUserspace || !hostNavState) return
+    if (hostNavState.dockedPostId !== dockedPostId) {
+      setDockedPostId(hostNavState.dockedPostId)
+      setDockedIdeaId(null)
+      setDockedPostVisible(true)
+    }
+    if (hostNavState.activeTab && hostNavState.activeTab !== activeTab) {
+      setActiveTab(hostNavState.activeTab as typeof activeTab)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostNavState])
+
+  // Host broadcast: when user navigates, tell their subspace visitors
+  useEffect(() => {
+    if (dockedUserspace) return // don't broadcast if visiting someone else
+    broadcastNavUpdate({ dockedPostId, activeSubspaceId, activeTab })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dockedPostId, activeSubspaceId, activeTab])
+
+  // Fetch following IDs for spatial canvas layout
+  useEffect(() => {
+    if (!session?.user?.id) return
+    fetch('/api/user/me/following')
+      .then(r => r.ok ? r.json() : { users: [] })
+      .then(data => {
+        if (data.users) setFollowingIds(data.users.map((u: { id: string }) => u.id))
+      })
+      .catch(() => {})
+  }, [session?.user?.id])
+
+  // Toggle spatial view
+  const toggleSpatial = useCallback(() => {
+    setViewMode(prev => prev === 'feed' ? 'spatial' : 'feed')
+  }, [])
+
+  // Enter a user's subspace from spatial canvas
+  const handleEnterUserspace = useCallback((userId: string, userName: string, userColor: string) => {
+    setDockedUserspace({ userId, userName, userColor })
+    setViewMode('feed')
+    enterUserspace(userId)
+  }, [enterUserspace])
+
+  // Exit current userspace
+  const handleExitUserspace = useCallback(() => {
+    if (dockedUserspace) {
+      leaveUserspace(dockedUserspace.userId)
+    }
+    setDockedUserspace(null)
+  }, [dockedUserspace, leaveUserspace])
+
   const handlePageClick = useCallback((e: React.MouseEvent) => {
     const target = e.target as HTMLElement
     const isForm = target.closest('input, textarea, select')
@@ -663,6 +733,13 @@ function ChantsPageContent() {
       const hasUnsavedCreate = createMode && (createQuestion.trim().length > 0 || createPodiumTitle.trim().length > 0 || createGroupName.trim().length > 0)
       const hasUnsavedVotes = dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:') && Object.values(xpAllocations[dockedPostId] || {}).some(v => v > 0)
       if ((hasUnsavedText || hasUnsavedCreate || hasUnsavedVotes) && !window.confirm('You have unsubmitted work. Leave and discard?')) return
+    }
+    // Spatial: dock into a user's subspace
+    if (id.startsWith('userspace:')) {
+      const userId = id.slice(10)
+      const node = activeSubspaces.find(n => n.userId === userId)
+      handleEnterUserspace(userId, node?.hostName || 'User', node?.hostColor || '#22d3ee')
+      return
     }
     if (id === '__create_chant__') {
       // If docked on a group, capture group context for chant creation
@@ -1317,9 +1394,32 @@ function ChantsPageContent() {
           isSubspace={!!activeSubspaceId}
           onExitSubspace={exitSubspace}
           accentColor={tabAccentColor}
+          onToggleSpatial={toggleSpatial}
         />
 
         <TransitionOverlay transitions={transitions} instanceRefs={instanceCanvasRefs} />
+
+        {/* SPATIAL UNIVERSE CANVAS */}
+        <SpatialCanvas
+          visible={viewMode === 'spatial'}
+          nodes={activeSubspaces}
+          selfUserId={presenceUserId}
+          selfName={presenceName}
+          selfColor="#22d3ee"
+          followingIds={followingIds}
+          onEnterSubspace={handleEnterUserspace}
+          dropZoneRefs={dropZoneRefs}
+        />
+
+        {/* SUBSPACE OVERLAY — when visiting someone */}
+        {dockedUserspace && (
+          <SubspaceOverlay
+            hostName={dockedUserspace.userName}
+            hostColor={dockedUserspace.userColor}
+            visitorCount={visitors.length}
+            onExit={handleExitUserspace}
+          />
+        )}
 
         {/* UNIFIED HEADER — same container for all states */}
         <div className="sticky top-0 z-[60] bg-header border-b border-border/30">

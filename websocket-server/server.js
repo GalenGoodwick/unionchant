@@ -43,6 +43,21 @@ const httpServer = http.createServer((req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(result))
+  } else if (req.url === '/userspaces') {
+    // Returns all active user subspaces with occupancy
+    const result = {}
+    for (const [userId, info] of userspaces.entries()) {
+      const userspaceRoom = rooms.get(`userspace:${userId}`)
+      result[userId] = {
+        hostName: info.hostName,
+        hostColor: info.hostColor,
+        occupancy: userspaceRoom ? userspaceRoom.size : 0,
+        currentChant: info.navState?.dockedPostId || null,
+        activeTab: info.navState?.activeTab || 'chants',
+      }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(result))
   } else {
     res.writeHead(404)
     res.end('Not Found')
@@ -67,6 +82,10 @@ const rooms = new Map()
 
 // sockets: socketId -> { userId, name, color, currentInstance }
 const sockets = new Map()
+
+// userspaces: userId -> { hostName, hostColor, navState }
+// Tracks hosts who have broadcast nav state (every authenticated user is a potential host)
+const userspaces = new Map()
 
 function getRoom(instanceId) {
   if (!rooms.has(instanceId)) {
@@ -176,6 +195,72 @@ io.on('connection', (socket) => {
     })
   })
 
+  // ── Userspace events (leader-follow) ──
+
+  // Host broadcasts their navigation state to their subspace visitors
+  socket.on('host-nav-update', ({ dockedPostId, activeSubspaceId, activeTab }) => {
+    const playerInfo = sockets.get(socket.id)
+    if (!playerInfo) return
+
+    // Register/update this user's subspace
+    userspaces.set(playerInfo.userId, {
+      hostName: playerInfo.name,
+      hostColor: playerInfo.color,
+      navState: { dockedPostId, activeSubspaceId, activeTab },
+    })
+
+    // Broadcast to everyone in this user's subspace room (except host)
+    const userspaceRoom = `userspace:${playerInfo.userId}`
+    socket.to(userspaceRoom).emit('host-navigated', {
+      hostUserId: playerInfo.userId,
+      dockedPostId,
+      activeSubspaceId,
+      activeTab,
+    })
+  })
+
+  // Visitor enters a host's userspace
+  socket.on('enter-userspace', ({ hostUserId }) => {
+    const playerInfo = sockets.get(socket.id)
+    if (!playerInfo) return
+
+    const userspaceRoom = `userspace:${hostUserId}`
+    socket.join(userspaceRoom)
+
+    // Send current host nav state to the visitor
+    const hostInfo = userspaces.get(hostUserId)
+    if (hostInfo) {
+      socket.emit('userspace-info', {
+        hostUserId,
+        navState: hostInfo.navState,
+      })
+    }
+
+    // Notify host and other visitors
+    io.to(userspaceRoom).emit('userspace-visitor-joined', {
+      userId: playerInfo.userId,
+      name: playerInfo.name,
+      color: playerInfo.color,
+    })
+
+    console.log(`${playerInfo.name} entered ${hostInfo?.hostName || hostUserId}'s subspace`)
+  })
+
+  // Visitor leaves a host's userspace
+  socket.on('leave-userspace', ({ hostUserId }) => {
+    const playerInfo = sockets.get(socket.id)
+    if (!playerInfo) return
+
+    const userspaceRoom = `userspace:${hostUserId}`
+    socket.leave(userspaceRoom)
+
+    io.to(userspaceRoom).emit('userspace-visitor-left', {
+      userId: playerInfo.userId,
+    })
+
+    console.log(`${playerInfo.name} left ${hostUserId}'s subspace`)
+  })
+
   // Disconnect cleanup
   socket.on('disconnect', () => {
     const playerInfo = sockets.get(socket.id)
@@ -189,6 +274,15 @@ io.on('connection', (socket) => {
         })
         if (room.size === 0) rooms.delete(playerInfo.currentInstance)
       }
+    }
+    // Clean up userspace if this was a host
+    if (playerInfo) {
+      userspaces.delete(playerInfo.userId)
+      // Notify visitors that host disconnected
+      const userspaceRoom = `userspace:${playerInfo.userId}`
+      io.to(userspaceRoom).emit('host-disconnected', {
+        hostUserId: playerInfo.userId,
+      })
     }
     sockets.delete(socket.id)
     if (playerInfo) {

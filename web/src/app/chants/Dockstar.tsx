@@ -20,6 +20,8 @@ interface DockstarProps {
   onExitSubspace?: () => void
   /** Custom accent color (hex) for orb. Defaults to cyan (#22d3ee). */
   accentColor?: string
+  /** Double-tap the orb to toggle spatial view */
+  onToggleSpatial?: () => void
 }
 
 export default function Dockstar({
@@ -36,12 +38,14 @@ export default function Dockstar({
   isSubspace,
   onExitSubspace,
   accentColor,
+  onToggleSpatial,
 }: DockstarProps) {
   const [isDragging, setIsDragging] = useState(false)
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
   const [nearestDrop, setNearestDrop] = useState<string | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const hasDraggedRef = useRef(false)
+  const lastTapRef = useRef(0)
 
   // Notify parent of drag state
   useEffect(() => {
@@ -142,7 +146,15 @@ export default function Dockstar({
       dragStartRef.current = null
 
       if (!hasDraggedRef.current) {
-        // Click without drag — toggle bottom bar only
+        // Click without drag — check for double-tap to toggle spatial
+        const now = Date.now()
+        if (onToggleSpatial && now - lastTapRef.current < 300) {
+          lastTapRef.current = 0
+          onToggleSpatial()
+          setDragPos(null)
+          return
+        }
+        lastTapRef.current = now
         onUndock()
         setDragPos(null)
         return

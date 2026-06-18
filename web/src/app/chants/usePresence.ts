@@ -36,6 +36,8 @@ interface UsePresenceReturn {
   transitions: PlayerTransition[]
   /** Move self pixel to a ratio position within current instance */
   moveToPosition: (rx: number, ry: number) => void
+  /** Socket ref for userspace hook to attach listeners */
+  socketRef: React.MutableRefObject<Socket | null>
 }
 
 const PRESENCE_URL = process.env.NEXT_PUBLIC_PRESENCE_URL || 'http://localhost:8080'
@@ -224,5 +226,5 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
     mergedPlayers.set(inst, plist) // socket data is fresher, overrides poll
   }
 
-  return { players: mergedPlayers, connected, transitions, moveToPosition }
+  return { players: mergedPlayers, connected, transitions, moveToPosition, socketRef }
 }
