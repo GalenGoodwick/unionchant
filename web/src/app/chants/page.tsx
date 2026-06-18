@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect, Suspense } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useSession, signIn, signOut } from 'next-auth/react'
 import Dockstar, { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
@@ -308,7 +308,9 @@ function ChantsPageContent() {
   const instanceCanvasRefs = useRef<Map<string, HTMLElement>>(new Map())
 
   // ── PRESENCE ──
-  const currentInstance = activeSubspaceId
+  const currentInstance = viewMode === 'spatial'
+    ? 'spatial:lobby'
+    : activeSubspaceId
     ? (activeSubspaceId.startsWith('podiumchat:') || activeSubspaceId.startsWith('groupchat:'))
       ? `subspace:${activeSubspaceId}`
       : `subspace:${dockedPostId}:${activeSubspaceId}`
@@ -670,6 +672,34 @@ function ChantsPageContent() {
   const toggleSpatial = useCallback(() => {
     setViewMode(prev => prev === 'feed' ? 'spatial' : 'feed')
   }, [])
+
+  // Dock onto a frame in spatial view → exit spatial, switch to that tab
+  const handleDockFrame = useCallback((tab: 'chants' | 'podiums' | 'groups') => {
+    setActiveTab(tab)
+    setViewMode('feed')
+  }, [])
+
+  // Spatial multiplayer — remote players in the lobby
+  const spatialPlayers = useMemo(() => {
+    const lobby = presencePlayers.get('spatial:lobby') || []
+    return lobby
+      .filter(p => p.id !== presenceUserId)
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        rx: p.rx ?? 0.5,
+        ry: p.ry ?? 0.5,
+      }))
+  }, [presencePlayers, presenceUserId])
+
+  // Broadcast camera position to spatial lobby
+  const handleSpatialCameraMove = useCallback((camX: number, camY: number) => {
+    // Normalize camera to 0-1 within bounds
+    const rx = (camX - (-600)) / 1200  // BOUNDS.minX=-600, range=1200
+    const ry = (camY - (-400)) / 800   // BOUNDS.minY=-400, range=800
+    moveToPosition(rx, ry)
+  }, [moveToPosition])
 
   // Enter a user's subspace from spatial canvas
   const handleEnterUserspace = useCallback((userId: string, userName: string, userColor: string) => {
@@ -1393,6 +1423,14 @@ function ChantsPageContent() {
           onEnterSubspace={handleEnterUserspace}
           dropZoneRefs={dropZoneRefs}
           onRotate={setDockstarRotation}
+          framePreviews={{
+            chants: chants.slice(0, 3).map(c => c.question),
+            podiums: podiums.slice(0, 3).map(p => p.title),
+            groups: groups.slice(0, 3).map(g => g.name),
+          }}
+          onDockFrame={handleDockFrame}
+          remotePlayers={spatialPlayers}
+          onCameraMove={handleSpatialCameraMove}
         />
 
         {/* SUBSPACE OVERLAY — when visiting someone */}
