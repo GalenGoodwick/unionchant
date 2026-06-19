@@ -1001,14 +1001,14 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
         })
       })()}
 
-      {/* ── PLAYER MODE: Leader-follow panel (only shown when host has active nav state) ── */}
-      {spatialMode === 'player' && dockedPlayer && (hostNavState?.dockedPostId || hostNavState?.activeTab) && (
+      {/* ── PLAYER MODE: Leader-follow panel — always visible, centered ── */}
+      {spatialMode === 'player' && dockedPlayer && (
         <div
           data-spatial-frame
           className="absolute pointer-events-auto"
           style={{
             left: screenCx - 140,
-            top: 60,
+            top: screenCy - 40,
             width: 280,
           }}
         >
@@ -1020,7 +1020,6 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
               boxShadow: `0 0 20px ${dockedPlayer.color}15`,
             }}
           >
-            {/* Host nav state — header already shows "Following [name]" */}
             <div className="px-3 py-2.5">
               {hostNavState?.dockedPostId ? (
                 <div className="flex items-center justify-between gap-2">
@@ -1052,7 +1051,17 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
                     {hostNavState.activeTab}
                   </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: dockedPlayer.color }}
+                  />
+                  <span className="text-[11px] font-mono text-muted-light/50">
+                    {dockedPlayer.name} is here
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>

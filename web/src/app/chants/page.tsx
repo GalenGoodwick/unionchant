@@ -1062,6 +1062,7 @@ function ChantsPageContent() {
   const handleFollowHost = useCallback(() => {
     if (!hostNavState?.dockedPostId) return
     setViewMode('feed')
+    viewModeRef.current = 'feed' // sync ref immediately so handleDock doesn't hit spatial branch
     handleDock(hostNavState.dockedPostId)
   }, [hostNavState, handleDock])
 
