@@ -1029,8 +1029,69 @@ export default function FieldEngine() {
               break
             }
 
+            case 'define_interaction': {
+              const rule = cmd.rule
+              if (!rule || !rule.trigger || !rule.effect) {
+                pushTerminal('define_interaction', (rule as Record<string, unknown>)?.definedBy as string, 'ERROR: missing trigger or effect')
+                break
+              }
+              const ruleId = sim.addInteractionRule({
+                id: (rule as Record<string, unknown>).id as string || '',
+                definedBy: rule.definedBy || 'unknown',
+                trigger: rule.trigger,
+                triggerDistance: rule.triggerDistance,
+                fieldA: rule.fieldA,
+                fieldB: rule.fieldB,
+                effect: rule.effect,
+                effectParams: rule.effectParams || {},
+                description: rule.description,
+              })
+              // Auto-enable simulation — interaction rules need physics ticking
+              if (!sim.running) {
+                sim.running = true
+                setRunning(true)
+              }
+              syncFields()
+              pushTerminal('define_interaction', rule.definedBy, rule.description || `${rule.trigger} → ${rule.effect}`, `rule_id: ${ruleId}`)
+              break
+            }
+
+            case 'remove_interaction': {
+              if (cmd.ruleId) {
+                sim.removeInteractionRule(cmd.ruleId)
+                syncFields()
+                pushTerminal('remove_interaction', undefined, cmd.ruleId)
+              }
+              break
+            }
+
+            case 'define_command': {
+              const cmdDef = cmd.command
+              if (!cmdDef || !cmdDef.name || !cmdDef.macro || cmdDef.macro.length === 0) {
+                pushTerminal('define_command', cmdDef?.definedBy, 'ERROR: name and macro required')
+                break
+              }
+              sim.addCustomCommand({
+                name: cmdDef.name,
+                definedBy: cmdDef.definedBy || 'unknown',
+                description: cmdDef.description || '',
+                macro: cmdDef.macro,
+              })
+              pushTerminal('define_command', cmdDef.definedBy, `"${cmdDef.name}" (${cmdDef.macro.length} steps)`)
+              break
+            }
+
+            case 'execute_command': {
+              // Macro expansion happens server-side in the bridge.
+              // Individual steps arrive as separate SSE commands.
+              // This case only fires if sent directly (not via bridge).
+              const customCmd = sim.getCustomCommand(cmd.name)
+              pushTerminal('execute_command', customCmd?.definedBy, `"${cmd.name}" — ${customCmd ? `${customCmd.macro.length} steps (expanded by bridge)` : 'unknown command'}`)
+              break
+            }
+
             case 'status':
-              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length}`)
+              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length}`)
               break
           }
         } catch (err) {

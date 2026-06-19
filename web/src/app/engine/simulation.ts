@@ -1,6 +1,6 @@
 // Field Engine — Simulation (CPU-side, Phase 1)
 
-import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams } from './types'
+import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand } from './types'
 
 export class FieldSimulation {
   world: FieldWorld
@@ -10,6 +10,10 @@ export class FieldSimulation {
   private fieldMemory: Map<string, FieldMemoryEntry[]> = new Map()
   private moveAccumulator: Map<string, { ax: number; ay: number }> = new Map()
   private collisionState: Map<string, Set<string>> = new Map() // tracks which field pairs are currently colliding
+  /** Agent-defined interaction rules — executed each physics tick */
+  interactionRules: InteractionRule[] = []
+  /** Agent-defined custom commands — macros of existing commands */
+  customCommands: Map<string, CustomCommand> = new Map()
   static readonly MAX_MEMORY = 100
 
   /** World-level physics parameters */
@@ -220,6 +224,9 @@ export class FieldSimulation {
     // Collision detection + collision force between overlapping fields
     this.stepCollisions(dt)
 
+    // Agent-defined interaction rules
+    this.stepInteractionRules(dt)
+
     // Boundary enforcement
     if (wp.boundaryMode === 'solid') {
       this.stepBoundaries()
@@ -361,6 +368,132 @@ export class FieldSimulation {
         }
       }
     }
+  }
+
+  /** Execute agent-defined interaction rules between field pairs */
+  private stepInteractionRules(dt: number): void {
+    if (this.interactionRules.length === 0) return
+
+    const fieldList = Array.from(this.fields.values()).filter(f => f.cells.size > 0)
+
+    for (const rule of this.interactionRules) {
+      // Find matching field pairs
+      for (let i = 0; i < fieldList.length; i++) {
+        for (let j = i + 1; j < fieldList.length; j++) {
+          const a = fieldList[i]
+          const b = fieldList[j]
+
+          // Check if this pair matches the rule's field filters
+          const matchesAB = (!rule.fieldA || rule.fieldA === a.id) && (!rule.fieldB || rule.fieldB === b.id)
+          const matchesBA = (!rule.fieldA || rule.fieldA === b.id) && (!rule.fieldB || rule.fieldB === a.id)
+          if (!matchesAB && !matchesBA) continue
+
+          // Order fields so 'a' is fieldA if specified
+          const [fa, fb] = matchesAB ? [a, b] : [b, a]
+
+          // Check trigger
+          const boundsA = this.getFieldBounds(fa.id)
+          const boundsB = this.getFieldBounds(fb.id)
+          if (!boundsA || !boundsB) continue
+
+          const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
+          const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+          const overlapping = overlapX > 0 && overlapY > 0
+
+          const aCx = (boundsA.minX + boundsA.maxX) / 2
+          const aCy = (boundsA.minY + boundsA.maxY) / 2
+          const bCx = (boundsB.minX + boundsB.maxX) / 2
+          const bCy = (boundsB.minY + boundsB.maxY) / 2
+          const dist = Math.sqrt((bCx - aCx) ** 2 + (bCy - aCy) ** 2)
+
+          let triggered = false
+          if (rule.trigger === 'overlap' && overlapping) triggered = true
+          if (rule.trigger === 'proximity' && dist < (rule.triggerDistance || 100)) triggered = true
+          if (rule.trigger === 'always') triggered = true
+
+          if (!triggered) continue
+
+          // Execute effect
+          const p = rule.effectParams
+          switch (rule.effect) {
+            case 'transfer_property': {
+              const fromProp = fa.properties.get(p.from as string)
+              const toProp = fb.properties.get(p.to as string)
+              if (fromProp && toProp) {
+                const rate = (p.rate as number || 0.1) * dt
+                const amount = Math.min(fromProp.value * rate, fromProp.value)
+                fromProp.value -= amount
+                toProp.value += amount
+                if (fromProp.max && toProp.value > fromProp.max) toProp.value = fromProp.max
+              }
+              break
+            }
+            case 'apply_force': {
+              const fx = (p.fx as number || 0) * dt
+              const fy = (p.fy as number || 0) * dt
+              fa.transform.vx += fx
+              fa.transform.vy += fy
+              fb.transform.vx -= fx
+              fb.transform.vy -= fy
+              break
+            }
+            case 'modify_property': {
+              const target = p.target === 'b' ? fb : fa
+              const prop = target.properties.get(p.property as string)
+              if (prop) {
+                prop.value += (p.delta as number || 0) * dt
+                if (prop.min !== undefined && prop.value < prop.min) prop.value = prop.min
+                if (prop.max !== undefined && prop.value > prop.max) prop.value = prop.max
+              }
+              break
+            }
+            case 'send_event': {
+              // Fire a memory event — throttled to once per second
+              const eventKey = `rule_${rule.id}_${fa.id}_${fb.id}`
+              const now = Date.now()
+              const lastFired = this._ruleEventThrottle.get(eventKey) || 0
+              if (now - lastFired > 1000) {
+                this._ruleEventThrottle.set(eventKey, now)
+                const content = p.message as string || `Interaction rule "${rule.description || rule.id}" triggered`
+                this.addMemory(fa.id, {
+                  timestamp: new Date().toISOString(),
+                  type: 'collision',
+                  content,
+                  sourceFieldId: fb.id,
+                  data: { ruleId: rule.id, effect: rule.effect },
+                })
+              }
+              break
+            }
+          }
+        }
+      }
+    }
+  }
+  private _ruleEventThrottle: Map<string, number> = new Map()
+
+  /** Add an interaction rule. Returns the rule's id. */
+  addInteractionRule(rule: InteractionRule): string {
+    const id = rule.id || `rule_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    this.interactionRules.push({ ...rule, id })
+    return id
+  }
+
+  /** Remove an interaction rule by id */
+  removeInteractionRule(ruleId: string): boolean {
+    const before = this.interactionRules.length
+    this.interactionRules = this.interactionRules.filter(r => r.id !== ruleId)
+    return this.interactionRules.length < before
+  }
+
+  /** Register a custom command macro */
+  addCustomCommand(cmd: CustomCommand): void {
+    this.customCommands.set(cmd.name, cmd)
+  }
+
+  /** Get a custom command by name */
+  getCustomCommand(name: string): CustomCommand | undefined {
+    return this.customCommands.get(name)
   }
 
   /** Enforce solid boundaries — bounce fields off grid edges */

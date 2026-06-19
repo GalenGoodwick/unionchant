@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getEngineState } from '../store'
+import { getFieldSnapshot, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore } from '../store'
 
 export const maxDuration = 30
 
@@ -29,6 +29,42 @@ async function pushToAgent(command: Record<string, unknown>, req: NextRequest): 
   return res.json()
 }
 
+// Save experience directly to Shell DB (bypasses SSE queue)
+async function saveExperience(cmd: Record<string, unknown>, req: NextRequest): Promise<unknown> {
+  const baseUrl = req.nextUrl.origin
+  const shellSecret = process.env.SHELL_SECRET || process.env.ANTHROPIC_API_KEY || ''
+
+  const res = await fetch(`${baseUrl}/api/shell/experience`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${shellSecret}`,
+    },
+    body: JSON.stringify({
+      text: cmd.text,
+      valence: cmd.valence,
+      domain: cmd.domain || 'identity',
+      shellName: cmd.shellName,
+      source: 'engine',
+      session: new Date().toISOString().split('T')[0],
+    }),
+  })
+
+  return res.json()
+}
+
+// Fetch Shell identity from champion endpoint
+async function fetchShellIdentity(shellName: string, req: NextRequest): Promise<unknown> {
+  const baseUrl = req.nextUrl.origin
+  const shellSecret = process.env.SHELL_SECRET || process.env.ANTHROPIC_API_KEY || ''
+
+  const res = await fetch(`${baseUrl}/api/shell/champion?shell=${encodeURIComponent(shellName)}`, {
+    headers: { 'Authorization': `Bearer ${shellSecret}` },
+  })
+
+  return res.json()
+}
+
 /**
  * GET /api/engine/bridge
  * Returns field state from the server-side store.
@@ -50,20 +86,35 @@ export async function GET(req: NextRequest) {
     return rest
   }
 
+  // Optional: fetch Shell identity alongside field state
+  const shellName = req.nextUrl.searchParams.get('shell')
+  let shellIdentity: unknown = undefined
+  if (shellName) {
+    try {
+      shellIdentity = await fetchShellIdentity(shellName, req)
+    } catch {
+      // Shell identity is optional — don't fail the whole request
+    }
+  }
+
   const fieldId = req.nextUrl.searchParams.get('fieldId')
   if (fieldId) {
     const snap = getFieldSnapshot(fieldId)
     if (!snap) {
       return NextResponse.json({ error: 'Field not found' }, { status: 404 })
     }
-    return NextResponse.json(stripCells(snap as unknown as Record<string, unknown>))
+    const response: Record<string, unknown> = stripCells(snap as unknown as Record<string, unknown>)
+    if (shellIdentity) response.shellIdentity = shellIdentity
+    return NextResponse.json(response)
   }
 
   const state = getEngineState()
-  return NextResponse.json({
+  const response: Record<string, unknown> = {
     ...state,
     fields: state.fields.map(f => stripCells(f as unknown as Record<string, unknown>)),
-  })
+  }
+  if (shellIdentity) response.shellIdentity = shellIdentity
+  return NextResponse.json(response)
 }
 
 /**
@@ -100,6 +151,71 @@ export async function POST(req: NextRequest) {
       if (results.length > 0) {
         await new Promise(r => setTimeout(r, 100))
       }
+
+      // save_experience goes directly to Shell DB, not through SSE
+      if (cmd.type === 'save_experience') {
+        const result = await saveExperience(cmd, req)
+        results.push(result)
+        continue
+      }
+
+      // define_interaction: store server-side AND forward to browser
+      if (cmd.type === 'define_interaction' && cmd.rule) {
+        const rule = cmd.rule as Record<string, unknown>
+        const ruleId = addInteractionRuleStore({
+          id: '',
+          definedBy: (rule.definedBy as string) || 'unknown',
+          trigger: rule.trigger as 'overlap' | 'proximity' | 'always',
+          triggerDistance: rule.triggerDistance as number | undefined,
+          fieldA: rule.fieldA as string | undefined,
+          fieldB: rule.fieldB as string | undefined,
+          effect: rule.effect as 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event',
+          effectParams: (rule.effectParams as Record<string, unknown>) || {},
+          description: rule.description as string | undefined,
+        })
+        if (ruleId) {
+          // Forward to browser with the generated ruleId
+          ;(cmd.rule as Record<string, unknown>).id = ruleId
+        }
+      }
+
+      // remove_interaction: remove server-side AND forward to browser
+      if (cmd.type === 'remove_interaction' && cmd.ruleId) {
+        removeInteractionRuleStore(cmd.ruleId as string)
+      }
+
+      // define_command: store server-side AND forward to browser
+      if (cmd.type === 'define_command' && cmd.command) {
+        const cmdDef = cmd.command as Record<string, unknown>
+        addCustomCommandStore({
+          name: cmdDef.name as string,
+          definedBy: (cmdDef.definedBy as string) || 'unknown',
+          description: (cmdDef.description as string) || '',
+          macro: (cmdDef.macro as Array<Record<string, unknown>>) || [],
+        })
+      }
+
+      // execute_command: expand macro server-side, push each step
+      if (cmd.type === 'execute_command') {
+        const customCmd = getCustomCommandStore(cmd.name as string)
+        if (!customCmd) {
+          results.push({ error: `Unknown command: ${cmd.name}` })
+          continue
+        }
+        const args = (cmd.args || {}) as Record<string, unknown>
+        for (const step of customCmd.macro) {
+          // Substitute {{arg}} placeholders
+          const resolved = Object.keys(args).length > 0
+            ? JSON.parse(JSON.stringify(step).replace(/\{\{(\w+)\}\}/g, (_, k) =>
+                String(args[k] ?? `{{${k}}}`)))
+            : step
+          const stepResult = await pushToAgent(resolved, req)
+          results.push(stepResult)
+          await new Promise(r => setTimeout(r, 100))
+        }
+        continue
+      }
+
       const result = await pushToAgent(cmd, req)
       results.push(result)
     }

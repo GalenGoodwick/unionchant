@@ -164,3 +164,33 @@ export interface FieldMessage {
   content: string
   data?: Record<string, unknown>
 }
+
+/** Agent-defined interaction rule — executed each physics tick */
+export interface InteractionRule {
+  id: string
+  /** Which field defined this rule */
+  definedBy: string
+  /** When to trigger */
+  trigger: 'overlap' | 'proximity' | 'always'
+  /** For proximity trigger: max distance in grid cells */
+  triggerDistance?: number
+  /** Specific field (null = any) */
+  fieldA?: string
+  /** Specific field (null = any) */
+  fieldB?: string
+  /** What happens when triggered */
+  effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event'
+  /** Effect-specific parameters */
+  effectParams: Record<string, unknown>
+  /** Human-readable description */
+  description?: string
+}
+
+/** Agent-defined custom command — macro of existing commands */
+export interface CustomCommand {
+  name: string
+  definedBy: string
+  description: string
+  /** Sequence of existing commands to execute */
+  macro: Array<Record<string, unknown>>
+}

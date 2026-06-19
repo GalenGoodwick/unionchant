@@ -24,6 +24,18 @@ export type EngineCommand =
   | { type: 'apply_force'; fieldId: string; fx: number; fy: number }
   | { type: 'set_property'; fieldId: string; name: string; value: number; min?: number; max?: number }
   | { type: 'set_world_data'; data: Record<string, unknown>; fieldId?: string }
+  | { type: 'define_interaction'; rule: {
+      definedBy: string; trigger: 'overlap' | 'proximity' | 'always';
+      triggerDistance?: number; fieldA?: string; fieldB?: string;
+      effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event';
+      effectParams: Record<string, unknown>; description?: string;
+    }}
+  | { type: 'remove_interaction'; ruleId: string }
+  | { type: 'define_command'; command: {
+      name: string; definedBy: string; description: string;
+      macro: Array<Record<string, unknown>>;
+    }}
+  | { type: 'execute_command'; name: string; args?: Record<string, unknown> }
   | { type: 'status' } // request current state back
 
 type QueueEntry = { id: string; command: EngineCommand; timestamp: number }
