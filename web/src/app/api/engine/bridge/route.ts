@@ -39,16 +39,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // Strip cells arrays from bridge responses — agents don't need raw pixel data
+  // (cells are only needed in /api/engine/state for persistence)
+  const stripCells = (snap: Record<string, unknown>) => {
+    const { cells, ...rest } = snap as Record<string, unknown> & { cells?: unknown }
+    // Trim memory to last 20 entries for efficiency
+    if (Array.isArray(rest.memory) && rest.memory.length > 20) {
+      rest.memory = rest.memory.slice(-20)
+    }
+    return rest
+  }
+
   const fieldId = req.nextUrl.searchParams.get('fieldId')
   if (fieldId) {
     const snap = getFieldSnapshot(fieldId)
     if (!snap) {
       return NextResponse.json({ error: 'Field not found' }, { status: 404 })
     }
-    return NextResponse.json(snap)
+    return NextResponse.json(stripCells(snap as unknown as Record<string, unknown>))
   }
 
-  return NextResponse.json(getEngineState())
+  const state = getEngineState()
+  return NextResponse.json({
+    ...state,
+    fields: state.fields.map(f => stripCells(f as unknown as Record<string, unknown>)),
+  })
 }
 
 /**
