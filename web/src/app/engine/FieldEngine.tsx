@@ -11,7 +11,7 @@ import AgentDialogPanel from './AgentDialogPanel'
 import type { DialogEntry } from './AgentDialogPanel'
 import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
-import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState } from './types'
+import type { BrushState, Camera, Field, FieldShape, FieldEffect, SelectionState, GenerationState } from './types'
 import { GRID_SIZE } from './types'
 import { DEFAULT_FIELD_EFFECT_GLSL } from './shaders'
 
@@ -44,9 +44,19 @@ function hueToRgba(hue: number): [number, number, number, number] {
   return [r + m, g + m, b + m, 1.0]
 }
 
-/** Format cell count for display */
-function cellLabel(cellCount: number): string {
-  return `${cellCount} cells`
+/** Format shape info for display */
+function shapeLabel(shape: FieldShape | undefined): string {
+  if (!shape) return 'no shape'
+  if (shape.type === 'circle') return `circle r=${shape.radius}`
+  return `rect ${shape.w}x${shape.h}`
+}
+
+/** Parse shape from command params */
+function parseShape(cmd: Record<string, unknown>): FieldShape {
+  if (cmd.shape === 'rect' || cmd.shapeType === 'rect') {
+    return { type: 'rect', w: (cmd.w as number) || 20, h: (cmd.h as number) || 20 }
+  }
+  return { type: 'circle', radius: (cmd.radius as number) || 10 }
 }
 
 export default function FieldEngine() {
@@ -98,7 +108,7 @@ export default function FieldEngine() {
     setFields(new Map(sim.fields))
   }, [])
 
-  // Update selection mask from field cells and upload to GPU
+  // Update selection mask from field shape and upload to GPU
   const updateSelectionMask = useCallback((fieldId: string | null) => {
     const sim = simulationRef.current
     const renderer = rendererRef.current
@@ -106,7 +116,7 @@ export default function FieldEngine() {
 
     let mask: Uint8Array
     if (fieldId) {
-      mask = sim.generateCellMask(fieldId) || new Uint8Array(GRID_SIZE * GRID_SIZE)
+      mask = sim.generateShapeMask(fieldId) || new Uint8Array(GRID_SIZE * GRID_SIZE)
     } else {
       mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
     }
@@ -115,18 +125,13 @@ export default function FieldEngine() {
     setSelection({ selectedFieldId: fieldId, selectionMask: mask })
   }, [])
 
-  /** Compile the default solid-color shader for a field and upload its mask */
-  const compileDefaultEffect = useCallback((fieldId: string, field: Field) => {
+  /** Compile the default solid-color shader for a field */
+  const compileDefaultEffect = useCallback((fieldId: string) => {
     const renderer = rendererRef.current
-    const sim = simulationRef.current
-    if (!renderer || !sim) return
+    if (!renderer) return
 
     const defaultEffectId = `${fieldId}_default`
-    const result = renderer.compileFieldEffect(defaultEffectId, DEFAULT_FIELD_EFFECT_GLSL)
-    if (result.success) {
-      const mask = sim.generateCellMask(fieldId)
-      if (mask) renderer.uploadFieldMask(defaultEffectId, mask)
-    }
+    renderer.compileFieldEffect(defaultEffectId, DEFAULT_FIELD_EFFECT_GLSL)
   }, [])
 
   // Create field
@@ -139,8 +144,7 @@ export default function FieldEngine() {
     const name = `Field ${sim.fields.size + 1}`
     sim.createField(id, name, color)
 
-    const field = sim.fields.get(id)
-    if (field) compileDefaultEffect(id, field)
+    compileDefaultEffect(id)
 
     setBrush(prev => ({ ...prev, activeFieldId: id }))
     syncFields()
@@ -256,10 +260,6 @@ export default function FieldEngine() {
         }
         sim.addFieldEffect(targetFieldId, effect)
 
-        // Upload field mask
-        const mask = sim.generateCellMask(targetFieldId)
-        if (mask) renderer.uploadFieldMask(programKey, mask)
-
         setGeneration({ loading: false, error: null, targetFieldId: null })
         syncFields()
       } else {
@@ -292,7 +292,7 @@ export default function FieldEngine() {
     if (field) {
       field.effects = []
       // Re-compile default shader so field is still visible
-      compileDefaultEffect(fieldId, field)
+      compileDefaultEffect(fieldId)
     }
     setGeneration({ loading: false, error: null, targetFieldId: null })
     syncFields()
@@ -394,19 +394,12 @@ export default function FieldEngine() {
           for (const field of sim.fields.values()) {
             // Always compile default shader
             const defaultKey = `${field.id}_default`
-            const defResult = renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
-            if (defResult.success) {
-              const mask = sim.generateCellMask(field.id)
-              if (mask) renderer.uploadFieldMask(defaultKey, mask)
-            }
+            renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
+
             // Restore custom effects
             for (const effect of field.effects) {
               const programKey = `${field.id}_${effect.id}`
-              const result = renderer.compileFieldEffect(programKey, effect.glsl)
-              if (result.success) {
-                const mask = sim.generateCellMask(field.id)
-                if (mask) renderer.uploadFieldMask(programKey, mask)
-              }
+              renderer.compileFieldEffect(programKey, effect.glsl)
             }
           }
 
@@ -442,8 +435,8 @@ export default function FieldEngine() {
         const bounds = sim.getFieldBounds(field.id)
         if (!bounds) continue
 
-        // Generate cell mask for this field (updated each frame for moving fields)
-        const mask = sim.generateCellMask(field.id)
+        // Generate shape mask analytically (updated each frame for moving fields)
+        const mask = sim.generateShapeMask(field.id)
 
         // Default solid-color shader (always rendered)
         const defaultKey = `${field.id}_default`
@@ -582,8 +575,6 @@ export default function FieldEngine() {
                     order: 10,
                   }
                   sim.addFieldEffect(targetFieldId, effect)
-                  const mask = sim.generateCellMask(targetFieldId)
-                  if (mask) renderer.uploadFieldMask(programKey, mask)
                   setGeneration({ loading: false, error: null, targetFieldId: null })
                   syncFields()
                   pushTerminal('generate', targetFieldId, 'complete', genData.glsl)
@@ -646,10 +637,6 @@ export default function FieldEngine() {
                   order: 10,
                 }
                 sim.addFieldEffect(targetId, effect)
-
-                const mask = sim.generateCellMask(targetId)
-                if (mask) renderer.uploadFieldMask(programKey, mask)
-
                 syncFields()
                 pushTerminal('inject_glsl', targetId, cmd.description || 'shader injected', cmd.glsl)
               } else {
@@ -669,6 +656,10 @@ export default function FieldEngine() {
                 pushTerminal('add_effect', targetId, 'ERROR: field not found')
                 break
               }
+              if (!cmd.glsl || typeof cmd.glsl !== 'string') {
+                pushTerminal('add_effect', targetId, 'ERROR: glsl string required')
+                break
+              }
 
               const effectId = genEffectId()
               const programKey = `${targetId}_${effectId}`
@@ -685,10 +676,6 @@ export default function FieldEngine() {
                   order: cmd.order ?? (field.effects.length + 1) * 10,
                 }
                 sim.addFieldEffect(targetId, effect)
-
-                const mask = sim.generateCellMask(targetId)
-                if (mask) renderer.uploadFieldMask(programKey, mask)
-
                 syncFields()
                 pushTerminal('add_effect', targetId, `${effect.description} (${blend})`, cmd.glsl)
               } else {
@@ -721,11 +708,7 @@ export default function FieldEngine() {
                   field.effects = []
                   // Re-compile default shader
                   const defaultKey = `${clearTargetId}_default`
-                  const defResult = renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
-                  if (defResult.success) {
-                    const mask = sim.generateCellMask(clearTargetId)
-                    if (mask) renderer.uploadFieldMask(defaultKey, mask)
-                  }
+                  renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
                 }
                 syncFields()
               } else {
@@ -735,11 +718,7 @@ export default function FieldEngine() {
                   field.effects = []
                   // Re-compile default shader
                   const defaultKey = `${field.id}_default`
-                  const defResult = renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
-                  if (defResult.success) {
-                    const mask = sim.generateCellMask(field.id)
-                    if (mask) renderer.uploadFieldMask(defaultKey, mask)
-                  }
+                  renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
                 }
                 syncFields()
               }
@@ -783,58 +762,40 @@ export default function FieldEngine() {
               const hue = DEFAULT_HUES[sim.fields.size % DEFAULT_HUES.length]
               const color = cmd.color || hueToRgba(hue)
               const name = cmd.name || `Field ${sim.fields.size + 1}`
+              const shape = parseShape(cmd)
 
-              sim.createField(id, name, color)
+              sim.createField(id, name, color, shape)
 
-              // Paint initial cells if provided
-              if (cmd.cells && Array.isArray(cmd.cells)) {
-                sim.paintCells(id, cmd.cells, color)
+              // Set position if provided
+              if (cmd.x !== undefined && cmd.y !== undefined) {
+                sim.setPosition(id, cmd.x as number, cmd.y as number)
               }
 
-              // Compile default shader
-              const field = sim.fields.get(id)
-              if (field && field.cells.size > 0) {
-                const defaultKey = `${id}_default`
-                const defResult = renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
-                if (defResult.success) {
-                  const mask = sim.generateCellMask(id)
-                  if (mask) renderer.uploadFieldMask(defaultKey, mask)
-                }
-              }
+              // Compile default shader — field is immediately visible
+              const defaultKey = `${id}_default`
+              renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
 
               setBrush(prev => ({ ...prev, activeFieldId: id }))
               syncFields()
-              pushTerminal('create_field', id, `'${name}'`)
+              pushTerminal('create_field', id, `'${name}' (${shapeLabel(shape)})`)
               break
             }
 
-            case 'paint': {
-              const targetId = cmd.fieldId || brush.activeFieldId
-              if (!targetId) break
-              const field = sim.fields.get(targetId)
-              if (!field) break
-              const cells = cmd.cells as number[] | undefined
-              if (!cells || !Array.isArray(cells)) break
-              const color = cmd.color || field.color
-              sim.paintCells(targetId, cells, color)
-
-              // Ensure default shader is compiled
-              const defaultKey = `${targetId}_default`
-              if (!renderer.hasFieldEffect(defaultKey)) {
-                renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
+            case 'set_shape': {
+              const targetId = cmd.fieldId
+              if (!targetId) {
+                pushTerminal('set_shape', undefined, 'ERROR: fieldId required')
+                break
               }
-
+              const field = sim.fields.get(targetId)
+              if (!field) {
+                pushTerminal('set_shape', targetId, 'ERROR: field not found')
+                break
+              }
+              const newShape = parseShape(cmd)
+              sim.setShape(targetId, newShape)
               syncFields()
-              pushTerminal('paint', targetId, `${cells.length} cells`)
-              break
-            }
-
-            case 'erase': {
-              const cells = cmd.cells as number[] | undefined
-              if (!cells || !Array.isArray(cells)) break
-              sim.eraseCells(cells)
-              syncFields()
-              pushTerminal('erase', undefined, `${cells.length} cells`)
+              pushTerminal('set_shape', targetId, shapeLabel(newShape))
               break
             }
 
@@ -906,18 +867,84 @@ export default function FieldEngine() {
               break
             }
 
-            case 'set_velocity': {
-              const velField = sim.fields.get(cmd.fieldId)
-              if (!velField) break
-              velField.transform.vx = cmd.vx
-              velField.transform.vy = cmd.vy
-              if (cmd.vr !== undefined) velField.transform.vr = cmd.vr
-              if (!sim.running) {
-                sim.running = true
-                setRunning(true)
+            case 'set_color': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              if (Array.isArray(cmd.color) && cmd.color.length >= 3) {
+                field.color = [cmd.color[0], cmd.color[1], cmd.color[2], cmd.color[3] ?? 1.0]
               }
               syncFields()
-              pushTerminal('set_velocity', cmd.fieldId, `vx=${cmd.vx}, vy=${cmd.vy}`)
+              pushTerminal('set_color', cmd.fieldId, `[${field.color.map((c: number) => c.toFixed(2)).join(', ')}]`)
+              break
+            }
+
+            case 'set_velocity': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              if (cmd.vx !== undefined) field.transform.vx = cmd.vx as number
+              if (cmd.vy !== undefined) field.transform.vy = cmd.vy as number
+              if (cmd.vr !== undefined) field.transform.vr = cmd.vr as number
+              if (!sim.running) { sim.running = true; setRunning(true) }
+              syncFields()
+              pushTerminal('set_velocity', cmd.fieldId, `vx=${field.transform.vx.toFixed(1)} vy=${field.transform.vy.toFixed(1)} vr=${field.transform.vr.toFixed(2)}`)
+              break
+            }
+
+            case 'set_scale': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              field.transform.scale = (cmd.scale as number) || 1.0
+              syncFields()
+              pushTerminal('set_scale', cmd.fieldId, `scale=${field.transform.scale.toFixed(2)}`)
+              break
+            }
+
+            case 'set_rotation': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              field.transform.rotation = (cmd.rotation as number) || 0
+              syncFields()
+              pushTerminal('set_rotation', cmd.fieldId, `rotation=${field.transform.rotation.toFixed(2)}`)
+              break
+            }
+
+            case 'set_name': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              const oldName = field.name
+              field.name = (cmd.name as string) || field.name
+              syncFields()
+              pushTerminal('set_name', cmd.fieldId, `"${oldName}" -> "${field.name}"`)
+              break
+            }
+
+
+            case 'set_property': {
+              const propField = sim.fields.get(cmd.fieldId)
+              if (!propField) {
+                pushTerminal('set_property', cmd.fieldId, 'ERROR: field not found')
+                break
+              }
+              const key = cmd.key as string
+              const value = cmd.value
+              if (!key) {
+                pushTerminal('set_property', cmd.fieldId, 'ERROR: key required')
+                break
+              }
+              propField.properties.set(key, value)
+              syncFields()
+              pushTerminal('set_property', cmd.fieldId, `${key} = ${JSON.stringify(value)}`)
+              break
+            }
+
+            case 'get_properties': {
+              const gpField = sim.fields.get(cmd.fieldId)
+              if (!gpField) {
+                pushTerminal('get_properties', cmd.fieldId, 'ERROR: field not found')
+                break
+              }
+              const props = Object.fromEntries(gpField.properties)
+              pushTerminal('get_properties', cmd.fieldId, JSON.stringify(props).substring(0, 200))
               break
             }
 
@@ -1013,12 +1040,12 @@ export default function FieldEngine() {
                 pushTerminal('add_step_hook', cmd.author, 'ERROR: hookId and code required')
                 break
               }
-              const hookOk = sim.addStepHook(cmd.hookId, cmd.author || 'unknown', cmd.description || '', cmd.code)
-              if (hookOk) {
+              const hookErr = sim.addStepHook(cmd.hookId, cmd.author || 'unknown', cmd.description || '', cmd.code)
+              if (!hookErr) {
                 if (!sim.running) { sim.running = true; setRunning(true) }
                 pushTerminal('add_step_hook', cmd.author, `"${cmd.hookId}": ${cmd.description || 'step hook added'}`, cmd.code)
               } else {
-                pushTerminal('add_step_hook', cmd.author, `COMPILE ERROR for "${cmd.hookId}"`)
+                pushTerminal('add_step_hook', cmd.author, `COMPILE ERROR for "${cmd.hookId}": ${hookErr}`, cmd.code)
               }
               syncFields()
               break
@@ -1070,6 +1097,59 @@ export default function FieldEngine() {
               break
             }
 
+            case 'clone_field': {
+              const sourceField = sim.fields.get(cmd.fieldId)
+              if (!sourceField) {
+                pushTerminal('clone_field', cmd.fieldId, 'ERROR: source field not found')
+                break
+              }
+              const cloneId = genFieldId()
+              const cloneName = (cmd.name as string) || `${sourceField.name} (clone)`
+              const cloneColor = (cmd.color as [number, number, number, number]) || [...sourceField.color] as [number, number, number, number]
+              const cloneShape = { ...sourceField.shape }
+              
+              sim.createField(cloneId, cloneName, cloneColor, cloneShape)
+              
+              // Copy position with optional offset
+              const offsetX = (cmd.offsetX as number) || 30
+              const offsetY = (cmd.offsetY as number) || 0
+              sim.setPosition(cloneId, sourceField.transform.x + offsetX, sourceField.transform.y + offsetY)
+              
+              // Compile default shader
+              const defaultKey = `${cloneId}_default`
+              renderer.compileFieldEffect(defaultKey, DEFAULT_FIELD_EFFECT_GLSL)
+              
+              // Clone effects
+              for (const effect of sourceField.effects) {
+                const newEffectId = genEffectId()
+                const programKey = `${cloneId}_${newEffectId}`
+                const result = renderer.compileFieldEffect(programKey, effect.glsl)
+                if (result.success) {
+                  sim.addFieldEffect(cloneId, {
+                    id: newEffectId,
+                    author: effect.author,
+                    glsl: effect.glsl,
+                    description: effect.description,
+                    blend: effect.blend,
+                    order: effect.order,
+                  })
+                }
+              }
+              
+              syncFields()
+              pushTerminal('clone_field', cmd.fieldId, `cloned as '${cloneName}' (id: ${cloneId})`)
+              break
+            }
+
+            case 'list_fields': {
+              const fieldList = Array.from(sim.fields.values()).map(f => {
+                const b = sim.getFieldBounds(f.id)
+                return `${f.name} [${f.id}] at (${f.transform.x.toFixed(0)},${f.transform.y.toFixed(0)}) ${f.shape.type === 'circle' ? 'r=' + f.shape.radius : f.shape.w + 'x' + f.shape.h} effects=${f.effects.length}`
+              })
+              pushTerminal('list_fields', undefined, `${sim.fields.size} fields`, fieldList.join('\n'))
+              break
+            }
+
             case 'status':
               pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length}`)
               break
@@ -1106,7 +1186,7 @@ export default function FieldEngine() {
         await fetch('/api/engine/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: sim.generateSnapshots(), worldParams: sim.getWorldParams() }),
+          body: JSON.stringify({ fields: sim.generateSnapshots(), worldParams: sim.getWorldParams(), stepHooks: sim.getStepHookSnapshots() }),
         })
       } catch { /* best-effort */ }
     }, 2000)
@@ -1173,7 +1253,7 @@ export default function FieldEngine() {
               <span className="inline-block w-2 h-2 rounded-full" style={{
                 backgroundColor: `rgb(${Math.round(f.color[0]*255)},${Math.round(f.color[1]*255)},${Math.round(f.color[2]*255)})`
               }} />
-              <span className="text-muted">{f.name}: {cellLabel(f.cells.size)}{f.effects.length > 0 ? ` +${f.effects.length}fx` : ''}</span>
+              <span className="text-muted">{f.name}: {shapeLabel(f.shape)}{f.effects.length > 0 ? ` +${f.effects.length}fx` : ''}</span>
             </div>
           ))}
         </div>

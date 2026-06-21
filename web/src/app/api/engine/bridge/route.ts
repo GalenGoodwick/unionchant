@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore } from '../store'
 
 export const maxDuration = 30
 
@@ -95,12 +95,25 @@ export async function GET(req: NextRequest) {
   }
 
   const fieldId = req.nextUrl.searchParams.get('fieldId')
+  const fieldName = req.nextUrl.searchParams.get('name')
   if (fieldId) {
     const snap = getFieldSnapshot(fieldId)
     if (!snap) {
       return NextResponse.json({ error: 'Field not found' }, { status: 404 })
     }
     const response: Record<string, unknown> = trimMemory(snap as unknown as Record<string, unknown>)
+    if (shellIdentity) response.shellIdentity = shellIdentity
+    return NextResponse.json(response)
+  }
+
+  // Name-based field lookup: ?name=Beta
+  if (fieldName) {
+    const allSnaps = getAllFieldSnapshots()
+    const match = allSnaps.find(s => s.name.toLowerCase() === fieldName.toLowerCase())
+    if (!match) {
+      return NextResponse.json({ error: `Field "${fieldName}" not found` }, { status: 404 })
+    }
+    const response: Record<string, unknown> = trimMemory(match as unknown as Record<string, unknown>)
     if (shellIdentity) response.shellIdentity = shellIdentity
     return NextResponse.json(response)
   }

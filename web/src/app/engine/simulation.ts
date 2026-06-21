@@ -1,20 +1,21 @@
-// Field Engine — Simulation (CPU-side, cell-based)
+// Field Engine v3 — Simulation (CPU-side, shape-based)
 
-import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand } from './types'
+import { GRID_SIZE, type FieldWorld, type Field, type FieldShape, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand } from './types'
 
 export class FieldSimulation {
   world: FieldWorld
   fields: Map<string, Field>
   running: boolean = false
   private fieldMemory: Map<string, FieldMemoryEntry[]> = new Map()
-  private moveAccumulator: Map<string, { ax: number; ay: number }> = new Map()
   private collisionState: Map<string, Set<string>> = new Map()
   /** Agent-defined interaction rules — executed each physics tick */
   interactionRules: InteractionRule[] = []
   /** Agent-defined custom commands — macros of existing commands */
   customCommands: Map<string, CustomCommand> = new Map()
   /** Agent-defined step hooks — JavaScript functions that run every simulation tick */
-  stepHooks: Map<string, { author: string; description: string; fn: (sim: FieldSimulation, dt: number) => void }> = new Map()
+  stepHooks: Map<string, { author: string; description: string; code: string; fn: (sim: FieldSimulation, dt: number) => void }> = new Map()
+  /** Cached shape masks — invalidated when field transforms change */
+  private maskCache: Map<string, { mask: Uint8Array; x: number; y: number; shape: string }> = new Map()
   static readonly MAX_MEMORY = 100
 
   /** World-level physics parameters */
@@ -39,7 +40,8 @@ export class FieldSimulation {
   /** Restore fields from server-stored snapshots (called on mount) */
   restoreFromSnapshots(snapshots: FieldSnapshot[]): void {
     for (const snap of snapshots) {
-      this.createField(snap.id, snap.name, snap.color)
+      const shape = snap.shape || { type: 'circle' as const, radius: 10 }
+      this.createField(snap.id, snap.name, snap.color, shape)
       const field = this.fields.get(snap.id)
       if (!field) continue
       // Restore transform
@@ -48,13 +50,15 @@ export class FieldSimulation {
       if (snap.effects?.length) {
         field.effects = snap.effects.map(e => ({ ...e }))
       }
+      // Restore properties
+      if (snap.properties) {
+        for (const [k, v] of Object.entries(snap.properties)) {
+          field.properties.set(k, v)
+        }
+      }
       // Restore memory
       if (snap.memory?.length) {
         this.fieldMemory.set(snap.id, [...snap.memory])
-      }
-      // Restore cells — paint them back onto the grid
-      if (snap.cells?.length) {
-        this.paintCells(snap.id, snap.cells, snap.color)
       }
     }
   }
@@ -83,107 +87,64 @@ export class FieldSimulation {
     return { x: 0, y: 0, rotation: 0, scale: 1, vx: 0, vy: 0, vr: 0 }
   }
 
-  /** Create a new field (empty — no cells until painted) */
-  createField(id: string, name: string, color: [number, number, number, number]): Field {
+  /** Create a new field with a shape — immediately visible via default shader */
+  createField(id: string, name: string, color: [number, number, number, number], shape: FieldShape = { type: 'circle', radius: 10 }): Field {
     const field: Field = {
       id,
       name,
       color,
-      cells: new Set(),
+      shape,
       transform: FieldSimulation.defaultTransform(),
       effects: [],
+      properties: new Map(),
     }
     this.fields.set(id, field)
     this.addMemory(id, {
       timestamp: new Date().toISOString(),
       type: 'created',
-      content: `Field "${name}" created`,
+      content: `Field "${name}" created (${shape.type === 'circle' ? `circle r=${shape.radius}` : `rect ${shape.w}x${shape.h}`})`,
       sourceFieldId: null,
     })
     return field
   }
 
-  /** Remove a field and clear its cells */
+  /** Remove a field */
   removeField(id: string): void {
-    const field = this.fields.get(id)
-    if (!field) return
-
-    for (const cellIndex of field.cells) {
-      const base = cellIndex * 4
-      this.world.colorData[base] = 0
-      this.world.colorData[base + 1] = 0
-      this.world.colorData[base + 2] = 0
-      this.world.colorData[base + 3] = 0
-      this.world.stateData[base] = 0
-      this.world.stateData[base + 1] = 0
-      this.world.stateData[base + 2] = 0
-      this.world.stateData[base + 3] = 0
-    }
-
     this.fields.delete(id)
     this.clearMemory(id)
   }
 
-  /** Paint field influence onto cells */
-  paintCells(fieldId: string, cellIndices: number[], color: [number, number, number, number]): void {
+  /** Update a field's shape */
+  setShape(fieldId: string, shape: FieldShape): void {
     const field = this.fields.get(fieldId)
     if (!field) return
-
-    for (const idx of cellIndices) {
-      if (idx < 0 || idx >= GRID_SIZE * GRID_SIZE) continue
-      const base = idx * 4
-      this.world.colorData[base] = color[0]
-      this.world.colorData[base + 1] = color[1]
-      this.world.colorData[base + 2] = color[2]
-      this.world.colorData[base + 3] = color[3]
-
-      // State: R=1.0 (occupied), G=fieldTypeHash, B=0, A=0
-      this.world.stateData[base] = 1.0
-      this.world.stateData[base + 1] = this.fieldTypeHash(fieldId)
-      this.world.stateData[base + 2] = 0
-      this.world.stateData[base + 3] = 0
-
-      field.cells.add(idx)
-    }
+    field.shape = shape
+    this.addMemory(fieldId, {
+      timestamp: new Date().toISOString(),
+      type: 'shape_changed',
+      content: `Shape changed to ${shape.type === 'circle' ? `circle r=${shape.radius}` : `rect ${shape.w}x${shape.h}`}`,
+      sourceFieldId: null,
+    })
   }
 
-  /** Clear cells */
-  eraseCells(cellIndices: number[]): void {
-    for (const idx of cellIndices) {
-      if (idx < 0 || idx >= GRID_SIZE * GRID_SIZE) continue
-      const base = idx * 4
-      this.world.colorData[base] = 0
-      this.world.colorData[base + 1] = 0
-      this.world.colorData[base + 2] = 0
-      this.world.colorData[base + 3] = 0
-      this.world.stateData[base] = 0
-      this.world.stateData[base + 1] = 0
-      this.world.stateData[base + 2] = 0
-      this.world.stateData[base + 3] = 0
-
-      // Remove from all fields
-      for (const field of this.fields.values()) {
-        field.cells.delete(idx)
-      }
+  /** Test if a point is inside a field's shape (in grid coordinates) */
+  pointInShape(x: number, y: number, field: Field): boolean {
+    if (!field.shape) return false
+    const t = field.transform
+    if (field.shape.type === 'circle') {
+      const dx = x - t.x
+      const dy = y - t.y
+      return dx * dx + dy * dy <= field.shape.radius * field.shape.radius
+    } else {
+      // rect: origin is top-left corner of rect
+      return x >= t.x && x < t.x + field.shape.w && y >= t.y && y < t.y + field.shape.h
     }
-  }
-
-  /** Hash field ID to a float for state texture identification */
-  private fieldTypeHash(fieldId: string): number {
-    let hash = 0
-    for (let i = 0; i < fieldId.length; i++) {
-      hash = ((hash << 5) - hash + fieldId.charCodeAt(i)) | 0
-    }
-    return (Math.abs(hash) % 1000) / 1000
   }
 
   /** Clear everything */
   clearAll(): void {
     this.world.colorData.fill(0)
     this.world.stateData.fill(0)
-    for (const field of this.fields.values()) {
-      field.cells.clear()
-    }
   }
 
   /** Update field transforms based on velocities */
@@ -204,10 +165,9 @@ export class FieldSimulation {
 
     const wp = this.worldParams
 
-    // Apply gravity to all fields with cells
+    // Apply gravity to all fields
     if (wp.gravity !== 0) {
       for (const field of this.fields.values()) {
-        if (field.cells.size === 0) continue
         field.transform.vy += wp.gravity * dt
       }
     }
@@ -241,33 +201,22 @@ export class FieldSimulation {
     }
 
     // Boundary enforcement
-    if (wp.boundaryMode === 'solid') {
+    const bm = wp.boundaryMode
+    if (bm === 'solid') {
       this.stepBoundaries()
+    } else if (bm === 'wrap') {
+      this.stepBoundaryWrap()
+    } else if (wp.boundaryMode === 'wrap') {
+      this.stepWrapBoundaries()
     }
 
     // Update field transforms (velocity → position)
     this.stepTransforms(dt)
-
-    // Physical cell movement — accumulate velocity, shift cells when delta >= 1
-    for (const field of this.fields.values()) {
-      if (field.transform.vx === 0 && field.transform.vy === 0) continue
-      const acc = this.moveAccumulator.get(field.id) || { ax: 0, ay: 0 }
-      acc.ax += field.transform.vx * dt
-      acc.ay += field.transform.vy * dt
-      const dx = Math.trunc(acc.ax)
-      const dy = Math.trunc(acc.ay)
-      if (dx !== 0 || dy !== 0) {
-        this.moveField(field.id, dx, dy)
-        acc.ax -= dx
-        acc.ay -= dy
-      }
-      this.moveAccumulator.set(field.id, acc)
-    }
   }
 
   /** Detect collisions between fields and fire events + apply forces */
   private stepCollisions(dt: number): void {
-    const fieldList = Array.from(this.fields.values()).filter(f => f.cells.size > 0)
+    const fieldList = Array.from(this.fields.values())
     const wp = this.worldParams
 
     for (let i = 0; i < fieldList.length; i++) {
@@ -337,7 +286,7 @@ export class FieldSimulation {
   private stepInteractionRules(dt: number): void {
     if (this.interactionRules.length === 0) return
 
-    const fieldList = Array.from(this.fields.values()).filter(f => f.cells.size > 0)
+    const fieldList = Array.from(this.fields.values())
 
     for (const rule of this.interactionRules) {
       for (let i = 0; i < fieldList.length; i++) {
@@ -446,11 +395,10 @@ export class FieldSimulation {
     return this.customCommands.get(name)
   }
 
-  /** Enforce solid boundaries — bounce fields off grid edges */
+  /** Enforce solid boundaries — bounce fields off grid edges using analytic bounds */
   private stepBoundaries(): void {
     const wp = this.worldParams
     for (const field of this.fields.values()) {
-      if (field.cells.size === 0) continue
       const bounds = this.getFieldBounds(field.id)
       if (!bounds) continue
 
@@ -473,16 +421,55 @@ export class FieldSimulation {
     }
   }
 
-  /** Register a step hook — runs every simulation tick */
-  addStepHook(id: string, author: string, description: string, code: string): boolean {
+  /** Wrap boundaries — toroidal topology. Fields wrap around grid edges. */
+  private stepWrapBoundaries(): void {
+    for (const field of this.fields.values()) {
+      const t = field.transform
+      // Wrap position around grid
+      if (t.x < 0) t.x += GRID_SIZE
+      if (t.x >= GRID_SIZE) t.x -= GRID_SIZE
+      if (t.y < 0) t.y += GRID_SIZE
+      if (t.y >= GRID_SIZE) t.y -= GRID_SIZE
+    }
+  }
+
+  /** Wrap fields around grid edges — fields exiting one side appear on the opposite side */
+  private stepBoundaryWrap(): void {
+    for (const field of this.fields.values()) {
+      const t = field.transform
+      const bounds = this.getFieldBounds(field.id)
+      if (!bounds) continue
+
+      const fieldW = bounds.maxX - bounds.minX
+      const fieldH = bounds.maxY - bounds.minY
+
+      // Wrap horizontally
+      if (bounds.maxX < 0) {
+        t.x += GRID_SIZE + fieldW
+      } else if (bounds.minX >= GRID_SIZE) {
+        t.x -= GRID_SIZE + fieldW
+      }
+
+      // Wrap vertically
+      if (bounds.maxY < 0) {
+        t.y += GRID_SIZE + fieldH
+      } else if (bounds.minY >= GRID_SIZE) {
+        t.y -= GRID_SIZE + fieldH
+      }
+    }
+  }
+
+  /** Register a step hook — runs every simulation tick. Returns null on success, error string on failure. */
+  addStepHook(id: string, author: string, description: string, code: string): string | null {
     try {
       // eslint-disable-next-line no-new-func
       const fn = new Function('sim', 'dt', code) as (sim: FieldSimulation, dt: number) => void
-      this.stepHooks.set(id, { author, description, fn })
-      return true
+      this.stepHooks.set(id, { author, description, code, fn })
+      return null
     } catch (e) {
-      console.warn(`Failed to compile step hook ${id}:`, e)
-      return false
+      const msg = e instanceof Error ? e.message : String(e)
+      console.warn(`Failed to compile step hook ${id}:`, msg)
+      return msg
     }
   }
 
@@ -491,58 +478,60 @@ export class FieldSimulation {
     this.stepHooks.delete(id)
   }
 
+  /** Serialize step hooks for state sync (excludes fn) */
+  getStepHookSnapshots(): Array<{ id: string; author: string; description: string; code: string }> {
+    const result: Array<{ id: string; author: string; description: string; code: string }> = []
+    for (const [id, hook] of this.stepHooks) {
+      result.push({ id, author: hook.author, description: hook.description, code: hook.code })
+    }
+    return result
+  }
+
   /** Given a grid coordinate, return the field that contains it, or null */
   getFieldAtCell(x: number, y: number): Field | null {
-    const idx = y * GRID_SIZE + x
     for (const field of this.fields.values()) {
-      if (field.cells.has(idx)) return field
+      if (this.pointInShape(x, y, field)) return field
     }
     return null
   }
 
-  /** Get the axis-aligned bounding box of a field's cells */
+  /** Get the axis-aligned bounding box of a field from its shape + transform (analytic) */
   getFieldBounds(fieldId: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const field = this.fields.get(fieldId)
-    if (!field || field.cells.size === 0) return null
+    if (!field || !field.shape) return null
 
-    let minX = GRID_SIZE, minY = GRID_SIZE, maxX = 0, maxY = 0
-    for (const idx of field.cells) {
-      const x = idx % GRID_SIZE
-      const y = Math.floor(idx / GRID_SIZE)
-      if (x < minX) minX = x
-      if (x > maxX) maxX = x
-      if (y < minY) minY = y
-      if (y > maxY) maxY = y
-    }
-    // Apply transform offset
     const t = field.transform
-    return {
-      minX: minX + t.x,
-      minY: minY + t.y,
-      maxX: maxX + t.x,
-      maxY: maxY + t.y,
+    if (field.shape.type === 'circle') {
+      const r = field.shape.radius
+      return {
+        minX: t.x - r,
+        minY: t.y - r,
+        maxX: t.x + r,
+        maxY: t.y + r,
+      }
+    } else {
+      return {
+        minX: t.x,
+        minY: t.y,
+        maxX: t.x + field.shape.w,
+        maxY: t.y + field.shape.h,
+      }
     }
   }
 
-  /** Get the center of a field's cells */
+  /** Get the center of a field */
   getFieldCenter(fieldId: string): { x: number; y: number } | null {
     const bounds = this.getFieldBounds(fieldId)
     if (!bounds) return null
     return { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
   }
 
-  /** Teleport a field to an absolute grid position (moves cells) */
+  /** Set field position directly */
   setPosition(fieldId: string, x: number, y: number): void {
     const field = this.fields.get(fieldId)
-    if (!field || field.cells.size === 0) return
-    const bounds = this.getFieldBounds(fieldId)
-    if (!bounds) return
-    const center = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
-    const dx = Math.round(x - center.x)
-    const dy = Math.round(y - center.y)
-    if (dx !== 0 || dy !== 0) {
-      this.moveField(fieldId, dx, dy)
-    }
+    if (!field) return
+    field.transform.x = x
+    field.transform.y = y
   }
 
   /** Add an effect to a field's effect stack */
@@ -576,49 +565,6 @@ export class FieldSimulation {
       return true
     }
     return false
-  }
-
-  /** Read state data at a grid position */
-  readData(x: number, y: number): [number, number, number, number] {
-    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return [0, 0, 0, 0]
-    const base = (Math.floor(y) * GRID_SIZE + Math.floor(x)) * 4
-    return [
-      this.world.stateData[base],
-      this.world.stateData[base + 1],
-      this.world.stateData[base + 2],
-      this.world.stateData[base + 3],
-    ]
-  }
-
-  /** Physically relocate all cells in a field by (dx, dy) grid units */
-  moveField(fieldId: string, dx: number, dy: number): void {
-    const field = this.fields.get(fieldId)
-    if (!field) return
-    const oldCells = Array.from(field.cells)
-    const newCells: number[] = []
-
-    // Clear old cells
-    for (const idx of oldCells) {
-      const base = idx * 4
-      this.world.colorData[base] = 0
-      this.world.colorData[base + 1] = 0
-      this.world.colorData[base + 2] = 0
-      this.world.colorData[base + 3] = 0
-      this.world.stateData[base] = 0
-      this.world.stateData[base + 1] = 0
-    }
-    field.cells.clear()
-
-    // Paint new cells at shifted positions
-    for (const idx of oldCells) {
-      const x = (idx % GRID_SIZE) + dx
-      const y = Math.floor(idx / GRID_SIZE) + dy
-      if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
-        newCells.push(y * GRID_SIZE + x)
-      }
-    }
-
-    this.paintCells(fieldId, newCells, field.color)
   }
 
   /** Get proximity info for a field relative to all other fields */
@@ -697,15 +643,17 @@ export class FieldSimulation {
       // Sample state data at field center
       let stateAtCenter: { r: number; g: number; b: number; a: number } | undefined
       if (center) {
-        const data = this.readData(center.x, center.y)
-        stateAtCenter = { r: data[0], g: data[1], b: data[2], a: data[3] }
+        const cx = Math.floor(center.x), cy = Math.floor(center.y)
+        if (cx >= 0 && cx < GRID_SIZE && cy >= 0 && cy < GRID_SIZE) {
+          const base = (cy * GRID_SIZE + cx) * 4
+          stateAtCenter = { r: this.world.stateData[base], g: this.world.stateData[base + 1], b: this.world.stateData[base + 2], a: this.world.stateData[base + 3] }
+        }
       }
       snapshots.push({
         id: field.id,
         name: field.name,
         color: field.color,
-        cellCount: field.cells.size,
-        cells: Array.from(field.cells),
+        shape: field.shape,
         bounds,
         effects: field.effects.map(e => ({
           id: e.id, author: e.author, glsl: e.glsl,
@@ -715,6 +663,7 @@ export class FieldSimulation {
         memory: [...this.getMemory(field.id)],
         proximity: this.getProximity(field.id),
         stateAtCenter,
+        properties: Object.fromEntries(field.properties),
       })
     }
     return snapshots
@@ -729,14 +678,46 @@ export class FieldSimulation {
     return result
   }
 
-  /** Generate a mask Uint8Array for a field's cells (for shader pass) */
-  generateCellMask(fieldId: string): Uint8Array | null {
+  /** Generate a mask Uint8Array for a field's shape (for shader pass) — cached, invalidated on move */
+  generateShapeMask(fieldId: string): Uint8Array | null {
     const field = this.fields.get(fieldId)
-    if (!field || field.cells.size === 0) return null
-    const mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
-    for (const idx of field.cells) {
-      mask[idx] = 255
+    if (!field) return null
+
+    const bounds = this.getFieldBounds(fieldId)
+    if (!bounds) return null
+
+    // Cache key: integer position + shape descriptor
+    const ix = Math.round(field.transform.x)
+    const iy = Math.round(field.transform.y)
+    const shapeKey = field.shape.type === 'circle' 
+      ? `c${field.shape.radius}` 
+      : `r${field.shape.w}x${field.shape.h}`
+    
+    const cached = this.maskCache.get(fieldId)
+    if (cached && cached.x === ix && cached.y === iy && cached.shape === shapeKey) {
+      return cached.mask
     }
+
+    const mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const minX = Math.max(0, Math.floor(bounds.minX))
+    const minY = Math.max(0, Math.floor(bounds.minY))
+    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxX))
+    const maxY = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxY))
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (this.pointInShape(x, y, field)) {
+          mask[y * GRID_SIZE + x] = 255
+        }
+      }
+    }
+
+    this.maskCache.set(fieldId, { mask, x: ix, y: iy, shape: shapeKey })
     return mask
+  }
+
+  /** Invalidate mask cache for a field */
+  invalidateMaskCache(fieldId: string): void {
+    this.maskCache.delete(fieldId)
   }
 }

@@ -9,6 +9,14 @@ import { join } from 'path'
 const MAX_MEMORY_ENTRIES = 100
 const PERSIST_PATH = join(process.cwd(), '.engine-store.json')
 
+/** Serialized step hook (no fn — just source code) */
+export interface StepHookSnapshot {
+  id: string
+  author: string
+  description: string
+  code: string
+}
+
 interface EngineStore {
   fieldSnapshots: Map<string, FieldSnapshot>
   lastSyncTime: number
@@ -19,6 +27,8 @@ interface EngineStore {
   interactionRules: InteractionRule[]
   /** Agent-defined custom commands (persisted server-side) */
   customCommands: Map<string, CustomCommand>
+  /** Active step hooks (synced from client) */
+  stepHooks: StepHookSnapshot[]
 }
 
 const DEFAULT_WORLD_PARAMS: WorldParams = {
@@ -37,6 +47,7 @@ interface SerializedStore {
   worldData: Record<string, unknown>
   interactionRules: InteractionRule[]
   customCommands: Record<string, CustomCommand>
+  stepHooks?: StepHookSnapshot[]
   lastSyncTime: number
 }
 
@@ -64,6 +75,7 @@ function loadFromDisk(): Partial<EngineStore> | null {
       worldData: data.worldData || {},
       interactionRules: data.interactionRules || [],
       customCommands,
+      stepHooks: data.stepHooks || [],
     }
   } catch {
     // No file or invalid — start fresh
@@ -84,6 +96,7 @@ function schedulePersist(): void {
         worldData: store.worldData,
         interactionRules: store.interactionRules,
         customCommands: Object.fromEntries(store.customCommands),
+        stepHooks: store.stepHooks,
         lastSyncTime: store.lastSyncTime,
       }
       writeFileSync(PERSIST_PATH, JSON.stringify(data), 'utf-8')
@@ -108,6 +121,7 @@ if (!globalStore.__engineStore) {
       worldData: {},
       interactionRules: [],
       customCommands: new Map(),
+      stepHooks: [],
     }
   }
 }
@@ -125,9 +139,12 @@ if (!store.interactionRules) {
 if (!store.customCommands) {
   store.customCommands = new Map()
 }
+if (!store.stepHooks) {
+  store.stepHooks = []
+}
 
 /** Full replace from client sync */
-export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams): void {
+export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[]): void {
   store.fieldSnapshots.clear()
   for (const snap of snapshots) {
     store.fieldSnapshots.set(snap.id, snap)
@@ -135,8 +152,22 @@ export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: Worl
   if (worldParams) {
     store.worldParams = worldParams
   }
+  if (stepHooks) {
+    store.stepHooks = stepHooks
+  }
   store.lastSyncTime = Date.now()
   schedulePersist()
+}
+
+/** Set step hooks from client sync */
+export function setStepHooks(hooks: StepHookSnapshot[]): void {
+  store.stepHooks = hooks
+  schedulePersist()
+}
+
+/** Get step hooks */
+export function getStepHooks(): StepHookSnapshot[] {
+  return [...store.stepHooks]
 }
 
 /** Get world params */
@@ -170,6 +201,7 @@ export function getEngineState(): {
   worldData: Record<string, unknown>
   interactionRules: InteractionRule[]
   customCommands: CustomCommand[]
+  stepHooks: StepHookSnapshot[]
 } {
   return {
     fields: getAllFieldSnapshots(),
@@ -180,6 +212,7 @@ export function getEngineState(): {
     worldData: getWorldData(),
     interactionRules: getInteractionRules(),
     customCommands: getAllCustomCommands(),
+    stepHooks: getStepHooks(),
   }
 }
 
@@ -242,6 +275,7 @@ export function resetStore(): void {
   store.worldData = {}
   store.interactionRules = []
   store.customCommands.clear()
+  store.stepHooks = []
   store.lastSyncTime = 0
   schedulePersist()
 }

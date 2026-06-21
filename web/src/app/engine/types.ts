@@ -2,6 +2,11 @@
 
 export const GRID_SIZE = 512
 
+/** Shape definition — the field's body IS its shape */
+export type FieldShape =
+  | { type: 'circle'; radius: number }
+  | { type: 'rect'; w: number; h: number }
+
 /** The world state — two 512x512 textures */
 export interface FieldWorld {
   size: typeof GRID_SIZE
@@ -41,18 +46,20 @@ export interface FieldEffect {
   order: number
 }
 
-/** A field is a region of influence defined by its painted cells + shader stack */
+/** A field = shape + transform + shader stack. The shader output IS the field body. */
 export interface Field {
   id: string
   name: string
   /** RGBA color — components in [0,1] */
   color: [number, number, number, number]
-  /** Which cells belong to this field (sparse set of grid indices: y * 512 + x) */
-  cells: Set<number>
+  /** Shape defining the field body — no cell painting needed */
+  shape: FieldShape
   /** Transform state for position/movement/rotation */
   transform: FieldTransform
   /** Composited shader effect stack (renders in order) */
   effects: FieldEffect[]
+  /** Arbitrary key-value properties — step hooks can read/write these for per-field state */
+  properties: Map<string, unknown>
 }
 
 /** Drawing tool state */
@@ -109,7 +116,7 @@ export interface WorldParams {
 /** Memory entry types for field agent history */
 export type FieldMemoryType =
   | 'created' | 'effect_added' | 'effect_removed'
-  | 'message_received' | 'message_sent' | 'cells_changed'
+  | 'message_received' | 'message_sent' | 'shape_changed'
   | 'collision' | 'proximity_changed' | 'world_params_changed'
   | 'force_applied'
 
@@ -136,9 +143,8 @@ export interface FieldSnapshot {
   id: string
   name: string
   color: [number, number, number, number]
-  cellCount: number
-  /** Raw cell indices for state persistence across refreshes */
-  cells?: number[]
+  /** Shape defining the field body */
+  shape: FieldShape
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
   effects: Array<{
     id: string
@@ -153,6 +159,8 @@ export interface FieldSnapshot {
   proximity: FieldProximity[]
   /** Sampled state texture data at field center (for agent data exchange) */
   stateAtCenter?: { r: number; g: number; b: number; a: number }
+  /** Serialized properties map */
+  properties?: Record<string, unknown>
 }
 
 /** Full world state snapshot (sent via bridge to agents) */

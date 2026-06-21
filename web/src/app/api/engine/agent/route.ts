@@ -12,11 +12,18 @@ export type EngineCommand =
   | { type: 'generate'; prompt: string; fieldId?: string }
   | { type: 'clear_effect'; fieldId?: string }
   | { type: 'clear_all' }
-  | { type: 'create_field'; name?: string; color?: [number, number, number, number]; cells?: number[] }
+  // Shape-based field creation (no cells — shape IS the body)
+  | { type: 'create_field'; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number }
   | { type: 'delete_field'; fieldId: string }
-  | { type: 'paint'; fieldId?: string; cells: number[]; color?: [number, number, number, number] }
-  | { type: 'erase'; cells: number[] }
+  | { type: 'set_shape'; fieldId: string; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number }
   | { type: 'set_position'; fieldId: string; x: number; y: number }
+  | { type: 'set_color'; fieldId: string; color: [number, number, number, number] }
+  | { type: 'set_velocity'; fieldId: string; vx: number; vy: number }
+  | { type: 'set_rotation'; fieldId: string; rotation?: number; vr?: number }
+  | { type: 'set_scale'; fieldId: string; scale: number }
+  | { type: 'set_name'; fieldId: string; name: string }
+  | { type: 'set_property'; fieldId: string; key: string; value: unknown }
+  | { type: 'get_properties'; fieldId: string }
   | { type: 'set_tool'; tool: string }
   // Shader effect stack
   | { type: 'inject_glsl'; glsl: string; description?: string; fieldId?: string; fromFieldId?: string }
@@ -31,7 +38,6 @@ export type EngineCommand =
   | { type: 'field_message'; fromFieldId: string; toFieldId: string; content: string; data?: Record<string, unknown> }
   // Movement / physics
   | { type: 'move'; fieldId: string; dx: number; dy: number }
-  | { type: 'set_velocity'; fieldId: string; vx: number; vy: number; vr?: number }
   | { type: 'set_world_params'; params: Partial<{ gravity: number; friction: number; collisionForce: number; boundaryMode: 'solid' | 'wrap' | 'open'; bounciness: number }> }
   | { type: 'apply_force'; fieldId: string; fx: number; fy: number }
   | { type: 'set_world_data'; data: Record<string, unknown>; fieldId?: string }

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Expected { fields: FieldSnapshot[] }' }, { status: 400 })
     }
 
-    setFieldSnapshots(fields, body.worldParams)
+    setFieldSnapshots(fields, body.worldParams, body.stepHooks)
     return NextResponse.json({ ok: true, fieldCount: fields.length })
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })

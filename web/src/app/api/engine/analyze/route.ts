@@ -15,9 +15,28 @@ import { GRID_SIZE } from '@/app/engine/types'
 import { readFileSync } from 'fs'
 import type { FieldSnapshot } from '@/app/engine/types'
 
-/** Get cell indices from a snapshot (now stored directly) */
+/** Get cell indices from a snapshot shape (v3: computed from shape + transform) */
 function snapshotToCells(snapshot: FieldSnapshot): number[] {
-  return snapshot.cells || []
+  const GRID = 512
+  const cells: number[] = []
+  if (!snapshot.shape || !snapshot.bounds) return cells
+  const b = snapshot.bounds
+  const minX = Math.max(0, Math.floor(b.minX))
+  const minY = Math.max(0, Math.floor(b.minY))
+  const maxX = Math.min(GRID - 1, Math.ceil(b.maxX))
+  const maxY = Math.min(GRID - 1, Math.ceil(b.maxY))
+  const t = snapshot.transform
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (snapshot.shape.type === 'circle') {
+        const dx = x - t.x, dy = y - t.y
+        if (dx * dx + dy * dy <= snapshot.shape.radius * snapshot.shape.radius) cells.push(y * GRID + x)
+      } else {
+        if (x >= t.x && x < t.x + snapshot.shape.w && y >= t.y && y < t.y + snapshot.shape.h) cells.push(y * GRID + x)
+      }
+    }
+  }
+  return cells
 }
 import { join } from 'path'
 

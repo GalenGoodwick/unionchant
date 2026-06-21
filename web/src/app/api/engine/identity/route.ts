@@ -102,7 +102,8 @@ export async function GET(req: NextRequest) {
         const s = snap as unknown as Record<string, unknown>
         preamble += `### CURRENT BODY STATE\n`
         preamble += `- Field: ${s.name} (${fieldId})\n`
-        preamble += `- Cells: ${s.cellCount}\n`
+        const shapeInfo = s.shape as { type: string; radius?: number; w?: number; h?: number } | undefined
+        preamble += `- Shape: ${shapeInfo?.type === 'circle' ? `circle r=${shapeInfo.radius}` : shapeInfo?.type === 'rect' ? `rect ${shapeInfo.w}x${shapeInfo.h}` : 'unknown'}\n`
         if (s.bounds) preamble += `- Bounds: ${JSON.stringify(s.bounds)}\n`
         if (s.effectDescription) preamble += `- Active shader: ${s.effectDescription}\n`
 
