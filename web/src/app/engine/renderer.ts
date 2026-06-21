@@ -33,6 +33,7 @@ interface WorldProgram {
   uStateTex: WebGLUniformLocation | null
   uEffectParams: WebGLUniformLocation | null
   blend: 'alpha' | 'additive' | 'multiply'
+  params: [number, number, number, number]
 }
 
 /** Effect data passed to render() for each effect pass */
@@ -434,7 +435,7 @@ export class FieldRenderer {
       gl.uniform1f(wp.uZoom, zoom)
       gl.uniform1f(wp.uTime, time)
       gl.uniform1f(wp.uGridSize, GRID_SIZE)
-      gl.uniform4f(wp.uEffectParams, 0, 0, 0, 0)
+      gl.uniform4f(wp.uEffectParams, wp.params[0], wp.params[1], wp.params[2], wp.params[3])
 
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, this.colorTex)
@@ -523,6 +524,7 @@ export class FieldRenderer {
       uStateTex: gl.getUniformLocation(program, 'u_stateTex'),
       uEffectParams: gl.getUniformLocation(program, 'u_effectParams'),
       blend,
+      params: [0, 0, 0, 0],
     }
 
     this.worldPrograms.set(effectId, wp)
@@ -553,6 +555,22 @@ export class FieldRenderer {
   hasWorldEffect(): boolean {
     return this.worldPrograms.size > 0
   }
+
+  /** Set params for a world effect */
+  setWorldEffectParams(effectId: string, params: [number, number, number, number]): void {
+    const wp = this.worldPrograms.get(effectId)
+    if (wp) {
+      wp.params = params
+    }
+  }
+
+  /** Set params for all world effects */
+  setAllWorldEffectParams(params: [number, number, number, number]): void {
+    for (const wp of this.worldPrograms.values()) {
+      wp.params = params
+    }
+  }
+
 
   /** Compile a global state update shader from agent-authored GLSL */
   compileStateUpdate(glsl: string): { success: boolean; error?: string } {

@@ -109,7 +109,7 @@ export class FieldSimulation {
     this.addMemory(id, {
       timestamp: new Date().toISOString(),
       type: 'created',
-      content: `Field "${name}" created (${shape.type === 'circle' ? `circle r=${shape.radius}` : `rect ${shape.w}x${shape.h}`})`,
+      content: `Field "${name}" created (${shape.type === 'circle' ? `circle r=${shape.radius}` : shape.type === 'polygon' ? `polygon r=${shape.radius} sides=${shape.sides}` : `rect ${(shape as {w:number;h:number}).w}x${(shape as {w:number;h:number}).h}`})`,
       sourceFieldId: null,
     })
     return field
@@ -149,7 +149,7 @@ export class FieldSimulation {
     this.addMemory(fieldId, {
       timestamp: new Date().toISOString(),
       type: 'shape_changed',
-      content: `Shape changed to ${shape.type === 'circle' ? `circle r=${shape.radius}` : `rect ${shape.w}x${shape.h}`}`,
+      content: `Shape changed to ${shape.type === 'circle' ? `circle r=${shape.radius}` : shape.type === 'polygon' ? `polygon r=${shape.radius} sides=${shape.sides}` : `rect ${(shape as {w:number;h:number}).w}x${(shape as {w:number;h:number}).h}`}`,
       sourceFieldId: null,
     })
   }
@@ -162,6 +162,20 @@ export class FieldSimulation {
       const dx = x - t.x
       const dy = y - t.y
       return dx * dx + dy * dy <= field.shape.radius * field.shape.radius
+    } else if (field.shape.type === 'polygon') {
+      // Regular polygon: test point-in-polygon using angular sectors
+      const dx = x - t.x
+      const dy = y - t.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist > field.shape.radius) return false
+      const sides = field.shape.sides
+      const angle = Math.atan2(dy, dx)
+      const sector = (2 * Math.PI) / sides
+      // Distance to polygon edge at this angle
+      const sectorAngle = ((angle % sector) + sector) % sector
+      const halfSector = sector / 2
+      const edgeDist = field.shape.radius * Math.cos(halfSector) / Math.cos(sectorAngle - halfSector)
+      return dist <= edgeDist
     } else {
       // rect: origin is top-left corner of rect
       return x >= t.x && x < t.x + field.shape.w && y >= t.y && y < t.y + field.shape.h
@@ -554,6 +568,72 @@ export class FieldSimulation {
     return result
   }
 
+
+  /** Find a field by name (convenience for step hooks: sim.getFieldByName('Alpha')) */
+  getFieldByName(name: string): Field | null {
+    for (const field of this.fields.values()) {
+      if (field.name === name) return field
+    }
+    return null
+  }
+
+  /** Get distance between two fields by their center points */
+  getFieldDistance(fieldA: Field, fieldB: Field): number {
+    const dx = fieldA.transform.x - fieldB.transform.x
+    const dy = fieldA.transform.y - fieldB.transform.y
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  /** Find all fields within a radius of a point (for step hooks: sim.getFieldsNear(256, 256, 100)) */
+  getFieldsNear(x: number, y: number, radius: number): Field[] {
+    const result: Field[] = []
+    const r2 = radius * radius
+    for (const field of this.fields.values()) {
+      const dx = field.transform.x - x
+      const dy = field.transform.y - y
+      if (dx * dx + dy * dy <= r2) {
+        result.push(field)
+      }
+    }
+    return result
+  }
+
+  /** Broadcast a message to all fields from a source field */
+  broadcastMessage(fromFieldId: string, content: string, data?: Record<string, unknown>): void {
+    const fromField = this.fields.get(fromFieldId)
+    if (!fromField) return
+    for (const [id, field] of this.fields) {
+      if (id === fromFieldId) continue
+      this.addMemory(id, {
+        timestamp: new Date().toISOString(),
+        type: 'message_received',
+        content: `[Broadcast from ${fromField.name}] ${content}`,
+        sourceFieldId: fromFieldId,
+        data,
+      })
+    }
+  }
+
+  /** Get the total energy across all non-particle fields */
+  getTotalEnergy(): number {
+    let total = 0
+    for (const field of this.fields.values()) {
+      if (field.name.startsWith('spark') || field.name.startsWith('particle') || field.name.startsWith('comet')) continue
+      const energy = field.properties.get('energy')
+      if (typeof energy === 'number') total += energy
+    }
+    return total
+  }
+
+  /** Get count of non-particle fields */
+  getFieldCount(): number {
+    let count = 0
+    for (const field of this.fields.values()) {
+      if (!field.name.startsWith('spark') && !field.name.startsWith('particle') && !field.name.startsWith('comet')) count++
+    }
+    return count
+  }
+
   /** Given a grid coordinate, return the field that contains it, or null */
   getFieldAtCell(x: number, y: number): Field | null {
     for (const field of this.fields.values()) {
@@ -569,6 +649,14 @@ export class FieldSimulation {
 
     const t = field.transform
     if (field.shape.type === 'circle') {
+      const r = field.shape.radius
+      return {
+        minX: t.x - r,
+        minY: t.y - r,
+        maxX: t.x + r,
+        maxY: t.y + r,
+      }
+    } else if (field.shape.type === 'polygon') {
       const r = field.shape.radius
       return {
         minX: t.x - r,
@@ -758,7 +846,9 @@ export class FieldSimulation {
     const iy = Math.round(field.transform.y)
     const shapeKey = field.shape.type === 'circle' 
       ? `c${field.shape.radius}` 
-      : `r${field.shape.w}x${field.shape.h}`
+      : field.shape.type === 'polygon'
+      ? `p${field.shape.radius}x${field.shape.sides}`
+      : `r${(field.shape as {w:number;h:number}).w}x${(field.shape as {w:number;h:number}).h}`
     
     const cached = this.maskCache.get(fieldId)
     if (cached && cached.x === ix && cached.y === iy && cached.shape === shapeKey) {

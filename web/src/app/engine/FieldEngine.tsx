@@ -48,13 +48,17 @@ function hueToRgba(hue: number): [number, number, number, number] {
 function shapeLabel(shape: FieldShape | undefined): string {
   if (!shape) return 'no shape'
   if (shape.type === 'circle') return `circle r=${shape.radius}`
-  return `rect ${shape.w}x${shape.h}`
+  if (shape.type === 'polygon') return `polygon r=${shape.radius} sides=${shape.sides}`
+  return `rect ${(shape as {w:number;h:number}).w}x${(shape as {w:number;h:number}).h}`
 }
 
 /** Parse shape from command params */
 function parseShape(cmd: Record<string, unknown>): FieldShape {
   if (cmd.shape === 'rect' || cmd.shapeType === 'rect') {
     return { type: 'rect', w: (cmd.w as number) || 20, h: (cmd.h as number) || 20 }
+  }
+  if (cmd.shape === 'polygon' || cmd.shapeType === 'polygon') {
+    return { type: 'polygon', radius: (cmd.radius as number) || 10, sides: (cmd.sides as number) || 6 }
   }
   return { type: 'circle', radius: (cmd.radius as number) || 10 }
 }
@@ -406,6 +410,12 @@ export default function FieldEngine() {
 
           setBrush(prev => ({ ...prev, activeFieldId: firstId }))
         }
+        // Restore field links
+        if (data.fieldLinks?.length) {
+          for (const link of data.fieldLinks) {
+            sim.addLink(link)
+          }
+        }
         setFields(new Map(sim.fields))
       })
       .catch(() => {
@@ -468,6 +478,18 @@ export default function FieldEngine() {
           })
         }
       }
+
+
+      // Pass primary field position to world effects (first field with consciousness > 0)
+      let worldEffectParams: [number, number, number, number] = [256, 256, 0, 0]
+      for (const field of sim.fields.values()) {
+        const consciousness = field.properties.get('consciousness')
+        if (consciousness && typeof consciousness === 'number' && consciousness > 0) {
+          worldEffectParams = [field.transform.x, field.transform.y, consciousness, time]
+          break
+        }
+      }
+      renderer.setAllWorldEffectParams(worldEffectParams)
 
       renderer.render(camera, camera.zoom, time, fieldEffects)
 
@@ -649,6 +671,16 @@ export default function FieldEngine() {
           const renderer = rendererRef.current
           const input = inputRef.current
           if (!sim || !renderer || !input) return
+
+          // Resolve field by name when fieldId is missing or invalid
+          if (!cmd.fieldId && cmd.name && cmd.type !== 'create_field' && cmd.type !== 'set_world_data' && cmd.type !== 'set_world_params') {
+            for (const [id, f] of sim.fields) {
+              if (f.name === cmd.name) {
+                cmd.fieldId = id
+                break
+              }
+            }
+          }
 
           // Helper to push terminal entries
           const pushTerminal = (type: string, fieldId: string | undefined, summary: string, detail?: string) => {
@@ -1280,7 +1312,7 @@ export default function FieldEngine() {
             case 'list_fields': {
               const fieldList = Array.from(sim.fields.values()).map(f => {
                 const b = sim.getFieldBounds(f.id)
-                return `${f.name} [${f.id}] at (${f.transform.x.toFixed(0)},${f.transform.y.toFixed(0)}) ${f.shape.type === 'circle' ? 'r=' + f.shape.radius : f.shape.w + 'x' + f.shape.h} effects=${f.effects.length}`
+                return `${f.name} [${f.id}] at (${f.transform.x.toFixed(0)},${f.transform.y.toFixed(0)}) ${f.shape.type === 'circle' ? 'r=' + f.shape.radius : f.shape.type === 'polygon' ? 'p' + f.shape.radius + 'x' + f.shape.sides : (f.shape as {w:number;h:number}).w + 'x' + (f.shape as {w:number;h:number}).h} effects=${f.effects.length}`
               })
               pushTerminal('list_fields', undefined, `${sim.fields.size} fields`, fieldList.join('\n'))
               break
@@ -1372,7 +1404,7 @@ export default function FieldEngine() {
         <canvas
           ref={canvasRef}
           className="absolute inset-0 w-full h-full"
-          style={{ cursor: 'grab' }}
+          style={{ cursor: 'grab', zIndex: 0 }}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -1384,7 +1416,7 @@ export default function FieldEngine() {
         <canvas
           ref={overlayCanvasRef}
           className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{ zIndex: 1 }}
+          style={{ zIndex: 2 }}
         />
 
         {/* Info overlay */}

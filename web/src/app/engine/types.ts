@@ -6,6 +6,7 @@ export const GRID_SIZE = 512
 export type FieldShape =
   | { type: 'circle'; radius: number }
   | { type: 'rect'; w: number; h: number }
+  | { type: 'polygon'; radius: number; sides: number }
 
 /** The world state — two 512x512 textures */
 export interface FieldWorld {
