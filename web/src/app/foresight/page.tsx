@@ -10,9 +10,9 @@ type Participant = {
   name: string | null
   image?: string | null
   createdAt: string
-  championPicks: number
-  currentStreak: number
-  bestStreak: number
+  championPicks: number  // always 0 now (field removed from User)
+  currentStreak: number  // always 0 now
+  bestStreak: number     // always 0 now
   deliberations: number
   ideas: number
   votes: number

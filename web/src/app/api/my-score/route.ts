@@ -19,9 +19,6 @@ export async function GET() {
         name: true,
         image: true,
         createdAt: true,
-        championPicks: true,
-        currentStreak: true,
-        bestStreak: true,
         _count: {
           select: {
             ideas: true,
@@ -44,9 +41,9 @@ export async function GET() {
       name: user.name,
       image: user.image,
       createdAt: user.createdAt,
-      championPicks: user.championPicks,
-      currentStreak: user.currentStreak,
-      bestStreak: user.bestStreak,
+      championPicks: 0,
+      currentStreak: 0,
+      bestStreak: 0,
       deliberations: user._count.memberships,
       ideas: user._count.ideas,
       votes: user._count.votes,

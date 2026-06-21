@@ -129,7 +129,7 @@ float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + 
 float sdRoundedBox(vec2 p, vec2 b, float r) { return sdBox(p, b - r) - r; }
 float sdSegment(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
 float sdEquilateralTriangle(vec2 p, float r) {
-  const float k = sqrt(3.0);
+  float k = 1.732050808;
   p.x = abs(p.x) - r;
   p.y = p.y + r / k;
   if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
@@ -307,24 +307,12 @@ ${COORD_MATH}
   vec2 regionMin = u_effectBounds.xy;
   vec2 regionMax = u_effectBounds.zw;
 
-  // Apply field transform: offset bounds by position, apply rotation
-  vec2 fieldPos = u_fieldTransform.xy;
-  float fieldRot = u_fieldTransform.z;
-  float fieldScale = max(u_fieldTransform.w, 0.001);
-
-  // Transform grid coord into field-local space
-  vec2 fieldCenter = (regionMin + regionMax) * 0.5 + fieldPos;
-  vec2 localCoord = gridCoord - fieldCenter;
-  localCoord = mat2(cos(fieldRot), sin(fieldRot), -sin(fieldRot), cos(fieldRot)) * localCoord;
-  localCoord /= fieldScale;
-  localCoord += (regionMin + regionMax) * 0.5;
-
   // Snap to cell center — pixel art style
-  vec2 cellCoord = floor(localCoord) + 0.5;
+  vec2 cellCoord = floor(gridCoord) + 0.5;
 
   // Check if this cell is part of the field mask
-  vec2 localTexUV = cellCoord / u_gridSize;
-  float inField = texture(u_fieldMask, localTexUV).r;
+  vec2 cellTexUV = cellCoord / u_gridSize;
+  float inField = texture(u_fieldMask, cellTexUV).r;
 
   if (inField < 0.5) {
     discard;
@@ -335,6 +323,112 @@ ${COORD_MATH}
 }
 `
 }
+
+/**
+ * State update pass: agent-authored GLSL that reads current state + neighbors, writes new state.
+ * Runs per-pixel on GPU each frame via render-to-texture ping-pong.
+ * Agent provides a cellUpdate function:
+ *   vec4 cellUpdate(vec2 coord, vec4 state, vec4 color, float time, float dt)
+ * Available: texture(u_stateTex, ...) for neighbor reads, u_colorTex, u_gridSize
+ */
+export function buildStateUpdateShader(injectedGlsl: string): string {
+  return buildCompositeStateShader([{ id: 'single', glsl: injectedGlsl }])
+}
+
+/**
+ * Build a composite state shader from multiple field contributions.
+ * Each field's cellUpdate is renamed to cellUpdate_N.
+ * ADDITIVE composition: all shaders read the ORIGINAL state independently,
+ * and their DELTAS (changes from original) are summed.
+ * This prevents later shaders from overwriting earlier ones.
+ * If a shader returns `state` unchanged for a pixel, its delta is zero.
+ */
+export function buildCompositeStateShader(fields: { id: string; glsl: string }[]): string {
+  // Rename each field's cellUpdate to cellUpdate_N
+  const renamedFunctions = fields.map((f, i) => {
+    return f.glsl.replace(/cellUpdate\s*\(/g, `cellUpdate_${i}(`)
+  })
+
+  // Each shader reads original state, computes delta, sum all deltas
+  const deltaCalls = fields.map((_, i) => {
+    return `  vec4 out${i} = cellUpdate_${i}(coord, state, color, u_time, u_dt);
+  delta += (out${i} - state);`
+  })
+
+  return `#version 300 es
+precision highp float;
+
+uniform sampler2D u_stateTex;
+uniform sampler2D u_colorTex;
+uniform float u_gridSize;
+uniform float u_time;
+uniform float u_dt;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+${SHADER_UTILITIES}
+
+${renamedFunctions.join('\n\n')}
+
+void main() {
+  vec2 coord = floor(v_uv * u_gridSize) + 0.5;
+  vec4 state = texture(u_stateTex, v_uv);
+  vec4 color = texture(u_colorTex, v_uv);
+
+  vec4 delta = vec4(0.0);
+${deltaCalls.join('\n')}
+  fragColor = clamp(state + delta, 0.0, 1.0);
+}
+`
+}
+
+/**
+ * World effect pass: full-grid GLSL effect with no field mask.
+ * Renders behind field effects, covers the entire grid.
+ * Same fieldEffect(coord, regionMin, regionMax, time, params) signature.
+ * regionMin = (0,0), regionMax = (gridSize, gridSize).
+ */
+export function buildWorldEffectFragmentShader(injectedGlsl: string): string {
+  return `#version 300 es
+precision highp float;
+
+uniform sampler2D u_colorTex;
+uniform sampler2D u_stateTex;
+uniform vec2 u_camera;
+uniform vec2 u_resolution;
+uniform float u_zoom;
+uniform float u_time;
+uniform float u_gridSize;
+uniform vec4 u_effectParams;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+${SHADER_UTILITIES}
+
+${injectedGlsl}
+
+void main() {
+${COORD_MATH}
+
+  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
+    discard;
+  }
+
+  vec2 cellCoord = floor(gridCoord) + 0.5;
+  vec4 effect = fieldEffect(cellCoord, vec2(0.0), vec2(u_gridSize), u_time, u_effectParams);
+  fragColor = vec4(effect.rgb, clamp(effect.a, 0.0, 1.0));
+}
+`
+}
+
+/** Default field effect — solid color fill using params.rgba as the color */
+export const DEFAULT_FIELD_EFFECT_GLSL = `
+vec4 fieldEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
+  return vec4(params.rgb, params.a);
+}
+`
 
 // Backward-compatible exports
 export function buildFragmentShader(injectedGlsl?: string): string {

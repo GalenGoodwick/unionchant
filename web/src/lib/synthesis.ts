@@ -683,7 +683,7 @@ async function formStreamingCell(
  * Readiness check every 2 rounds after round 3.
  * At max rounds: force synthesis extraction.
  */
-async function driveAutonomousCell(
+export async function driveAutonomousCell(
   cellId: string,
   ideas: { id: string; text: string }[],
   participants: {
@@ -1184,9 +1184,9 @@ Respond as the cell — the group that birthed this child. You are proud, curiou
 //   Tier 3+: Productive tension — intentionally group complementary/competing ideas
 //   Final tier (≤5 ideas): Convergence protocol — coherence testing, can these ideas become one?
 
-type TierPurpose = 'collision' | 'friendship' | 'tension' | 'convergence'
+export type TierPurpose = 'collision' | 'friendship' | 'tension' | 'convergence'
 
-function getTierPurpose(tier: number, ideaCount: number, cellSize: number): TierPurpose {
+export function getTierPurpose(tier: number, ideaCount: number, cellSize: number): TierPurpose {
   if (ideaCount <= cellSize) return 'convergence'
   if (tier === 1) return 'collision'
   if (tier === 2) return 'friendship'

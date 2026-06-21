@@ -130,15 +130,6 @@ export default function APIPage() {
           </div>
         </section>
 
-        {/* Proof */}
-        <section className="mb-10">
-          <h2 className="text-sm text-muted uppercase tracking-widest mb-4">On-Chain Proof</h2>
-          <div className="bg-surface rounded-xl border border-border px-4">
-            <Endpoint method="GET" path="/api/v1/proof/:id" desc="Deliberation proof JSON" />
-            <Endpoint method="POST" path="/api/v1/chants/:id/boost" desc="Boost with SOL" />
-          </div>
-        </section>
-
         {/* Base URL */}
         <section>
           <div className="bg-surface border border-border rounded-lg px-4 py-3 text-sm font-mono">

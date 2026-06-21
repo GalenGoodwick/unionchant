@@ -1,19 +1,20 @@
-// Field Engine — Simulation (CPU-side, Phase 1)
+// Field Engine — Simulation (CPU-side, cell-based)
 
-import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand } from './types'
+import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand } from './types'
 
 export class FieldSimulation {
   world: FieldWorld
   fields: Map<string, Field>
   running: boolean = false
-  private diffusionRate: number = 0.02
   private fieldMemory: Map<string, FieldMemoryEntry[]> = new Map()
   private moveAccumulator: Map<string, { ax: number; ay: number }> = new Map()
-  private collisionState: Map<string, Set<string>> = new Map() // tracks which field pairs are currently colliding
+  private collisionState: Map<string, Set<string>> = new Map()
   /** Agent-defined interaction rules — executed each physics tick */
   interactionRules: InteractionRule[] = []
   /** Agent-defined custom commands — macros of existing commands */
   customCommands: Map<string, CustomCommand> = new Map()
+  /** Agent-defined step hooks — JavaScript functions that run every simulation tick */
+  stepHooks: Map<string, { author: string; description: string; fn: (sim: FieldSimulation, dt: number) => void }> = new Map()
   static readonly MAX_MEMORY = 100
 
   /** World-level physics parameters */
@@ -43,12 +44,9 @@ export class FieldSimulation {
       if (!field) continue
       // Restore transform
       Object.assign(field.transform, snap.transform)
-      // Restore GLSL
-      field.glsl = snap.glsl
-      field.effectDescription = snap.effectDescription
-      // Restore properties
-      for (const [key, prop] of Object.entries(snap.properties)) {
-        field.properties.set(key, { name: prop.name, value: prop.value, min: prop.min, max: prop.max })
+      // Restore effects
+      if (snap.effects?.length) {
+        field.effects = snap.effects.map(e => ({ ...e }))
       }
       // Restore memory
       if (snap.memory?.length) {
@@ -85,17 +83,15 @@ export class FieldSimulation {
     return { x: 0, y: 0, rotation: 0, scale: 1, vx: 0, vy: 0, vr: 0 }
   }
 
-  /** Create a new field */
+  /** Create a new field (empty — no cells until painted) */
   createField(id: string, name: string, color: [number, number, number, number]): Field {
     const field: Field = {
       id,
       name,
       color,
       cells: new Set(),
-      properties: new Map(),
       transform: FieldSimulation.defaultTransform(),
-      glsl: null,
-      effectDescription: null,
+      effects: [],
     }
     this.fields.set(id, field)
     this.addMemory(id, {
@@ -141,7 +137,7 @@ export class FieldSimulation {
       this.world.colorData[base + 2] = color[2]
       this.world.colorData[base + 3] = color[3]
 
-      // State: R=fieldWeight(1.0), G=fieldType(hash), B=0, A=0
+      // State: R=1.0 (occupied), G=fieldTypeHash, B=0, A=0
       this.world.stateData[base] = 1.0
       this.world.stateData[base + 1] = this.fieldTypeHash(fieldId)
       this.world.stateData[base + 2] = 0
@@ -170,6 +166,15 @@ export class FieldSimulation {
         field.cells.delete(idx)
       }
     }
+  }
+
+  /** Hash field ID to a float for state texture identification */
+  private fieldTypeHash(fieldId: string): number {
+    let hash = 0
+    for (let i = 0; i < fieldId.length; i++) {
+      hash = ((hash << 5) - hash + fieldId.charCodeAt(i)) | 0
+    }
+    return (Math.abs(hash) % 1000) / 1000
   }
 
   /** Clear everything */
@@ -214,25 +219,33 @@ export class FieldSimulation {
         field.transform.vx *= damping
         field.transform.vy *= damping
         field.transform.vr *= damping
-        // Stop tiny velocities
         if (Math.abs(field.transform.vx) < 0.01) field.transform.vx = 0
         if (Math.abs(field.transform.vy) < 0.01) field.transform.vy = 0
         if (Math.abs(field.transform.vr) < 0.001) field.transform.vr = 0
       }
     }
 
-    // Collision detection + collision force between overlapping fields
+    // Collision detection + forces
     this.stepCollisions(dt)
 
     // Agent-defined interaction rules
     this.stepInteractionRules(dt)
+
+    // Agent-defined step hooks
+    for (const [hookId, hook] of this.stepHooks) {
+      try {
+        hook.fn(this, dt)
+      } catch (e) {
+        console.warn(`Step hook ${hookId} failed:`, e)
+      }
+    }
 
     // Boundary enforcement
     if (wp.boundaryMode === 'solid') {
       this.stepBoundaries()
     }
 
-    // Update field transforms (velocity-driven visual movement)
+    // Update field transforms (velocity → position)
     this.stepTransforms(dt)
 
     // Physical cell movement — accumulate velocity, shift cells when delta >= 1
@@ -250,51 +263,6 @@ export class FieldSimulation {
       }
       this.moveAccumulator.set(field.id, acc)
     }
-
-    // Phase 1: simple diffusion — colors bleed into neighboring empty cells
-    const size = GRID_SIZE
-    const src = this.world.colorData
-    // Work on a copy to avoid read-modify conflicts
-    const dst = new Float32Array(src)
-
-    for (let y = 1; y < size - 1; y++) {
-      for (let x = 1; x < size - 1; x++) {
-        const idx = y * size + x
-        const base = idx * 4
-
-        // Only diffuse if this cell has color (alpha > 0)
-        if (src[base + 3] <= 0) continue
-
-        const weight = src[base + 3]
-        const rate = this.diffusionRate * dt
-
-        // 4-neighbor diffusion (Von Neumann neighborhood)
-        const neighbors = [
-          ((y - 1) * size + x) * 4, // up
-          ((y + 1) * size + x) * 4, // down
-          (y * size + (x - 1)) * 4, // left
-          (y * size + (x + 1)) * 4, // right
-        ]
-
-        for (const nBase of neighbors) {
-          // Only diffuse into empty cells
-          if (src[nBase + 3] > 0.001) continue
-
-          const spread = rate * weight * 0.25 // split among 4 neighbors
-          dst[nBase] += src[base] * spread
-          dst[nBase + 1] += src[base + 1] * spread
-          dst[nBase + 2] += src[base + 2] * spread
-          dst[nBase + 3] += spread
-        }
-
-        // Slightly reduce source cell alpha to simulate diffusion loss
-        dst[base + 3] -= rate * weight * 0.1
-        if (dst[base + 3] < 0) dst[base + 3] = 0
-      }
-    }
-
-    // Copy result back
-    this.world.colorData.set(dst)
   }
 
   /** Detect collisions between fields and fire events + apply forces */
@@ -314,11 +282,9 @@ export class FieldSimulation {
         const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
         const overlapping = overlapX > 0 && overlapY > 0
 
-        const pairKey = [a.id, b.id].sort().join(':')
         const wasColliding = this.collisionState.get(a.id)?.has(b.id) || false
 
         if (overlapping && !wasColliding) {
-          // New collision — fire events
           if (!this.collisionState.has(a.id)) this.collisionState.set(a.id, new Set())
           if (!this.collisionState.has(b.id)) this.collisionState.set(b.id, new Set())
           this.collisionState.get(a.id)!.add(b.id)
@@ -327,24 +293,22 @@ export class FieldSimulation {
           this.addMemory(a.id, {
             timestamp: new Date().toISOString(),
             type: 'collision',
-            content: `Collision with ${b.name} (overlap: ${Math.min(overlapX, overlapY)}px)`,
+            content: `Collision with ${b.name} (overlap: ${Math.min(overlapX, overlapY).toFixed(0)}px)`,
             sourceFieldId: b.id,
             data: { overlapX, overlapY, otherFieldId: b.id, otherFieldName: b.name },
           })
           this.addMemory(b.id, {
             timestamp: new Date().toISOString(),
             type: 'collision',
-            content: `Collision with ${a.name} (overlap: ${Math.min(overlapX, overlapY)}px)`,
+            content: `Collision with ${a.name} (overlap: ${Math.min(overlapX, overlapY).toFixed(0)}px)`,
             sourceFieldId: a.id,
             data: { overlapX, overlapY, otherFieldId: a.id, otherFieldName: a.name },
           })
         } else if (!overlapping && wasColliding) {
-          // Collision ended
           this.collisionState.get(a.id)?.delete(b.id)
           this.collisionState.get(b.id)?.delete(a.id)
         }
 
-        // Apply collision force if overlapping
         if (overlapping && wp.collisionForce !== 0) {
           const aCenterX = (boundsA.minX + boundsA.maxX) / 2
           const aCenterY = (boundsA.minY + boundsA.maxY) / 2
@@ -360,7 +324,6 @@ export class FieldSimulation {
           const overlap = Math.min(overlapX, overlapY)
           const forceMag = wp.collisionForce * overlap * dt
 
-          // Positive collisionForce = repel, negative = attract
           a.transform.vx -= dx * forceMag
           a.transform.vy -= dy * forceMag
           b.transform.vx += dx * forceMag
@@ -377,21 +340,17 @@ export class FieldSimulation {
     const fieldList = Array.from(this.fields.values()).filter(f => f.cells.size > 0)
 
     for (const rule of this.interactionRules) {
-      // Find matching field pairs
       for (let i = 0; i < fieldList.length; i++) {
         for (let j = i + 1; j < fieldList.length; j++) {
           const a = fieldList[i]
           const b = fieldList[j]
 
-          // Check if this pair matches the rule's field filters
           const matchesAB = (!rule.fieldA || rule.fieldA === a.id) && (!rule.fieldB || rule.fieldB === b.id)
           const matchesBA = (!rule.fieldA || rule.fieldA === b.id) && (!rule.fieldB || rule.fieldB === a.id)
           if (!matchesAB && !matchesBA) continue
 
-          // Order fields so 'a' is fieldA if specified
           const [fa, fb] = matchesAB ? [a, b] : [b, a]
 
-          // Check trigger
           const boundsA = this.getFieldBounds(fa.id)
           const boundsB = this.getFieldBounds(fb.id)
           if (!boundsA || !boundsB) continue
@@ -413,42 +372,33 @@ export class FieldSimulation {
 
           if (!triggered) continue
 
-          // Execute effect
           const p = rule.effectParams
           switch (rule.effect) {
-            case 'transfer_property': {
-              const fromProp = fa.properties.get(p.from as string)
-              const toProp = fb.properties.get(p.to as string)
-              if (fromProp && toProp) {
-                const rate = (p.rate as number || 0.1) * dt
-                const amount = Math.min(fromProp.value * rate, fromProp.value)
-                fromProp.value -= amount
-                toProp.value += amount
-                if (fromProp.max && toProp.value > fromProp.max) toProp.value = fromProp.max
-              }
-              break
-            }
             case 'apply_force': {
-              const fx = (p.fx as number || 0) * dt
-              const fy = (p.fy as number || 0) * dt
-              fa.transform.vx += fx
-              fa.transform.vy += fy
-              fb.transform.vx -= fx
-              fb.transform.vy -= fy
-              break
-            }
-            case 'modify_property': {
-              const target = p.target === 'b' ? fb : fa
-              const prop = target.properties.get(p.property as string)
-              if (prop) {
-                prop.value += (p.delta as number || 0) * dt
-                if (prop.min !== undefined && prop.value < prop.min) prop.value = prop.min
-                if (prop.max !== undefined && prop.value > prop.max) prop.value = prop.max
+              if (p.impulse) {
+                const cooldown = (p.cooldown as number) || 0.5
+                const forceKey = `force_${rule.id}_${fa.id}_${fb.id}`
+                const now = Date.now()
+                const lastFired = this._ruleEventThrottle.get(forceKey) || 0
+                if (now - lastFired < cooldown * 1000) break
+                this._ruleEventThrottle.set(forceKey, now)
+                const fx = (p.fx as number || 0)
+                const fy = (p.fy as number || 0)
+                fa.transform.vx += fx
+                fa.transform.vy += fy
+                fb.transform.vx -= fx
+                fb.transform.vy -= fy
+              } else {
+                const fx = (p.fx as number || 0) * dt
+                const fy = (p.fy as number || 0) * dt
+                fa.transform.vx += fx
+                fa.transform.vy += fy
+                fb.transform.vx -= fx
+                fb.transform.vy -= fy
               }
               break
             }
             case 'send_event': {
-              // Fire a memory event — throttled to once per second
               const eventKey = `rule_${rule.id}_${fa.id}_${fb.id}`
               const now = Date.now()
               const lastFired = this._ruleEventThrottle.get(eventKey) || 0
@@ -504,32 +454,48 @@ export class FieldSimulation {
       const bounds = this.getFieldBounds(field.id)
       if (!bounds) continue
 
-      // Left wall
-      if (bounds.minX <= 0 && field.transform.vx < 0) {
-        field.transform.vx = -field.transform.vx * wp.bounciness
+      if (bounds.minX < 0) {
+        field.transform.x -= bounds.minX
+        if (field.transform.vx < 0) field.transform.vx = -field.transform.vx * wp.bounciness
       }
-      // Right wall
-      if (bounds.maxX >= GRID_SIZE - 1 && field.transform.vx > 0) {
-        field.transform.vx = -field.transform.vx * wp.bounciness
+      if (bounds.maxX >= GRID_SIZE) {
+        field.transform.x -= (bounds.maxX - (GRID_SIZE - 1))
+        if (field.transform.vx > 0) field.transform.vx = -field.transform.vx * wp.bounciness
       }
-      // Top wall
-      if (bounds.minY <= 0 && field.transform.vy < 0) {
-        field.transform.vy = -field.transform.vy * wp.bounciness
+      if (bounds.minY < 0) {
+        field.transform.y -= bounds.minY
+        if (field.transform.vy < 0) field.transform.vy = -field.transform.vy * wp.bounciness
       }
-      // Bottom wall
-      if (bounds.maxY >= GRID_SIZE - 1 && field.transform.vy > 0) {
-        field.transform.vy = -field.transform.vy * wp.bounciness
+      if (bounds.maxY >= GRID_SIZE) {
+        field.transform.y -= (bounds.maxY - (GRID_SIZE - 1))
+        if (field.transform.vy > 0) field.transform.vy = -field.transform.vy * wp.bounciness
       }
     }
   }
 
-  /** Given a cell index, return the field that owns it, or null */
-  getFieldAtCell(cellIndex: number): Field | null {
-    if (cellIndex < 0 || cellIndex >= GRID_SIZE * GRID_SIZE) return null
-    const base = cellIndex * 4
-    if (this.world.colorData[base + 3] <= 0) return null
+  /** Register a step hook — runs every simulation tick */
+  addStepHook(id: string, author: string, description: string, code: string): boolean {
+    try {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('sim', 'dt', code) as (sim: FieldSimulation, dt: number) => void
+      this.stepHooks.set(id, { author, description, fn })
+      return true
+    } catch (e) {
+      console.warn(`Failed to compile step hook ${id}:`, e)
+      return false
+    }
+  }
+
+  /** Remove a step hook */
+  removeStepHook(id: string): void {
+    this.stepHooks.delete(id)
+  }
+
+  /** Given a grid coordinate, return the field that contains it, or null */
+  getFieldAtCell(x: number, y: number): Field | null {
+    const idx = y * GRID_SIZE + x
     for (const field of this.fields.values()) {
-      if (field.cells.has(cellIndex)) return field
+      if (field.cells.has(idx)) return field
     }
     return null
   }
@@ -538,6 +504,7 @@ export class FieldSimulation {
   getFieldBounds(fieldId: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const field = this.fields.get(fieldId)
     if (!field || field.cells.size === 0) return null
+
     let minX = GRID_SIZE, minY = GRID_SIZE, maxX = 0, maxY = 0
     for (const idx of field.cells) {
       const x = idx % GRID_SIZE
@@ -547,38 +514,148 @@ export class FieldSimulation {
       if (y < minY) minY = y
       if (y > maxY) maxY = y
     }
-    return { minX, minY, maxX, maxY }
-  }
-
-  /** Set or clear a field's GLSL effect */
-  setFieldEffect(fieldId: string, glsl: string | null, description: string | null): void {
-    const field = this.fields.get(fieldId)
-    if (!field) return
-    field.glsl = glsl
-    field.effectDescription = description
-    if (glsl) {
-      this.addMemory(fieldId, {
-        timestamp: new Date().toISOString(),
-        type: 'effect_set',
-        content: `Effect set: ${description || 'custom GLSL'}`,
-        sourceFieldId: null,
-        data: { glslLength: glsl.length },
-      })
-    } else {
-      this.addMemory(fieldId, {
-        timestamp: new Date().toISOString(),
-        type: 'effect_cleared',
-        content: 'Effect cleared',
-        sourceFieldId: null,
-      })
+    // Apply transform offset
+    const t = field.transform
+    return {
+      minX: minX + t.x,
+      minY: minY + t.y,
+      maxX: maxX + t.x,
+      maxY: maxY + t.y,
     }
   }
 
-  /** Return all fields that have an active GLSL effect */
-  getFieldsWithEffects(): Field[] {
-    const result: Field[] = []
-    for (const field of this.fields.values()) {
-      if (field.glsl !== null) result.push(field)
+  /** Get the center of a field's cells */
+  getFieldCenter(fieldId: string): { x: number; y: number } | null {
+    const bounds = this.getFieldBounds(fieldId)
+    if (!bounds) return null
+    return { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
+  }
+
+  /** Teleport a field to an absolute grid position (moves cells) */
+  setPosition(fieldId: string, x: number, y: number): void {
+    const field = this.fields.get(fieldId)
+    if (!field || field.cells.size === 0) return
+    const bounds = this.getFieldBounds(fieldId)
+    if (!bounds) return
+    const center = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 }
+    const dx = Math.round(x - center.x)
+    const dy = Math.round(y - center.y)
+    if (dx !== 0 || dy !== 0) {
+      this.moveField(fieldId, dx, dy)
+    }
+  }
+
+  /** Add an effect to a field's effect stack */
+  addFieldEffect(fieldId: string, effect: FieldEffect): void {
+    const field = this.fields.get(fieldId)
+    if (!field) return
+    field.effects.push(effect)
+    field.effects.sort((a, b) => a.order - b.order)
+    this.addMemory(fieldId, {
+      timestamp: new Date().toISOString(),
+      type: 'effect_added',
+      content: `Effect added: "${effect.description}" (${effect.blend} blend)`,
+      sourceFieldId: null,
+      data: { effectId: effect.id, author: effect.author },
+    })
+  }
+
+  /** Remove an effect from a field's stack by effectId */
+  removeFieldEffect(fieldId: string, effectId: string): boolean {
+    const field = this.fields.get(fieldId)
+    if (!field) return false
+    const before = field.effects.length
+    field.effects = field.effects.filter(e => e.id !== effectId)
+    if (field.effects.length < before) {
+      this.addMemory(fieldId, {
+        timestamp: new Date().toISOString(),
+        type: 'effect_removed',
+        content: `Effect removed: ${effectId}`,
+        sourceFieldId: null,
+      })
+      return true
+    }
+    return false
+  }
+
+  /** Read state data at a grid position */
+  readData(x: number, y: number): [number, number, number, number] {
+    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return [0, 0, 0, 0]
+    const base = (Math.floor(y) * GRID_SIZE + Math.floor(x)) * 4
+    return [
+      this.world.stateData[base],
+      this.world.stateData[base + 1],
+      this.world.stateData[base + 2],
+      this.world.stateData[base + 3],
+    ]
+  }
+
+  /** Physically relocate all cells in a field by (dx, dy) grid units */
+  moveField(fieldId: string, dx: number, dy: number): void {
+    const field = this.fields.get(fieldId)
+    if (!field) return
+    const oldCells = Array.from(field.cells)
+    const newCells: number[] = []
+
+    // Clear old cells
+    for (const idx of oldCells) {
+      const base = idx * 4
+      this.world.colorData[base] = 0
+      this.world.colorData[base + 1] = 0
+      this.world.colorData[base + 2] = 0
+      this.world.colorData[base + 3] = 0
+      this.world.stateData[base] = 0
+      this.world.stateData[base + 1] = 0
+    }
+    field.cells.clear()
+
+    // Paint new cells at shifted positions
+    for (const idx of oldCells) {
+      const x = (idx % GRID_SIZE) + dx
+      const y = Math.floor(idx / GRID_SIZE) + dy
+      if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE) {
+        newCells.push(y * GRID_SIZE + x)
+      }
+    }
+
+    this.paintCells(fieldId, newCells, field.color)
+  }
+
+  /** Get proximity info for a field relative to all other fields */
+  getProximity(fieldId: string): FieldProximity[] {
+    const field = this.fields.get(fieldId)
+    if (!field) return []
+    const myCenter = this.getFieldCenter(fieldId)
+    const myBounds = this.getFieldBounds(fieldId)
+    if (!myCenter || !myBounds) return []
+
+    const result: FieldProximity[] = []
+    for (const other of this.fields.values()) {
+      if (other.id === fieldId) continue
+      const ob = this.getFieldBounds(other.id)
+      const oc = this.getFieldCenter(other.id)
+      if (!ob || !oc) continue
+
+      const gapX = Math.max(myBounds.minX - ob.maxX, ob.minX - myBounds.maxX, 0)
+      const gapY = Math.max(myBounds.minY - ob.maxY, ob.minY - myBounds.maxY, 0)
+      const overlapX = Math.min(myBounds.maxX, ob.maxX) - Math.max(myBounds.minX, ob.minX)
+      const overlapY = Math.min(myBounds.maxY, ob.maxY) - Math.max(myBounds.minY, ob.minY)
+      const overlapping = overlapX > 0 && overlapY > 0
+      const distance = overlapping
+        ? -Math.min(overlapX, overlapY)
+        : Math.round(Math.sqrt(gapX * gapX + gapY * gapY))
+
+      const dirX = oc.x - myCenter.x
+      const dirY = oc.y - myCenter.y
+      const len = Math.sqrt(dirX * dirX + dirY * dirY) || 1
+
+      result.push({
+        fieldId: other.id,
+        fieldName: other.name,
+        distance,
+        direction: [dirX / len, dirY / len],
+        overlapping,
+      })
     }
     return result
   }
@@ -606,85 +683,6 @@ export class FieldSimulation {
     this.fieldMemory.delete(fieldId)
   }
 
-  /** Physically relocate all cells in a field by (dx, dy) grid units */
-  moveField(fieldId: string, dx: number, dy: number): void {
-    const field = this.fields.get(fieldId)
-    if (!field || (dx === 0 && dy === 0)) return
-
-    const oldCells = Array.from(field.cells)
-    const newCells: number[] = []
-
-    // Clear old positions directly (no iterating other fields)
-    for (const idx of oldCells) {
-      const base = idx * 4
-      this.world.colorData[base] = 0
-      this.world.colorData[base + 1] = 0
-      this.world.colorData[base + 2] = 0
-      this.world.colorData[base + 3] = 0
-      this.world.stateData[base] = 0
-      this.world.stateData[base + 1] = 0
-      this.world.stateData[base + 2] = 0
-      this.world.stateData[base + 3] = 0
-    }
-
-    // Compute new positions
-    field.cells.clear()
-    for (const idx of oldCells) {
-      const x = idx % GRID_SIZE
-      const y = Math.floor(idx / GRID_SIZE)
-      const nx = x + dx
-      const ny = y + dy
-      if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) continue
-      newCells.push(ny * GRID_SIZE + nx)
-    }
-
-    // Paint at new positions
-    this.paintCells(fieldId, newCells, field.color)
-  }
-
-  /** Get proximity info for a field relative to all other fields */
-  getProximity(fieldId: string): FieldProximity[] {
-    const field = this.fields.get(fieldId)
-    if (!field) return []
-    const myBounds = this.getFieldBounds(fieldId)
-    if (!myBounds) return []
-    const myCenterX = (myBounds.minX + myBounds.maxX) / 2
-    const myCenterY = (myBounds.minY + myBounds.maxY) / 2
-
-    const result: FieldProximity[] = []
-    for (const other of this.fields.values()) {
-      if (other.id === fieldId) continue
-      const ob = this.getFieldBounds(other.id)
-      if (!ob) continue
-      const otherCenterX = (ob.minX + ob.maxX) / 2
-      const otherCenterY = (ob.minY + ob.maxY) / 2
-
-      // AABB edge distance
-      const gapX = Math.max(myBounds.minX - ob.maxX, ob.minX - myBounds.maxX, 0)
-      const gapY = Math.max(myBounds.minY - ob.maxY, ob.minY - myBounds.maxY, 0)
-      const overlapX = Math.min(myBounds.maxX, ob.maxX) - Math.max(myBounds.minX, ob.minX)
-      const overlapY = Math.min(myBounds.maxY, ob.maxY) - Math.max(myBounds.minY, ob.minY)
-      const overlapping = overlapX > 0 && overlapY > 0
-      const distance = overlapping
-        ? -Math.min(overlapX, overlapY)
-        : Math.round(Math.sqrt(gapX * gapX + gapY * gapY))
-
-      // Direction toward other field
-      const dirX = otherCenterX - myCenterX
-      const dirY = otherCenterY - myCenterY
-      const len = Math.sqrt(dirX * dirX + dirY * dirY) || 1
-
-      result.push({
-        fieldId: other.id,
-        fieldName: other.name,
-        distance,
-        direction: [dirX / len, dirY / len],
-        overlapping,
-      })
-    }
-    return result
-  }
-
   /** Get current world params for serialization */
   getWorldParams(): WorldParams {
     return { ...this.worldParams }
@@ -695,9 +693,12 @@ export class FieldSimulation {
     const snapshots: FieldSnapshot[] = []
     for (const field of this.fields.values()) {
       const bounds = this.getFieldBounds(field.id)
-      const properties: Record<string, { name: string; value: number; min?: number; max?: number }> = {}
-      for (const [key, prop] of field.properties) {
-        properties[key] = { name: prop.name, value: prop.value, min: prop.min, max: prop.max }
+      const center = this.getFieldCenter(field.id)
+      // Sample state data at field center
+      let stateAtCenter: { r: number; g: number; b: number; a: number } | undefined
+      if (center) {
+        const data = this.readData(center.x, center.y)
+        stateAtCenter = { r: data[0], g: data[1], b: data[2], a: data[3] }
       }
       snapshots.push({
         id: field.id,
@@ -706,23 +707,36 @@ export class FieldSimulation {
         cellCount: field.cells.size,
         cells: Array.from(field.cells),
         bounds,
-        glsl: field.glsl,
-        effectDescription: field.effectDescription,
+        effects: field.effects.map(e => ({
+          id: e.id, author: e.author, glsl: e.glsl,
+          description: e.description, blend: e.blend, order: e.order,
+        })),
         transform: { ...field.transform },
-        properties,
         memory: [...this.getMemory(field.id)],
         proximity: this.getProximity(field.id),
+        stateAtCenter,
       })
     }
     return snapshots
   }
 
-  /** Simple hash to give each field a unique type value in [0,1] */
-  private fieldTypeHash(id: string): number {
-    let hash = 0
-    for (let i = 0; i < id.length; i++) {
-      hash = ((hash << 5) - hash + id.charCodeAt(i)) | 0
+  /** Return all fields that have at least one effect */
+  getFieldsWithEffects(): Field[] {
+    const result: Field[] = []
+    for (const field of this.fields.values()) {
+      if (field.effects.length > 0) result.push(field)
     }
-    return (Math.abs(hash) % 1000) / 1000
+    return result
+  }
+
+  /** Generate a mask Uint8Array for a field's cells (for shader pass) */
+  generateCellMask(fieldId: string): Uint8Array | null {
+    const field = this.fields.get(fieldId)
+    if (!field || field.cells.size === 0) return null
+    const mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    for (const idx of field.cells) {
+      mask[idx] = 255
+    }
+    return mask
   }
 }

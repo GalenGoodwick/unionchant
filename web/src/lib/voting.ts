@@ -124,7 +124,7 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
   // Get all predictions for this cell
   const predictions = await prisma.prediction.findMany({
     where: { cellId },
-    include: { user: { select: { id: true, currentStreak: true, bestStreak: true } } },
+    include: { user: { select: { id: true } } },
   })
 
   if (predictions.length === 0) return
@@ -142,27 +142,8 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
       })
     )
 
-    if (prediction.user) {
-      if (won) {
-        ops.push(
-          prisma.user.update({
-            where: { id: prediction.userId },
-            data: {
-              correctPredictions: { increment: 1 },
-              currentStreak: { increment: 1 },
-              bestStreak: Math.max(prediction.user.bestStreak, prediction.user.currentStreak + 1),
-            },
-          })
-        )
-      } else {
-        ops.push(
-          prisma.user.update({
-            where: { id: prediction.userId },
-            data: { currentStreak: 0 },
-          })
-        )
-      }
-    }
+    // User stat fields (correctPredictions, currentStreak, bestStreak) removed from model.
+    // Prediction records are still updated above; user-level denormalized stats skipped.
   }
 
   await prisma.$transaction(ops)
@@ -201,12 +182,7 @@ export async function resolveChampionPredictions(deliberationId: string, champio
         data: { ideaBecameChampion: true, ideaFinalTier: champion.tier },
       })
     )
-    ops.push(
-      prisma.user.update({
-        where: { id: prediction.userId },
-        data: { championPicks: { increment: 1 } },
-      })
-    )
+    // championPicks field removed from User model; skipping user stat update
   }
 
   // Mark non-champion predictions with final tier info

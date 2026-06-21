@@ -163,9 +163,9 @@ export interface ReputationResult {
     totalComments: number
     spreadComments: number
     totalUpvotes: number
-    currentStreak: number
-    bestStreak: number
-    championPicks: number
+    currentStreak: number  // no longer on User model; computed or zero
+    bestStreak: number     // no longer on User model; computed or zero
+    championPicks: number  // no longer on User model; computed or zero
   }
 }
 
@@ -178,8 +178,6 @@ export async function computeReputation(userId: string): Promise<ReputationResul
     where: { id: userId },
     select: {
       id: true, name: true, isAI: true, createdAt: true,
-      totalPredictions: true, correctPredictions: true,
-      championPicks: true, currentStreak: true, bestStreak: true,
       scoreResetAt: true,
     },
   })
@@ -293,9 +291,8 @@ export async function computeReputation(userId: string): Promise<ReputationResul
   const commentStrength = totalComments > 0 ? Math.min(commentScore / totalComments, 1) : 0
 
   // ── Prediction accuracy (included in stats, not in pillars) ──
-  const predictionAccuracy = user.totalPredictions > 0
-    ? user.correctPredictions / user.totalPredictions
-    : 0
+  // Fields removed from User model; default to 0
+  const predictionAccuracy = 0
 
   // ── Foresight Score ──
   const foresightScore = Math.round((
@@ -332,9 +329,9 @@ export async function computeReputation(userId: string): Promise<ReputationResul
       totalComments,
       spreadComments,
       totalUpvotes,
-      currentStreak: user.currentStreak,
-      bestStreak: user.bestStreak,
-      championPicks: user.championPicks,
+      currentStreak: 0,
+      bestStreak: 0,
+      championPicks: 0,
     },
   }
 }

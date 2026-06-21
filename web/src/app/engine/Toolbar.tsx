@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import type { BrushState, Field, FieldProperty } from './types'
+import { useCallback } from 'react'
+import type { BrushState, Field } from './types'
 
 interface ToolbarProps {
   brush: BrushState
@@ -11,9 +11,6 @@ interface ToolbarProps {
   onDeleteField: (id: string) => void
   onSelectField: (id: string) => void
   onFieldColorChange: (id: string, color: [number, number, number, number]) => void
-  onAddProperty: (fieldId: string, name: string) => void
-  onUpdateProperty: (fieldId: string, name: string, prop: Partial<FieldProperty>) => void
-  onRemoveProperty: (fieldId: string, name: string) => void
   selectedFieldId?: string | null
   running: boolean
   onToggleRunning: () => void
@@ -66,30 +63,16 @@ export default function Toolbar({
   onDeleteField,
   onSelectField,
   onFieldColorChange,
-  onAddProperty,
-  onUpdateProperty,
-  onRemoveProperty,
   running,
   selectedFieldId,
   onToggleRunning,
   onClear,
 }: ToolbarProps) {
-  const [newPropName, setNewPropName] = useState('')
-  const [addingPropFieldId, setAddingPropFieldId] = useState<string | null>(null)
-
   const activeField = brush.activeFieldId ? fields.get(brush.activeFieldId) : null
 
   const handleColorChange = useCallback((fieldId: string, h: number, s: number, l: number) => {
     onFieldColorChange(fieldId, hslToRgba(h, s, l))
   }, [onFieldColorChange])
-
-  const handleAddProperty = useCallback((fieldId: string) => {
-    const name = newPropName.trim()
-    if (!name) return
-    onAddProperty(fieldId, name)
-    setNewPropName('')
-    setAddingPropFieldId(null)
-  }, [newPropName, onAddProperty])
 
   return (
     <div className="flex flex-col items-center pointer-events-none">
@@ -122,76 +105,6 @@ export default function Toolbar({
             )
           })()}
 
-          {/* Properties list */}
-          {activeField.properties.size > 0 && (
-            <div className="space-y-1 mb-2">
-              {Array.from(activeField.properties.values()).map(prop => (
-                <div key={prop.name} className="flex items-center gap-1 text-xs">
-                  <span className="text-muted w-16 truncate">{prop.name}</span>
-                  <input
-                    type="range"
-                    min={prop.min ?? 0}
-                    max={prop.max ?? 100}
-                    step="1"
-                    value={prop.value}
-                    onChange={e => onUpdateProperty(activeField.id, prop.name, { value: Number(e.target.value) })}
-                    className="flex-1 h-1 accent-accent"
-                  />
-                  <span className="text-muted w-8 text-right font-mono">{prop.value}</span>
-                  <button
-                    onClick={() => {
-                      const slot = prop.gpuSlot !== undefined ? undefined : (activeField.properties.size <= 3 ? activeField.properties.size as 0|1|2|3 : undefined)
-                      onUpdateProperty(activeField.id, prop.name, { gpuSlot: slot })
-                    }}
-                    className={`text-[10px] px-1 rounded ${prop.gpuSlot !== undefined ? 'bg-accent/20 text-accent' : 'bg-surface-hover text-muted'}`}
-                    title={prop.gpuSlot !== undefined ? `GPU slot ${prop.gpuSlot}` : 'CPU only'}
-                  >
-                    GPU
-                  </button>
-                  <button
-                    onClick={() => onRemoveProperty(activeField.id, prop.name)}
-                    className="text-error/60 hover:text-error text-xs"
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Add property */}
-          {addingPropFieldId === activeField.id ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="text"
-                value={newPropName}
-                onChange={e => setNewPropName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAddProperty(activeField.id)}
-                placeholder="property name"
-                className="flex-1 bg-background border border-border rounded px-2 py-0.5 text-xs text-foreground"
-                autoFocus
-              />
-              <button
-                onClick={() => handleAddProperty(activeField.id)}
-                className="text-xs text-accent hover:text-accent-hover"
-              >
-                Add
-              </button>
-              <button
-                onClick={() => { setAddingPropFieldId(null); setNewPropName('') }}
-                className="text-xs text-muted"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setAddingPropFieldId(activeField.id)}
-              className="text-xs text-accent hover:text-accent-hover"
-            >
-              + Add Property
-            </button>
-          )}
         </div>
       )}
 

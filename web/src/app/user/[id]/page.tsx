@@ -28,12 +28,12 @@ interface UserProfile {
     cellsAssigned: number
     cellsVotedIn: number
     participationRate: number | null
-    totalPredictions: number
-    correctPredictions: number
-    accuracy: number | null
-    championPicks: number
-    currentStreak: number
-    bestStreak: number
+    totalPredictions: number    // always 0 (field removed from User model)
+    correctPredictions: number  // always 0
+    accuracy: number | null     // always null
+    championPicks: number       // always 0
+    currentStreak: number       // always 0
+    bestStreak: number          // always 0
     ideasWon: number
     winRate: number | null
     highestTierReached: number

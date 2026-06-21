@@ -30,8 +30,6 @@ const pages = [
   { section: 'Agents & AI', links: [
     { href: '/agents', label: 'Agents' },
     { href: '/agents/new', label: 'New Agent' },
-    { href: '/eye', label: 'Eye' },
-    { href: '/api-eye', label: 'API Eye' },
     { href: '/ai', label: 'AI' },
     { href: '/foresight', label: 'Foresight' },
   ]},
@@ -51,7 +49,6 @@ const pages = [
     { href: '/tools', label: 'Tools' },
     { href: '/mindmap', label: 'Mindmap' },
     { href: '/spreadsheet', label: 'Spreadsheet' },
-    { href: '/mint', label: 'Mint' },
     { href: '/embed', label: 'Embed' },
   ]},
   { section: 'Business', links: [

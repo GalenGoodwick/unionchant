@@ -134,11 +134,8 @@ export async function GET(
       },
     })
 
-    // Calculate accuracy percentage
-    const accuracy =
-      user.totalPredictions > 0
-        ? Math.round((user.correctPredictions / user.totalPredictions) * 100)
-        : null
+    // Prediction stat fields removed from User model; default to 0/null
+    const accuracy = null
 
     // Compute enhanced stats
     const distinctDelibsVotedIn = new Set(deliberationsVotedIn.map(v => v.cell.deliberationId)).size
@@ -178,13 +175,13 @@ export async function GET(
           cellsAssigned,
           cellsVotedIn,
           participationRate,
-          // Prediction stats
-          totalPredictions: user.totalPredictions,
-          correctPredictions: user.correctPredictions,
+          // Prediction stats (fields removed from User model; zeroed)
+          totalPredictions: 0,
+          correctPredictions: 0,
           accuracy,
-          championPicks: user.championPicks,
-          currentStreak: user.currentStreak,
-          bestStreak: user.bestStreak,
+          championPicks: 0,
+          currentStreak: 0,
+          bestStreak: 0,
           // Win record
           ideasWon: ideasWonCount,
           winRate,

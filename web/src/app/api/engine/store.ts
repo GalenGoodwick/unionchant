@@ -235,6 +235,17 @@ export function getAllCustomCommands(): CustomCommand[] {
   return Array.from(store.customCommands.values())
 }
 
+/** Reset entire store — nuclear option */
+export function resetStore(): void {
+  store.fieldSnapshots.clear()
+  store.worldParams = { ...DEFAULT_WORLD_PARAMS }
+  store.worldData = {}
+  store.interactionRules = []
+  store.customCommands.clear()
+  store.lastSyncTime = 0
+  schedulePersist()
+}
+
 /** Append a memory entry to a field (server-side injection between syncs) */
 export function appendMemory(fieldId: string, entry: FieldMemoryEntry): void {
   const snap = store.fieldSnapshots.get(fieldId)

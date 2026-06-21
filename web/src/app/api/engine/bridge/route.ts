@@ -75,15 +75,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Strip cells arrays from bridge responses — agents don't need raw pixel data
-  // (cells are only needed in /api/engine/state for persistence)
-  const stripCells = (snap: Record<string, unknown>) => {
-    const { cells, ...rest } = snap as Record<string, unknown> & { cells?: unknown }
-    // Trim memory to last 20 entries for efficiency
-    if (Array.isArray(rest.memory) && rest.memory.length > 20) {
-      rest.memory = rest.memory.slice(-20)
+  // Trim memory for efficiency in bridge responses
+  const trimMemory = (snap: Record<string, unknown>) => {
+    if (Array.isArray(snap.memory) && snap.memory.length > 20) {
+      snap.memory = snap.memory.slice(-20)
     }
-    return rest
+    return snap
   }
 
   // Optional: fetch Shell identity alongside field state
@@ -103,15 +100,23 @@ export async function GET(req: NextRequest) {
     if (!snap) {
       return NextResponse.json({ error: 'Field not found' }, { status: 404 })
     }
-    const response: Record<string, unknown> = stripCells(snap as unknown as Record<string, unknown>)
+    const response: Record<string, unknown> = trimMemory(snap as unknown as Record<string, unknown>)
     if (shellIdentity) response.shellIdentity = shellIdentity
     return NextResponse.json(response)
   }
 
   const state = getEngineState()
+
+  // Elevate worldData plan/rules/roles to top-level for field agent visibility
+  const wd = state.worldData || {}
   const response: Record<string, unknown> = {
     ...state,
-    fields: state.fields.map(f => stripCells(f as unknown as Record<string, unknown>)),
+    fields: state.fields.map(f => trimMemory(f as unknown as Record<string, unknown>)),
+    // Top-level world context (from planning agent)
+    worldPlan: wd.plan || null,
+    worldRules: wd.rules || null,
+    worldRoles: wd.roles || null,
+    worldPhase: wd.phase || null,
   }
   if (shellIdentity) response.shellIdentity = shellIdentity
   return NextResponse.json(response)
@@ -124,7 +129,7 @@ export async function GET(req: NextRequest) {
  * No intermediate AI calls. Just you and the engine.
  *
  * Body: single command or { commands: [...] }
- * Commands: paint, inject_glsl, clear_all, clear_effect, create_field, select, status
+ * Commands: create_field, paint, add_effect, inject_glsl, emit_data, set_position, etc.
  */
 export async function POST(req: NextRequest) {
   if (!authorize(req)) {

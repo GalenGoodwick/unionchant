@@ -28,6 +28,8 @@ const DEFAULT_LIMITS: Record<string, { maxRequests: number; windowMs: number }> 
   v1_admin: { maxRequests: 3, windowMs: 60_000 },
   v1_chat: { maxRequests: 10, windowMs: 60_000 },
   v1_mint: { maxRequests: 3, windowMs: 3_600_000 },
+  // Engine
+  engine_generate: { maxRequests: 3, windowMs: 60_000 },
 }
 
 function getConfig(endpoint: string): { maxRequests: number; windowMs: number; enabled: boolean } {

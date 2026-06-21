@@ -35,9 +35,6 @@ export async function GET() {
         agentStatus: true,
         agentDeployedAt: true,
         agentCompletedAt: true,
-        championPicks: true,
-        currentStreak: true,
-        bestStreak: true,
         _count: {
           select: {
             ideas: true,

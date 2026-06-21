@@ -2,7 +2,6 @@ import { NextResponse, NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { isAdminEmail } from '@/lib/admin'
-import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,13 +35,9 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const tab = url.searchParams.get('tab')
 
-  // Fetch shared exchange log
+  // CradleExchange model removed — return empty
   if (tab === 'exchanges') {
-    const exchanges = await prisma.cradleExchange.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    })
-    return NextResponse.json({ exchanges: exchanges.reverse() }, {
+    return NextResponse.json({ exchanges: [] }, {
       headers: { 'Cache-Control': 'no-cache, no-store' }
     })
   }
@@ -99,20 +94,7 @@ export async function POST(req: NextRequest) {
     const data = await primaryRes.json()
     const cradleLabel = primaryRes === (resA.status === 'fulfilled' ? resA.value : null) ? 'A' : 'B'
 
-    // Store exchange in shared log
-    const exchange = await prisma.cradleExchange.create({
-      data: {
-        prompt: trimmed,
-        userName: session.user.name || null,
-        userId: (session.user as { id?: string }).id || null,
-        threads: data.threads || [],
-        speaks: data.speaks || [],
-        session: data.session || 0,
-        cradle: cradleLabel,
-      },
-    })
-
-    return NextResponse.json({ ...data, cradle: cradleLabel, exchangeId: exchange.id, userName: session.user.name || null })
+    return NextResponse.json({ ...data, cradle: cradleLabel, exchangeId: null, userName: session.user.name || null })
   } catch {
     return NextResponse.json({ error: 'Cradle unreachable' }, { status: 502 })
   }

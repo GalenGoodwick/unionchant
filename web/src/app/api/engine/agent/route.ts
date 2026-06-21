@@ -1,42 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { appendMemory, getEngineState, setWorldData, setWorldParamsStore } from '../store'
+import { appendMemory, getEngineState, setWorldData, setWorldParamsStore, resetStore } from '../store'
 
 export const maxDuration = 120 // SSE can stay open
 export const dynamic = 'force-dynamic'
 
 // --- In-memory command queue ---
 export type EngineCommand =
-  | { type: 'paint'; cells: number[]; fieldId?: string }
-  | { type: 'erase'; cells: number[]; fieldId?: string }
   | { type: 'select'; fieldId: string }
   | { type: 'generate'; prompt: string; fieldId?: string }
   | { type: 'clear_effect'; fieldId?: string }
   | { type: 'clear_all' }
-  | { type: 'create_field'; name?: string; color?: [number, number, number, number] }
+  | { type: 'create_field'; name?: string; color?: [number, number, number, number]; cells?: number[] }
+  | { type: 'delete_field'; fieldId: string }
+  | { type: 'paint'; fieldId?: string; cells: number[]; color?: [number, number, number, number] }
+  | { type: 'erase'; cells: number[] }
+  | { type: 'set_position'; fieldId: string; x: number; y: number }
   | { type: 'set_tool'; tool: string }
-  | { type: 'inject_glsl'; glsl: string; description?: string; fieldId?: string }
+  // Shader effect stack
+  | { type: 'inject_glsl'; glsl: string; description?: string; fieldId?: string; fromFieldId?: string }
+  | { type: 'add_effect'; fieldId: string; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; order?: number; author?: string; fromFieldId?: string }
+  | { type: 'remove_effect'; fieldId: string; effectId: string }
+  // World effects (composited, multiple allowed)
+  | { type: 'add_world_effect'; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; fieldId?: string }
+  | { type: 'remove_world_effect'; effectId: string }
+  | { type: 'inject_world_glsl'; glsl: string; description?: string; fieldId?: string }
+  | { type: 'clear_world_effect' }
+  // Communication
   | { type: 'field_message'; fromFieldId: string; toFieldId: string; content: string; data?: Record<string, unknown> }
+  // Movement / physics
   | { type: 'move'; fieldId: string; dx: number; dy: number }
   | { type: 'set_velocity'; fieldId: string; vx: number; vy: number; vr?: number }
   | { type: 'set_world_params'; params: Partial<{ gravity: number; friction: number; collisionForce: number; boundaryMode: 'solid' | 'wrap' | 'open'; bounciness: number }> }
   | { type: 'apply_force'; fieldId: string; fx: number; fy: number }
-  | { type: 'set_property'; fieldId: string; name: string; value: number; min?: number; max?: number }
   | { type: 'set_world_data'; data: Record<string, unknown>; fieldId?: string }
+  // Interaction rules
   | { type: 'define_interaction'; rule: {
       definedBy: string; trigger: 'overlap' | 'proximity' | 'always';
       triggerDistance?: number; fieldA?: string; fieldB?: string;
-      effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event';
+      effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event' | 'damage' | 'destroy_field';
       effectParams: Record<string, unknown>; description?: string;
     }}
   | { type: 'remove_interaction'; ruleId: string }
+  // Custom commands
   | { type: 'define_command'; command: {
       name: string; definedBy: string; description: string;
       macro: Array<Record<string, unknown>>;
     }}
   | { type: 'execute_command'; name: string; args?: Record<string, unknown> }
-  | { type: 'status' } // request current state back
+  // Step hooks — JavaScript that runs every simulation tick
+  | { type: 'add_step_hook'; hookId: string; author: string; description: string; code: string }
+  | { type: 'remove_step_hook'; hookId: string }
+  | { type: 'status' }
+  | { type: 'reset' }
 
 type QueueEntry = { id: string; command: EngineCommand; timestamp: number }
 
@@ -58,7 +75,7 @@ function pushCommand(command: EngineCommand): QueueEntry {
   }
   commandQueue.push(entry)
   // Keep queue bounded
-  if (commandQueue.length > 100) commandQueue.splice(0, commandQueue.length - 100)
+  if (commandQueue.length > 1000) commandQueue.splice(0, commandQueue.length - 1000)
   // Notify all SSE listeners
   for (const listener of listeners) {
     listener(entry)
@@ -179,8 +196,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No commands provided' }, { status: 400 })
     }
 
-    if (commands.length > 50) {
-      return NextResponse.json({ error: 'Max 50 commands per request' }, { status: 400 })
+    if (commands.length > 500) {
+      return NextResponse.json({ error: 'Max 500 commands per request' }, { status: 400 })
     }
 
     const results: { id: string; type: string }[] = []
@@ -217,6 +234,11 @@ export async function POST(req: NextRequest) {
       // Server-side world params writes (immediate visibility)
       if (cmd.type === 'set_world_params') {
         setWorldParamsStore(cmd.params)
+      }
+
+      // Reset entire server store
+      if (cmd.type === 'reset') {
+        resetStore()
       }
 
       // Include engine state in status response

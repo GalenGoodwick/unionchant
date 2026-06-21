@@ -24,9 +24,6 @@ export async function GET(req: NextRequest) {
         id: true,
         name: true,
         createdAt: true,
-        championPicks: true,
-        currentStreak: true,
-        bestStreak: true,
         _count: {
           select: {
             ideas: true,
@@ -52,9 +49,9 @@ export async function GET(req: NextRequest) {
           id: agent.id,
           name: agent.name,
           createdAt: agent.createdAt,
-          championPicks: agent.championPicks,
-          currentStreak: agent.currentStreak,
-          bestStreak: agent.bestStreak,
+          championPicks: 0,
+          currentStreak: 0,
+          bestStreak: 0,
           deliberations: agent._count.memberships,
           ideas: agent._count.ideas,
           votes: agent._count.votes,

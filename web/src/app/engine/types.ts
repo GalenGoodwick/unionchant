@@ -1,20 +1,20 @@
-// Field Engine — Core Data Types
+// Field Engine v3 — Core Data Types
 
 export const GRID_SIZE = 512
 
 /** The world state — two 512x512 textures */
 export interface FieldWorld {
   size: typeof GRID_SIZE
-  /** Texture 0: cell color (what you see) — 512*512*4 RGBA */
+  /** Texture 0: cell color (background layer) — 512*512*4 RGBA */
   colorData: Float32Array
-  /** Texture 1: cell state (what the simulation reads/writes)
-   *  R=fieldWeight, G=fieldType, B=velocity, A=flags */
+  /** Texture 1: shared data bus — 512*512*4 RGBA
+   *  All 4 channels available for field-to-field data exchange */
   stateData: Float32Array
 }
 
 /** Transform state for field movement/rotation/interaction */
 export interface FieldTransform {
-  /** Position offset from original location (grid units) */
+  /** Position in grid coordinates */
   x: number
   y: number
   /** Rotation in radians */
@@ -28,7 +28,20 @@ export interface FieldTransform {
   vr: number
 }
 
-/** A field is a region of influence painted onto the grid */
+/** A single shader effect in a field's effect stack */
+export interface FieldEffect {
+  id: string
+  /** Which agent/entity authored this effect */
+  author: string
+  glsl: string
+  description: string
+  /** How this effect composites with layers below */
+  blend: 'alpha' | 'additive' | 'multiply'
+  /** Render order within the stack (lower = first) */
+  order: number
+}
+
+/** A field is a region of influence defined by its painted cells + shader stack */
 export interface Field {
   id: string
   name: string
@@ -36,26 +49,10 @@ export interface Field {
   color: [number, number, number, number]
   /** Which cells belong to this field (sparse set of grid indices: y * 512 + x) */
   cells: Set<number>
-  /** User-defined expandable properties */
-  properties: Map<string, FieldProperty>
-  /** Transform state for movement/rotation */
+  /** Transform state for position/movement/rotation */
   transform: FieldTransform
-  /** Per-field GLSL effect code (null = no active effect) */
-  glsl: string | null
-  /** Human-readable description of the active effect */
-  effectDescription: string | null
-}
-
-/** User-defined property on a field */
-export interface FieldProperty {
-  name: string
-  value: number
-  min?: number
-  max?: number
-  /** If set, this property is packed into the state texture channel.
-   *  Max 4 GPU-visible properties per field (RGBA channels).
-   *  GPU-visible = usable in shaders; CPU-only = game logic / UI only. */
-  gpuSlot?: 0 | 1 | 2 | 3
+  /** Composited shader effect stack (renders in order) */
+  effects: FieldEffect[]
 }
 
 /** Drawing tool state */
@@ -81,8 +78,7 @@ export interface SelectionState {
   selectionMask: Uint8Array
 }
 
-/** State for AI GLSL generation — UI-only loading tracker.
- *  Actual GLSL lives on the Field object itself. */
+/** State for AI GLSL generation — UI-only loading tracker */
 export interface GenerationState {
   loading: boolean
   error: string | null
@@ -112,10 +108,10 @@ export interface WorldParams {
 
 /** Memory entry types for field agent history */
 export type FieldMemoryType =
-  | 'created' | 'effect_set' | 'effect_cleared'
+  | 'created' | 'effect_added' | 'effect_removed'
   | 'message_received' | 'message_sent' | 'cells_changed'
   | 'collision' | 'proximity_changed' | 'world_params_changed'
-  | 'force_applied' | 'property_changed'
+  | 'force_applied'
 
 /** A single memory entry in a field's history log */
 export interface FieldMemoryEntry {
@@ -144,12 +140,19 @@ export interface FieldSnapshot {
   /** Raw cell indices for state persistence across refreshes */
   cells?: number[]
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
-  glsl: string | null
-  effectDescription: string | null
+  effects: Array<{
+    id: string
+    author: string
+    glsl: string
+    description: string
+    blend: 'alpha' | 'additive' | 'multiply'
+    order: number
+  }>
   transform: FieldTransform
-  properties: Record<string, { name: string; value: number; min?: number; max?: number }>
   memory: FieldMemoryEntry[]
   proximity: FieldProximity[]
+  /** Sampled state texture data at field center (for agent data exchange) */
+  stateAtCenter?: { r: number; g: number; b: number; a: number }
 }
 
 /** Full world state snapshot (sent via bridge to agents) */
@@ -179,7 +182,7 @@ export interface InteractionRule {
   /** Specific field (null = any) */
   fieldB?: string
   /** What happens when triggered */
-  effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event'
+  effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event' | 'damage' | 'destroy_field'
   /** Effect-specific parameters */
   effectParams: Record<string, unknown>
   /** Human-readable description */

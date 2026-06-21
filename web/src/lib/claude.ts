@@ -8,8 +8,8 @@ export function setApiCaller(caller: string) { _currentCaller = caller }
 
 const MODEL_MAP: Record<string, string> = {
   haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-20250514',
-  opus: 'claude-opus-4-20250514',
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
 }
 
 // Shell model — controlled by env var SHELL_MODEL, defaults to 'haiku' to manage costs.
@@ -52,9 +52,10 @@ export type ClaudeResponse = {
 export async function callClaude(
   systemPrompt: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
-  model: string = 'haiku'
+  model: string = 'haiku',
+  maxTokens: number = 512
 ): Promise<string> {
-  const result = await callClaudeWithTools(systemPrompt, messages, model)
+  const result = await callClaudeWithTools(systemPrompt, messages, model, undefined, maxTokens)
   return result.text
 }
 
@@ -62,14 +63,15 @@ export async function callClaudeWithTools(
   systemPrompt: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
   model: string = 'haiku',
-  tools?: ToolDefinition[]
+  tools?: ToolDefinition[],
+  maxTokens: number = 512
 ): Promise<ClaudeResponse> {
   const client = getClient()
   const modelId = MODEL_MAP[model] || MODEL_MAP.haiku
 
   const params: MessageCreateParamsNonStreaming = {
     model: modelId,
-    max_tokens: 512,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages,
   }

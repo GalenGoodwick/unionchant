@@ -1054,6 +1054,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               >
                 bond
               </button>
+              {process.env.NEXT_PUBLIC_FEATURE_CRADLE === 'true' && (
               <button
                 onClick={() => setActiveTab('cradle')}
                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${
@@ -1064,6 +1065,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               >
                 cradle
               </button>
+              )}
               <button
                 onClick={() => setActiveTab('stream')}
                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-medium border transition-colors ${

@@ -5,14 +5,14 @@ import path from 'path'
 dotenv.config({ path: path.resolve(__dirname, '../../.env.test') })
 dotenv.config({ path: path.resolve(__dirname, '../../.env.local') })
 
-// Safety check: warn if DATABASE_URL doesn't look like a test database
+// Safety check: block integration tests if DATABASE_URL points to production
 const dbUrl = process.env.DATABASE_URL || ''
 const looksLikeTestDb = dbUrl.includes('test') || dbUrl.includes('localhost') || dbUrl.includes('vitest')
 if (!looksLikeTestDb) {
-  console.warn(
-    '\x1b[33m⚠ WARNING: DATABASE_URL may not be a test database.\n' +
-    '  Ensure you are using a Neon test branch, not production!\n' +
-    `  Current URL host: ${dbUrl.split('@')[1]?.split('/')[0] || 'unknown'}\x1b[0m`
+  const host = dbUrl.split('@')[1]?.split('/')[0] || 'unknown'
+  throw new Error(
+    `DATABASE_URL points to production (${host}). ` +
+    'Set DATABASE_URL to a test database in .env.test to run integration tests.'
   )
 }
 

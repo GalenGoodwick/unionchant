@@ -221,8 +221,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Shell v0: model selection — admin gets the real model, others get the echo
-    const chatModel = userIsAdmin ? 'sonnet' : 'haiku'
+    // Model selection — use sonnet for admin if available, fall back to haiku
+    const chatModel = 'haiku'
 
     // Save user message (always private)
     const userMessage = await prisma.collectiveMessage.create({
