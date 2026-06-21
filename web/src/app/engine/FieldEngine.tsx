@@ -356,6 +356,39 @@ export default function FieldEngine() {
     return () => canvas.removeEventListener('wheel', onWheel)
   }, [])
 
+  // Keyboard input — writes key states into sim.worldData for step hooks
+  useEffect(() => {
+    const keyMap: Record<string, string> = {
+      ArrowLeft: 'key_left', ArrowRight: 'key_right', ArrowUp: 'key_up', ArrowDown: 'key_down',
+      a: 'key_a', d: 'key_d', w: 'key_w', s: 'key_s',
+      ' ': 'key_space', Enter: 'key_enter', Shift: 'key_shift',
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      const sim = simulationRef.current
+      if (!sim) return
+      const mapped = keyMap[e.key]
+      if (mapped) {
+        sim.worldData[mapped] = true
+        // Prevent arrow keys from scrolling
+        if (e.key.startsWith('Arrow') || e.key === ' ') e.preventDefault()
+      }
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      const sim = simulationRef.current
+      if (!sim) return
+      const mapped = keyMap[e.key]
+      if (mapped) {
+        sim.worldData[mapped] = false
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
+
   // Initialize engine
   useEffect(() => {
     const canvas = canvasRef.current
@@ -1388,7 +1421,7 @@ export default function FieldEngine() {
         await fetch('/api/engine/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: sim.generateSnapshots(), worldParams: sim.getWorldParams(), stepHooks: sim.getStepHookSnapshots() }),
+          body: JSON.stringify({ fields: sim.generateSnapshots(), worldParams: sim.getWorldParams(), stepHooks: sim.getStepHookSnapshots(), worldData: sim.worldData }),
         })
       } catch { /* best-effort */ }
     }, 2000)

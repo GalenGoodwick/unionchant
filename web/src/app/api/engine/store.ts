@@ -154,7 +154,7 @@ if (!store.fieldLinks) {
 }
 
 /** Full replace from client sync */
-export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[]): void {
+export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>): void {
   store.fieldSnapshots.clear()
   for (const snap of snapshots) {
     store.fieldSnapshots.set(snap.id, snap)
@@ -164,6 +164,16 @@ export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: Worl
   }
   if (stepHooks) {
     store.stepHooks = stepHooks
+  }
+  if (worldData) {
+    // Merge client worldData into server store (client-side hook changes propagate)
+    for (const [key, value] of Object.entries(worldData)) {
+      if (value === null) {
+        delete store.worldData[key]
+      } else {
+        store.worldData[key] = value
+      }
+    }
   }
   store.lastSyncTime = Date.now()
   schedulePersist()

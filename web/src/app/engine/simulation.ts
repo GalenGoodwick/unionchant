@@ -123,7 +123,7 @@ export class FieldSimulation {
 
   /** Queue a field to be spawned after step hooks finish. Step hooks call this instead of createField directly. */
   queueSpawn(name: string, color: [number, number, number, number], shape: FieldShape, x: number, y: number): void {
-    if (this.spawnQueue.length >= 10) return // Limit spawns per tick
+    if (this.spawnQueue.length >= 30) return // Limit spawns per tick (raised for multi-agent)
     this.spawnQueue.push({ name, color, shape, x, y })
   }
 
