@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, addFieldLink, removeFieldLink } from '../store'
 
 export const maxDuration = 30
 
@@ -211,6 +211,29 @@ export async function POST(req: NextRequest) {
           description: (cmdDef.description as string) || '',
           macro: (cmdDef.macro as Array<Record<string, unknown>>) || [],
         })
+      }
+
+
+      // link_fields: store server-side AND forward to browser
+      if (cmd.type === 'link_fields') {
+        const linkId = addFieldLink({
+          id: '',
+          fromFieldId: cmd.fromFieldId as string,
+          toFieldId: cmd.toFieldId as string,
+          color: (cmd.color as [number, number, number, number]) || [0, 1, 1, 0.6],
+          width: (cmd.width as number) || 2,
+          style: (cmd.style as string as 'beam' | 'lightning' | 'pulse' | 'helix') || 'beam',
+          intensity: (cmd.intensity as number) || 0.8,
+          bidirectional: (cmd.bidirectional as boolean) || false,
+          author: (cmd.author as string) || 'unknown',
+        })
+        // Include the generated ID in the command forwarded to browser
+        cmd.linkId = linkId
+      }
+
+      // unlink_fields: remove server-side AND forward to browser
+      if (cmd.type === 'unlink_fields' && cmd.linkId) {
+        removeFieldLink(cmd.linkId as string)
       }
 
       // execute_command: expand macro server-side, push each step

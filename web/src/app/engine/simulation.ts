@@ -1,6 +1,6 @@
 // Field Engine v3 — Simulation (CPU-side, shape-based)
 
-import { GRID_SIZE, type FieldWorld, type Field, type FieldShape, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand } from './types'
+import { GRID_SIZE, type FieldWorld, type Field, type FieldShape, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand, type FieldLink } from './types'
 
 export class FieldSimulation {
   world: FieldWorld
@@ -18,6 +18,8 @@ export class FieldSimulation {
   private maskCache: Map<string, { mask: Uint8Array; x: number; y: number; shape: string }> = new Map()
   /** Spawn queue — fields created by step hooks are queued and processed after all hooks run */
   spawnQueue: Array<{ name: string; color: [number, number, number, number]; shape: FieldShape; x: number; y: number }> = []
+  /** Persistent visual links between fields */
+  fieldLinks: Map<string, FieldLink> = new Map()
   /** Shared world data — key-value store accessible from step hooks */
   worldData: Record<string, unknown> = {}
   static readonly MAX_MEMORY = 100
@@ -29,6 +31,7 @@ export class FieldSimulation {
     collisionForce: 0,
     boundaryMode: 'open',
     bounciness: 0.5,
+    gravitationalConstant: 0,
   }
 
   constructor() {
@@ -209,6 +212,11 @@ export class FieldSimulation {
       }
     }
 
+    // N-body gravitational attraction/repulsion between fields
+    if (wp.gravitationalConstant !== 0) {
+      this.stepGravitation(dt)
+    }
+
     // Collision detection + forces
     this.stepCollisions(dt)
 
@@ -238,6 +246,39 @@ export class FieldSimulation {
 
     // Update field transforms (velocity → position)
     this.stepTransforms(dt)
+
+    // Update particles (fade, shrink, despawn expired)
+    this.stepParticles(dt)
+  }
+
+  /** Apply n-body gravitational attraction/repulsion between all field pairs */
+  private stepGravitation(dt: number): void {
+    const G = this.worldParams.gravitationalConstant
+    const fieldList = Array.from(this.fields.values())
+    const minDist = 10 // Prevent singularity at zero distance
+
+    for (let i = 0; i < fieldList.length; i++) {
+      for (let j = i + 1; j < fieldList.length; j++) {
+        const a = fieldList[i]
+        const b = fieldList[j]
+
+        const dx = b.transform.x - a.transform.x
+        const dy = b.transform.y - a.transform.y
+        const distSq = dx * dx + dy * dy
+        const dist = Math.sqrt(distSq)
+        if (dist < minDist) continue
+
+        // F = G / r^2, applied along the direction between fields
+        const force = G / distSq * dt
+        const nx = dx / dist
+        const ny = dy / dist
+
+        a.transform.vx += nx * force
+        a.transform.vy += ny * force
+        b.transform.vx -= nx * force
+        b.transform.vy -= ny * force
+      }
+    }
   }
 
   /** Detect collisions between fields and fire events + apply forces */
@@ -746,4 +787,99 @@ export class FieldSimulation {
   invalidateMaskCache(fieldId: string): void {
     this.maskCache.delete(fieldId)
   }
+
+  /** Add a visual link between two fields */
+  addLink(link: FieldLink): string {
+    const id = link.id || 'link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+    this.fieldLinks.set(id, { ...link, id })
+    return id
+  }
+
+  /** Remove a link */
+  removeLink(linkId: string): boolean {
+    return this.fieldLinks.delete(linkId)
+  }
+
+  /** Remove all links involving a field */
+  removeLinksForField(fieldId: string): void {
+    for (const [id, link] of this.fieldLinks) {
+      if (link.fromFieldId === fieldId || link.toFieldId === fieldId) {
+        this.fieldLinks.delete(id)
+      }
+    }
+  }
+
+  /** Get all links as serializable array */
+  getLinkSnapshots(): FieldLink[] {
+    return Array.from(this.fieldLinks.values())
+  }
+
+  /** Get link endpoint positions (for rendering) */
+  getLinkEndpoints(): Array<{ id: string; fromX: number; fromY: number; toX: number; toY: number; color: [number, number, number, number]; width: number; style: string; intensity: number }> {
+    const result: Array<{ id: string; fromX: number; fromY: number; toX: number; toY: number; color: [number, number, number, number]; width: number; style: string; intensity: number }> = []
+    for (const link of this.fieldLinks.values()) {
+      const fromField = this.fields.get(link.fromFieldId)
+      const toField = this.fields.get(link.toFieldId)
+      if (!fromField || !toField) continue
+      result.push({
+        id: link.id,
+        fromX: fromField.transform.x,
+        fromY: fromField.transform.y,
+        toX: toField.transform.x,
+        toY: toField.transform.y,
+        color: link.color,
+        width: link.width,
+        style: link.style,
+        intensity: link.intensity,
+      })
+    }
+    return result
+  }
+
+  /** Particle system — temporary fields that auto-despawn after a lifetime */
+  private particles: Map<string, { id: string; lifetime: number; maxLifetime: number; fieldId: string }> = new Map()
+
+  /** Spawn a particle — a temporary field with a limited lifetime (seconds) */
+  spawnParticle(name: string, color: [number, number, number, number], x: number, y: number, vx: number, vy: number, lifetime: number = 2.0, radius: number = 3): string {
+    const id = 'particle_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+    const field = this.createField(id, name, color, { type: 'circle', radius })
+    field.transform.x = x
+    field.transform.y = y
+    field.transform.vx = vx
+    field.transform.vy = vy
+    this.particles.set(id, { id, lifetime, maxLifetime: lifetime, fieldId: id })
+    return id
+  }
+
+  /** Update particles — decrement lifetime, fade alpha, remove expired */
+  stepParticles(dt: number): string[] {
+    const expired: string[] = []
+    for (const [id, particle] of this.particles) {
+      particle.lifetime -= dt
+      const field = this.fields.get(particle.fieldId)
+      if (!field) {
+        expired.push(id)
+        continue
+      }
+      // Fade alpha based on remaining lifetime
+      const lifeFrac = Math.max(0, particle.lifetime / particle.maxLifetime)
+      field.color[3] = lifeFrac
+      // Shrink as it dies
+      field.transform.scale = lifeFrac
+      if (particle.lifetime <= 0) {
+        expired.push(id)
+        this.removeField(particle.fieldId)
+      }
+    }
+    for (const id of expired) {
+      this.particles.delete(id)
+    }
+    return expired
+  }
+
+  /** Get active particle count */
+  getParticleCount(): number {
+    return this.particles.size
+  }
+
 }

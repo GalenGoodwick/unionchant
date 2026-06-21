@@ -111,6 +111,8 @@ export interface WorldParams {
   boundaryMode: 'solid' | 'wrap' | 'open'
   /** Coefficient of restitution for wall bounces (0 = absorb, 1 = perfect bounce) */
   bounciness: number
+  /** Gravitational constant for n-body attraction between fields (0 = off, positive = attract, negative = repel) */
+  gravitationalConstant: number
 }
 
 /** Memory entry types for field agent history */
@@ -204,4 +206,26 @@ export interface CustomCommand {
   description: string
   /** Sequence of existing commands to execute */
   macro: Array<Record<string, unknown>>
+}
+
+
+/** A persistent visual link between two fields -- rendered as an energy beam */
+export interface FieldLink {
+  id: string
+  /** Source field */
+  fromFieldId: string
+  /** Target field */
+  toFieldId: string
+  /** RGBA color of the beam */
+  color: [number, number, number, number]
+  /** Width of the beam in grid units */
+  width: number
+  /** Visual style */
+  style: 'beam' | 'lightning' | 'pulse' | 'helix'
+  /** Intensity (0-1) */
+  intensity: number
+  /** Whether this link is bidirectional */
+  bidirectional: boolean
+  /** Who created this link */
+  author: string
 }

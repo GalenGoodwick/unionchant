@@ -38,7 +38,7 @@ export type EngineCommand =
   | { type: 'field_message'; fromFieldId: string; toFieldId: string; content: string; data?: Record<string, unknown> }
   // Movement / physics
   | { type: 'move'; fieldId: string; dx: number; dy: number }
-  | { type: 'set_world_params'; params: Partial<{ gravity: number; friction: number; collisionForce: number; boundaryMode: 'solid' | 'wrap' | 'open'; bounciness: number }> }
+  | { type: 'set_world_params'; params: Partial<{ gravity: number; friction: number; collisionForce: number; boundaryMode: 'solid' | 'wrap' | 'open'; bounciness: number; gravitationalConstant: number }> }
   | { type: 'apply_force'; fieldId: string; fx: number; fy: number }
   | { type: 'set_world_data'; data: Record<string, unknown>; fieldId?: string }
   // Interaction rules
@@ -58,6 +58,12 @@ export type EngineCommand =
   // Step hooks — JavaScript that runs every simulation tick
   | { type: 'add_step_hook'; hookId: string; author: string; description: string; code: string }
   | { type: 'remove_step_hook'; hookId: string }
+  // Field links — visual energy beams between fields
+  | { type: 'link_fields'; fromFieldId: string; toFieldId: string; color?: [number, number, number, number]; width?: number; style?: 'beam' | 'lightning' | 'pulse' | 'helix'; intensity?: number; bidirectional?: boolean; author?: string }
+  | { type: 'unlink_fields'; linkId: string }
+  // Field cloning
+  | { type: 'clone_field'; fieldId: string; name?: string; color?: [number, number, number, number]; offsetX?: number; offsetY?: number }
+  | { type: 'list_fields' }
   | { type: 'status' }
   | { type: 'reset' }
 

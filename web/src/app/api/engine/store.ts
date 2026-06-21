@@ -2,7 +2,7 @@
 // Uses globalThis to share state across Next.js API route modules
 // Persists to disk so state survives server restarts
 
-import type { FieldSnapshot, FieldMemoryEntry, WorldParams, InteractionRule, CustomCommand } from '@/app/engine/types'
+import type { FieldSnapshot, FieldMemoryEntry, WorldParams, InteractionRule, CustomCommand, FieldLink } from '@/app/engine/types'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
@@ -29,6 +29,8 @@ interface EngineStore {
   customCommands: Map<string, CustomCommand>
   /** Active step hooks (synced from client) */
   stepHooks: StepHookSnapshot[]
+  /** Persistent visual links between fields */
+  fieldLinks: FieldLink[]
 }
 
 const DEFAULT_WORLD_PARAMS: WorldParams = {
@@ -37,6 +39,7 @@ const DEFAULT_WORLD_PARAMS: WorldParams = {
   collisionForce: 0,
   boundaryMode: 'open',
   bounciness: 0.5,
+  gravitationalConstant: 0,
 }
 
 // --- Disk persistence ---
@@ -48,6 +51,7 @@ interface SerializedStore {
   interactionRules: InteractionRule[]
   customCommands: Record<string, CustomCommand>
   stepHooks?: StepHookSnapshot[]
+  fieldLinks?: FieldLink[]
   lastSyncTime: number
 }
 
@@ -76,6 +80,7 @@ function loadFromDisk(): Partial<EngineStore> | null {
       interactionRules: data.interactionRules || [],
       customCommands,
       stepHooks: data.stepHooks || [],
+      fieldLinks: data.fieldLinks || [],
     }
   } catch {
     // No file or invalid — start fresh
@@ -97,6 +102,7 @@ function schedulePersist(): void {
         interactionRules: store.interactionRules,
         customCommands: Object.fromEntries(store.customCommands),
         stepHooks: store.stepHooks,
+        fieldLinks: store.fieldLinks,
         lastSyncTime: store.lastSyncTime,
       }
       writeFileSync(PERSIST_PATH, JSON.stringify(data), 'utf-8')
@@ -122,6 +128,7 @@ if (!globalStore.__engineStore) {
       interactionRules: [],
       customCommands: new Map(),
       stepHooks: [],
+      fieldLinks: [],
     }
   }
 }
@@ -141,6 +148,9 @@ if (!store.customCommands) {
 }
 if (!store.stepHooks) {
   store.stepHooks = []
+}
+if (!store.fieldLinks) {
+  store.fieldLinks = []
 }
 
 /** Full replace from client sync */
@@ -192,6 +202,32 @@ export function getAllFieldSnapshots(): FieldSnapshot[] {
 }
 
 /** Get full engine state with metadata */
+
+/** Get all field links */
+export function getFieldLinks(): FieldLink[] {
+  return [...store.fieldLinks]
+}
+
+/** Add a field link */
+export function addFieldLink(link: FieldLink): string {
+  const id = link.id || 'link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
+  const newLink = { ...link, id }
+  store.fieldLinks.push(newLink)
+  schedulePersist()
+  return id
+}
+
+/** Remove a field link */
+export function removeFieldLink(linkId: string): boolean {
+  const before = store.fieldLinks.length
+  store.fieldLinks = store.fieldLinks.filter(l => l.id !== linkId)
+  if (store.fieldLinks.length < before) {
+    schedulePersist()
+    return true
+  }
+  return false
+}
+
 export function getEngineState(): {
   fields: FieldSnapshot[]
   fieldCount: number
@@ -202,6 +238,8 @@ export function getEngineState(): {
   interactionRules: InteractionRule[]
   customCommands: CustomCommand[]
   stepHooks: StepHookSnapshot[]
+  /** Persistent visual links between fields */
+  fieldLinks: FieldLink[]
 } {
   return {
     fields: getAllFieldSnapshots(),
@@ -213,6 +251,7 @@ export function getEngineState(): {
     interactionRules: getInteractionRules(),
     customCommands: getAllCustomCommands(),
     stepHooks: getStepHooks(),
+    fieldLinks: getFieldLinks(),
   }
 }
 

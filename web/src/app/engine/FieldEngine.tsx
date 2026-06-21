@@ -61,6 +61,7 @@ function parseShape(cmd: Record<string, unknown>): FieldShape {
 
 export default function FieldEngine() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<FieldRenderer | null>(null)
   const simulationRef = useRef<FieldSimulation | null>(null)
   const inputRef = useRef<FieldInput | null>(null)
@@ -469,6 +470,141 @@ export default function FieldEngine() {
       }
 
       renderer.render(camera, camera.zoom, time, fieldEffects)
+
+      // --- Canvas2D overlay: draw links between fields ---
+      const overlayCanvas = overlayCanvasRef.current
+      if (overlayCanvas) {
+        const dpr = window.devicePixelRatio || 1
+        const cw = overlayCanvas.clientWidth
+        const ch = overlayCanvas.clientHeight
+        if (overlayCanvas.width !== Math.round(cw * dpr) || overlayCanvas.height !== Math.round(ch * dpr)) {
+          overlayCanvas.width = Math.round(cw * dpr)
+          overlayCanvas.height = Math.round(ch * dpr)
+        }
+        const ctx = overlayCanvas.getContext('2d')
+        if (ctx) {
+          ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height)
+          
+          // Transform: grid coords -> screen coords (match WebGL camera)
+          const aspect = overlayCanvas.width / overlayCanvas.height
+          const gridRange = 512 / camera.zoom
+          
+          const ow = overlayCanvas.width
+          const oh = overlayCanvas.height
+          function gridToScreen(gx: number, gy: number): [number, number] {
+            let sx: number, sy: number
+            if (aspect > 1) {
+              sx = ((gx - camera.x) / (gridRange * aspect) + 0.5) * ow
+              sy = (0.5 - (gy - camera.y) / gridRange) * oh
+            } else {
+              sx = ((gx - camera.x) / gridRange + 0.5) * ow
+              sy = (0.5 - (gy - camera.y) / (gridRange / aspect)) * oh
+            }
+            return [sx, sy]
+          }
+          
+          // --- Trail system: fade-out position history ---
+          if (!sim.worldData._trails) sim.worldData._trails = {}
+          const trails = sim.worldData._trails as Record<string, Array<{x: number, y: number, t: number}>>
+          const MAX_TRAIL = 30
+          
+          for (const field of sim.fields.values()) {
+            if (field.name === 'particle') continue
+            if (!trails[field.id]) trails[field.id] = []
+            const trail = trails[field.id]
+            
+            // Add current position
+            if (trail.length === 0 || 
+                Math.abs(trail[trail.length-1].x - field.transform.x) > 1 ||
+                Math.abs(trail[trail.length-1].y - field.transform.y) > 1) {
+              trail.push({x: field.transform.x, y: field.transform.y, t: time})
+            }
+            
+            // Trim old entries
+            while (trail.length > MAX_TRAIL) trail.shift()
+            
+            // Draw trail
+            if (trail.length > 2) {
+              ctx.save()
+              for (let ti = 1; ti < trail.length; ti++) {
+                const alpha = (ti / trail.length) * 0.3 * (field.color[3] || 1)
+                const [sx1, sy1] = gridToScreen(trail[ti-1].x, trail[ti-1].y)
+                const [sx2, sy2] = gridToScreen(trail[ti].x, trail[ti].y)
+                ctx.strokeStyle = `rgba(${Math.round(field.color[0]*255)}, ${Math.round(field.color[1]*255)}, ${Math.round(field.color[2]*255)}, ${alpha})`
+                ctx.lineWidth = (ti / trail.length) * 2 * dpr
+                ctx.beginPath()
+                ctx.moveTo(sx1, sy1)
+                ctx.lineTo(sx2, sy2)
+                ctx.stroke()
+              }
+              ctx.restore()
+            }
+          }
+          
+          // Draw links from simulation
+          const linkEndpoints = sim.getLinkEndpoints()
+          for (const link of linkEndpoints) {
+            const [x1, y1] = gridToScreen(link.fromX, link.fromY)
+            const [x2, y2] = gridToScreen(link.toX, link.toY)
+            
+            ctx.save()
+            ctx.strokeStyle = `rgba(${Math.round(link.color[0]*255)}, ${Math.round(link.color[1]*255)}, ${Math.round(link.color[2]*255)}, ${link.color[3] * link.intensity})`
+            ctx.lineWidth = link.width * camera.zoom * dpr
+            ctx.shadowColor = `rgba(${Math.round(link.color[0]*255)}, ${Math.round(link.color[1]*255)}, ${Math.round(link.color[2]*255)}, 0.5)`
+            ctx.shadowBlur = 8 * dpr
+            
+            if (link.style === 'beam') {
+              ctx.beginPath()
+              ctx.moveTo(x1, y1)
+              ctx.lineTo(x2, y2)
+              ctx.stroke()
+            } else if (link.style === 'lightning') {
+              ctx.beginPath()
+              ctx.moveTo(x1, y1)
+              const segments = 8
+              for (let s = 1; s < segments; s++) {
+                const t2 = s / segments
+                const mx = x1 + (x2 - x1) * t2 + (Math.random() - 0.5) * 6 * dpr
+                const my = y1 + (y2 - y1) * t2 + (Math.random() - 0.5) * 6 * dpr
+                ctx.lineTo(mx, my)
+              }
+              ctx.lineTo(x2, y2)
+              ctx.stroke()
+            } else if (link.style === 'pulse') {
+              const pulsePos = (time * 2) % 1
+              const px = x1 + (x2 - x1) * pulsePos
+              const py = y1 + (y2 - y1) * pulsePos
+              ctx.globalAlpha = 0.3 * link.intensity
+              ctx.beginPath()
+              ctx.moveTo(x1, y1)
+              ctx.lineTo(x2, y2)
+              ctx.stroke()
+              ctx.globalAlpha = link.intensity
+              ctx.beginPath()
+              ctx.arc(px, py, 3 * dpr, 0, Math.PI * 2)
+              ctx.fillStyle = ctx.strokeStyle
+              ctx.fill()
+            } else if (link.style === 'helix') {
+              ctx.beginPath()
+              const segs = 20
+              for (let s = 0; s <= segs; s++) {
+                const t2 = s / segs
+                const bx = x1 + (x2 - x1) * t2
+                const by = y1 + (y2 - y1) * t2
+                const perpX = -(y2 - y1) / Math.sqrt((x2-x1)**2 + (y2-y1)**2) * 4 * dpr
+                const perpY = (x2 - x1) / Math.sqrt((x2-x1)**2 + (y2-y1)**2) * 4 * dpr
+                const wave = Math.sin(t2 * Math.PI * 4 + time * 3)
+                const px2 = bx + perpX * wave
+                const py2 = by + perpY * wave
+                if (s === 0) ctx.moveTo(px2, py2)
+                else ctx.lineTo(px2, py2)
+              }
+              ctx.stroke()
+            }
+            ctx.restore()
+          }
+        }
+      }
 
       animFrameRef.current = requestAnimationFrame(frame)
     }
@@ -1150,6 +1286,40 @@ export default function FieldEngine() {
               break
             }
 
+            
+            case 'link_fields': {
+              const fromId = cmd.fromFieldId as string
+              const toId = cmd.toFieldId as string
+              const color = (cmd.color as [number, number, number, number]) || [0, 1, 1, 0.6]
+              const width = (cmd.width as number) || 2
+              const style = (cmd.style as string) || 'beam'
+              const intensity = (cmd.intensity as number) || 0.8
+              const bidirectional = (cmd.bidirectional as boolean) || false
+              const author = (cmd.author as string) || 'unknown'
+              const linkId = sim.addLink({
+                id: '',
+                fromFieldId: fromId,
+                toFieldId: toId,
+                color,
+                width,
+                style: style as 'beam' | 'lightning' | 'pulse' | 'helix',
+                intensity,
+                bidirectional,
+                author,
+              })
+              syncFields()
+              pushTerminal('link_fields', fromId, `linked to ${toId} (${style}, id: ${linkId})`)
+              break
+            }
+            case 'unlink_fields': {
+              const ulinkId = cmd.linkId as string
+              if (ulinkId) {
+                sim.removeLink(ulinkId)
+                syncFields()
+                pushTerminal('unlink_fields', undefined, `removed ${ulinkId}`)
+              }
+              break
+            }
             case 'status':
               pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length}`)
               break
@@ -1208,6 +1378,13 @@ export default function FieldEngine() {
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
           onContextMenu={e => e.preventDefault()}
+        />
+
+        {/* Canvas2D overlay for links and trails */}
+        <canvas
+          ref={overlayCanvasRef}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          style={{ zIndex: 1 }}
         />
 
         {/* Info overlay */}
