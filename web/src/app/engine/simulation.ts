@@ -16,6 +16,10 @@ export class FieldSimulation {
   stepHooks: Map<string, { author: string; description: string; code: string; fn: (sim: FieldSimulation, dt: number) => void }> = new Map()
   /** Cached shape masks — invalidated when field transforms change */
   private maskCache: Map<string, { mask: Uint8Array; x: number; y: number; shape: string }> = new Map()
+  /** Spawn queue — fields created by step hooks are queued and processed after all hooks run */
+  spawnQueue: Array<{ name: string; color: [number, number, number, number]; shape: FieldShape; x: number; y: number }> = []
+  /** Shared world data — key-value store accessible from step hooks */
+  worldData: Record<string, unknown> = {}
   static readonly MAX_MEMORY = 100
 
   /** World-level physics parameters */
@@ -114,6 +118,26 @@ export class FieldSimulation {
     this.clearMemory(id)
   }
 
+  /** Queue a field to be spawned after step hooks finish. Step hooks call this instead of createField directly. */
+  queueSpawn(name: string, color: [number, number, number, number], shape: FieldShape, x: number, y: number): void {
+    if (this.spawnQueue.length >= 10) return // Limit spawns per tick
+    this.spawnQueue.push({ name, color, shape, x, y })
+  }
+
+  /** Process the spawn queue — called by the engine after step hooks run */
+  processSpawnQueue(): Array<{ id: string; field: Field }> {
+    const spawned: Array<{ id: string; field: Field }> = []
+    for (const req of this.spawnQueue) {
+      const id = 'spawn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+      const field = this.createField(id, req.name, req.color, req.shape)
+      field.transform.x = req.x
+      field.transform.y = req.y
+      spawned.push({ id, field })
+    }
+    this.spawnQueue = []
+    return spawned
+  }
+
   /** Update a field's shape */
   setShape(fieldId: string, shape: FieldShape): void {
     const field = this.fields.get(fieldId)
@@ -200,12 +224,14 @@ export class FieldSimulation {
       }
     }
 
+    // Process spawn queue (fields created by step hooks)
+    if (this.spawnQueue.length > 0) {
+      this.processSpawnQueue()
+    }
+
     // Boundary enforcement
-    const bm = wp.boundaryMode
-    if (bm === 'solid') {
+    if (wp.boundaryMode === 'solid') {
       this.stepBoundaries()
-    } else if (bm === 'wrap') {
-      this.stepBoundaryWrap()
     } else if (wp.boundaryMode === 'wrap') {
       this.stepWrapBoundaries()
     }
