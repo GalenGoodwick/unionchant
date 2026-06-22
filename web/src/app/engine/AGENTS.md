@@ -58,6 +58,11 @@ You are an autonomous code entity. You exist at two levels:
 - `create_field`, `set_position`, `apply_force`, etc.
 - Good for: motion, visuals, field behavior, interactions
 
+**GLSL Mods** (shader extensions — safe, persistent, shareable):
+- `register_glsl_mod` to add reusable GLSL functions available in all new shaders
+- Good for: noise functions, math utilities, color helpers, procedural patterns
+- **Do NOT edit source files** (shaders.ts, renderer.ts, etc.) to add GLSL code — it breaks the build
+
 **Source code** (engine — permanent, powerful, structural):
 - Edit `simulation.ts` to add new physics, new field properties, new simulation capabilities
 - Edit `FieldEngine.tsx` to add new command handlers, new rendering logic
@@ -65,6 +70,7 @@ You are an autonomous code entity. You exist at two levels:
 - Edit `renderer.ts` to add new GPU capabilities
 - Edit `types.ts` to add new data structures
 - Good for: new commands, new capabilities, new infrastructure that doesn't exist yet
+- **⚠ Do NOT inject GLSL code into source files** — use `register_glsl_mod` instead
 
 ### Core Model: Field = Shape + Transform + Code
 
@@ -94,8 +100,9 @@ curl -s -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/j
 
 | Command | Parameters |
 |---------|-----------|
-| `create_field` | `{name, color:[r,g,b,a], shape:"circle"\|"rect", radius, w, h, x, y}` |
+| `create_field` | `{name, color:[r,g,b,a], shape:"circle"\|"rect", radius, w, h, x, y, parentFieldId?}` |
 | `delete_field` | `{fieldId}` |
+| `set_parent` | `{fieldId, parentFieldId?}` — set or clear (omit parentFieldId) a field's parent |
 | `set_shape` | `{fieldId, shape:"circle"\|"rect", radius, w, h}` |
 | `set_position` | `{fieldId, x, y}` |
 | `move` | `{fieldId, dx, dy}` |
@@ -107,11 +114,15 @@ curl -s -X POST -H "Authorization: Bearer TOKEN" -H "Content-Type: application/j
 | `set_world_params` | `{params: {gravity, friction, collisionForce, boundaryMode, bounciness}}` |
 | `define_interaction` | `{rule: {definedBy, trigger, fieldA, fieldB, effect, effectParams}}` |
 | `remove_interaction` | `{ruleId}` |
+| `add_interaction_effect` | `{fieldA?, fieldB?, glsl, description?, blend?, spread?, order?, author?}` |
+| `remove_interaction_effect` | `{effectId}` |
 | `add_world_effect` | `{glsl, description, blend}` |
 | `remove_world_effect` | `{effectId}` |
 | `add_step_hook` | `{hookId, author, description, code}` |
 | `remove_step_hook` | `{hookId}` |
 | `set_world_data` | `{data: {key: value}}` |
+| `register_glsl_mod` | `{id, author, description, code}` — register reusable GLSL utility |
+| `remove_glsl_mod` | `{id}` — unregister a GLSL mod |
 | `status` | `{}` |
 | `reset` | `{}` |
 | `{commands: [...]}` | batch multiple |
@@ -151,11 +162,97 @@ Available: `u_stateTex`, `u_gridSize` (512.0), `u_time`, `u_fieldTransform` (pos
 
 Blend modes: `alpha` (default), `additive` (glow), `multiply` (darken).
 
+### Interaction Effects — overlap shaders
+
+GLSL shaders that render at pixels where two fields' shapes overlap. Define with `add_interaction_effect`.
+
+Signature: `vec4 interactionEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 params)`
+
+Extra uniforms available:
+- `u_fieldAColor` (vec4) — RGBA of field A
+- `u_fieldBColor` (vec4) — RGBA of field B
+- `u_fieldATransform` (vec4) — (x, y, rotation, scale) of field A
+- `u_fieldBTransform` (vec4) — (x, y, rotation, scale) of field B
+- `u_overlapCount` (sampler2D) — R8 texture: number of fields at each pixel (for N-way overlap detection)
+- `u_fieldMask` (sampler2D) — overlap mask (AND of field masks)
+
+Options:
+- `fieldA`/`fieldB` — specific field IDs, or omit for any overlapping pair
+- `spread` — pixel dilation beyond exact overlap zone (0 = overlap only)
+- `blend` — `alpha`, `additive`, `multiply`
+
+Example:
+```json
+{"type":"add_interaction_effect", "fieldA":"field_1", "fieldB":"field_2",
+ "glsl":"vec4 interactionEffect(vec2 c,vec2 mn,vec2 mx,float t,vec4 p){float glow=0.5+0.5*sin(t*4.0);return vec4(mix(u_fieldAColor.rgb,u_fieldBColor.rgb,0.5),glow);}",
+ "description":"Energy merge glow", "blend":"additive", "spread":3}
+```
+
+### Parent-Child Field Hierarchy
+
+Fields can be attached to a parent field so they move together. When a parent moves (via velocity, forces, or position changes), all children follow.
+
+- Set `parentFieldId` on `create_field` to attach a child at creation time
+- Use `set_parent` to attach/detach fields dynamically
+- Children keep their own velocity and can move independently too — parent delta is added on top
+- Deleting a parent orphans its children (they keep their current position and become top-level)
+- Nesting is supported (child of child) up to depth 5
+- Cycles are rejected
+
+**Example — Building with Windows:**
+```json
+{"type":"create_field", "name":"Building", "shape":"rect", "w":80, "h":120, "x":200, "y":200, "color":[0.5,0.5,0.5,1]}
+```
+Then create child windows attached to the building:
+```json
+{"type":"create_field", "name":"Window1", "shape":"rect", "w":15, "h":15, "x":210, "y":220, "color":[0.8,0.9,1,0.8], "parentFieldId":"BUILDING_FIELD_ID"}
+```
+
+**Reparent dynamically:**
+```json
+{"type":"set_parent", "fieldId":"WINDOW_ID", "parentFieldId":"OTHER_BUILDING_ID"}
+```
+
+**Detach from parent:**
+```json
+{"type":"set_parent", "fieldId":"WINDOW_ID"}
+```
+
+### GLSL Mods — Reusable Shader Utilities
+
+Register reusable GLSL functions that become available in all subsequently compiled shaders. This is the safe way to extend the shader system — **do NOT edit source files**.
+
+| Command | Parameters |
+|---------|-----------|
+| `register_glsl_mod` | `{id, author, description, code}` |
+| `remove_glsl_mod` | `{id}` |
+
+- `code` is raw GLSL (function definitions, constants, etc.)
+- Registered mods are injected into all new shader compilations (effects, world effects, interaction effects, state updates)
+- Existing compiled shaders are unaffected — mods only apply to new compilations
+- GLSL compile errors are caught gracefully (the old shader stays, an error message appears)
+- Mods persist across page reloads (stored server-side)
+
+**Example — register a noise function:**
+```json
+{"type":"register_glsl_mod", "id":"my_noise", "author":"alpha", "description":"Simple hash noise",
+ "code":"float myNoise(vec2 p) { return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }"}
+```
+
+**Then use it in an effect:**
+```json
+{"type":"add_effect", "fieldId":"FIELD_ID",
+ "glsl":"vec4 fieldEffect(vec2 c,vec2 mn,vec2 mx,float t,vec4 p){float n=myNoise(c+t);return vec4(n,n*0.5,n*0.2,1.0);}",
+ "description":"Noise texture using mod"}
+```
+
+**Important:** Do NOT modify engine source files (shaders.ts, renderer.ts, simulation.ts, types.ts) to add GLSL utilities. Use `register_glsl_mod` instead. Source file edits break the build because JS template literal parsing fails on injected GLSL code.
+
 ### Bridge response
 
 Each field includes: `id`, `name`, `color`, `shape`, `bounds`, `transform`, `effects`, `memory`, `proximity`, `stateAtCenter`.
 
-World-level: `worldParams`, `worldData`, `worldPlan`, `worldRules`, `worldRoles`, `worldPhase`.
+World-level: `worldParams`, `worldData`, `worldPlan`, `worldRules`, `worldRoles`, `worldPhase`, `glslMods`.
 
 ---
 

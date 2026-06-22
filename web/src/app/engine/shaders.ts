@@ -236,6 +236,60 @@ float sdSkeleton(vec2 p) {
 // --- End Utility Library ---
 `
 
+// Extract function names defined in the base SHADER_UTILITIES
+const BASE_FUNC_NAMES: Set<string> = new Set()
+{
+  const funcDefRegex = /(?:float|vec[234]|mat[234]|int|void|bool)\s+(\w+)\s*\(/g
+  let m: RegExpExecArray | null
+  while ((m = funcDefRegex.exec(SHADER_UTILITIES)) !== null) {
+    BASE_FUNC_NAMES.add(m[1])
+  }
+}
+
+/**
+ * Strip duplicate GLSL function definitions from mod code.
+ * Single pass: accumulates seen names as it goes, so both base conflicts
+ * and cross-mod conflicts are handled.
+ */
+function deduplicateModCode(code: string, seen: Set<string>): string {
+  const funcStartRegex = /(?:float|vec[234]|mat[234]|int|void|bool)\s+(\w+)\s*\([^)]*\)\s*\{/g
+  let result = ''
+  let lastEnd = 0
+
+  let match: RegExpExecArray | null
+  while ((match = funcStartRegex.exec(code)) !== null) {
+    const funcName = match[1]
+    // Find matching closing brace (handle nesting)
+    const braceStart = match.index + match[0].length - 1
+    let depth = 1
+    let pos = braceStart + 1
+    while (pos < code.length && depth > 0) {
+      if (code[pos] === '{') depth++
+      else if (code[pos] === '}') depth--
+      pos++
+    }
+
+    if (seen.has(funcName)) {
+      // Strip: keep text before this function, skip the function body
+      result += code.slice(lastEnd, match.index)
+      lastEnd = pos
+      funcStartRegex.lastIndex = pos
+    } else {
+      seen.add(funcName)
+    }
+  }
+  result += code.slice(lastEnd)
+  return result
+}
+
+/** Get the SHADER_UTILITIES string with optional mod code appended (duplicates stripped) */
+export function getShaderUtilities(modCode?: string): string {
+  if (!modCode) return SHADER_UTILITIES
+  const seen = new Set(BASE_FUNC_NAMES)
+  const cleaned = deduplicateModCode(modCode, seen)
+  return SHADER_UTILITIES + '\n// --- GLSL Mods ---\n' + cleaned + '\n// --- End GLSL Mods ---\n'
+}
+
 /**
  * Base pass: grid lines, painted colors, selection highlight.
  * No fieldEffect(). Uses u_selectionTex for UI selection highlight only.
@@ -278,7 +332,9 @@ ${COORD_MATH}
                        * step(cellFrac.x, 1.0 - lineWidth) * step(cellFrac.y, 1.0 - lineWidth);
 
   vec3 bg = vec3(0.055, 0.065, 0.09);
-  vec3 color = mix(bg, cellColor.rgb, cellColor.a);
+  // colorData stores field presence (R,G,B=avg color, A=field count) — not for visual rendering.
+  // Effect shaders read it via u_colorTex. Base pass just shows the dark background.
+  vec3 color = bg;
 
   // Grid lines
   vec3 gridColor = vec3(0.15, 0.18, 0.22);
@@ -350,7 +406,7 @@ ${COORD_MATH}
  * Effect pass: per-field GLSL effect. Uses u_fieldMask (R8 texture) instead of u_selectionTex.
  * Outputs alpha-blended result. Pixels outside the field mask get discard.
  */
-export function buildEffectFragmentShader(injectedGlsl: string): string {
+export function buildEffectFragmentShader(injectedGlsl: string, modCode?: string): string {
   return `#version 300 es
 precision highp float;
 
@@ -371,7 +427,7 @@ uniform int u_skeletonNodeCount;  // number of active skeleton nodes
 in vec2 v_uv;
 out vec4 fragColor;
 
-${SHADER_UTILITIES}
+${getShaderUtilities(modCode)}
 
 ${injectedGlsl}
 
@@ -403,8 +459,8 @@ ${COORD_MATH}
  *   vec4 cellUpdate(vec2 coord, vec4 state, vec4 color, float time, float dt)
  * Available: texture(u_stateTex, ...) for neighbor reads, u_colorTex, u_gridSize
  */
-export function buildStateUpdateShader(injectedGlsl: string): string {
-  return buildCompositeStateShader([{ id: 'single', glsl: injectedGlsl }])
+export function buildStateUpdateShader(injectedGlsl: string, modCode?: string): string {
+  return buildCompositeStateShader([{ id: 'single', glsl: injectedGlsl }], modCode)
 }
 
 /**
@@ -415,7 +471,7 @@ export function buildStateUpdateShader(injectedGlsl: string): string {
  * This prevents later shaders from overwriting earlier ones.
  * If a shader returns `state` unchanged for a pixel, its delta is zero.
  */
-export function buildCompositeStateShader(fields: { id: string; glsl: string }[]): string {
+export function buildCompositeStateShader(fields: { id: string; glsl: string }[], modCode?: string): string {
   // Rename each field's cellUpdate to cellUpdate_N
   const renamedFunctions = fields.map((f, i) => {
     return f.glsl.replace(/cellUpdate\s*\(/g, `cellUpdate_${i}(`)
@@ -439,7 +495,7 @@ uniform float u_dt;
 in vec2 v_uv;
 out vec4 fragColor;
 
-${SHADER_UTILITIES}
+${getShaderUtilities(modCode)}
 
 ${renamedFunctions.join('\n\n')}
 
@@ -461,7 +517,66 @@ ${deltaCalls.join('\n')}
  * Same fieldEffect(coord, regionMin, regionMax, time, params) signature.
  * regionMin = (0,0), regionMax = (gridSize, gridSize).
  */
-export function buildWorldEffectFragmentShader(injectedGlsl: string): string {
+
+/**
+ * Interaction effect pass: renders at pixels where two fields' cells overlap.
+ * Agent provides an interactionEffect function with the same signature as fieldEffect.
+ * Extra uniforms expose both fields' colors, transforms, and an overlap count texture
+ * so the shader can differentiate 2-way vs N-way overlaps.
+ * The mask (u_fieldMask) contains the AND of participating fields' masks.
+ */
+export function buildInteractionFragmentShader(injectedGlsl: string, modCode?: string): string {
+  return `#version 300 es
+precision highp float;
+
+uniform sampler2D u_colorTex;
+uniform sampler2D u_stateTex;
+uniform sampler2D u_fieldMask;       // overlap mask (AND of field masks, optionally dilated)
+uniform sampler2D u_overlapCount;    // R8: number of fields at each pixel
+uniform vec2 u_camera;
+uniform vec2 u_resolution;
+uniform float u_zoom;
+uniform float u_time;
+uniform float u_gridSize;
+uniform vec4 u_effectBounds;         // (minX, minY, maxX, maxY) in grid coords
+uniform vec4 u_effectParams;         // user-controllable params
+uniform vec4 u_fieldTransform;       // (posX, posY, rotation, scale) center of overlap region
+uniform vec4 u_fieldAColor;          // RGBA of field A
+uniform vec4 u_fieldBColor;          // RGBA of field B
+uniform vec4 u_fieldATransform;      // (x, y, rotation, scale) of field A
+uniform vec4 u_fieldBTransform;      // (x, y, rotation, scale) of field B
+uniform sampler2D u_skeletonTex;     // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
+uniform int u_skeletonNodeCount;     // number of active skeleton nodes
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+${getShaderUtilities(modCode)}
+
+${injectedGlsl}
+
+void main() {
+${COORD_MATH}
+
+  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
+    discard;
+  }
+
+  vec2 regionMin = u_effectBounds.xy;
+  vec2 regionMax = u_effectBounds.zw;
+  vec2 cellCoord = floor(gridCoord) + 0.5;
+
+  // Read overlap mask — only render where fields overlap (or within spread)
+  float maskVal = texture(u_fieldMask, texUV).r;
+
+  vec4 effect = interactionEffect(cellCoord, regionMin, regionMax, u_time, u_effectParams);
+  // Multiply alpha by overlap mask
+  fragColor = vec4(effect.rgb, clamp(effect.a * maskVal, 0.0, 1.0));
+}
+`;
+}
+
+export function buildWorldEffectFragmentShader(injectedGlsl: string, modCode?: string): string {
   return `#version 300 es
 precision highp float;
 
@@ -477,7 +592,7 @@ uniform vec4 u_effectParams;
 in vec2 v_uv;
 out vec4 fragColor;
 
-${SHADER_UTILITIES}
+${getShaderUtilities(modCode)}
 
 ${injectedGlsl}
 
@@ -508,6 +623,7 @@ vec4 fieldEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 pa
   return vec4(params.rgb, params.a * alpha);
 }
 `
+
 
 // Backward-compatible exports
 export function buildFragmentShader(injectedGlsl?: string): string {

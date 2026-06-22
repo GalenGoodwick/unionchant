@@ -65,9 +65,9 @@ export async function POST(req: NextRequest) {
     let targetY = y ?? GRID_SIZE / 2
 
     const fieldSnap = getFieldSnapshot(fieldId)
-    if (fieldSnap?.bounds && x === undefined && y === undefined) {
-      targetX = Math.round((fieldSnap.bounds.minX + fieldSnap.bounds.maxX) / 2)
-      targetY = Math.round((fieldSnap.bounds.minY + fieldSnap.bounds.maxY) / 2)
+    if (fieldSnap?.transform && x === undefined && y === undefined) {
+      targetX = Math.round(fieldSnap.transform.x)
+      targetY = Math.round(fieldSnap.transform.y)
     }
 
     // Map sprite pixels to grid cells

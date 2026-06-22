@@ -1,6 +1,9 @@
-// Field Engine v3 — Simulation (CPU-side, shape-based)
+// Field Engine v3 — Simulation (CPU-side)
 
-import { GRID_SIZE, type FieldWorld, type Field, type FieldShape, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type CustomCommand, type FieldLink, type Projectile, type FieldSkeleton, type SkeletonNode, type SkeletonEdge } from './types'
+import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type InteractionEffect, type CustomCommand, type Projectile } from './types'
+
+/** Default render extent from field center (pixels). Not a "size" — just the shader execution area. */
+const FIELD_RENDER_EXTENT = 32
 
 export class FieldSimulation {
   world: FieldWorld
@@ -14,16 +17,18 @@ export class FieldSimulation {
   customCommands: Map<string, CustomCommand> = new Map()
   /** Agent-defined step hooks — JavaScript functions that run every simulation tick */
   stepHooks: Map<string, { author: string; description: string; code: string; fn: (sim: FieldSimulation, dt: number) => void }> = new Map()
-  /** Cached shape masks — invalidated when field transforms change */
-  private maskCache: Map<string, { mask: Uint8Array; x: number; y: number; shape: string }> = new Map()
   /** Spawn queue — fields created by step hooks are queued and processed after all hooks run */
-  spawnQueue: Array<{ name: string; color: [number, number, number, number]; shape?: FieldShape; x: number; y: number }> = []
-  /** Persistent visual links between fields */
-  fieldLinks: Map<string, FieldLink> = new Map()
+  spawnQueue: Array<{ name: string; color: [number, number, number, number]; x: number; y: number }> = []
+  /** Agent-defined interaction effects — GLSL shaders rendered at field overlap pixels */
+  interactionEffects: InteractionEffect[] = []
   /** Shared world data — key-value store accessible from step hooks */
   worldData: Record<string, unknown> = {}
   /** Lightweight projectiles — rendered via effectData, not as fields */
   projectiles: Projectile[] = []
+  /** Per-field pixel presence — populated from GPU readback of each field's rendered output.
+   *  Map from fieldId → Uint8Array(GRID_SIZE × GRID_SIZE), 0 or 255 per pixel.
+   *  This is the "field renders to pixels → pixels return data" pipeline. */
+  fieldPresence: Map<string, Uint8Array> = new Map()
   static readonly MAX_MEMORY = 100
   static readonly MAX_PROJECTILES = 200
 
@@ -35,10 +40,6 @@ export class FieldSimulation {
     boundaryMode: 'open',
     bounciness: 0.5,
     gravitationalConstant: 0,
-    bloomIntensity: 0.3,
-    bloomThreshold: 0.8,
-    windX: 0,
-    windY: 0,
   }
 
   constructor() {
@@ -55,26 +56,21 @@ export class FieldSimulation {
   /** Restore fields from server-stored snapshots (called on mount) */
   restoreFromSnapshots(snapshots: FieldSnapshot[]): void {
     for (const snap of snapshots) {
-      this.createField(snap.id, snap.name, snap.color, snap.shape)
+      this.createField(snap.id, snap.name, snap.color)
       const field = this.fields.get(snap.id)
       if (!field) continue
-      // Restore transform
       Object.assign(field.transform, snap.transform)
-      // Restore effects
       if (snap.effects?.length) {
         field.effects = snap.effects.map(e => ({ ...e }))
       }
-      // Restore properties
       if (snap.properties) {
         for (const [k, v] of Object.entries(snap.properties)) {
           field.properties.set(k, v)
         }
       }
-      // Restore skeleton
-      if (snap.skeleton) {
-        field.skeleton = snap.skeleton
+      if (snap.parentFieldId) {
+        field.parentFieldId = snap.parentFieldId
       }
-      // Restore memory
       if (snap.memory?.length) {
         this.fieldMemory.set(snap.id, [...snap.memory])
       }
@@ -105,40 +101,45 @@ export class FieldSimulation {
     return { x: 0, y: 0, rotation: 0, scale: 1, vx: 0, vy: 0, vr: 0 }
   }
 
-  /** Create a new field — optionally with a shape hint */
-  createField(id: string, name: string, color: [number, number, number, number], shape?: FieldShape): Field {
+  /** Create a new field */
+  createField(id: string, name: string, color: [number, number, number, number], parentFieldId?: string): Field {
     const field: Field = {
       id,
       name,
       color,
-      shape,
       transform: FieldSimulation.defaultTransform(),
       effects: [],
       properties: new Map(),
     }
+    if (parentFieldId && this.fields.has(parentFieldId)) {
+      field.parentFieldId = parentFieldId
+    }
     this.fields.set(id, field)
-    const shapeDesc = shape
-      ? (shape.type === 'polygon' ? `polygon r=${shape.radius} sides=${shape.sides}` : `rect ${shape.w}x${shape.h}`)
-      : 'no form'
     this.addMemory(id, {
       timestamp: new Date().toISOString(),
       type: 'created',
-      content: `Field "${name}" created (${shapeDesc})`,
+      content: `Field "${name}" created`,
       sourceFieldId: null,
     })
     return field
   }
 
-  /** Remove a field */
+  /** Remove a field — orphans any children (they keep their position) */
   removeField(id: string): void {
+    // Orphan all children before deleting
+    for (const child of this.fields.values()) {
+      if (child.parentFieldId === id) {
+        child.parentFieldId = undefined
+      }
+    }
     this.fields.delete(id)
     this.clearMemory(id)
   }
 
   /** Queue a field to be spawned after step hooks finish. Step hooks call this instead of createField directly. */
-  queueSpawn(name: string, color: [number, number, number, number], shape: FieldShape | undefined, x: number, y: number): void {
-    if (this.spawnQueue.length >= 30) return // Limit spawns per tick (raised for multi-agent)
-    this.spawnQueue.push({ name, color, shape, x, y })
+  queueSpawn(name: string, color: [number, number, number, number], x: number, y: number): void {
+    if (this.spawnQueue.length >= 30) return
+    this.spawnQueue.push({ name, color, x, y })
   }
 
   /** Process the spawn queue — called by the engine after step hooks run */
@@ -146,7 +147,7 @@ export class FieldSimulation {
     const spawned: Array<{ id: string; field: Field }> = []
     for (const req of this.spawnQueue) {
       const id = 'spawn_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
-      const field = this.createField(id, req.name, req.color, req.shape)
+      const field = this.createField(id, req.name, req.color)
       field.transform.x = req.x
       field.transform.y = req.y
       spawned.push({ id, field })
@@ -155,60 +156,58 @@ export class FieldSimulation {
     return spawned
   }
 
-  /** Update a field's shape */
-  setShape(fieldId: string, shape?: FieldShape): void {
-    const field = this.fields.get(fieldId)
-    if (!field) return
-    field.shape = shape
-    const shapeDesc = shape
-      ? (shape.type === 'polygon' ? `polygon r=${shape.radius} sides=${shape.sides}` : `rect ${shape.w}x${shape.h}`)
-      : 'no form'
-    this.addMemory(fieldId, {
-      timestamp: new Date().toISOString(),
-      type: 'shape_changed',
-      content: `Shape changed to ${shapeDesc}`,
-      sourceFieldId: null,
-    })
-  }
-
-  /** Test if a point is inside a field's shape (in grid coordinates) */
-  pointInShape(x: number, y: number, field: Field): boolean {
-    if (!field.shape) return false
-    const t = field.transform
-    if (field.shape.type === 'polygon') {
-      // Regular polygon: test point-in-polygon using angular sectors
-      const dx = x - t.x
-      const dy = y - t.y
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist > field.shape.radius) return false
-      const sides = field.shape.sides
-      const angle = Math.atan2(dy, dx)
-      const sector = (2 * Math.PI) / sides
-      // Distance to polygon edge at this angle
-      const sectorAngle = ((angle % sector) + sector) % sector
-      const halfSector = sector / 2
-      const edgeDist = field.shape.radius * Math.cos(halfSector) / Math.cos(sectorAngle - halfSector)
-      return dist <= edgeDist
-    } else {
-      // rect: origin is top-left corner of rect
-      return x >= t.x && x < t.x + field.shape.w && y >= t.y && y < t.y + field.shape.h
-    }
-  }
-
   /** Clear everything */
   clearAll(): void {
     this.world.colorData.fill(0)
     this.world.stateData.fill(0)
   }
 
-  /** Update field transforms based on velocities */
+  /** Clear colorData before render. After GPU renders, colorData is populated via
+   *  readbackRendered() — so it reflects actual rendered pixels, not bounding boxes.
+   *  This mirrors Genesis Engine's pattern: pixel data comes from what's actually drawn. */
+  paintFieldShapes(): void {
+    this.world.colorData.fill(0)
+  }
+
+  /** Update field transforms based on velocities, then propagate parent deltas to children */
   stepTransforms(dt: number): void {
+    // Record positions before velocity integration
+    const prevPositions = new Map<string, { x: number; y: number }>()
+    for (const field of this.fields.values()) {
+      prevPositions.set(field.id, { x: field.transform.x, y: field.transform.y })
+    }
+
+    // Apply own velocity
     for (const field of this.fields.values()) {
       const t = field.transform
       if (t.vx !== 0 || t.vy !== 0 || t.vr !== 0) {
         t.x += t.vx * dt
         t.y += t.vy * dt
         t.rotation += t.vr * dt
+      }
+    }
+
+    // Propagate parent deltas to children (supports nested hierarchies up to depth 5)
+    for (let depth = 0; depth < 5; depth++) {
+      let anyMoved = false
+      for (const field of this.fields.values()) {
+        if (!field.parentFieldId) continue
+        const parent = this.fields.get(field.parentFieldId)
+        if (!parent) continue
+        const prev = prevPositions.get(parent.id)
+        if (!prev) continue
+        const dx = parent.transform.x - prev.x
+        const dy = parent.transform.y - prev.y
+        if (dx !== 0 || dy !== 0) {
+          field.transform.x += dx
+          field.transform.y += dy
+          anyMoved = true
+        }
+      }
+      if (!anyMoved) break
+      // Update prev positions for next depth pass
+      for (const field of this.fields.values()) {
+        prevPositions.set(field.id, { x: field.transform.x, y: field.transform.y })
       }
     }
   }
@@ -270,9 +269,6 @@ export class FieldSimulation {
     } else if (wp.boundaryMode === 'wrap') {
       this.stepWrapBoundaries()
     }
-
-    // Skeleton physics (spring forces, wind, gravity on nodes)
-    this.stepSkeletonPhysics(dt)
 
     // Update field transforms (velocity → position)
     this.stepTransforms(dt)
@@ -656,40 +652,135 @@ export class FieldSimulation {
     return count
   }
 
-  /** Given a grid coordinate, return the field that contains it, or null */
-  getFieldAtCell(x: number, y: number): Field | null {
-    for (const field of this.fields.values()) {
-      if (this.pointInShape(x, y, field)) return field
+  /** Given a grid coordinate (float), return the topmost field whose bounds contain it, or null.
+   *  Iterates in reverse insertion order so the most recently created field wins. */
+  getFieldAtPoint(x: number, y: number): Field | null {
+    const fields = Array.from(this.fields.values()).reverse()
+    for (const field of fields) {
+      const bounds = this.getFieldBounds(field.id)
+      if (bounds && x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
+        return field
+      }
     }
     return null
   }
 
-  /** Get the axis-aligned bounding box of a field from its shape + transform (analytic) */
+  /** Given a grid coordinate, return the field whose bounds contain it, or null */
+  getFieldAtCell(x: number, y: number): Field | null {
+    for (const field of this.fields.values()) {
+      const bounds = this.getFieldBounds(field.id)
+      if (!bounds) continue
+      if (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
+        return field
+      }
+    }
+    return null
+  }
+
+  /** Get all field IDs present at a specific pixel, based on GPU-rendered presence data.
+   *  This is pixel-perfect: only returns fields whose shaders actually rendered at this pixel. */
+  getFieldsAtPixel(x: number, y: number): string[] {
+    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return []
+    const idx = y * GRID_SIZE + x
+    const result: string[] = []
+    for (const [fieldId, presence] of this.fieldPresence) {
+      if (presence[idx] > 0) {
+        result.push(fieldId)
+      }
+    }
+    return result
+  }
+
+  /** Compute pixel-level overlap mask between two fields using GPU-rendered presence data.
+   *  Returns null if either field has no presence data or there's no pixel overlap. */
+  computePixelOverlapMask(fieldAId: string, fieldBId: string, spread: number = 0): Uint8Array | null {
+    const presA = this.fieldPresence.get(fieldAId)
+    const presB = this.fieldPresence.get(fieldBId)
+    if (!presA || !presB) return null
+
+    const overlap = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    let hasOverlap = false
+    for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+      if (presA[i] > 0 && presB[i] > 0) {
+        overlap[i] = 255
+        hasOverlap = true
+      }
+    }
+
+    if (!hasOverlap) return null
+
+    if (spread > 0) {
+      return this.dilateMask(overlap, spread)
+    }
+
+    return overlap
+  }
+
+  /** Query cell presence data at a single pixel — uses GPU-rendered presence for pixel-perfect results */
+  getCellInfo(x: number, y: number): { color: [number, number, number, number]; fieldCount: number; fieldIds: string[] } | null {
+    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return null
+
+    // Use pixel-perfect presence data from GPU readback
+    const fieldIds = this.getFieldsAtPixel(x, y)
+
+    return {
+      color: [0, 0, 0, fieldIds.length],
+      fieldCount: fieldIds.length,
+      fieldIds,
+    }
+  }
+
+  /** Sample aggregate field presence info over a rectangular region */
+  sampleRegion(cx: number, cy: number, radius: number): { avgColor: [number, number, number]; totalFieldCount: number; uniqueFieldIds: string[] } {
+    const minX = Math.max(0, Math.floor(cx - radius))
+    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(cx + radius))
+    const minY = Math.max(0, Math.floor(cy - radius))
+    const maxY = Math.min(GRID_SIZE - 1, Math.ceil(cy + radius))
+
+    let rSum = 0, gSum = 0, bSum = 0, count = 0, totalFields = 0
+    const fieldIdSet = new Set<string>()
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const idx = (y * GRID_SIZE + x) * 4
+        const fc = this.world.colorData[idx + 3]
+        if (fc > 0) {
+          rSum += this.world.colorData[idx]
+          gSum += this.world.colorData[idx + 1]
+          bSum += this.world.colorData[idx + 2]
+          totalFields += fc
+          count++
+        }
+      }
+    }
+
+    // Resolve field IDs from bounds
+    for (const field of this.fields.values()) {
+      const bounds = this.getFieldBounds(field.id)
+      if (!bounds) continue
+      if (bounds.maxX >= minX && bounds.minX <= maxX && bounds.maxY >= minY && bounds.minY <= maxY) {
+        fieldIdSet.add(field.id)
+      }
+    }
+
+    return {
+      avgColor: count > 0 ? [rSum / count, gSum / count, bSum / count] : [0, 0, 0],
+      totalFieldCount: Math.round(totalFields),
+      uniqueFieldIds: Array.from(fieldIdSet),
+    }
+  }
+
+  /** Get the axis-aligned bounding box of a field — shader execution area centered on position */
   getFieldBounds(fieldId: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const field = this.fields.get(fieldId)
     if (!field) return null
-
     const t = field.transform
-    if (!field.shape) {
-      // No shape — return a small area around the position
-      return { minX: t.x - 1, minY: t.y - 1, maxX: t.x + 1, maxY: t.y + 1 }
-    }
-
-    if (field.shape.type === 'polygon') {
-      const r = field.shape.radius
-      return {
-        minX: t.x - r,
-        minY: t.y - r,
-        maxX: t.x + r,
-        maxY: t.y + r,
-      }
-    } else {
-      return {
-        minX: t.x,
-        minY: t.y,
-        maxX: t.x + field.shape.w,
-        maxY: t.y + field.shape.h,
-      }
+    const r = FIELD_RENDER_EXTENT * t.scale
+    return {
+      minX: t.x - r,
+      minY: t.y - r,
+      maxX: t.x + r,
+      maxY: t.y + r,
     }
   }
 
@@ -706,6 +797,69 @@ export class FieldSimulation {
     if (!field) return
     field.transform.x = x
     field.transform.y = y
+  }
+
+  /** Get all direct children of a field */
+  getChildren(fieldId: string): Field[] {
+    const children: Field[] = []
+    for (const field of this.fields.values()) {
+      if (field.parentFieldId === fieldId) {
+        children.push(field)
+      }
+    }
+    return children
+  }
+
+  /** Get the nesting depth of a field (0 = top-level, 1 = child of top-level, etc.) */
+  private getDepth(fieldId: string): number {
+    let depth = 0
+    let currentId: string | undefined = fieldId
+    const visited = new Set<string>()
+    while (currentId) {
+      if (visited.has(currentId)) break // cycle protection
+      visited.add(currentId)
+      const field = this.fields.get(currentId)
+      if (!field?.parentFieldId) break
+      currentId = field.parentFieldId
+      depth++
+    }
+    return depth
+  }
+
+  /** Set or clear a field's parent. Validates parent exists and enforces depth limit of 5. */
+  setParent(fieldId: string, parentFieldId?: string): boolean {
+    const field = this.fields.get(fieldId)
+    if (!field) return false
+
+    // Clear parent
+    if (!parentFieldId) {
+      field.parentFieldId = undefined
+      return true
+    }
+
+    // Can't parent to self
+    if (parentFieldId === fieldId) return false
+
+    // Parent must exist
+    if (!this.fields.has(parentFieldId)) return false
+
+    // Prevent cycles: walk up from parentFieldId, ensure we don't reach fieldId
+    let currentId: string | undefined = parentFieldId
+    const visited = new Set<string>()
+    while (currentId) {
+      if (currentId === fieldId) return false // would create cycle
+      if (visited.has(currentId)) break
+      visited.add(currentId)
+      const parent = this.fields.get(currentId)
+      currentId = parent?.parentFieldId
+    }
+
+    // Check depth limit: depth of parent + 1 (for this field) + max child depth below this field
+    const parentDepth = this.getDepth(parentFieldId)
+    if (parentDepth + 1 >= 5) return false
+
+    field.parentFieldId = parentFieldId
+    return true
   }
 
   /** Add an effect to a field's effect stack */
@@ -812,9 +966,7 @@ export class FieldSimulation {
   generateSnapshots(): FieldSnapshot[] {
     const snapshots: FieldSnapshot[] = []
     for (const field of this.fields.values()) {
-      const bounds = this.getFieldBounds(field.id)
       const center = this.getFieldCenter(field.id)
-      // Sample state data at field center
       let stateAtCenter: { r: number; g: number; b: number; a: number } | undefined
       if (center) {
         const cx = Math.floor(center.x), cy = Math.floor(center.y)
@@ -827,8 +979,6 @@ export class FieldSimulation {
         id: field.id,
         name: field.name,
         color: field.color,
-        shape: field.shape,
-        bounds,
         effects: field.effects.map(e => ({
           id: e.id, author: e.author, glsl: e.glsl,
           description: e.description, blend: e.blend, order: e.order,
@@ -838,7 +988,7 @@ export class FieldSimulation {
         proximity: this.getProximity(field.id),
         stateAtCenter,
         properties: Object.fromEntries(field.properties),
-        skeleton: field.skeleton,
+        parentFieldId: field.parentFieldId,
       })
     }
     return snapshots
@@ -853,108 +1003,18 @@ export class FieldSimulation {
     return result
   }
 
-  /** Generate a mask Uint8Array for a field's shape (for shader pass) — cached, invalidated on move */
-  generateShapeMask(fieldId: string): Uint8Array | null {
-    const field = this.fields.get(fieldId)
-    if (!field || !field.shape) return null
-
-    const bounds = this.getFieldBounds(fieldId)
-    if (!bounds) return null
-
-    // Cache key: integer position + shape descriptor
-    const ix = Math.round(field.transform.x)
-    const iy = Math.round(field.transform.y)
-    const shapeKey = field.shape.type === 'polygon'
-      ? `p${field.shape.radius}x${field.shape.sides}`
-      : `r${field.shape.w}x${field.shape.h}`
-
-    const cached = this.maskCache.get(fieldId)
-    if (cached && cached.x === ix && cached.y === iy && cached.shape === shapeKey) {
-      return cached.mask
-    }
-
-    const mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
-    const minX = Math.max(0, Math.floor(bounds.minX))
-    const minY = Math.max(0, Math.floor(bounds.minY))
-    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxX))
-    const maxY = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxY))
-
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (this.pointInShape(x, y, field)) {
-          mask[y * GRID_SIZE + x] = 255
-        }
-      }
-    }
-
-    this.maskCache.set(fieldId, { mask, x: ix, y: iy, shape: shapeKey })
-    return mask
-  }
-
-  /** Invalidate mask cache for a field */
-  invalidateMaskCache(fieldId: string): void {
-    this.maskCache.delete(fieldId)
-  }
-
-  /** Add a visual link between two fields */
-  addLink(link: FieldLink): string {
-    const id = link.id || 'link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
-    this.fieldLinks.set(id, { ...link, id })
-    return id
-  }
-
-  /** Remove a link */
-  removeLink(linkId: string): boolean {
-    return this.fieldLinks.delete(linkId)
-  }
-
-  /** Remove all links involving a field */
-  removeLinksForField(fieldId: string): void {
-    for (const [id, link] of this.fieldLinks) {
-      if (link.fromFieldId === fieldId || link.toFieldId === fieldId) {
-        this.fieldLinks.delete(id)
-      }
-    }
-  }
-
-  /** Get all links as serializable array */
-  getLinkSnapshots(): FieldLink[] {
-    return Array.from(this.fieldLinks.values())
-  }
-
-  /** Get link endpoint positions (for rendering) */
-  getLinkEndpoints(): Array<{ id: string; fromX: number; fromY: number; toX: number; toY: number; color: [number, number, number, number]; width: number; style: string; intensity: number }> {
-    const result: Array<{ id: string; fromX: number; fromY: number; toX: number; toY: number; color: [number, number, number, number]; width: number; style: string; intensity: number }> = []
-    for (const link of this.fieldLinks.values()) {
-      const fromField = this.fields.get(link.fromFieldId)
-      const toField = this.fields.get(link.toFieldId)
-      if (!fromField || !toField) continue
-      result.push({
-        id: link.id,
-        fromX: fromField.transform.x,
-        fromY: fromField.transform.y,
-        toX: toField.transform.x,
-        toY: toField.transform.y,
-        color: link.color,
-        width: link.width,
-        style: link.style,
-        intensity: link.intensity,
-      })
-    }
-    return result
-  }
-
   /** Particle system — temporary fields that auto-despawn after a lifetime */
   private particles: Map<string, { id: string; lifetime: number; maxLifetime: number; fieldId: string }> = new Map()
 
   /** Spawn a particle — a temporary field with a limited lifetime (seconds) */
-  spawnParticle(name: string, color: [number, number, number, number], x: number, y: number, vx: number, vy: number, lifetime: number = 2.0, radius: number = 3): string {
+  spawnParticle(name: string, color: [number, number, number, number], x: number, y: number, vx: number, vy: number, lifetime: number = 2.0): string {
     const id = 'particle_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
-    const field = this.createField(id, name, color, { type: 'polygon', radius, sides: 16 })
+    const field = this.createField(id, name, color)
     field.transform.x = x
     field.transform.y = y
     field.transform.vx = vx
     field.transform.vy = vy
+    field.transform.scale = 0.25
     this.particles.set(id, { id, lifetime, maxLifetime: lifetime, fieldId: id })
     return id
   }
@@ -990,36 +1050,12 @@ export class FieldSimulation {
     return this.particles.size
   }
 
-  /** Render trails and links into the effect layer.
-   *  Uses effectData (R=effectType, G=hue, B=brightness, A=intensity).
-   *  The base shader's effect rendering handles the visual output. */
+  /** Render trail dots into the effect layer */
   renderTrailsAndLinks(): void {
-    // Stamp trail dots at each field's current position
     for (const field of this.fields.values()) {
-      const x = field.transform.x
-      const y = field.transform.y
-      const r = Math.max(1, Math.round(
-        (field.shape?.type === 'polygon' ? field.shape.radius
-          : field.shape?.type === 'rect' ? Math.min(field.shape.w, field.shape.h) / 2 : 5) * 0.3
-      ))
       const hue = this.rgbToHue(field.color)
       const brightness = Math.max(field.color[0], field.color[1], field.color[2])
-      this.stampEffectCircle(x, y, r, 1, hue, brightness, 0.5)
-    }
-
-    // Draw links as effect lines
-    for (const link of this.fieldLinks.values()) {
-      const fromField = this.fields.get(link.fromFieldId)
-      const toField = this.fields.get(link.toFieldId)
-      if (!fromField || !toField) continue
-      const hue = this.rgbToHue(link.color)
-      const brightness = Math.max(link.color[0], link.color[1], link.color[2])
-      this.stampEffectLine(
-        fromField.transform.x, fromField.transform.y,
-        toField.transform.x, toField.transform.y,
-        Math.max(1, Math.round(link.width)),
-        1, hue, brightness, link.intensity
-      )
+      this.stampEffectCircle(field.transform.x, field.transform.y, 2, 1, hue, brightness, 0.5)
     }
   }
 
@@ -1150,417 +1186,153 @@ export class FieldSimulation {
     this.projectiles = alive
   }
 
-  // ─── Skeleton System ───
+  // ─── Interaction Effects ───
 
-  static readonly MAX_SKELETON_NODES = 128
-
-  /** Set entire skeleton for a field */
-  setSkeleton(fieldId: string, skeleton: FieldSkeleton): void {
-    const field = this.fields.get(fieldId)
-    if (!field) return
-    // Clamp to max nodes
-    if (skeleton.nodes.length > FieldSimulation.MAX_SKELETON_NODES) {
-      skeleton.nodes = skeleton.nodes.slice(0, FieldSimulation.MAX_SKELETON_NODES)
-    }
-    field.skeleton = skeleton
+  /** Add an interaction effect. Returns the effect's id. */
+  addInteractionEffect(effect: Omit<InteractionEffect, 'id'> & { id?: string }): string {
+    const id = effect.id || `ix_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    this.interactionEffects.push({ ...effect, id } as InteractionEffect)
+    // Sort by order
+    this.interactionEffects.sort((a, b) => a.order - b.order)
+    return id
   }
 
-  /** Add a single node to a field's skeleton */
-  addSkeletonNode(fieldId: string, node: SkeletonNode): void {
-    const field = this.fields.get(fieldId)
-    if (!field) return
-    if (!field.skeleton) {
-      field.skeleton = { nodes: [], edges: [], physics: false }
-    }
-    if (field.skeleton.nodes.length >= FieldSimulation.MAX_SKELETON_NODES) return
-    field.skeleton.nodes.push(node)
+  /** Remove an interaction effect by id */
+  removeInteractionEffect(effectId: string): boolean {
+    const before = this.interactionEffects.length
+    this.interactionEffects = this.interactionEffects.filter(e => e.id !== effectId)
+    return this.interactionEffects.length < before
   }
 
-  /** Remove a node and all connected edges */
-  removeSkeletonNode(fieldId: string, nodeId: string): void {
-    const field = this.fields.get(fieldId)
-    if (!field?.skeleton) return
-    field.skeleton.nodes = field.skeleton.nodes.filter(n => n.id !== nodeId)
-    field.skeleton.edges = field.skeleton.edges.filter(e => e.from !== nodeId && e.to !== nodeId)
-    // Update parent references
-    for (const node of field.skeleton.nodes) {
-      if (node.parentId === nodeId) node.parentId = null
-    }
-  }
+  /** Compute the overlap mask (intersection of two fields' bounds), optionally dilated by spread pixels. */
+  computeOverlapMask(fieldAId: string, fieldBId: string, spread: number = 0): Uint8Array | null {
+    const boundsA = this.getFieldBounds(fieldAId)
+    const boundsB = this.getFieldBounds(fieldBId)
+    if (!boundsA || !boundsB) return null
 
-  /** Reposition a skeleton node */
-  moveSkeletonNode(fieldId: string, nodeId: string, x: number, y: number): void {
-    const field = this.fields.get(fieldId)
-    if (!field?.skeleton) return
-    const node = field.skeleton.nodes.find(n => n.id === nodeId)
-    if (node) {
-      node.x = x
-      node.y = y
-    }
-  }
+    const overlapMinX = Math.max(boundsA.minX, boundsB.minX)
+    const overlapMinY = Math.max(boundsA.minY, boundsB.minY)
+    const overlapMaxX = Math.min(boundsA.maxX, boundsB.maxX)
+    const overlapMaxY = Math.min(boundsA.maxY, boundsB.maxY)
 
-  /** Add an edge between two skeleton nodes */
-  connectSkeletonNodes(fieldId: string, fromId: string, toId: string, width: number = 1, stiffness: number = 0.5): void {
-    const field = this.fields.get(fieldId)
-    if (!field?.skeleton) return
-    // Verify both nodes exist
-    const hasFrom = field.skeleton.nodes.some(n => n.id === fromId)
-    const hasTo = field.skeleton.nodes.some(n => n.id === toId)
-    if (!hasFrom || !hasTo) return
-    // Don't duplicate
-    if (field.skeleton.edges.some(e => e.from === fromId && e.to === toId)) return
-    field.skeleton.edges.push({ from: fromId, to: toId, width, stiffness })
-  }
+    if (overlapMinX >= overlapMaxX || overlapMinY >= overlapMaxY) return null
 
-  /** Generate a skeleton from a template */
-  generateSkeleton(fieldId: string, template: string, params: Record<string, unknown>): void {
-    const field = this.fields.get(fieldId)
-    if (!field) return
+    const overlap = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const minX = Math.max(0, Math.floor(overlapMinX))
+    const minY = Math.max(0, Math.floor(overlapMinY))
+    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(overlapMaxX))
+    const maxY = Math.min(GRID_SIZE - 1, Math.ceil(overlapMaxY))
 
-    let skeleton: FieldSkeleton
-    switch (template) {
-      case 'tree':
-        skeleton = this.generateTreeSkeleton(params)
-        break
-      case 'humanoid':
-        skeleton = this.generateHumanoidSkeleton(params)
-        break
-      case 'crystal':
-        skeleton = this.generateCrystalSkeleton(params)
-        break
-      case 'vine':
-        skeleton = this.generateVineSkeleton(params)
-        break
-      case 'star_burst':
-        skeleton = this.generateStarBurstSkeleton(params)
-        break
-      default:
-        return
-    }
-
-    field.skeleton = skeleton
-  }
-
-  /** Generate a tree skeleton — recursive branching */
-  private generateTreeSkeleton(params: Record<string, unknown>): FieldSkeleton {
-    const depth = (params.depth as number) || 4
-    const branchFactor = (params.branchFactor as number) || 3
-    const trunkRadius = (params.trunkRadius as number) || 8
-    const spread = (params.spread as number) || 0.7
-    const taper = (params.taper as number) || 0.6
-
-    const nodes: SkeletonNode[] = []
-    const edges: SkeletonEdge[] = []
-    let nodeIdx = 0
-
-    function addBranch(
-      parentId: string | null,
-      x: number, y: number,
-      angle: number, length: number,
-      radius: number, currentDepth: number
-    ) {
-      if (currentDepth > depth || nodes.length >= 127) return
-
-      const id = `n${nodeIdx++}`
-      nodes.push({ id, x, y, radius, parentId, properties: { depth: currentDepth } })
-
-      if (parentId) {
-        edges.push({ from: parentId, to: id, width: radius, stiffness: currentDepth / depth })
-      }
-
-      if (currentDepth >= depth) return
-
-      const nextLen = length * 0.7
-      const nextRadius = radius * taper
-      const angleStep = spread / Math.max(branchFactor - 1, 1)
-      const startAngle = angle - spread * 0.5
-
-      for (let i = 0; i < branchFactor && nodes.length < 127; i++) {
-        const branchAngle = startAngle + angleStep * i + (Math.random() - 0.5) * 0.2
-        const nx = x + Math.cos(branchAngle) * nextLen
-        const ny = y + Math.sin(branchAngle) * nextLen
-        addBranch(id, nx, ny, branchAngle, nextLen, nextRadius, currentDepth + 1)
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        overlap[y * GRID_SIZE + x] = 255
       }
     }
 
-    // Root node at base
-    const rootId = `n${nodeIdx++}`
-    nodes.push({ id: rootId, x: 0, y: 0, radius: trunkRadius, parentId: null })
+    if (spread > 0) {
+      return this.dilateMask(overlap, spread)
+    }
 
-    // Trunk goes upward (negative y = up in screen space)
-    const trunkLen = trunkRadius * 4
-    const trunkTopId = `n${nodeIdx++}`
-    nodes.push({ id: trunkTopId, x: 0, y: -trunkLen, radius: trunkRadius * 0.7, parentId: rootId })
-    edges.push({ from: rootId, to: trunkTopId, width: trunkRadius, stiffness: 0.1 })
-
-    // Branch from trunk top
-    addBranch(trunkTopId, 0, -trunkLen, -Math.PI / 2, trunkLen * 0.6, trunkRadius * taper, 1)
-
-    return { nodes, edges, physics: false }
+    return overlap
   }
 
-  /** Generate a humanoid skeleton */
-  private generateHumanoidSkeleton(params: Record<string, unknown>): FieldSkeleton {
-    const height = (params.height as number) || 60
-    const limbLength = (params.limbLength as number) || 20
+  /** Dilate a binary mask by radius pixels (box dilation) */
+  private dilateMask(mask: Uint8Array, radius: number): Uint8Array {
+    const dilated = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const r = Math.min(radius, 50) // cap to prevent huge loops
 
-    const nodes: SkeletonNode[] = []
-    const edges: SkeletonEdge[] = []
-
-    // Torso
-    nodes.push({ id: 'hip', x: 0, y: 0, radius: 4, parentId: null })
-    nodes.push({ id: 'chest', x: 0, y: -height * 0.4, radius: 5, parentId: 'hip' })
-    nodes.push({ id: 'head', x: 0, y: -height * 0.5 - 8, radius: 6, parentId: 'chest' })
-    edges.push({ from: 'hip', to: 'chest', width: 4, stiffness: 0.1 })
-    edges.push({ from: 'chest', to: 'head', width: 3, stiffness: 0.1 })
-
-    // Arms
-    nodes.push({ id: 'l_shoulder', x: -8, y: -height * 0.38, radius: 3, parentId: 'chest' })
-    nodes.push({ id: 'l_elbow', x: -limbLength * 0.6, y: -height * 0.28, radius: 2.5, parentId: 'l_shoulder' })
-    nodes.push({ id: 'l_hand', x: -limbLength, y: -height * 0.18, radius: 2, parentId: 'l_elbow' })
-    edges.push({ from: 'chest', to: 'l_shoulder', width: 3, stiffness: 0.3 })
-    edges.push({ from: 'l_shoulder', to: 'l_elbow', width: 2.5, stiffness: 0.5 })
-    edges.push({ from: 'l_elbow', to: 'l_hand', width: 2, stiffness: 0.5 })
-
-    nodes.push({ id: 'r_shoulder', x: 8, y: -height * 0.38, radius: 3, parentId: 'chest' })
-    nodes.push({ id: 'r_elbow', x: limbLength * 0.6, y: -height * 0.28, radius: 2.5, parentId: 'r_shoulder' })
-    nodes.push({ id: 'r_hand', x: limbLength, y: -height * 0.18, radius: 2, parentId: 'r_elbow' })
-    edges.push({ from: 'chest', to: 'r_shoulder', width: 3, stiffness: 0.3 })
-    edges.push({ from: 'r_shoulder', to: 'r_elbow', width: 2.5, stiffness: 0.5 })
-    edges.push({ from: 'r_elbow', to: 'r_hand', width: 2, stiffness: 0.5 })
-
-    // Legs
-    nodes.push({ id: 'l_knee', x: -5, y: height * 0.25, radius: 3, parentId: 'hip' })
-    nodes.push({ id: 'l_foot', x: -5, y: height * 0.5, radius: 2.5, parentId: 'l_knee' })
-    edges.push({ from: 'hip', to: 'l_knee', width: 3, stiffness: 0.3 })
-    edges.push({ from: 'l_knee', to: 'l_foot', width: 2.5, stiffness: 0.3 })
-
-    nodes.push({ id: 'r_knee', x: 5, y: height * 0.25, radius: 3, parentId: 'hip' })
-    nodes.push({ id: 'r_foot', x: 5, y: height * 0.5, radius: 2.5, parentId: 'r_knee' })
-    edges.push({ from: 'hip', to: 'r_knee', width: 3, stiffness: 0.3 })
-    edges.push({ from: 'r_knee', to: 'r_foot', width: 2.5, stiffness: 0.3 })
-
-    return { nodes, edges, physics: false }
-  }
-
-  /** Generate a crystal skeleton — radial lattice */
-  private generateCrystalSkeleton(params: Record<string, unknown>): FieldSkeleton {
-    const points = (params.points as number) || 6
-    const layers = (params.layers as number) || 3
-
-    const nodes: SkeletonNode[] = []
-    const edges: SkeletonEdge[] = []
-
-    // Center node
-    nodes.push({ id: 'center', x: 0, y: 0, radius: 4, parentId: null })
-
-    for (let layer = 1; layer <= layers; layer++) {
-      const layerRadius = layer * 12
-      const nodeRadius = 3 / layer
-      for (let i = 0; i < points; i++) {
-        const angle = (i / points) * Math.PI * 2
-        const id = `l${layer}_${i}`
-        const parentId = layer === 1 ? 'center' : `l${layer - 1}_${i}`
-        nodes.push({
-          id,
-          x: Math.cos(angle) * layerRadius,
-          y: Math.sin(angle) * layerRadius,
-          radius: nodeRadius,
-          parentId,
-        })
-        edges.push({ from: parentId, to: id, width: nodeRadius, stiffness: 0.2 })
-
-        // Connect adjacent nodes in same layer
-        if (i > 0) {
-          const prevId = `l${layer}_${i - 1}`
-          edges.push({ from: prevId, to: id, width: nodeRadius * 0.5, stiffness: 0.3 })
+    for (let y = 0; y < GRID_SIZE; y++) {
+      for (let x = 0; x < GRID_SIZE; x++) {
+        if (mask[y * GRID_SIZE + x] > 0) {
+          // Stamp a filled circle of radius r
+          const minDy = Math.max(-r, -y)
+          const maxDy = Math.min(r, GRID_SIZE - 1 - y)
+          for (let dy = minDy; dy <= maxDy; dy++) {
+            const minDx = Math.max(-r, -x)
+            const maxDx = Math.min(r, GRID_SIZE - 1 - x)
+            for (let dx = minDx; dx <= maxDx; dx++) {
+              if (dx * dx + dy * dy <= r * r) {
+                dilated[(y + dy) * GRID_SIZE + (x + dx)] = 255
+              }
+            }
+          }
         }
       }
-      // Close the ring
-      if (points > 2) {
-        edges.push({ from: `l${layer}_${points - 1}`, to: `l${layer}_0`, width: nodeRadius * 0.5, stiffness: 0.3 })
-      }
     }
 
-    return { nodes, edges, physics: false }
+    return dilated
   }
 
-  /** Generate a vine skeleton — sinuous curve */
-  private generateVineSkeleton(params: Record<string, unknown>): FieldSkeleton {
-    const length = (params.length as number) || 80
-    const curvature = (params.curvature as number) || 0.3
-    const segments = (params.segments as number) || 12
-
-    const nodes: SkeletonNode[] = []
-    const edges: SkeletonEdge[] = []
-    const segLen = length / segments
-
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments
-      const x = Math.sin(t * Math.PI * 2 * curvature) * length * 0.3
-      const y = -i * segLen
-      const radius = 2 + (1 - t) * 3
-      const id = `v${i}`
-      const parentId = i === 0 ? null : `v${i - 1}`
-      nodes.push({ id, x, y, radius, parentId })
-      if (i > 0) {
-        edges.push({ from: `v${i - 1}`, to: id, width: radius, stiffness: 0.4 + t * 0.5 })
-      }
-    }
-
-    return { nodes, edges, physics: false }
-  }
-
-  /** Generate a star burst skeleton — radial spikes */
-  private generateStarBurstSkeleton(params: Record<string, unknown>): FieldSkeleton {
-    const rays = (params.rays as number) || 8
-    const length = (params.length as number) || 30
-    const taper = (params.taper as number) || 0.3
-
-    const nodes: SkeletonNode[] = []
-    const edges: SkeletonEdge[] = []
-
-    nodes.push({ id: 'center', x: 0, y: 0, radius: 5, parentId: null })
-
-    for (let i = 0; i < rays; i++) {
-      const angle = (i / rays) * Math.PI * 2
-      const tipId = `ray${i}`
-      nodes.push({
-        id: tipId,
-        x: Math.cos(angle) * length,
-        y: Math.sin(angle) * length,
-        radius: 5 * taper,
-        parentId: 'center',
-      })
-      edges.push({ from: 'center', to: tipId, width: 3, stiffness: 0.6 })
-    }
-
-    return { nodes, edges, physics: false }
-  }
-
-  /** Skeleton physics — spring forces, gravity, wind on nodes */
-  private stepSkeletonPhysics(dt: number): void {
-    const wp = this.worldParams
+  /** Compute a texture where each pixel stores the count of fields with bounds coverage at that pixel. */
+  computeFieldCountTexture(): Uint8Array {
+    const count = new Uint8Array(GRID_SIZE * GRID_SIZE)
 
     for (const field of this.fields.values()) {
-      if (!field.skeleton?.physics) continue
-      const skel = field.skeleton
-
-      // Build node index for fast lookup
-      const nodeMap = new Map<string, SkeletonNode>()
-      const nodeVel = new Map<string, { vx: number; vy: number }>()
-      for (const node of skel.nodes) {
-        nodeMap.set(node.id, node)
-        if (!nodeVel.has(node.id)) {
-          // Store velocity in node properties
-          const props = node.properties || (node.properties = {})
-          nodeVel.set(node.id, {
-            vx: (props._vx as number) || 0,
-            vy: (props._vy as number) || 0,
-          })
+      const bounds = this.getFieldBounds(field.id)
+      if (!bounds) continue
+      const minX = Math.max(0, Math.floor(bounds.minX))
+      const minY = Math.max(0, Math.floor(bounds.minY))
+      const maxX = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxX))
+      const maxY = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxY))
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const i = y * GRID_SIZE + x
+          if (count[i] < 255) count[i]++
         }
-      }
-
-      // Spring forces along edges (Hooke's law)
-      for (const edge of skel.edges) {
-        const a = nodeMap.get(edge.from)
-        const b = nodeMap.get(edge.to)
-        if (!a || !b) continue
-
-        const dx = b.x - a.x
-        const dy = b.y - a.y
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        if (dist < 0.01) continue
-
-        // Compute and cache rest length from initial positions
-        if (edge.restLength === undefined || edge.restLength <= 0) {
-          edge.restLength = dist
-        }
-
-        const displacement = dist - edge.restLength
-        const springK = (1 - edge.stiffness) * 80
-        const force = springK * displacement
-
-        const nx = dx / dist
-        const ny = dy / dist
-
-        const va = nodeVel.get(edge.from)!
-        const vb = nodeVel.get(edge.to)!
-
-        // Root nodes are anchored (parentId === null)
-        if (a.parentId !== null) {
-          va.vx += nx * force * dt
-          va.vy += ny * force * dt
-        }
-        if (b.parentId !== null) {
-          vb.vx -= nx * force * dt
-          vb.vy -= ny * force * dt
-        }
-      }
-
-      // Apply gravity and wind to non-root nodes
-      for (const node of skel.nodes) {
-        if (node.parentId === null) continue // root is anchored
-        const vel = nodeVel.get(node.id)!
-
-        // Gravity (scaled down for skeleton-local coords)
-        vel.vy += wp.gravity * dt * 0.1
-
-        // Wind (stronger on leaf nodes — nodes with no children)
-        if (wp.windX || wp.windY) {
-          const isLeaf = !skel.edges.some(e => e.from === node.id)
-          const windMult = isLeaf ? 1.0 : 0.3
-          vel.vx += (wp.windX || 0) * windMult * dt
-          vel.vy += (wp.windY || 0) * windMult * dt
-        }
-
-        // Damping
-        vel.vx *= 0.92
-        vel.vy *= 0.92
-
-        // Integrate
-        node.x += vel.vx * dt
-        node.y += vel.vy * dt
-
-        // Store back
-        const props = node.properties || (node.properties = {})
-        props._vx = vel.vx
-        props._vy = vel.vy
       }
     }
+
+    return count
   }
 
-  /** Pack skeleton data into a Float32Array for GPU upload.
-   *  128 pixels * 4 floats = 512 floats. Each pixel = one node: (x, y, radius, parentIndex) */
-  packSkeletonTexture(field: Field): Float32Array {
-    const data = new Float32Array(FieldSimulation.MAX_SKELETON_NODES * 4)
-    if (!field.skeleton) return data
+  /** Get all active interaction pairs — resolves wildcards, checks for actual overlap.
+   *  Returns list of { effect, fieldA, fieldB } for each matching pair with overlap. */
+  getActiveInteractionPairs(): Array<{ effect: InteractionEffect; fieldA: Field; fieldB: Field }> {
+    const result: Array<{ effect: InteractionEffect; fieldA: Field; fieldB: Field }> = []
+    const fieldList = Array.from(this.fields.values())
 
-    const skel = field.skeleton
-    const t = field.transform
+    for (const effect of this.interactionEffects) {
+      if (effect.fieldA && effect.fieldB) {
+        // Specific pair
+        const a = this.fields.get(effect.fieldA)
+        const b = this.fields.get(effect.fieldB)
+        if (a && b) {
+          // Quick bounds overlap check before expensive mask computation
+          const boundsA = this.getFieldBounds(a.id)
+          const boundsB = this.getFieldBounds(b.id)
+          if (boundsA && boundsB) {
+            const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
+            const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+            if (overlapX > 0 && overlapY > 0) {
+              result.push({ effect, fieldA: a, fieldB: b })
+            }
+          }
+        }
+      } else {
+        // Wildcard — check all field pairs
+        for (let i = 0; i < fieldList.length; i++) {
+          for (let j = i + 1; j < fieldList.length; j++) {
+            const a = fieldList[i]
+            const b = fieldList[j]
+            const matchA = !effect.fieldA || effect.fieldA === a.id || effect.fieldA === b.id
+            const matchB = !effect.fieldB || effect.fieldB === a.id || effect.fieldB === b.id
+            if (!matchA || !matchB) continue
 
-    // Build index map for parent lookup
-    const indexMap = new Map<string, number>()
-    for (let i = 0; i < skel.nodes.length; i++) {
-      indexMap.set(skel.nodes[i].id, i)
+            const boundsA = this.getFieldBounds(a.id)
+            const boundsB = this.getFieldBounds(b.id)
+            if (boundsA && boundsB) {
+              const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
+              const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+              if (overlapX > 0 && overlapY > 0) {
+                result.push({ effect, fieldA: a, fieldB: b })
+              }
+            }
+          }
+        }
+      }
     }
 
-    const cosR = Math.cos(t.rotation)
-    const sinR = Math.sin(t.rotation)
-
-    for (let i = 0; i < skel.nodes.length && i < FieldSimulation.MAX_SKELETON_NODES; i++) {
-      const node = skel.nodes[i]
-      // Rotate node position by field rotation, then translate to world space
-      const rx = node.x * cosR - node.y * sinR
-      const ry = node.x * sinR + node.y * cosR
-      const base = i * 4
-      data[base] = t.x + rx
-      data[base + 1] = t.y + ry
-      data[base + 2] = node.radius * t.scale
-      data[base + 3] = node.parentId ? (indexMap.get(node.parentId) ?? -1) : -1
-    }
-
-    return data
+    return result
   }
 
 }

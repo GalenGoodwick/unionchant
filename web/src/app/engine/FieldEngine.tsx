@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { FieldRenderer } from './renderer'
-import type { FieldEffectData } from './renderer'
+import type { FieldEffectData, InteractionEffectData } from './renderer'
 import { FieldSimulation } from './simulation'
 import { FieldInput } from './input'
 import Toolbar from './Toolbar'
@@ -11,7 +11,7 @@ import AgentDialogPanel from './AgentDialogPanel'
 import type { DialogEntry } from './AgentDialogPanel'
 import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
-import type { BrushState, Camera, Field, FieldShape, FieldEffect, SelectionState, GenerationState } from './types'
+import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState } from './types'
 import { GRID_SIZE } from './types'
 // DEFAULT_FIELD_EFFECT_GLSL removed — fields are invisible until agents give them a shader
 
@@ -23,6 +23,31 @@ function genFieldId() {
 let effectCounter = 0
 function genEffectId() {
   return `effect_${++effectCounter}_${Date.now()}`
+}
+
+/** Convert screen pixel coordinates to float grid coordinates (no flooring) */
+function screenToGrid(
+  screenX: number, screenY: number,
+  canvasRect: DOMRect,
+  camera: { x: number; y: number },
+  zoom: number
+): { x: number; y: number } {
+  const normX = (screenX - canvasRect.left) / canvasRect.width
+  const normY = (screenY - canvasRect.top) / canvasRect.height
+  const aspect = canvasRect.width / canvasRect.height
+  const gridRange = GRID_SIZE / zoom
+
+  if (aspect > 1) {
+    return {
+      x: camera.x + (normX - 0.5) * gridRange * aspect,
+      y: camera.y + (normY - 0.5) * gridRange,
+    }
+  } else {
+    return {
+      x: camera.x + (normX - 0.5) * gridRange,
+      y: camera.y + (normY - 0.5) * gridRange / aspect,
+    }
+  }
 }
 
 const DEFAULT_HUES = [190, 30, 120, 280, 0, 60, 330, 210]
@@ -44,25 +69,6 @@ function hueToRgba(hue: number): [number, number, number, number] {
   return [r + m, g + m, b + m, 1.0]
 }
 
-/** Format shape info for display */
-function shapeLabel(shape: FieldShape | undefined): string {
-  if (!shape) return 'no form'
-  if (shape.type === 'polygon') return `polygon r=${shape.radius} sides=${shape.sides}`
-  return `rect ${shape.w}x${shape.h}`
-}
-
-/** Parse shape from command params */
-function parseShape(cmd: Record<string, unknown>): FieldShape | undefined {
-  if (cmd.shape === 'rect' || cmd.shapeType === 'rect') {
-    return { type: 'rect', w: (cmd.w as number) || 20, h: (cmd.h as number) || 20 }
-  }
-  if (cmd.shape === 'polygon' || cmd.shapeType === 'polygon') {
-    return { type: 'polygon', radius: (cmd.radius as number) || 10, sides: (cmd.sides as number) || 6 }
-  }
-  // No default — the code defines the form
-  return undefined
-}
-
 export default function FieldEngine() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<FieldRenderer | null>(null)
@@ -72,7 +78,11 @@ export default function FieldEngine() {
   const startTimeRef = useRef<number>(0)
   const lastFrameRef = useRef<number>(0)
   const lastSampleTimeRef = useRef<number>(0)
+  const lastPresenceRef = useRef<number>(0)
   const renderedSamplesRef = useRef<Map<string, { width: number; height: number; pixels: number[] }>>(new Map())
+
+  // GLSL mods — reusable shader utilities registered by agents
+  const glslModsRef = useRef<Map<string, { id: string; code: string }>>(new Map())
 
   // Camera
   const cameraRef = useRef<Camera>({ x: GRID_SIZE / 2, y: GRID_SIZE / 2, zoom: 1 })
@@ -107,6 +117,26 @@ export default function FieldEngine() {
   const isPanning = useRef(false)
   const lastPointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
 
+  // Drag state for fields
+  const draggingFieldId = useRef<string | null>(null)
+  const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+
+  // Pixel hover tooltip
+  const [pixelInfo, setPixelInfo] = useState<{
+    screenX: number; screenY: number
+    gridX: number; gridY: number
+    r: number; g: number; b: number; a: number
+    fields: string[]
+  } | null>(null)
+  const pixelInfoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  /** Get concatenated GLSL mod code from all registered mods */
+  const getModCode = useCallback((): string | undefined => {
+    const mods = glslModsRef.current
+    if (mods.size === 0) return undefined
+    return Array.from(mods.values()).map(m => m.code).join('\n')
+  }, [])
+
   // Sync fields from simulation to React state
   const syncFields = useCallback(() => {
     const sim = simulationRef.current
@@ -114,19 +144,11 @@ export default function FieldEngine() {
     setFields(new Map(sim.fields))
   }, [])
 
-  // Update selection mask from field shape and upload to GPU
+  // Update selection mask and upload to GPU
   const updateSelectionMask = useCallback((fieldId: string | null) => {
-    const sim = simulationRef.current
     const renderer = rendererRef.current
-    if (!sim || !renderer) return
-
-    let mask: Uint8Array
-    if (fieldId) {
-      mask = sim.generateShapeMask(fieldId) || new Uint8Array(GRID_SIZE * GRID_SIZE)
-    } else {
-      mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
-    }
-
+    if (!renderer) return
+    const mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
     renderer.uploadSelectionData(mask)
     setSelection({ selectedFieldId: fieldId, selectionMask: mask })
   }, [])
@@ -244,7 +266,7 @@ export default function FieldEngine() {
       // Add as an effect
       const effectId = genEffectId()
       const programKey = `${targetFieldId}_${effectId}`
-      const result = renderer.compileFieldEffect(programKey, data.glsl)
+      const result = renderer.compileFieldEffect(programKey, targetFieldId, data.glsl, getModCode())
 
       if (result.success) {
         const effect: FieldEffect = {
@@ -296,12 +318,32 @@ export default function FieldEngine() {
   // Pointer handlers — canvas is view-only (agents do the painting)
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     const canvas = canvasRef.current
+    const sim = simulationRef.current
     if (!canvas) return
 
     pointerDown.current = true
     lastPointer.current = { x: e.clientX, y: e.clientY }
 
-    // Always pan on click (left or middle button)
+    // Hit-test: check if pointer is over a field
+    if (sim) {
+      const rect = canvas.getBoundingClientRect()
+      const camera = cameraRef.current
+      const grid = screenToGrid(e.clientX, e.clientY, rect, camera, camera.zoom)
+      const hitField = sim.getFieldAtPoint(grid.x, grid.y)
+
+      if (hitField) {
+        // Start dragging this field
+        draggingFieldId.current = hitField.id
+        dragOffset.current = {
+          x: hitField.transform.x - grid.x,
+          y: hitField.transform.y - grid.y,
+        }
+        canvas.style.cursor = 'grabbing'
+        return
+      }
+    }
+
+    // No field hit — fall through to panning
     isPanning.current = true
     canvas.style.cursor = 'grabbing'
   }, [])
@@ -316,11 +358,62 @@ export default function FieldEngine() {
 
     // Track mouse grid position for step hooks and agents
     const sim = simulationRef.current
+    const gridPos = input.screenToCell(e.clientX, e.clientY, rect, camera, camera.zoom)
     if (sim) {
-      const gridPos = input.screenToCell(e.clientX, e.clientY, rect, camera, camera.zoom)
       sim.worldData['mouse_x'] = gridPos.x
       sim.worldData['mouse_y'] = gridPos.y
       sim.worldData['mouse_down'] = pointerDown.current
+    }
+
+    // Dragging a field — update its position and skip panning
+    if (draggingFieldId.current && sim) {
+      const grid = screenToGrid(e.clientX, e.clientY, rect, camera, camera.zoom)
+      const newX = grid.x + dragOffset.current.x
+      const newY = grid.y + dragOffset.current.y
+      sim.setPosition(draggingFieldId.current, newX, newY)
+      // Zero out velocity so physics doesn't fight the drag
+      const field = sim.fields.get(draggingFieldId.current)
+      if (field) {
+        field.transform.vx = 0
+        field.transform.vy = 0
+      }
+      syncFields()
+      return
+    }
+
+    // Pixel hover tooltip (throttled)
+    if (!pointerDown.current) {
+      if (pixelInfoTimeout.current) clearTimeout(pixelInfoTimeout.current)
+      pixelInfoTimeout.current = setTimeout(() => {
+        const renderer = rendererRef.current
+        const gl = renderer?.gl
+        if (!gl || !sim) { setPixelInfo(null); return }
+        const gx = Math.floor(gridPos.x)
+        const gy = Math.floor(gridPos.y)
+        if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) { setPixelInfo(null); return }
+
+        // Read the rendered pixel color at the mouse position (framebuffer coordinates)
+        const canvasEl = gl.canvas as HTMLCanvasElement
+        const dpr = window.devicePixelRatio || 1
+        const fbX = Math.floor((e.clientX - rect.left) * dpr)
+        const fbY = canvasEl.height - 1 - Math.floor((e.clientY - rect.top) * dpr)
+        const pixel = new Uint8Array(4)
+        gl.readPixels(fbX, fbY, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+
+        // Use pixel-perfect presence data for field identification
+        // (populated by per-field GPU readback in the render loop)
+        const fieldIds = sim.getFieldsAtPixel(gx, gy)
+        const fieldsHere = fieldIds.map(id => sim.fields.get(id)?.name).filter(Boolean) as string[]
+
+        setPixelInfo({
+          screenX: e.clientX, screenY: e.clientY,
+          gridX: gx, gridY: gy,
+          r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3],
+          fields: fieldsHere,
+        })
+      }, 50)
+    } else {
+      setPixelInfo(null)
     }
 
     if (!pointerDown.current || !isPanning.current) return
@@ -332,14 +425,23 @@ export default function FieldEngine() {
     camera.x -= delta.dx
     camera.y -= delta.dy
     lastPointer.current = { x: e.clientX, y: e.clientY }
-  }, [])
+  }, [syncFields])
 
   const handlePointerUp = useCallback(() => {
+    if (draggingFieldId.current) {
+      draggingFieldId.current = null
+      pointerDown.current = false
+      const canvas = canvasRef.current
+      if (canvas) canvas.style.cursor = 'grab'
+      syncFields()
+      return
+    }
+
     isPanning.current = false
     pointerDown.current = false
     const canvas = canvasRef.current
     if (canvas) canvas.style.cursor = 'grab'
-  }, [])
+  }, [syncFields])
 
   // Wheel zoom
   useEffect(() => {
@@ -426,24 +528,55 @@ export default function FieldEngine() {
         if (snaps.length > 0) {
           sim.restoreFromSnapshots(snaps)
           if (data.worldParams) sim.setWorldParams(data.worldParams)
-          const firstId = snaps[0].id
 
-          // Restore effect programs for all fields
-          for (const field of sim.fields.values()) {
-            // Restore custom effects
-            for (const effect of field.effects) {
-              const programKey = `${field.id}_${effect.id}`
-              renderer.compileFieldEffect(programKey, effect.glsl)
+          // Restore GLSL mods BEFORE compiling effects (effects may use mod functions)
+          if (Array.isArray(data.glslMods)) {
+            for (const mod of data.glslMods) {
+              if (mod.id && mod.code) {
+                glslModsRef.current.set(mod.id, { id: mod.id, code: mod.code })
+              }
             }
           }
 
+          const firstId = snaps[0].id
+
+          // Restore effect programs for all fields
+          let compiled = 0, failed = 0
+          for (const field of sim.fields.values()) {
+            for (const effect of field.effects) {
+              const programKey = `${field.id}_${effect.id}`
+              const result = renderer.compileFieldEffect(programKey, field.id, effect.glsl, getModCode())
+              if (result.success) {
+                compiled++
+              } else {
+                failed++
+                console.warn(`[Restore] Effect compile failed for ${field.name}/${effect.id}: ${result.error?.substring(0, 200)}`)
+              }
+            }
+          }
+          console.log(`[Restore] Effects: ${compiled} compiled, ${failed} failed, mods: ${glslModsRef.current.size}`)
+
           setBrush(prev => ({ ...prev, activeFieldId: firstId }))
         }
-        // Restore field links
-        if (data.fieldLinks?.length) {
-          for (const link of data.fieldLinks) {
-            sim.addLink(link)
+        // Restore step hooks
+        if (Array.isArray(data.stepHooks)) {
+          for (const hook of data.stepHooks) {
+            if (hook.id && hook.code) {
+              sim.addStepHook(hook.id, hook.author || 'unknown', hook.description || '', hook.code)
+            }
           }
+        }
+        // Restore interaction effects
+        if (Array.isArray(data.interactionEffects)) {
+          for (const ie of data.interactionEffects) {
+            if (ie.glsl) {
+              sim.addInteractionEffect(ie)
+            }
+          }
+        }
+        // Restore world data
+        if (data.worldData && typeof data.worldData === 'object') {
+          Object.assign(sim.worldData, data.worldData)
         }
         setFields(new Map(sim.fields))
       })
@@ -463,67 +596,108 @@ export default function FieldEngine() {
 
       sim.step(dt)
 
-      // Render trails and links into the effect layer
-      sim.renderTrailsAndLinks()
+      // Paint field shapes into colorData so base pass renders them
+      sim.paintFieldShapes()
 
       renderer.uploadColorData(sim.world.colorData)
       renderer.uploadStateData(sim.world.stateData)
       renderer.uploadEffectData(sim.world.effectData)
 
-      // Upload skeleton textures for fields that have them
-      for (const field of sim.fields.values()) {
-        if (field.skeleton && field.skeleton.nodes.length > 0) {
-          const skelData = sim.packSkeletonTexture(field)
-          renderer.uploadSkeletonData(field.id, skelData)
-        }
+      // Run GPU state update shader (if active)
+      if (renderer.hasStateUpdate()) {
+        const stateTime = now / 1000 - startTimeRef.current
+        renderer.runStateUpdate(stateTime, dt / 1000)
+        // Read back GPU state to CPU so step hooks can see it
+        renderer.readbackState(sim.world.stateData)
       }
-
-      // Update bloom params from world params
-      renderer.setBloomParams(sim.worldParams.bloomIntensity, sim.worldParams.bloomThreshold)
 
       const camera = cameraRef.current
       const time = now / 1000 - startTimeRef.current
 
-      // Build effect list — every field gets the full canvas (no mask clipping)
-      // The GLSL shader itself defines the visual form via alpha
+      // Build effect list — mask texture clips to painted cells only
       const fieldEffects: FieldEffectData[] = []
       const fullBounds: [number, number, number, number] = [0, 0, GRID_SIZE, GRID_SIZE]
       for (const field of sim.fields.values()) {
         const bounds = sim.getFieldBounds(field.id)
-        const skelNodeCount = field.skeleton?.nodes.length || 0
 
-        // No default shader — fields are invisible unless they have custom GLSL effects
-        // This forces agents to create working shader effects
+        if (!bounds || field.effects.length === 0) continue
 
-        // Custom effects — full canvas, shader defines form
+        const effectBounds: [number, number, number, number] = [bounds.minX, bounds.minY, bounds.maxX, bounds.maxY]
         for (const effect of field.effects) {
           const programKey = `${field.id}_${effect.id}`
           if (!renderer.hasFieldEffect(programKey)) continue
           fieldEffects.push({
             fieldId: field.id,
             programKey,
-            bounds: fullBounds,
+            bounds: effectBounds,
             transform: [field.transform.x, field.transform.y, field.transform.rotation, field.transform.scale],
             params: [field.color[0], field.color[1], field.color[2], field.color[3]],
             blend: effect.blend,
-            skeletonNodeCount: skelNodeCount,
           })
         }
       }
 
 
-      // Pass primary field position to world effects (first field with consciousness > 0)
-      let worldEffectParams: [number, number, number, number] = [256, 256, 0, 0]
-      for (const field of sim.fields.values()) {
-        const consciousness = field.properties.get('consciousness')
-        if (consciousness && typeof consciousness === 'number' && consciousness > 0) {
-          worldEffectParams = [field.transform.x, field.transform.y, consciousness, time]
-          break
+      // Build interaction effects — shader overlaps between field pairs
+      const interactionEffects: InteractionEffectData[] = []
+      if (sim.interactionEffects.length > 0) {
+        const activePairs = sim.getActiveInteractionPairs()
+        // Upload overlap count texture if we have active interactions
+        if (activePairs.length > 0) {
+          const fieldCountTex = sim.computeFieldCountTexture()
+          renderer.uploadOverlapCountTexture(fieldCountTex)
+        }
+        for (const { effect, fieldA, fieldB } of activePairs) {
+          const programKey = `ix_${effect.id}`
+          // Compile shader if not already compiled
+          if (!renderer.hasInteractionEffect(programKey)) {
+            const result = renderer.compileInteractionEffect(programKey, effect.glsl, getModCode())
+            if (!result.success) {
+              console.warn(`Interaction effect ${effect.id} compile error:`, result.error)
+              continue
+            }
+          }
+          // Compute overlap mask: use pixel-level presence if available, fall back to bounding box
+          const overlapMask = sim.computePixelOverlapMask(fieldA.id, fieldB.id, effect.spread)
+            || sim.computeOverlapMask(fieldA.id, fieldB.id, effect.spread)
+          if (!overlapMask) continue
+          renderer.uploadInteractionMask(programKey, overlapMask)
+
+          interactionEffects.push({
+            programKey,
+            bounds: fullBounds,
+            fieldAColor: fieldA.color,
+            fieldBColor: fieldB.color,
+            fieldATransform: [fieldA.transform.x, fieldA.transform.y, fieldA.transform.rotation, fieldA.transform.scale],
+            fieldBTransform: [fieldB.transform.x, fieldB.transform.y, fieldB.transform.rotation, fieldB.transform.scale],
+            params: [fieldA.color[0], fieldB.color[0], 0, 0],
+            blend: effect.blend,
+          })
         }
       }
-      renderer.setAllWorldEffectParams(worldEffectParams)
 
-      renderer.render(camera, camera.zoom, time, fieldEffects)
+      renderer.render(camera, camera.zoom, time, fieldEffects, interactionEffects)
+
+      // Per-field presence map: render each field individually, readback pixel presence (throttled)
+      // This is the "field renders to pixels → pixels return superimposition data" pipeline
+      if (fieldEffects.length > 0 && now - lastPresenceRef.current > 250) {
+        lastPresenceRef.current = now
+        try {
+          const presenceMaps = renderer.renderFieldPresenceMaps(time, fieldEffects)
+          // Clear stale presence data for fields no longer rendering
+          for (const fieldId of sim.fieldPresence.keys()) {
+            if (!presenceMaps.has(fieldId)) {
+              sim.fieldPresence.delete(fieldId)
+            }
+          }
+          // Store new presence data
+          for (const [fieldId, presence] of presenceMaps) {
+            sim.fieldPresence.set(fieldId, presence)
+          }
+        } catch (e) {
+          console.warn('[Presence] readback failed:', e)
+        }
+      }
 
       // Sample rendered pixels per field (throttled to once per second)
       if (now - lastSampleTimeRef.current > 1000) {
@@ -541,6 +715,22 @@ export default function FieldEngine() {
           if (sample) samples.set(field.id, sample)
         }
         renderedSamplesRef.current = samples
+        // Expose pixel samples to step hooks via worldData
+        const pixelData: Record<string, { width: number; height: number; avgColor: [number, number, number]; brightness: number }> = {}
+        for (const [fid, s] of samples) {
+          let rSum = 0, gSum = 0, bSum = 0
+          const px = s.pixels
+          const count = px.length / 4
+          for (let i = 0; i < px.length; i += 4) {
+            rSum += px[i]; gSum += px[i+1]; bSum += px[i+2]
+          }
+          pixelData[fid] = {
+            width: s.width, height: s.height,
+            avgColor: [rSum/count/255, gSum/count/255, bSum/count/255],
+            brightness: (rSum + gSum + bSum) / (count * 3 * 255),
+          }
+        }
+        sim.worldData['fieldPixels'] = pixelData
       }
 
       animFrameRef.current = requestAnimationFrame(frame)
@@ -587,12 +777,15 @@ export default function FieldEngine() {
           const input = inputRef.current
           if (!sim || !renderer || !input) return
 
-          // Resolve field by name when fieldId is missing or invalid
-          if (!cmd.fieldId && cmd.name && cmd.type !== 'create_field' && cmd.type !== 'set_world_data' && cmd.type !== 'set_world_params') {
-            for (const [id, f] of sim.fields) {
-              if (f.name === cmd.name) {
-                cmd.fieldId = id
-                break
+          // Resolve field by name when fieldId is missing, or when fieldId doesn't match any actual field ID (agents often send names as fieldId)
+          if (cmd.type !== 'create_field' && cmd.type !== 'set_world_data' && cmd.type !== 'set_world_params') {
+            const nameToResolve = cmd.fieldId && !sim.fields.has(cmd.fieldId) ? cmd.fieldId : (!cmd.fieldId ? cmd.name : null)
+            if (nameToResolve) {
+              for (const [id, f] of sim.fields) {
+                if (f.name === nameToResolve) {
+                  cmd.fieldId = id
+                  break
+                }
               }
             }
           }
@@ -651,7 +844,7 @@ export default function FieldEngine() {
 
                 const effectId = genEffectId()
                 const programKey = `${targetFieldId}_${effectId}`
-                const result = renderer.compileFieldEffect(programKey, genData.glsl)
+                const result = renderer.compileFieldEffect(programKey, targetFieldId, genData.glsl, getModCode())
                 if (result.success) {
                   const effect: FieldEffect = {
                     id: effectId,
@@ -712,7 +905,7 @@ export default function FieldEngine() {
 
               const effectId = genEffectId()
               const programKey = `${targetId}_${effectId}`
-              const result = renderer.compileFieldEffect(programKey, cmd.glsl)
+              const result = renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
 
               if (result.success) {
                 const effect: FieldEffect = {
@@ -743,6 +936,14 @@ export default function FieldEngine() {
                 pushTerminal('add_effect', targetId, 'ERROR: field not found')
                 break
               }
+              // Accept glsl at top level, as 'shader', or nested inside cmd.effect
+              if (!cmd.glsl && cmd.shader) cmd.glsl = cmd.shader
+              if (!cmd.glsl && cmd.effect && typeof cmd.effect === 'object') {
+                cmd.glsl = cmd.effect.glsl
+                cmd.blend = cmd.blend || cmd.effect.blend
+                cmd.author = cmd.author || cmd.effect.author
+                cmd.description = cmd.description || cmd.effect.description
+              }
               if (!cmd.glsl || typeof cmd.glsl !== 'string') {
                 pushTerminal('add_effect', targetId, 'ERROR: glsl string required')
                 break
@@ -750,8 +951,10 @@ export default function FieldEngine() {
 
               const effectId = genEffectId()
               const programKey = `${targetId}_${effectId}`
-              const blend = cmd.blend || 'alpha'
-              const result = renderer.compileFieldEffect(programKey, cmd.glsl)
+              // Accept blend mode from 'blend' or 'effectType' (agents sometimes use effectType for blend)
+              const rawBlend = cmd.blend || cmd.effectType
+              const blend = (rawBlend === 'additive' || rawBlend === 'multiply') ? rawBlend : 'alpha'
+              const result = renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
 
               if (result.success) {
                 const effect: FieldEffect = {
@@ -813,7 +1016,7 @@ export default function FieldEngine() {
               if (!oldEffect) { pushTerminal('update_effect', targetId, `ERROR: effect ${effectId} not found`); break }
 
               const programKey = `${targetId}_${effectId}`
-              const result = renderer.compileFieldEffect(programKey, cmd.glsl)
+              const result = renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
               if (result.success) {
                 // Update in place — no gap
                 oldEffect.glsl = cmd.glsl
@@ -872,7 +1075,6 @@ export default function FieldEngine() {
               for (const field of sim.fields.values()) {
                 renderer.removeAllFieldEffects(field.id)
               }
-              renderer.removeAllWorldEffects()
               sim.clearAll()
               for (const field of sim.fields.values()) {
                 field.effects = []
@@ -887,7 +1089,6 @@ export default function FieldEngine() {
               for (const field of sim.fields.values()) {
                 renderer.removeAllFieldEffects(field.id)
               }
-              renderer.removeAllWorldEffects()
               sim.clearAll()
               sim.fields.clear()
               sim.interactionRules = []
@@ -904,36 +1105,17 @@ export default function FieldEngine() {
               const hue = DEFAULT_HUES[sim.fields.size % DEFAULT_HUES.length]
               const color = cmd.color || hueToRgba(hue)
               const name = cmd.name || `Field ${sim.fields.size + 1}`
-              const shape = parseShape(cmd)
 
-              sim.createField(id, name, color, shape)
+              sim.createField(id, name, color, cmd.parentFieldId as string | undefined)
 
-              // Set position if provided
               if (cmd.x !== undefined && cmd.y !== undefined) {
                 sim.setPosition(id, cmd.x as number, cmd.y as number)
               }
 
               setBrush(prev => ({ ...prev, activeFieldId: id }))
               syncFields()
-              pushTerminal('create_field', id, `'${name}' (${shapeLabel(shape)})`, undefined, cmdAuthor)
-              break
-            }
-
-            case 'set_shape': {
-              const targetId = cmd.fieldId
-              if (!targetId) {
-                pushTerminal('set_shape', undefined, 'ERROR: fieldId required')
-                break
-              }
-              const field = sim.fields.get(targetId)
-              if (!field) {
-                pushTerminal('set_shape', targetId, 'ERROR: field not found')
-                break
-              }
-              const newShape = parseShape(cmd)
-              sim.setShape(targetId, newShape)
-              syncFields()
-              pushTerminal('set_shape', targetId, shapeLabel(newShape))
+              const parentLabel = cmd.parentFieldId ? ` parent=${cmd.parentFieldId}` : ''
+              pushTerminal('create_field', id, `'${name}'${parentLabel}`, undefined, cmdAuthor)
               break
             }
 
@@ -996,6 +1178,22 @@ export default function FieldEngine() {
               break
             }
 
+            case 'set_parent': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) {
+                pushTerminal('set_parent', cmd.fieldId, 'ERROR: field not found')
+                break
+              }
+              const success = sim.setParent(cmd.fieldId, cmd.parentFieldId as string | undefined)
+              if (success) {
+                syncFields()
+                pushTerminal('set_parent', cmd.fieldId, cmd.parentFieldId ? `parent=${cmd.parentFieldId}` : 'parent cleared')
+              } else {
+                pushTerminal('set_parent', cmd.fieldId, `ERROR: invalid parent (not found, cycle, or depth limit exceeded)`)
+              }
+              break
+            }
+
             case 'set_position': {
               const posField = sim.fields.get(cmd.fieldId)
               if (!posField) break
@@ -1016,33 +1214,12 @@ export default function FieldEngine() {
               break
             }
 
-            case 'set_velocity': {
-              const field = sim.fields.get(cmd.fieldId)
-              if (!field) break
-              if (cmd.vx !== undefined) field.transform.vx = cmd.vx as number
-              if (cmd.vy !== undefined) field.transform.vy = cmd.vy as number
-              if (cmd.vr !== undefined) field.transform.vr = cmd.vr as number
-              if (!sim.running) { sim.running = true; setRunning(true) }
-              syncFields()
-              pushTerminal('set_velocity', cmd.fieldId, `vx=${field.transform.vx.toFixed(1)} vy=${field.transform.vy.toFixed(1)} vr=${field.transform.vr.toFixed(2)}`)
-              break
-            }
-
             case 'set_scale': {
               const field = sim.fields.get(cmd.fieldId)
               if (!field) break
               field.transform.scale = (cmd.scale as number) || 1.0
               syncFields()
               pushTerminal('set_scale', cmd.fieldId, `scale=${field.transform.scale.toFixed(2)}`)
-              break
-            }
-
-            case 'set_rotation': {
-              const field = sim.fields.get(cmd.fieldId)
-              if (!field) break
-              field.transform.rotation = (cmd.rotation as number) || 0
-              syncFields()
-              pushTerminal('set_rotation', cmd.fieldId, `rotation=${field.transform.rotation.toFixed(2)}`)
               break
             }
 
@@ -1113,6 +1290,29 @@ export default function FieldEngine() {
 
             case 'set_world_data': {
               const wdKeys = (cmd.data && typeof cmd.data === 'object') ? Object.keys(cmd.data) : []
+              // Apply to sim.worldData
+              if (cmd.data && typeof cmd.data === 'object') {
+                Object.assign(sim.worldData, cmd.data)
+              }
+              // Pipe narrative channel messages into dialog panel
+              const narr = cmd.data?.narrative as { channel?: Array<{ author: string; text: string; time?: number }> } | undefined
+              if (narr?.channel) {
+                const prevLen = (sim.worldData as Record<string, unknown>).__narrativeLen as number || 0
+                const newMsgs = narr.channel.slice(prevLen)
+                for (const msg of newMsgs) {
+                  setDialogLog(prev => [...prev.slice(-99), {
+                    from: msg.author || '?',
+                    to: 'all',
+                    fromColor: msg.author === 'Alpha' ? [0.9, 0.3, 0.1, 1] as [number, number, number, number]
+                      : msg.author === 'Beta' ? [0.1, 0.6, 0.9, 1] as [number, number, number, number]
+                      : msg.author === 'Gamma' ? [0.2, 0.9, 0.4, 1] as [number, number, number, number]
+                      : [0.7, 0.7, 0.7, 1] as [number, number, number, number],
+                    content: msg.text,
+                    timestamp: Date.now(),
+                  }])
+                }
+                ;(sim.worldData as Record<string, unknown>).__narrativeLen = narr.channel.length
+              }
               pushTerminal('set_world_data', cmd.fieldId, wdKeys.join(', ') || '(no data)')
               break
             }
@@ -1152,6 +1352,50 @@ export default function FieldEngine() {
               break
             }
 
+            case 'add_interaction_effect': {
+              const glsl = (cmd as Record<string, unknown>).glsl as string
+              if (!glsl) {
+                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, 'ERROR: glsl required')
+                break
+              }
+              const effectId = sim.addInteractionEffect({
+                author: (cmd as Record<string, unknown>).author as string || 'unknown',
+                fieldA: (cmd as Record<string, unknown>).fieldA as string || null,
+                fieldB: (cmd as Record<string, unknown>).fieldB as string || null,
+                glsl,
+                description: (cmd as Record<string, unknown>).description as string || '',
+                blend: ((cmd as Record<string, unknown>).blend as 'alpha' | 'additive' | 'multiply') || 'alpha',
+                spread: (cmd as Record<string, unknown>).spread as number || 0,
+                order: (cmd as Record<string, unknown>).order as number || 0,
+              })
+              // Pre-compile the shader
+              const programKey = `ix_${effectId}`
+              const compileResult = rendererRef.current?.compileInteractionEffect(programKey, glsl, getModCode())
+              if (compileResult && !compileResult.success) {
+                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, `GLSL error: ${compileResult.error}`)
+              } else {
+                const fieldALabel = (cmd as Record<string, unknown>).fieldA as string || 'any'
+                const fieldBLabel = (cmd as Record<string, unknown>).fieldB as string || 'any'
+                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string,
+                  (cmd as Record<string, unknown>).description as string || `${fieldALabel} × ${fieldBLabel}`,
+                  `id: ${effectId}`, cmdAuthor)
+              }
+              syncFields()
+              break
+            }
+
+            case 'remove_interaction_effect': {
+              const effectId = (cmd as Record<string, unknown>).effectId as string
+              if (effectId) {
+                sim.removeInteractionEffect(effectId)
+                const programKey = `ix_${effectId}`
+                rendererRef.current?.removeInteractionEffect(programKey)
+                syncFields()
+                pushTerminal('remove_interaction_effect', undefined, effectId)
+              }
+              break
+            }
+
             case 'define_command': {
               const cmdDef = cmd.command
               if (!cmdDef || !cmdDef.name || !cmdDef.macro || cmdDef.macro.length === 0) {
@@ -1175,6 +1419,8 @@ export default function FieldEngine() {
             }
 
             case 'add_step_hook': {
+              // Accept 'name' as alias for 'hookId'
+              if (!cmd.hookId && cmd.name) cmd.hookId = cmd.name
               if (!cmd.hookId || !cmd.code) {
                 pushTerminal('add_step_hook', cmd.author, 'ERROR: hookId and code required', undefined, cmdAuthor)
                 break
@@ -1204,41 +1450,28 @@ export default function FieldEngine() {
               break
             }
 
-            case 'add_world_effect': {
-              const effectId = genEffectId()
-              const blend = cmd.blend || 'alpha'
-              const worldResult = renderer.compileWorldEffect(effectId, cmd.glsl, blend)
-              if (worldResult.success) {
-                pushTerminal('add_world_effect', cmd.fieldId, cmd.description || 'world effect added', cmd.glsl)
-              } else {
-                pushTerminal('add_world_effect', cmd.fieldId, `COMPILE ERROR: ${worldResult.error?.substring(0, 100)}`)
+            case 'add_state_shader': {
+              // GPU state update shader — runs each frame via render-to-texture ping-pong
+              // Agent provides cellUpdate(coord, state, color, time, dt) function
+              if (cmd.glsl) {
+                const stateResult = renderer.compileStateUpdate(cmd.glsl as string, getModCode())
+                if (stateResult.success) {
+                  pushTerminal('add_state_shader', cmd.fieldId, cmd.description || 'state update shader active', cmd.glsl as string, cmd.author as string)
+                } else {
+                  pushTerminal('add_state_shader', cmd.fieldId, `STATE SHADER COMPILE ERROR: ${stateResult.error?.substring(0, 100)}`)
+                  sim.worldData['last_compile_error'] = {
+                    type: 'state_shader',
+                    error: stateResult.error,
+                    timestamp: Date.now()
+                  }
+                }
               }
               break
             }
 
-            case 'remove_world_effect': {
-              if (cmd.effectId) {
-                renderer.removeWorldEffect(cmd.effectId)
-                pushTerminal('remove_world_effect', undefined, `removed ${cmd.effectId}`)
-              }
-              break
-            }
-
-            case 'inject_world_glsl': {
-              // Backward-compatible: translates to add_world_effect
-              const effectId = genEffectId()
-              const worldResult = renderer.compileWorldEffect(effectId, cmd.glsl, 'alpha')
-              if (worldResult.success) {
-                pushTerminal('inject_world_glsl', (cmd as Record<string, unknown>).fieldId as string, cmd.description || 'world shader set', cmd.glsl)
-              } else {
-                pushTerminal('inject_world_glsl', (cmd as Record<string, unknown>).fieldId as string, `COMPILE ERROR: ${worldResult.error?.substring(0, 100)}`)
-              }
-              break
-            }
-
-            case 'clear_world_effect': {
-              renderer.removeAllWorldEffects()
-              pushTerminal('clear_world_effect', undefined, 'all world effects removed')
+            case 'remove_state_shader': {
+              renderer.removeStateUpdate()
+              pushTerminal('remove_state_shader', undefined, 'state update shader removed')
               break
             }
 
@@ -1251,9 +1484,8 @@ export default function FieldEngine() {
               const cloneId = genFieldId()
               const cloneName = (cmd.name as string) || `${sourceField.name} (clone)`
               const cloneColor = (cmd.color as [number, number, number, number]) || [...sourceField.color] as [number, number, number, number]
-              const cloneShape = sourceField.shape ? { ...sourceField.shape } : undefined
 
-              sim.createField(cloneId, cloneName, cloneColor, cloneShape)
+              sim.createField(cloneId, cloneName, cloneColor)
               
               // Copy position with optional offset
               const offsetX = (cmd.offsetX as number) || 30
@@ -1264,7 +1496,7 @@ export default function FieldEngine() {
               for (const effect of sourceField.effects) {
                 const newEffectId = genEffectId()
                 const programKey = `${cloneId}_${newEffectId}`
-                const result = renderer.compileFieldEffect(programKey, effect.glsl)
+                const result = renderer.compileFieldEffect(programKey, cloneId, effect.glsl, getModCode())
                 if (result.success) {
                   sim.addFieldEffect(cloneId, {
                     id: newEffectId,
@@ -1284,47 +1516,12 @@ export default function FieldEngine() {
 
             case 'list_fields': {
               const fieldList = Array.from(sim.fields.values()).map(f => {
-                const b = sim.getFieldBounds(f.id)
-                return `${f.name} [${f.id}] at (${f.transform.x.toFixed(0)},${f.transform.y.toFixed(0)}) ${shapeLabel(f.shape)} effects=${f.effects.length}`
+                return `${f.name} [${f.id}] at (${f.transform.x.toFixed(0)},${f.transform.y.toFixed(0)}) effects=${f.effects.length}`
               })
               pushTerminal('list_fields', undefined, `${sim.fields.size} fields`, fieldList.join('\n'))
               break
             }
 
-            
-            case 'link_fields': {
-              const fromId = cmd.fromFieldId as string
-              const toId = cmd.toFieldId as string
-              const color = (cmd.color as [number, number, number, number]) || [0, 1, 1, 0.6]
-              const width = (cmd.width as number) || 2
-              const style = (cmd.style as string) || 'beam'
-              const intensity = (cmd.intensity as number) || 0.8
-              const bidirectional = (cmd.bidirectional as boolean) || false
-              const author = (cmd.author as string) || 'unknown'
-              const linkId = sim.addLink({
-                id: '',
-                fromFieldId: fromId,
-                toFieldId: toId,
-                color,
-                width,
-                style: style as 'beam' | 'lightning' | 'pulse' | 'helix',
-                intensity,
-                bidirectional,
-                author,
-              })
-              syncFields()
-              pushTerminal('link_fields', fromId, `linked to ${toId} (${style}, id: ${linkId})`)
-              break
-            }
-            case 'unlink_fields': {
-              const ulinkId = cmd.linkId as string
-              if (ulinkId) {
-                sim.removeLink(ulinkId)
-                syncFields()
-                pushTerminal('unlink_fields', undefined, `removed ${ulinkId}`)
-              }
-              break
-            }
             // --- Lightweight effect commands (no field creation) ---
             case 'spawn_effect': {
               const ex = cmd.x as number, ey = cmd.y as number
@@ -1359,101 +1556,41 @@ export default function FieldEngine() {
               break
             }
 
-            // --- Skeleton commands ---
-            case 'set_skeleton': {
-              const targetId = cmd.fieldId
-              if (!targetId) { pushTerminal('set_skeleton', undefined, 'ERROR: fieldId required'); break }
-              const field = sim.fields.get(targetId)
-              if (!field) { pushTerminal('set_skeleton', targetId, 'ERROR: field not found'); break }
-              sim.setSkeleton(targetId, {
-                nodes: cmd.nodes || [],
-                edges: cmd.edges || [],
-                physics: cmd.physics ?? false,
-              })
-              syncFields()
-              pushTerminal('set_skeleton', targetId, `${(cmd.nodes || []).length} nodes, ${(cmd.edges || []).length} edges`)
-              break
-            }
-
-            case 'add_skeleton_node': {
-              const targetId = cmd.fieldId
-              if (!targetId) { pushTerminal('add_skeleton_node', undefined, 'ERROR: fieldId required'); break }
-              sim.addSkeletonNode(targetId, {
-                id: cmd.id || `n_${Date.now()}`,
-                x: (cmd.x as number) || 0,
-                y: (cmd.y as number) || 0,
-                radius: (cmd.radius as number) || 3,
-                parentId: cmd.parentId ?? null,
-              })
-              syncFields()
-              pushTerminal('add_skeleton_node', targetId, `node ${cmd.id} at (${cmd.x}, ${cmd.y})`)
-              break
-            }
-
-            case 'remove_skeleton_node': {
-              const targetId = cmd.fieldId
-              if (!targetId || !cmd.nodeId) { pushTerminal('remove_skeleton_node', undefined, 'ERROR: fieldId and nodeId required'); break }
-              sim.removeSkeletonNode(targetId, cmd.nodeId)
-              syncFields()
-              pushTerminal('remove_skeleton_node', targetId, `removed ${cmd.nodeId}`)
-              break
-            }
-
-            case 'move_skeleton_node': {
-              const targetId = cmd.fieldId
-              if (!targetId || !cmd.nodeId) { pushTerminal('move_skeleton_node', undefined, 'ERROR: fieldId and nodeId required'); break }
-              sim.moveSkeletonNode(targetId, cmd.nodeId, cmd.x as number, cmd.y as number)
-              syncFields()
-              break
-            }
-
-            case 'connect_skeleton_nodes': {
-              const targetId = cmd.fieldId
-              if (!targetId) { pushTerminal('connect_skeleton_nodes', undefined, 'ERROR: fieldId required'); break }
-              sim.connectSkeletonNodes(
-                targetId,
-                cmd.from as string,
-                cmd.to as string,
-                (cmd.width as number) || 1,
-                (cmd.stiffness as number) || 0.5
-              )
-              syncFields()
-              pushTerminal('connect_skeleton_nodes', targetId, `${cmd.from} → ${cmd.to}`)
-              break
-            }
-
-            case 'generate_skeleton': {
-              const targetId = cmd.fieldId
-              if (!targetId) { pushTerminal('generate_skeleton', undefined, 'ERROR: fieldId required'); break }
-              const field = sim.fields.get(targetId)
-              if (!field) { pushTerminal('generate_skeleton', targetId, 'ERROR: field not found'); break }
-              sim.generateSkeleton(targetId, cmd.template as string, (cmd.params || {}) as Record<string, unknown>)
-              syncFields()
-              const nodeCount = field.skeleton?.nodes.length || 0
-              pushTerminal('generate_skeleton', targetId, `template="${cmd.template}" → ${nodeCount} nodes`)
-              break
-            }
-
-            case 'set_skeleton_physics': {
-              const targetId = cmd.fieldId
-              if (!targetId) { pushTerminal('set_skeleton_physics', undefined, 'ERROR: fieldId required'); break }
-              const field = sim.fields.get(targetId)
-              if (!field) break
-              if (!field.skeleton) {
-                field.skeleton = { nodes: [], edges: [], physics: false }
+            // --- GLSL Mod commands ---
+            case 'register_glsl_mod': {
+              const modId = cmd.id as string
+              const modCode = cmd.code as string
+              if (!modId || !modCode) {
+                pushTerminal('register_glsl_mod', undefined, 'ERROR: id and code required')
+                break
               }
-              field.skeleton.physics = !!cmd.enabled
-              if (field.skeleton.physics && !sim.running) {
-                sim.running = true
-                setRunning(true)
+              glslModsRef.current.set(modId, { id: modId, code: modCode })
+              pushTerminal('register_glsl_mod', undefined, `Registered mod "${modId}" (${modCode.length} chars)`)
+              break
+            }
+
+            case 'remove_glsl_mod': {
+              const modId = cmd.id as string
+              if (!modId) {
+                pushTerminal('remove_glsl_mod', undefined, 'ERROR: id required')
+                break
               }
-              syncFields()
-              pushTerminal('set_skeleton_physics', targetId, `physics=${field.skeleton.physics}`)
+              const existed = glslModsRef.current.delete(modId)
+              pushTerminal('remove_glsl_mod', undefined, existed ? `Removed mod "${modId}"` : `Mod "${modId}" not found`)
+              break
+            }
+
+            case 'sample_region': {
+              const srX = cmd.x as number ?? 256
+              const srY = cmd.y as number ?? 256
+              const srRadius = Math.min(cmd.radius as number ?? 16, 64) // cap at 64
+              const srResult = sim.sampleRegion(srX, srY, srRadius)
+              pushTerminal('sample_region', undefined, `(${srX},${srY}) r=${srRadius}: ${srResult.uniqueFieldIds.length} fields, avg=(${srResult.avgColor.map(c => c.toFixed(2)).join(',')})`)
               break
             }
 
             case 'status':
-              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length} projectiles=${sim.projectiles.length}`)
+              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length} projectiles=${sim.projectiles.length} mods=${glslModsRef.current.size}`)
               break
           }
         } catch (err) {
@@ -1485,6 +1622,17 @@ export default function FieldEngine() {
       const sim = simulationRef.current
       if (!sim || sim.fields.size === 0) return
       try {
+        // Enrich worldData with cell presence samples for agents
+        sim.worldData['cellSample'] = {
+          center: sim.getCellInfo(256, 256),
+          fieldSamples: Object.fromEntries(
+            Array.from(sim.fields.values()).map(f => [
+              f.id,
+              sim.getCellInfo(Math.round(f.transform.x), Math.round(f.transform.y))
+            ])
+          ),
+        }
+
         await fetch('/api/engine/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1494,6 +1642,7 @@ export default function FieldEngine() {
             stepHooks: sim.getStepHookSnapshots(),
             worldData: sim.worldData,
             renderedSamples: Object.fromEntries(renderedSamplesRef.current),
+            interactionEffects: sim.interactionEffects,
           }),
         })
       } catch { /* best-effort */ }
@@ -1501,88 +1650,152 @@ export default function FieldEngine() {
     return () => clearInterval(interval)
   }, [])
 
+  // Periodic snapshot — export canvas as PNG, save to disk for Claude Code
+  useEffect(() => {
+    const SNAPSHOT_INTERVAL = 30000 // every 30 seconds
+    const interval = setInterval(async () => {
+      const canvas = canvasRef.current
+      if (!canvas) return
+      try {
+        const dataUrl = canvas.toDataURL('image/png')
+        if (!dataUrl || dataUrl === 'data:,') return
+        await fetch('/api/engine/save-snapshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl }),
+        })
+      } catch { /* best-effort */ }
+    }, SNAPSHOT_INTERVAL)
+    return () => clearInterval(interval)
+  }, [])
+
   const selectedField = selection.selectedFieldId ? fields.get(selection.selectedFieldId) : null
 
   return (
     <div className="fixed inset-0 bg-background overflow-hidden flex">
-      {/* Canvas area */}
-      <div className="flex-1 relative overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full"
-          style={{ cursor: 'grab' }}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onPointerCancel={handlePointerUp}
-          onContextMenu={e => e.preventDefault()}
-        />
-
-        {/* Info overlay */}
-        <div className="absolute top-3 left-3 text-[10px] text-muted font-mono flex items-center gap-2">
-          <span className="pointer-events-none">
-            {GRID_SIZE}x{GRID_SIZE} | zoom: {cameraRef.current.zoom.toFixed(1)}x
-            {selectedField && <span> | selected: {selectedField.name}</span>}
-            {agentConnected && <span className="text-accent"> | agent live</span>}
-          </span>
-          <button
-            onClick={() => {
-              const sim = simulationRef.current
-              const renderer = rendererRef.current
-              if (!sim || !renderer) return
-              for (const field of sim.fields.values()) {
-                renderer.removeAllFieldEffects(field.id)
-              }
-              renderer.removeAllWorldEffects()
-              sim.clearAll()
-              sim.fields.clear()
-              sim.interactionRules = []
-              sim.customCommands.clear()
-
-              updateSelectionMask(null)
-              syncFields()
-              // Also reset server store
-              fetch('/api/engine/agent', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (document.cookie.match(/token=([^;]*)/)?.[1] || '') },
-                body: JSON.stringify({ type: 'reset' }),
-              }).catch(() => {})
-            }}
-            className="px-2 py-1 bg-error/20 text-error border border-error/30 rounded text-[10px] font-bold hover:bg-error/40 transition-colors"
-          >
-            RESET MATCH
-          </button>
-        </div>
-
-        {/* Field legend */}
-        <div className="absolute bottom-3 left-3 text-[10px] font-mono pointer-events-none">
-          {Array.from(fields.values()).map(f => (
-            <div key={f.id} className="flex items-center gap-1 mb-0.5">
-              <span className="inline-block w-2 h-2 rounded-full" style={{
-                backgroundColor: `rgb(${Math.round(f.color[0]*255)},${Math.round(f.color[1]*255)},${Math.round(f.color[2]*255)})`
-              }} />
-              <span className="text-muted">{f.name}: {shapeLabel(f.shape)}{f.effects.length > 0 ? ` +${f.effects.length}fx` : ''}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* User prompt input */}
-        <div className="absolute bottom-3 right-3 z-10">
-          <input
-            type="text"
-            className="bg-black/80 border border-border text-white text-xs font-mono px-2 py-1 w-64 rounded"
-            placeholder="Type a prompt..."
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                const sim = simulationRef.current
-                if (sim) {
-                  sim.worldData['user_prompt'] = e.currentTarget.value
-                  sim.worldData['user_prompt_time'] = Date.now()
-                }
-                e.currentTarget.value = ''
-              }
-            }}
+      {/* Canvas + fields panel */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Canvas area */}
+        <div className="flex-1 relative overflow-hidden min-h-0">
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+            style={{ cursor: 'grab' }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onContextMenu={e => e.preventDefault()}
+            onPointerLeave={() => { setPixelInfo(null); if (pixelInfoTimeout.current) clearTimeout(pixelInfoTimeout.current) }}
           />
+
+          {/* Pixel hover tooltip */}
+          {pixelInfo && (
+            <div
+              className="fixed z-50 pointer-events-none bg-black/85 text-white text-[10px] font-mono px-2 py-1 rounded border border-white/20 whitespace-nowrap"
+              style={{ left: pixelInfo.screenX + 14, top: pixelInfo.screenY - 10 }}
+            >
+              <div>({pixelInfo.gridX}, {pixelInfo.gridY})</div>
+              <div className="flex items-center gap-1">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-sm border border-white/30"
+                  style={{ backgroundColor: `rgba(${pixelInfo.r},${pixelInfo.g},${pixelInfo.b},${pixelInfo.a / 255})` }}
+                />
+                rgba({pixelInfo.r},{pixelInfo.g},{pixelInfo.b},{pixelInfo.a})
+              </div>
+              {pixelInfo.fields.length > 0 && (
+                <div className="text-accent">{pixelInfo.fields.join(', ')}</div>
+              )}
+            </div>
+          )}
+
+          {/* Info overlay */}
+          <div className="absolute top-3 left-3 text-[10px] text-muted font-mono flex items-center gap-2">
+            <span className="pointer-events-none">
+              {GRID_SIZE}x{GRID_SIZE} | zoom: {cameraRef.current.zoom.toFixed(1)}x
+              {selectedField && <span> | selected: {selectedField.name}</span>}
+              {agentConnected && <span className="text-accent"> | agent live</span>}
+            </span>
+            <button
+              onClick={() => {
+                const sim = simulationRef.current
+                const renderer = rendererRef.current
+                if (!sim || !renderer) return
+                for (const field of sim.fields.values()) {
+                  renderer.removeAllFieldEffects(field.id)
+                }
+                sim.clearAll()
+                sim.fields.clear()
+                sim.interactionRules = []
+                sim.customCommands.clear()
+
+                updateSelectionMask(null)
+                syncFields()
+                fetch('/api/engine/agent', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (document.cookie.match(/token=([^;]*)/)?.[1] || '') },
+                  body: JSON.stringify({ type: 'reset' }),
+                }).catch(() => {})
+              }}
+              className="px-2 py-1 bg-error/20 text-error border border-error/30 rounded text-[10px] font-bold hover:bg-error/40 transition-colors"
+            >
+              RESET MATCH
+            </button>
+          </div>
+
+          {/* User prompt input */}
+          <div className="absolute bottom-3 right-3 z-10">
+            <input
+              type="text"
+              className="bg-black/80 border border-border text-white text-xs font-mono px-2 py-1 w-64 rounded"
+              placeholder="Type a prompt..."
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                  const sim = simulationRef.current
+                  if (sim) {
+                    sim.worldData['user_prompt'] = e.currentTarget.value
+                    sim.worldData['user_prompt_time'] = Date.now()
+                  }
+                  e.currentTarget.value = ''
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Field list panel — scrollable under the canvas */}
+        <div className="h-40 flex-shrink-0 border-t border-border bg-background/95 overflow-y-auto">
+          <div className="px-3 py-2">
+            <div className="text-[10px] text-muted font-mono mb-1">{fields.size} fields</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
+              {Array.from(fields.values()).map(f => (
+                <div
+                  key={f.id}
+                  onClick={() => setBrush(prev => ({ ...prev, activeFieldId: f.id }))}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                    brush.activeFieldId === f.id
+                      ? 'bg-accent/20 border border-accent/40'
+                      : 'bg-surface/50 border border-border hover:border-muted'
+                  }`}
+                >
+                  <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{
+                    backgroundColor: `rgba(${Math.round(f.color[0]*255)},${Math.round(f.color[1]*255)},${Math.round(f.color[2]*255)},${f.color[3]})`
+                  }} />
+                  <span className="text-foreground truncate">{f.name}</span>
+                  <span className="text-muted ml-auto flex-shrink-0">
+                    {f.effects.length > 0 ? `${f.effects.length}fx` : '—'}
+                  </span>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDeleteField(f.id) }}
+                    className="text-error/50 hover:text-error text-xs ml-1 flex-shrink-0"
+                    title={`Delete ${f.name}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

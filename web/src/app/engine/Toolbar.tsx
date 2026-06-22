@@ -81,7 +81,7 @@ export default function Toolbar({
         <div className="pointer-events-auto mb-2 bg-surface/95 backdrop-blur border border-border rounded-lg p-3 w-72 max-h-64 overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-foreground">{activeField.name}</span>
-            <span className="text-xs text-muted">{activeField.shape?.type === 'polygon' ? `polygon r=${activeField.shape.radius} sides=${activeField.shape.sides}` : activeField.shape?.type === 'rect' ? `rect ${activeField.shape.w}x${activeField.shape.h}` : 'no form'}</span>
+            <span className="text-xs text-muted">{activeField.effects.length > 0 ? `${activeField.effects.length} effects` : 'no effects'}</span>
           </div>
 
           {/* Color controls */}

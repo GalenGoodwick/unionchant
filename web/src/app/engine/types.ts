@@ -2,12 +2,7 @@
 
 export const GRID_SIZE = 512
 
-/** Optional form hint — the shader/code defines the actual visible form. */
-export type FieldShape =
-  | { type: 'rect'; w: number; h: number }
-  | { type: 'polygon'; radius: number; sides: number }
-
-/** The world state — three 2048x2048 textures */
+/** The world state — three 512x512 textures */
 export interface FieldWorld {
   size: typeof GRID_SIZE
   /** Texture 0: cell color (background layer) — GRID*GRID*4 RGBA */
@@ -65,63 +60,20 @@ export interface FieldEffect {
   order: number
 }
 
-/** A field = shape + transform + shader stack. The shader output IS the field body. */
+/** A field = position + color + shader stack. The shader output IS the field body. */
 export interface Field {
   id: string
   name: string
   /** RGBA color — components in [0,1] */
   color: [number, number, number, number]
-  /** Optional form hint — code defines the actual form */
-  shape?: FieldShape
   /** Transform state for position/movement/rotation */
   transform: FieldTransform
   /** Composited shader effect stack (renders in order) */
   effects: FieldEffect[]
   /** Arbitrary key-value properties — step hooks can read/write these for per-field state */
   properties: Map<string, unknown>
-  /** Optional articulated skeleton for structural rendering */
-  skeleton?: FieldSkeleton
-}
-
-// ─── Skeleton / Node-Based Graphics ───
-
-/** A single node in a field's skeleton graph */
-export interface SkeletonNode {
-  id: string
-  /** Position relative to field center */
-  x: number
-  /** Position relative to field center */
-  y: number
-  /** Thickness at this node */
-  radius: number
-  /** Parent node id for tree structures (null = root) */
-  parentId: string | null
-  /** Optional per-node RGBA color override */
-  color?: [number, number, number, number]
-  /** Arbitrary per-node properties */
-  properties?: Record<string, unknown>
-}
-
-/** An edge connecting two skeleton nodes */
-export interface SkeletonEdge {
-  /** Source node id */
-  from: string
-  /** Target node id */
-  to: string
-  /** Base width (interpolates with node radii) */
-  width: number
-  /** Spring constant for physics (0 = rigid, 1 = floppy) */
-  stiffness: number
-  /** Rest length for spring physics (auto-computed from initial node positions if not set) */
-  restLength?: number
-}
-
-/** Articulated skeleton structure attached to a field */
-export interface FieldSkeleton {
-  nodes: SkeletonNode[]
-  edges: SkeletonEdge[]
-  /** Whether skeleton nodes participate in physics simulation */
-  physics: boolean
+  /** Optional parent field ID — child fields move/rotate with their parent */
+  parentFieldId?: string
 }
 
 /** Drawing tool state */
@@ -175,20 +127,12 @@ export interface WorldParams {
   bounciness: number
   /** Gravitational constant for n-body attraction between fields (0 = off, positive = attract, negative = repel) */
   gravitationalConstant: number
-  /** Bloom post-processing intensity (0 = off, default 0.3) */
-  bloomIntensity: number
-  /** Brightness threshold for bloom extraction (default 0.8) */
-  bloomThreshold: number
-  /** Horizontal wind force for skeleton physics */
-  windX: number
-  /** Vertical wind force for skeleton physics */
-  windY: number
 }
 
 /** Memory entry types for field agent history */
 export type FieldMemoryType =
   | 'created' | 'effect_added' | 'effect_removed'
-  | 'message_received' | 'message_sent' | 'shape_changed'
+  | 'message_received' | 'message_sent'
   | 'collision' | 'proximity_changed' | 'world_params_changed'
   | 'force_applied'
 
@@ -215,9 +159,6 @@ export interface FieldSnapshot {
   id: string
   name: string
   color: [number, number, number, number]
-  /** Shape defining the field body (optional — no shape = formless) */
-  shape?: FieldShape
-  bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
   effects: Array<{
     id: string
     author: string
@@ -233,8 +174,8 @@ export interface FieldSnapshot {
   stateAtCenter?: { r: number; g: number; b: number; a: number }
   /** Serialized properties map */
   properties?: Record<string, unknown>
-  /** Skeleton structure for structural rendering */
-  skeleton?: FieldSkeleton
+  /** Parent field ID for hierarchy (child moves with parent) */
+  parentFieldId?: string
 }
 
 /** Full world state snapshot (sent via bridge to agents) */
@@ -281,23 +222,23 @@ export interface CustomCommand {
 }
 
 
-/** A persistent visual link between two fields -- rendered as an energy beam */
-export interface FieldLink {
+/** Agent-defined interaction effect — GLSL shader rendered at field overlap pixels */
+export interface InteractionEffect {
   id: string
-  /** Source field */
-  fromFieldId: string
-  /** Target field */
-  toFieldId: string
-  /** RGBA color of the beam */
-  color: [number, number, number, number]
-  /** Width of the beam in grid units */
-  width: number
-  /** Visual style */
-  style: 'beam' | 'lightning' | 'pulse' | 'helix'
-  /** Intensity (0-1) */
-  intensity: number
-  /** Whether this link is bidirectional */
-  bidirectional: boolean
-  /** Who created this link */
+  /** Which agent authored this effect */
   author: string
+  /** Specific field A (null = any field) */
+  fieldA: string | null
+  /** Specific field B (null = any field) */
+  fieldB: string | null
+  /** GLSL code providing interactionEffect() function */
+  glsl: string
+  description: string
+  /** How this effect composites */
+  blend: 'alpha' | 'additive' | 'multiply'
+  /** Pixel dilation beyond exact overlap zone (0 = overlap only) */
+  spread: number
+  /** Render order (lower = first) */
+  order: number
 }
+

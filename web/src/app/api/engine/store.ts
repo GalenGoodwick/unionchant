@@ -2,7 +2,7 @@
 // Uses globalThis to share state across Next.js API route modules
 // Persists to disk so state survives server restarts
 
-import type { FieldSnapshot, FieldMemoryEntry, WorldParams, InteractionRule, CustomCommand, FieldLink } from '@/app/engine/types'
+import type { FieldSnapshot, FieldMemoryEntry, WorldParams, InteractionRule, InteractionEffect, CustomCommand } from '@/app/engine/types'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
@@ -15,6 +15,15 @@ export interface StepHookSnapshot {
   author: string
   description: string
   code: string
+}
+
+/** Registered GLSL mod (reusable shader utility code) */
+export interface GlslMod {
+  id: string
+  author: string
+  description: string
+  code: string       // Raw GLSL function/utility code
+  timestamp: number
 }
 
 /** Per-field rendered pixel sample (16x16 downsampled RGBA) */
@@ -32,14 +41,16 @@ interface EngineStore {
   worldData: Record<string, unknown>
   /** Agent-defined interaction rules (persisted server-side) */
   interactionRules: InteractionRule[]
+  /** Agent-defined interaction effects — GLSL shaders for overlap rendering */
+  interactionEffects: InteractionEffect[]
   /** Agent-defined custom commands (persisted server-side) */
   customCommands: Map<string, CustomCommand>
   /** Active step hooks (synced from client) */
   stepHooks: StepHookSnapshot[]
-  /** Persistent visual links between fields */
-  fieldLinks: FieldLink[]
   /** Per-field rendered pixel samples (from client readback, NOT persisted to disk) */
   renderedSamples: Record<string, RenderedSample>
+  /** Registered GLSL mods — reusable shader utilities injected into all new compilations */
+  glslMods: Map<string, GlslMod>
 }
 
 const DEFAULT_WORLD_PARAMS: WorldParams = {
@@ -49,10 +60,6 @@ const DEFAULT_WORLD_PARAMS: WorldParams = {
   boundaryMode: 'open',
   bounciness: 0.5,
   gravitationalConstant: 0,
-  bloomIntensity: 0.3,
-  bloomThreshold: 0.8,
-  windX: 0,
-  windY: 0,
 }
 
 // --- Disk persistence ---
@@ -62,9 +69,10 @@ interface SerializedStore {
   worldParams: WorldParams
   worldData: Record<string, unknown>
   interactionRules: InteractionRule[]
+  interactionEffects?: InteractionEffect[]
   customCommands: Record<string, CustomCommand>
   stepHooks?: StepHookSnapshot[]
-  fieldLinks?: FieldLink[]
+  glslMods?: Record<string, GlslMod>
   lastSyncTime: number
 }
 
@@ -84,17 +92,24 @@ function loadFromDisk(): Partial<EngineStore> | null {
         customCommands.set(name, cmd)
       }
     }
-    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${customCommands.size} commands, ${Object.keys(data.worldData || {}).length} worldData keys`)
+    const glslMods = new Map<string, GlslMod>()
+    if (data.glslMods) {
+      for (const [id, mod] of Object.entries(data.glslMods)) {
+        glslMods.set(id, mod)
+      }
+    }
+    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${Object.keys(data.worldData || {}).length} worldData keys`)
     return {
       fieldSnapshots,
       lastSyncTime: data.lastSyncTime || 0,
       worldParams: data.worldParams || { ...DEFAULT_WORLD_PARAMS },
       worldData: data.worldData || {},
       interactionRules: data.interactionRules || [],
+      interactionEffects: data.interactionEffects || [],
       customCommands,
       stepHooks: data.stepHooks || [],
-      fieldLinks: data.fieldLinks || [],
-      renderedSamples: {},  // not persisted — populated from client readback
+      renderedSamples: {},
+      glslMods,
     }
   } catch {
     // No file or invalid — start fresh
@@ -114,9 +129,10 @@ function schedulePersist(): void {
         worldParams: store.worldParams,
         worldData: store.worldData,
         interactionRules: store.interactionRules,
+        interactionEffects: store.interactionEffects,
         customCommands: Object.fromEntries(store.customCommands),
         stepHooks: store.stepHooks,
-        fieldLinks: store.fieldLinks,
+        glslMods: Object.fromEntries(store.glslMods),
         lastSyncTime: store.lastSyncTime,
       }
       writeFileSync(PERSIST_PATH, JSON.stringify(data), 'utf-8')
@@ -140,10 +156,11 @@ if (!globalStore.__engineStore) {
       worldParams: { ...DEFAULT_WORLD_PARAMS },
       worldData: {},
       interactionRules: [],
+      interactionEffects: [],
       customCommands: new Map(),
       stepHooks: [],
-      fieldLinks: [],
       renderedSamples: {},
+      glslMods: new Map(),
     }
   }
 }
@@ -158,21 +175,24 @@ if (!store.worldData) {
 if (!store.interactionRules) {
   store.interactionRules = []
 }
+if (!store.interactionEffects) {
+  store.interactionEffects = []
+}
 if (!store.customCommands) {
   store.customCommands = new Map()
 }
 if (!store.stepHooks) {
   store.stepHooks = []
 }
-if (!store.fieldLinks) {
-  store.fieldLinks = []
-}
 if (!store.renderedSamples) {
   store.renderedSamples = {}
 }
+if (!store.glslMods) {
+  store.glslMods = new Map()
+}
 
 /** Full replace from client sync */
-export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>, renderedSamples?: Record<string, RenderedSample>): void {
+export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>, renderedSamples?: Record<string, RenderedSample>, interactionEffects?: InteractionEffect[]): void {
   store.fieldSnapshots.clear()
   for (const snap of snapshots) {
     store.fieldSnapshots.set(snap.id, snap)
@@ -195,6 +215,9 @@ export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: Worl
   }
   if (renderedSamples) {
     store.renderedSamples = renderedSamples
+  }
+  if (interactionEffects) {
+    store.interactionEffects = interactionEffects
   }
   store.lastSyncTime = Date.now()
   schedulePersist()
@@ -244,29 +267,22 @@ export function getAllFieldSnapshots(): FieldSnapshot[] {
 
 /** Get full engine state with metadata */
 
-/** Get all field links */
-export function getFieldLinks(): FieldLink[] {
-  return [...store.fieldLinks]
-}
-
-/** Add a field link */
-export function addFieldLink(link: FieldLink): string {
-  const id = link.id || 'link_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)
-  const newLink = { ...link, id }
-  store.fieldLinks.push(newLink)
+/** Add a GLSL mod (server-side copy) */
+export function addGlslMod(mod: GlslMod): void {
+  store.glslMods.set(mod.id, mod)
   schedulePersist()
-  return id
 }
 
-/** Remove a field link */
-export function removeFieldLink(linkId: string): boolean {
-  const before = store.fieldLinks.length
-  store.fieldLinks = store.fieldLinks.filter(l => l.id !== linkId)
-  if (store.fieldLinks.length < before) {
-    schedulePersist()
-    return true
-  }
-  return false
+/** Remove a GLSL mod */
+export function removeGlslMod(modId: string): boolean {
+  const existed = store.glslMods.delete(modId)
+  if (existed) schedulePersist()
+  return existed
+}
+
+/** Get all GLSL mods */
+export function getAllGlslMods(): GlslMod[] {
+  return Array.from(store.glslMods.values())
 }
 
 export function getEngineState(): {
@@ -277,10 +293,10 @@ export function getEngineState(): {
   worldParams: WorldParams
   worldData: Record<string, unknown>
   interactionRules: InteractionRule[]
+  interactionEffects: InteractionEffect[]
   customCommands: CustomCommand[]
   stepHooks: StepHookSnapshot[]
-  /** Persistent visual links between fields */
-  fieldLinks: FieldLink[]
+  glslMods: GlslMod[]
 } {
   return {
     fields: getAllFieldSnapshots(),
@@ -290,9 +306,10 @@ export function getEngineState(): {
     worldParams: getWorldParams(),
     worldData: getWorldData(),
     interactionRules: getInteractionRules(),
+    interactionEffects: store.interactionEffects,
     customCommands: getAllCustomCommands(),
     stepHooks: getStepHooks(),
-    fieldLinks: getFieldLinks(),
+    glslMods: getAllGlslMods(),
   }
 }
 
@@ -356,6 +373,7 @@ export function resetStore(): void {
   store.interactionRules = []
   store.customCommands.clear()
   store.stepHooks = []
+  store.glslMods.clear()
   store.lastSyncTime = 0
   schedulePersist()
 }

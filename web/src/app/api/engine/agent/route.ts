@@ -13,13 +13,12 @@ export type EngineCommand =
   | { type: 'clear_effect'; fieldId?: string }
   | { type: 'clear_all' }
   // Shape-based field creation (no cells — shape IS the body)
-  | { type: 'create_field'; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number }
+  | { type: 'create_field'; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number; parentFieldId?: string }
   | { type: 'delete_field'; fieldId: string }
+  | { type: 'set_parent'; fieldId: string; parentFieldId?: string }
   | { type: 'set_shape'; fieldId: string; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number }
   | { type: 'set_position'; fieldId: string; x: number; y: number }
   | { type: 'set_color'; fieldId: string; color: [number, number, number, number] }
-  | { type: 'set_velocity'; fieldId: string; vx: number; vy: number }
-  | { type: 'set_rotation'; fieldId: string; rotation?: number; vr?: number }
   | { type: 'set_scale'; fieldId: string; scale: number }
   | { type: 'set_name'; fieldId: string; name: string }
   | { type: 'set_property'; fieldId: string; key: string; value: unknown }
@@ -49,6 +48,9 @@ export type EngineCommand =
       effectParams: Record<string, unknown>; description?: string;
     }}
   | { type: 'remove_interaction'; ruleId: string }
+  // Interaction effects — GLSL shaders rendered at field overlap pixels
+  | { type: 'add_interaction_effect'; fieldA?: string; fieldB?: string; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; spread?: number; order?: number; author?: string }
+  | { type: 'remove_interaction_effect'; effectId: string }
   // Custom commands
   | { type: 'define_command'; command: {
       name: string; definedBy: string; description: string;
@@ -61,6 +63,9 @@ export type EngineCommand =
   // Field links — visual energy beams between fields
   | { type: 'link_fields'; fromFieldId: string; toFieldId: string; color?: [number, number, number, number]; width?: number; style?: 'beam' | 'lightning' | 'pulse' | 'helix'; intensity?: number; bidirectional?: boolean; author?: string }
   | { type: 'unlink_fields'; linkId: string }
+  // GLSL mods — reusable shader code registered by agents
+  | { type: 'register_glsl_mod'; id: string; author: string; description: string; code: string }
+  | { type: 'remove_glsl_mod'; id: string }
   // Field cloning
   | { type: 'clone_field'; fieldId: string; name?: string; color?: [number, number, number, number]; offsetX?: number; offsetY?: number }
   | { type: 'list_fields' }
