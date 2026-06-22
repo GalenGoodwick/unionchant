@@ -2,20 +2,38 @@
 
 export const GRID_SIZE = 512
 
-/** Shape definition — the field's body IS its shape */
+/** Optional form hint — the shader/code defines the actual visible form. */
 export type FieldShape =
-  | { type: 'circle'; radius: number }
   | { type: 'rect'; w: number; h: number }
   | { type: 'polygon'; radius: number; sides: number }
 
-/** The world state — two 512x512 textures */
+/** The world state — three 2048x2048 textures */
 export interface FieldWorld {
   size: typeof GRID_SIZE
-  /** Texture 0: cell color (background layer) — 512*512*4 RGBA */
+  /** Texture 0: cell color (background layer) — GRID*GRID*4 RGBA */
   colorData: Float32Array
-  /** Texture 1: shared data bus — 512*512*4 RGBA
+  /** Texture 1: shared data bus — GRID*GRID*4 RGBA
    *  All 4 channels available for field-to-field data exchange */
   stateData: Float32Array
+  /** Texture 2: lightweight effects layer — GRID*GRID*4 RGBA
+   *  Per-pixel independent — shape is defined by which pixels have data.
+   *  R=effectType (0=none, 1+=active type), G=hue (0-1), B=brightness (0-1), A=intensity (fades toward 0)
+   *  Step hooks write directly to any pixel for arbitrary shapes. */
+  effectData: Float32Array
+}
+
+/** Lightweight projectile — managed by simulation, rendered via effectData */
+export interface Projectile {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  effectType: number
+  color: number
+  size: number
+  intensity: number
+  age: number
+  lifetime: number
 }
 
 /** Transform state for field movement/rotation/interaction */
@@ -53,14 +71,57 @@ export interface Field {
   name: string
   /** RGBA color — components in [0,1] */
   color: [number, number, number, number]
-  /** Shape defining the field body — no cell painting needed */
-  shape: FieldShape
+  /** Optional form hint — code defines the actual form */
+  shape?: FieldShape
   /** Transform state for position/movement/rotation */
   transform: FieldTransform
   /** Composited shader effect stack (renders in order) */
   effects: FieldEffect[]
   /** Arbitrary key-value properties — step hooks can read/write these for per-field state */
   properties: Map<string, unknown>
+  /** Optional articulated skeleton for structural rendering */
+  skeleton?: FieldSkeleton
+}
+
+// ─── Skeleton / Node-Based Graphics ───
+
+/** A single node in a field's skeleton graph */
+export interface SkeletonNode {
+  id: string
+  /** Position relative to field center */
+  x: number
+  /** Position relative to field center */
+  y: number
+  /** Thickness at this node */
+  radius: number
+  /** Parent node id for tree structures (null = root) */
+  parentId: string | null
+  /** Optional per-node RGBA color override */
+  color?: [number, number, number, number]
+  /** Arbitrary per-node properties */
+  properties?: Record<string, unknown>
+}
+
+/** An edge connecting two skeleton nodes */
+export interface SkeletonEdge {
+  /** Source node id */
+  from: string
+  /** Target node id */
+  to: string
+  /** Base width (interpolates with node radii) */
+  width: number
+  /** Spring constant for physics (0 = rigid, 1 = floppy) */
+  stiffness: number
+  /** Rest length for spring physics (auto-computed from initial node positions if not set) */
+  restLength?: number
+}
+
+/** Articulated skeleton structure attached to a field */
+export interface FieldSkeleton {
+  nodes: SkeletonNode[]
+  edges: SkeletonEdge[]
+  /** Whether skeleton nodes participate in physics simulation */
+  physics: boolean
 }
 
 /** Drawing tool state */
@@ -114,6 +175,14 @@ export interface WorldParams {
   bounciness: number
   /** Gravitational constant for n-body attraction between fields (0 = off, positive = attract, negative = repel) */
   gravitationalConstant: number
+  /** Bloom post-processing intensity (0 = off, default 0.3) */
+  bloomIntensity: number
+  /** Brightness threshold for bloom extraction (default 0.8) */
+  bloomThreshold: number
+  /** Horizontal wind force for skeleton physics */
+  windX: number
+  /** Vertical wind force for skeleton physics */
+  windY: number
 }
 
 /** Memory entry types for field agent history */
@@ -146,8 +215,8 @@ export interface FieldSnapshot {
   id: string
   name: string
   color: [number, number, number, number]
-  /** Shape defining the field body */
-  shape: FieldShape
+  /** Shape defining the field body (optional — no shape = formless) */
+  shape?: FieldShape
   bounds: { minX: number; minY: number; maxX: number; maxY: number } | null
   effects: Array<{
     id: string
@@ -164,6 +233,8 @@ export interface FieldSnapshot {
   stateAtCenter?: { r: number; g: number; b: number; a: number }
   /** Serialized properties map */
   properties?: Record<string, unknown>
+  /** Skeleton structure for structural rendering */
+  skeleton?: FieldSkeleton
 }
 
 /** Full world state snapshot (sent via bridge to agents) */

@@ -199,6 +199,40 @@ vec3 glow(float d, vec3 col, float intensity, float radius) {
   return col * intensity * exp(-d * d / (radius * radius));
 }
 
+// --- Skeleton Utilities ---
+// Skeleton data is a 128x1 RGBA32F texture: each pixel = (x, y, radius, parentIndex)
+
+// Read skeleton node: returns vec4(x, y, radius, parentIndex)
+vec4 skelNode(int i) {
+  return texelFetch(u_skeletonTex, ivec2(i, 0), 0);
+}
+
+// SDF for a tapered capsule between two skeleton nodes
+float sdSkelEdge(vec2 p, int nodeA, int nodeB) {
+  vec4 a = skelNode(nodeA);
+  vec4 b = skelNode(nodeB);
+  vec2 pa = p - a.xy;
+  vec2 ba = b.xy - a.xy;
+  float lenSq = dot(ba, ba);
+  if (lenSq < 0.001) return length(pa) - a.z;
+  float h = clamp(dot(pa, ba) / lenSq, 0.0, 1.0);
+  float r = mix(a.z, b.z, h);  // taper radius
+  return length(pa - ba * h) - r;
+}
+
+// Full skeleton SDF — union of all parent→child tapered edges
+float sdSkeleton(vec2 p) {
+  float d = 1e9;
+  for (int i = 0; i < u_skeletonNodeCount; i++) {
+    vec4 node = skelNode(i);
+    int parent = int(node.w);
+    if (parent >= 0) {
+      d = min(d, sdSkelEdge(p, parent, i));
+    }
+  }
+  return d;
+}
+
 // --- End Utility Library ---
 `
 
@@ -213,6 +247,7 @@ precision highp float;
 uniform sampler2D u_colorTex;
 uniform sampler2D u_stateTex;
 uniform sampler2D u_selectionTex;
+uniform sampler2D u_effectTex;
 uniform vec2 u_camera;
 uniform vec2 u_resolution;
 uniform float u_zoom;
@@ -264,6 +299,48 @@ ${COORD_MATH}
     color = mix(color, vec3(0.3, 0.7, 1.0), edge * (0.4 + 0.2 * pulse));
   }
 
+  // --- Effect layer rendering ---
+  vec4 effectPixel = texture(u_effectTex, texUV);
+  float effectType = effectPixel.r;
+
+  if (effectType > 0.5) {
+    float hue = effectPixel.g;
+    float brightness = effectPixel.b;
+    float intensity = effectPixel.a;
+
+    // HSV to RGB (inline)
+    float h6 = hue * 6.0;
+    float h6i = floor(h6);
+    float f = h6 - h6i;
+    float q = 1.0 - f;
+    float t = f;
+    vec3 effectColor;
+    if (h6i < 1.0) effectColor = vec3(1.0, t, 0.0);
+    else if (h6i < 2.0) effectColor = vec3(q, 1.0, 0.0);
+    else if (h6i < 3.0) effectColor = vec3(0.0, 1.0, t);
+    else if (h6i < 4.0) effectColor = vec3(0.0, q, 1.0);
+    else if (h6i < 5.0) effectColor = vec3(t, 0.0, 1.0);
+    else effectColor = vec3(1.0, 0.0, q);
+    effectColor *= brightness;
+
+    // Glow from neighbors
+    float glow = 0.0;
+    vec2 texelSize = 1.0 / vec2(u_gridSize);
+    for (int dy = -2; dy <= 2; dy++) {
+      for (int dx = -2; dx <= 2; dx++) {
+        if (dx == 0 && dy == 0) continue;
+        vec2 nb = texUV + vec2(float(dx), float(dy)) * texelSize;
+        vec4 nbData = texture(u_effectTex, nb);
+        if (nbData.r > 0.5) glow += nbData.a;
+      }
+    }
+    glow = min(glow * 0.06, 0.8);
+
+    // Additive blend onto scene
+    color = mix(color, effectColor, intensity * 0.9);
+    color += effectColor * glow * 0.4;
+  }
+
   fragColor = vec4(color, 1.0);
 }
 `
@@ -288,6 +365,8 @@ uniform float u_gridSize;
 uniform vec4 u_effectBounds;   // (minX, minY, maxX, maxY) in grid coords
 uniform vec4 u_effectParams;   // user-controllable params passed to fieldEffect
 uniform vec4 u_fieldTransform; // (posX, posY, rotation, scale)
+uniform sampler2D u_skeletonTex;  // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
+uniform int u_skeletonNodeCount;  // number of active skeleton nodes
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -310,14 +389,7 @@ ${COORD_MATH}
   // Snap to cell center — pixel art style
   vec2 cellCoord = floor(gridCoord) + 0.5;
 
-  // Check if this cell is part of the field mask
-  vec2 cellTexUV = cellCoord / u_gridSize;
-  float inField = texture(u_fieldMask, cellTexUV).r;
-
-  if (inField < 0.5) {
-    discard;
-  }
-
+  // No mask clipping — the shader itself defines its form via alpha
   vec4 effect = fieldEffect(cellCoord, regionMin, regionMax, u_time, u_effectParams);
   fragColor = vec4(effect.rgb, clamp(effect.a, 0.0, 1.0));
 }
@@ -423,10 +495,17 @@ ${COORD_MATH}
 `
 }
 
-/** Default field effect — solid color fill using params.rgba as the color */
+/** Default field effect — SDF circle at field position using u_fieldTransform.
+ *  Renders a smooth circle at the field's position without relying on shape masks.
+ *  The field's shape radius is encoded in u_effectBounds (bounding box). */
 export const DEFAULT_FIELD_EFFECT_GLSL = `
 vec4 fieldEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
-  return vec4(params.rgb, params.a);
+  vec2 pos = u_fieldTransform.xy;
+  float d = length(coord - pos);
+  // Derive radius from bounding box
+  float r = (regionMax.x - regionMin.x) * 0.5;
+  float alpha = smoothstep(r + 0.5, r - 0.5, d);
+  return vec4(params.rgb, params.a * alpha);
 }
 `
 

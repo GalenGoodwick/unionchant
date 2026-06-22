@@ -17,6 +17,13 @@ export interface StepHookSnapshot {
   code: string
 }
 
+/** Per-field rendered pixel sample (16x16 downsampled RGBA) */
+export interface RenderedSample {
+  width: number
+  height: number
+  pixels: number[]  // flat RGBA, row-major
+}
+
 interface EngineStore {
   fieldSnapshots: Map<string, FieldSnapshot>
   lastSyncTime: number
@@ -31,6 +38,8 @@ interface EngineStore {
   stepHooks: StepHookSnapshot[]
   /** Persistent visual links between fields */
   fieldLinks: FieldLink[]
+  /** Per-field rendered pixel samples (from client readback, NOT persisted to disk) */
+  renderedSamples: Record<string, RenderedSample>
 }
 
 const DEFAULT_WORLD_PARAMS: WorldParams = {
@@ -40,6 +49,10 @@ const DEFAULT_WORLD_PARAMS: WorldParams = {
   boundaryMode: 'open',
   bounciness: 0.5,
   gravitationalConstant: 0,
+  bloomIntensity: 0.3,
+  bloomThreshold: 0.8,
+  windX: 0,
+  windY: 0,
 }
 
 // --- Disk persistence ---
@@ -81,6 +94,7 @@ function loadFromDisk(): Partial<EngineStore> | null {
       customCommands,
       stepHooks: data.stepHooks || [],
       fieldLinks: data.fieldLinks || [],
+      renderedSamples: {},  // not persisted — populated from client readback
     }
   } catch {
     // No file or invalid — start fresh
@@ -129,6 +143,7 @@ if (!globalStore.__engineStore) {
       customCommands: new Map(),
       stepHooks: [],
       fieldLinks: [],
+      renderedSamples: {},
     }
   }
 }
@@ -152,9 +167,12 @@ if (!store.stepHooks) {
 if (!store.fieldLinks) {
   store.fieldLinks = []
 }
+if (!store.renderedSamples) {
+  store.renderedSamples = {}
+}
 
 /** Full replace from client sync */
-export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>): void {
+export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>, renderedSamples?: Record<string, RenderedSample>): void {
   store.fieldSnapshots.clear()
   for (const snap of snapshots) {
     store.fieldSnapshots.set(snap.id, snap)
@@ -175,8 +193,21 @@ export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: Worl
       }
     }
   }
+  if (renderedSamples) {
+    store.renderedSamples = renderedSamples
+  }
   store.lastSyncTime = Date.now()
   schedulePersist()
+}
+
+/** Get rendered samples */
+export function getRenderedSamples(): Record<string, RenderedSample> {
+  return store.renderedSamples
+}
+
+/** Get rendered sample for a specific field */
+export function getRenderedSample(fieldId: string): RenderedSample | undefined {
+  return store.renderedSamples[fieldId]
 }
 
 /** Set step hooks from client sync */

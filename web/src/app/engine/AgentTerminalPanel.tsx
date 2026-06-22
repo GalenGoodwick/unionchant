@@ -8,6 +8,7 @@ export interface TerminalEntry {
   fieldColor: [number, number, number, number]
   summary: string
   detail?: string
+  author?: string
   timestamp: number
 }
 
@@ -21,6 +22,9 @@ function TerminalLine({ entry }: { entry: TerminalEntry }) {
   return (
     <div className="text-[11px] font-mono leading-snug">
       <div className="flex items-start gap-1">
+        {entry.author && (
+          <span className="text-amber-400/80 flex-shrink-0">[{entry.author}]</span>
+        )}
         <span
           className="inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1"
           style={{ backgroundColor: colorToCSS(entry.fieldColor) }}

@@ -18,6 +18,8 @@ interface FieldProgram {
   uEffectBounds: WebGLUniformLocation | null
   uEffectParams: WebGLUniformLocation | null
   uFieldTransform: WebGLUniformLocation | null
+  uSkeletonTex: WebGLUniformLocation | null
+  uSkeletonNodeCount: WebGLUniformLocation | null
 }
 
 /** World effect compiled program */
@@ -45,6 +47,8 @@ export interface FieldEffectData {
   transform: [number, number, number, number]
   params: [number, number, number, number]
   blend: 'alpha' | 'additive' | 'multiply'
+  /** Number of active skeleton nodes (0 = no skeleton) */
+  skeletonNodeCount?: number
 }
 
 export class FieldRenderer {
@@ -54,10 +58,30 @@ export class FieldRenderer {
   private colorTex: WebGLTexture | null = null
   private stateTex: WebGLTexture | null = null
   private selectionTex: WebGLTexture | null = null
+  private effectTex: WebGLTexture | null = null
   private quadVAO: WebGLVertexArrayObject | null = null
 
   // World effects (multiple, composited)
   private worldPrograms: Map<string, WorldProgram> = new Map()
+
+  // Per-field skeleton textures (128x1 RGBA32F)
+  private skeletonTextures: Map<string, WebGLTexture> = new Map()
+
+  // Bloom post-processing
+  private bloomEnabled: boolean = false
+  private bloomIntensity: number = 0.3
+  private bloomThreshold: number = 0.8
+  private mainFBO: WebGLFramebuffer | null = null
+  private mainColorTex: WebGLTexture | null = null
+  private bloomBrightFBO: WebGLFramebuffer | null = null
+  private bloomBrightTex: WebGLTexture | null = null
+  private bloomBlurFBO: WebGLFramebuffer | null = null
+  private bloomBlurTex: WebGLTexture | null = null
+  private bloomThresholdProgram: WebGLProgram | null = null
+  private bloomBlurProgram: WebGLProgram | null = null
+  private bloomCompositeProgram: WebGLProgram | null = null
+  private bloomWidth: number = 0
+  private bloomHeight: number = 0
 
   // State update (render-to-texture ping-pong)
   private stateTex2: WebGLTexture | null = null
@@ -80,6 +104,7 @@ export class FieldRenderer {
   private uColorTex: WebGLUniformLocation | null = null
   private uStateTex: WebGLUniformLocation | null = null
   private uSelectionTex: WebGLUniformLocation | null = null
+  private uEffectTex: WebGLUniformLocation | null = null
 
   static readonly MAX_FIELD_EFFECTS = 128
 
@@ -111,6 +136,7 @@ export class FieldRenderer {
     this.colorTex = this.createDataTexture()
     this.stateTex = this.createDataTexture()
     this.selectionTex = this.createSelectionTexture()
+    this.effectTex = this.createDataTexture()
 
     this.stateTex2 = this.createDataTexture()
     this.stateFBO = gl.createFramebuffer()
@@ -128,6 +154,7 @@ export class FieldRenderer {
     this.uColorTex = gl.getUniformLocation(program, 'u_colorTex')
     this.uStateTex = gl.getUniformLocation(program, 'u_stateTex')
     this.uSelectionTex = gl.getUniformLocation(program, 'u_selectionTex')
+    this.uEffectTex = gl.getUniformLocation(program, 'u_effectTex')
   }
 
   private compileShader(type: number, source: string): WebGLShader | null {
@@ -215,6 +242,25 @@ export class FieldRenderer {
     return tex
   }
 
+  /** Create a mask texture pre-filled with 255 (full canvas — no clipping) */
+  private createFullMaskTexture(): WebGLTexture {
+    const gl = this.gl!
+    const tex = gl.createTexture()!
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    const fullMask = new Uint8Array(GRID_SIZE * GRID_SIZE).fill(255)
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.R8,
+      GRID_SIZE, GRID_SIZE, 0,
+      gl.RED, gl.UNSIGNED_BYTE,
+      fullMask
+    )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    return tex
+  }
+
   uploadColorData(data: Float32Array): void {
     const gl = this.gl
     if (!gl || !this.colorTex) return
@@ -233,6 +279,18 @@ export class FieldRenderer {
     const tex = this.stateTexCurrent === 0 ? this.stateTex : this.stateTex2
     if (!tex) return
     gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texSubImage2D(
+      gl.TEXTURE_2D, 0, 0, 0,
+      GRID_SIZE, GRID_SIZE,
+      gl.RGBA, gl.FLOAT,
+      data
+    )
+  }
+
+  uploadEffectData(data: Float32Array): void {
+    const gl = this.gl
+    if (!gl || !this.effectTex) return
+    gl.bindTexture(gl.TEXTURE_2D, this.effectTex)
     gl.texSubImage2D(
       gl.TEXTURE_2D, 0, 0, 0,
       GRID_SIZE, GRID_SIZE,
@@ -282,7 +340,7 @@ export class FieldRenderer {
     // Remove existing program with this key if any
     this.removeFieldEffect(programKey)
 
-    const maskTex = this.createSelectionTexture()
+    const maskTex = this.createFullMaskTexture()
 
     const fp: FieldProgram = {
       program,
@@ -298,6 +356,8 @@ export class FieldRenderer {
       uEffectBounds: gl.getUniformLocation(program, 'u_effectBounds'),
       uEffectParams: gl.getUniformLocation(program, 'u_effectParams'),
       uFieldTransform: gl.getUniformLocation(program, 'u_fieldTransform'),
+      uSkeletonTex: gl.getUniformLocation(program, 'u_skeletonTex'),
+      uSkeletonNodeCount: gl.getUniformLocation(program, 'u_skeletonNodeCount'),
     }
 
     this.fieldPrograms.set(programKey, fp)
@@ -347,6 +407,247 @@ export class FieldRenderer {
     )
   }
 
+  // ─── Skeleton Textures ───
+
+  /** Create a 128x1 RGBA32F texture for skeleton data */
+  private createSkeletonTexture(): WebGLTexture {
+    const gl = this.gl!
+    const tex = gl.createTexture()!
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA32F,
+      128, 1, 0,
+      gl.RGBA, gl.FLOAT,
+      new Float32Array(128 * 4)
+    )
+    if (gl.getError() !== gl.NO_ERROR) {
+      // Fallback to RGBA16F
+      gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA16F,
+        128, 1, 0,
+        gl.RGBA, gl.FLOAT,
+        new Float32Array(128 * 4)
+      )
+    }
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    return tex
+  }
+
+  /** Upload packed skeleton data for a field (creates texture if needed) */
+  uploadSkeletonData(fieldId: string, data: Float32Array): void {
+    const gl = this.gl
+    if (!gl) return
+
+    let tex = this.skeletonTextures.get(fieldId)
+    if (!tex) {
+      tex = this.createSkeletonTexture()
+      this.skeletonTextures.set(fieldId, tex)
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texSubImage2D(
+      gl.TEXTURE_2D, 0, 0, 0,
+      128, 1,
+      gl.RGBA, gl.FLOAT,
+      data
+    )
+  }
+
+  /** Remove skeleton texture for a field */
+  removeSkeletonTexture(fieldId: string): void {
+    const gl = this.gl
+    if (!gl) return
+    const tex = this.skeletonTextures.get(fieldId)
+    if (tex) {
+      gl.deleteTexture(tex)
+      this.skeletonTextures.delete(fieldId)
+    }
+  }
+
+  /** Get skeleton texture for a field (null if none) */
+  getSkeletonTexture(fieldId: string): WebGLTexture | null {
+    return this.skeletonTextures.get(fieldId) || null
+  }
+
+  // ─── Bloom Post-Processing ───
+
+  /** Set bloom parameters */
+  setBloomParams(intensity: number, threshold: number): void {
+    this.bloomIntensity = intensity
+    this.bloomThreshold = threshold
+    this.bloomEnabled = intensity > 0
+  }
+
+  /** Initialize bloom FBOs and shaders (called lazily when bloom is first enabled) */
+  private initBloom(width: number, height: number): void {
+    const gl = this.gl
+    if (!gl) return
+
+    // Use half-resolution for blur performance
+    const bw = Math.floor(width / 2)
+    const bh = Math.floor(height / 2)
+    this.bloomWidth = bw
+    this.bloomHeight = bh
+
+    // Main scene FBO (full res)
+    if (!this.mainFBO) {
+      this.mainFBO = gl.createFramebuffer()
+      this.mainColorTex = this.createScreenTexture(width, height)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.mainFBO)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.mainColorTex, 0)
+    }
+
+    // Bright pass FBO (half res)
+    if (!this.bloomBrightFBO) {
+      this.bloomBrightFBO = gl.createFramebuffer()
+      this.bloomBrightTex = this.createScreenTexture(bw, bh)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomBrightFBO)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.bloomBrightTex, 0)
+    }
+
+    // Blur FBO (half res)
+    if (!this.bloomBlurFBO) {
+      this.bloomBlurFBO = gl.createFramebuffer()
+      this.bloomBlurTex = this.createScreenTexture(bw, bh)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomBlurFBO)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.bloomBlurTex, 0)
+    }
+
+    // Compile bloom shaders
+    if (!this.bloomThresholdProgram) {
+      this.bloomThresholdProgram = this.compileProgram(vertexShaderSource, this.bloomThresholdShader())
+    }
+    if (!this.bloomBlurProgram) {
+      this.bloomBlurProgram = this.compileProgram(vertexShaderSource, this.bloomBlurShader())
+    }
+    if (!this.bloomCompositeProgram) {
+      this.bloomCompositeProgram = this.compileProgram(vertexShaderSource, this.bloomCompositeShader())
+    }
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+  }
+
+  private createScreenTexture(w: number, h: number): WebGLTexture {
+    const gl = this.gl!
+    const tex = gl.createTexture()!
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    return tex
+  }
+
+  private bloomThresholdShader(): string {
+    return `#version 300 es
+precision highp float;
+uniform sampler2D u_sceneTex;
+uniform float u_threshold;
+in vec2 v_uv;
+out vec4 fragColor;
+void main() {
+  vec4 c = texture(u_sceneTex, v_uv);
+  float brightness = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+  fragColor = brightness > u_threshold ? c : vec4(0.0);
+}
+`
+  }
+
+  private bloomBlurShader(): string {
+    return `#version 300 es
+precision highp float;
+uniform sampler2D u_tex;
+uniform vec2 u_direction;
+uniform vec2 u_texelSize;
+in vec2 v_uv;
+out vec4 fragColor;
+void main() {
+  vec4 result = vec4(0.0);
+  result += texture(u_tex, v_uv - 4.0 * u_direction * u_texelSize) * 0.0162;
+  result += texture(u_tex, v_uv - 3.0 * u_direction * u_texelSize) * 0.0540;
+  result += texture(u_tex, v_uv - 2.0 * u_direction * u_texelSize) * 0.1216;
+  result += texture(u_tex, v_uv - 1.0 * u_direction * u_texelSize) * 0.1945;
+  result += texture(u_tex, v_uv) * 0.2270;
+  result += texture(u_tex, v_uv + 1.0 * u_direction * u_texelSize) * 0.1945;
+  result += texture(u_tex, v_uv + 2.0 * u_direction * u_texelSize) * 0.1216;
+  result += texture(u_tex, v_uv + 3.0 * u_direction * u_texelSize) * 0.0540;
+  result += texture(u_tex, v_uv + 4.0 * u_direction * u_texelSize) * 0.0162;
+  fragColor = result;
+}
+`
+  }
+
+  private bloomCompositeShader(): string {
+    return `#version 300 es
+precision highp float;
+uniform sampler2D u_sceneTex;
+uniform sampler2D u_bloomTex;
+uniform float u_bloomIntensity;
+in vec2 v_uv;
+out vec4 fragColor;
+void main() {
+  vec4 scene = texture(u_sceneTex, v_uv);
+  vec4 bloom = texture(u_bloomTex, v_uv);
+  fragColor = vec4(scene.rgb + bloom.rgb * u_bloomIntensity, 1.0);
+}
+`
+  }
+
+  /** Run bloom post-processing on current framebuffer content */
+  private renderBloom(bufferW: number, bufferH: number): void {
+    const gl = this.gl
+    if (!gl || !this.bloomEnabled) return
+    if (!this.bloomThresholdProgram || !this.bloomBlurProgram || !this.bloomCompositeProgram) return
+    if (!this.mainColorTex || !this.bloomBrightTex || !this.bloomBlurTex) return
+
+    const bw = this.bloomWidth
+    const bh = this.bloomHeight
+
+    // 1. Threshold pass — extract bright pixels
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomBrightFBO)
+    gl.viewport(0, 0, bw, bh)
+    gl.disable(gl.BLEND)
+    gl.useProgram(this.bloomThresholdProgram)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.mainColorTex)
+    gl.uniform1i(gl.getUniformLocation(this.bloomThresholdProgram, 'u_sceneTex'), 0)
+    gl.uniform1f(gl.getUniformLocation(this.bloomThresholdProgram, 'u_threshold'), this.bloomThreshold)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // 2. Horizontal blur
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomBlurFBO)
+    gl.useProgram(this.bloomBlurProgram)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomBrightTex)
+    gl.uniform1i(gl.getUniformLocation(this.bloomBlurProgram, 'u_tex'), 0)
+    gl.uniform2f(gl.getUniformLocation(this.bloomBlurProgram, 'u_direction'), 1.0, 0.0)
+    gl.uniform2f(gl.getUniformLocation(this.bloomBlurProgram, 'u_texelSize'), 1.0 / bw, 1.0 / bh)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // 3. Vertical blur (back into bright FBO)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloomBrightFBO)
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomBlurTex)
+    gl.uniform2f(gl.getUniformLocation(this.bloomBlurProgram, 'u_direction'), 0.0, 1.0)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // 4. Composite — add bloom back onto scene, render to screen
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, bufferW, bufferH)
+    gl.useProgram(this.bloomCompositeProgram)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.mainColorTex)
+    gl.uniform1i(gl.getUniformLocation(this.bloomCompositeProgram, 'u_sceneTex'), 0)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, this.bloomBrightTex)
+    gl.uniform1i(gl.getUniformLocation(this.bloomCompositeProgram, 'u_bloomTex'), 1)
+    gl.uniform1f(gl.getUniformLocation(this.bloomCompositeProgram, 'u_bloomIntensity'), this.bloomIntensity)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+  }
+
   /** Check if a field effect program exists */
   hasFieldEffect(programKey: string): boolean {
     return this.fieldPrograms.has(programKey)
@@ -369,7 +670,7 @@ export class FieldRenderer {
     }
   }
 
-  /** Multi-pass render: base pass + world effects + per-field effect passes */
+  /** Multi-pass render: base pass + world effects + per-field effect passes + bloom */
   render(
     camera: { x: number; y: number },
     zoom: number,
@@ -390,6 +691,24 @@ export class FieldRenderer {
     if (canvas.width !== bufferW || canvas.height !== bufferH) {
       canvas.width = bufferW
       canvas.height = bufferH
+    }
+
+    // If bloom is enabled, render to offscreen FBO first
+    if (this.bloomEnabled) {
+      if (!this.mainFBO || !this.mainColorTex) {
+        this.initBloom(bufferW, bufferH)
+      }
+      // Resize if needed
+      if (this.bloomWidth !== Math.floor(bufferW / 2) || this.bloomHeight !== Math.floor(bufferH / 2)) {
+        this.destroyBloom()
+        this.initBloom(bufferW, bufferH)
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.mainFBO)
+      // Resize main color texture if canvas changed
+      gl.bindTexture(gl.TEXTURE_2D, this.mainColorTex)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, bufferW, bufferH, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.mainFBO)
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.mainColorTex, 0)
     }
 
     gl.viewport(0, 0, bufferW, bufferH)
@@ -421,6 +740,10 @@ export class FieldRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.selectionTex)
     gl.uniform1i(this.uSelectionTex, 2)
 
+    gl.activeTexture(gl.TEXTURE3)
+    gl.bindTexture(gl.TEXTURE_2D, this.effectTex)
+    gl.uniform1i(this.uEffectTex, 3)
+
     gl.bindVertexArray(this.quadVAO)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -448,7 +771,7 @@ export class FieldRenderer {
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
 
-    // --- Pass M+1..N: Per-field effects (with blend modes) ---
+    // --- Pass M+1..N: Per-field effects (with blend modes + skeleton textures) ---
     if (fieldEffects && fieldEffects.length > 0) {
       for (const effect of fieldEffects) {
         const fp = this.fieldPrograms.get(effect.programKey)
@@ -480,13 +803,111 @@ export class FieldRenderer {
         gl.bindTexture(gl.TEXTURE_2D, fp.maskTex)
         gl.uniform1i(fp.uFieldMask, 2)
 
+        // Bind skeleton texture on TEXTURE3
+        const skelTex = this.skeletonTextures.get(effect.fieldId)
+        if (skelTex && fp.uSkeletonTex !== null) {
+          gl.activeTexture(gl.TEXTURE3)
+          gl.bindTexture(gl.TEXTURE_2D, skelTex)
+          gl.uniform1i(fp.uSkeletonTex, 3)
+        }
+        if (fp.uSkeletonNodeCount !== null) {
+          gl.uniform1i(fp.uSkeletonNodeCount, effect.skeletonNodeCount || 0)
+        }
+
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
 
       gl.disable(gl.BLEND)
     }
 
+    // --- Bloom post-processing ---
+    if (this.bloomEnabled && this.mainFBO) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      this.renderBloom(bufferW, bufferH)
+    }
+
     gl.bindVertexArray(null)
+  }
+
+  /** Sample rendered pixels in a region — returns downsampled RGBA grid.
+   *  Reads from the current framebuffer (call after render()).
+   *  Returns a flat array of [r,g,b,a] values, row-major, bottom-to-top. */
+  sampleRenderedRegion(
+    camera: { x: number; y: number },
+    zoom: number,
+    gridX: number, gridY: number,
+    gridW: number, gridH: number,
+    sampleSize: number = 16
+  ): { width: number; height: number; pixels: number[] } | null {
+    const gl = this.gl
+    if (!gl) return null
+    const canvas = gl.canvas as HTMLCanvasElement
+
+    const bufferW = canvas.width
+    const bufferH = canvas.height
+    const aspect = bufferW / bufferH
+
+    // Convert grid coords to screen (pixel) coords — match the camera math in render()
+    const gridRange = 512 / zoom
+    let screenX: number, screenY: number, screenW: number, screenH: number
+    if (aspect > 1) {
+      screenX = ((gridX - camera.x) / (gridRange * aspect) + 0.5) * bufferW
+      screenY = ((gridY - camera.y) / gridRange + 0.5) * bufferH
+      screenW = (gridW / (gridRange * aspect)) * bufferW
+      screenH = (gridH / gridRange) * bufferH
+    } else {
+      screenX = ((gridX - camera.x) / gridRange + 0.5) * bufferW
+      screenY = ((gridY - camera.y) / (gridRange / aspect) + 0.5) * bufferH
+      screenW = (gridW / gridRange) * bufferW
+      screenH = (gridH / (gridRange / aspect)) * bufferH
+    }
+
+    // Clamp to canvas bounds
+    const x0 = Math.max(0, Math.floor(screenX))
+    const y0 = Math.max(0, Math.floor(screenY))
+    const x1 = Math.min(bufferW, Math.ceil(screenX + screenW))
+    const y1 = Math.min(bufferH, Math.ceil(screenY + screenH))
+    const pw = x1 - x0
+    const ph = y1 - y0
+    if (pw <= 0 || ph <= 0) return null
+
+    // Read the full region
+    const raw = new Uint8Array(pw * ph * 4)
+    gl.readPixels(x0, y0, pw, ph, gl.RGBA, gl.UNSIGNED_BYTE, raw)
+
+    // Downsample to sampleSize x sampleSize
+    const outW = Math.min(sampleSize, pw)
+    const outH = Math.min(sampleSize, ph)
+    const pixels: number[] = []
+    for (let sy = 0; sy < outH; sy++) {
+      for (let sx = 0; sx < outW; sx++) {
+        const srcX = Math.floor((sx / outW) * pw)
+        const srcY = Math.floor((sy / outH) * ph)
+        const idx = (srcY * pw + srcX) * 4
+        pixels.push(
+          raw[idx] / 255,
+          raw[idx + 1] / 255,
+          raw[idx + 2] / 255,
+          raw[idx + 3] / 255
+        )
+      }
+    }
+    return { width: outW, height: outH, pixels }
+  }
+
+  /** Destroy bloom resources */
+  private destroyBloom(): void {
+    const gl = this.gl
+    if (!gl) return
+    if (this.mainFBO) { gl.deleteFramebuffer(this.mainFBO); this.mainFBO = null }
+    if (this.mainColorTex) { gl.deleteTexture(this.mainColorTex); this.mainColorTex = null }
+    if (this.bloomBrightFBO) { gl.deleteFramebuffer(this.bloomBrightFBO); this.bloomBrightFBO = null }
+    if (this.bloomBrightTex) { gl.deleteTexture(this.bloomBrightTex); this.bloomBrightTex = null }
+    if (this.bloomBlurFBO) { gl.deleteFramebuffer(this.bloomBlurFBO); this.bloomBlurFBO = null }
+    if (this.bloomBlurTex) { gl.deleteTexture(this.bloomBlurTex); this.bloomBlurTex = null }
+    if (this.bloomThresholdProgram) { gl.deleteProgram(this.bloomThresholdProgram); this.bloomThresholdProgram = null }
+    if (this.bloomBlurProgram) { gl.deleteProgram(this.bloomBlurProgram); this.bloomBlurProgram = null }
+    if (this.bloomCompositeProgram) { gl.deleteProgram(this.bloomCompositeProgram); this.bloomCompositeProgram = null }
   }
 
   /** Compile and store a world effect program */
@@ -726,12 +1147,22 @@ export class FieldRenderer {
     }
     this.worldPrograms.clear()
 
+    // Clean up skeleton textures
+    for (const tex of this.skeletonTextures.values()) {
+      gl.deleteTexture(tex)
+    }
+    this.skeletonTextures.clear()
+
+    // Clean up bloom
+    this.destroyBloom()
+
     if (this.colorTex) gl.deleteTexture(this.colorTex)
     if (this.stateTex) gl.deleteTexture(this.stateTex)
     if (this.stateTex2) gl.deleteTexture(this.stateTex2)
     if (this.stateFBO) gl.deleteFramebuffer(this.stateFBO)
     if (this.stateUpdateProgram) gl.deleteProgram(this.stateUpdateProgram)
     if (this.selectionTex) gl.deleteTexture(this.selectionTex)
+    if (this.effectTex) gl.deleteTexture(this.effectTex)
     if (this.quadVAO) gl.deleteVertexArray(this.quadVAO)
     if (this.baseProgram) gl.deleteProgram(this.baseProgram)
 
@@ -743,6 +1174,7 @@ export class FieldRenderer {
     this.stateFBO = null
     this.stateUpdateProgram = null
     this.selectionTex = null
+    this.effectTex = null
     this.quadVAO = null
   }
 }

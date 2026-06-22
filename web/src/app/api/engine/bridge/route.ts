@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, addFieldLink, removeFieldLink } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, addFieldLink, removeFieldLink, getRenderedSamples, getRenderedSample } from '../store'
 
 export const maxDuration = 30
 
@@ -102,6 +102,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Field not found' }, { status: 404 })
     }
     const response: Record<string, unknown> = trimMemory(snap as unknown as Record<string, unknown>)
+    const sample = getRenderedSample(fieldId)
+    if (sample) response.renderedPixels = sample
     if (shellIdentity) response.shellIdentity = shellIdentity
     return NextResponse.json(response)
   }
@@ -114,17 +116,25 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: `Field "${fieldName}" not found` }, { status: 404 })
     }
     const response: Record<string, unknown> = trimMemory(match as unknown as Record<string, unknown>)
+    const sample = getRenderedSample(match.id)
+    if (sample) response.renderedPixels = sample
     if (shellIdentity) response.shellIdentity = shellIdentity
     return NextResponse.json(response)
   }
 
   const state = getEngineState()
+  const allSamples = getRenderedSamples()
 
   // Elevate worldData plan/rules/roles to top-level for field agent visibility
   const wd = state.worldData || {}
   const response: Record<string, unknown> = {
     ...state,
-    fields: state.fields.map(f => trimMemory(f as unknown as Record<string, unknown>)),
+    fields: state.fields.map(f => {
+      const trimmed = trimMemory(f as unknown as Record<string, unknown>)
+      const sample = allSamples[f.id]
+      if (sample) trimmed.renderedPixels = sample
+      return trimmed
+    }),
     // Top-level world context (from planning agent)
     worldPlan: wd.plan || null,
     worldRules: wd.rules || null,

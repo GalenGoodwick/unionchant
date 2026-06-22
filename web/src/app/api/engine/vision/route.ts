@@ -23,11 +23,11 @@ function snapshotToCells(snapshot: FieldSnapshot): number[] {
   const t = snapshot.transform
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      if (snapshot.shape.type === 'circle') {
+      if (snapshot.shape.type === 'rect') {
+        if (x >= t.x && x < t.x + snapshot.shape.w && y >= t.y && y < t.y + snapshot.shape.h) cells.push(y * GRID + x)
+      } else if (snapshot.shape.type === 'polygon') {
         const dx = x - t.x, dy = y - t.y
         if (dx * dx + dy * dy <= snapshot.shape.radius * snapshot.shape.radius) cells.push(y * GRID + x)
-      } else {
-        if (snapshot.shape.type === 'rect' && x >= t.x && x < t.x + snapshot.shape.w && y >= t.y && y < t.y + snapshot.shape.h) cells.push(y * GRID + x)
       }
     }
   }
