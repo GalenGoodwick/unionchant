@@ -657,9 +657,8 @@ export default function FieldEngine() {
               continue
             }
           }
-          // Compute overlap mask: use pixel-level presence if available, fall back to bounding box
+          // Compute overlap mask: pixel-level presence only (no bounding box fallback)
           const overlapMask = sim.computePixelOverlapMask(fieldA.id, fieldB.id, effect.spread)
-            || sim.computeOverlapMask(fieldA.id, fieldB.id, effect.spread)
           if (!overlapMask) continue
           renderer.uploadInteractionMask(programKey, overlapMask)
 
