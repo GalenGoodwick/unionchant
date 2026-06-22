@@ -576,6 +576,31 @@ ${COORD_MATH}
 `;
 }
 
+/** Mask clear shader — erases underlying pixels where an interaction mask is active.
+ *  Renders background color at full alpha, giving interaction effects visual precedence. */
+export function buildMaskClearShader(): string {
+  return `#version 300 es
+precision highp float;
+uniform sampler2D u_fieldMask;
+uniform vec2 u_camera;
+uniform vec2 u_resolution;
+uniform float u_zoom;
+uniform float u_gridSize;
+in vec2 v_uv;
+out vec4 fragColor;
+void main() {
+${COORD_MATH}
+  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
+    discard;
+  }
+  float maskVal = texture(u_fieldMask, texUV).r;
+  if (maskVal < 0.5) discard;
+  // Paint background color — erases fire/ice/etc underneath so interaction takes precedence
+  fragColor = vec4(0.055, 0.065, 0.09, 1.0);
+}
+`;
+}
+
 export function buildWorldEffectFragmentShader(injectedGlsl: string, modCode?: string): string {
   return `#version 300 es
 precision highp float;

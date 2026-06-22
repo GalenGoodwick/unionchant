@@ -1,7 +1,7 @@
 // Field Engine v3 — WebGL2 Renderer (Multi-pass, multi-effect)
 
 import { GRID_SIZE } from './types'
-import { vertexShaderSource, buildBaseFragmentShader, buildEffectFragmentShader, buildInteractionFragmentShader, buildStateUpdateShader, buildCompositeStateShader } from './shaders'
+import { vertexShaderSource, buildBaseFragmentShader, buildEffectFragmentShader, buildInteractionFragmentShader, buildMaskClearShader, buildStateUpdateShader, buildCompositeStateShader } from './shaders'
 
 /** Shared compiled program — deduplicated by GLSL source hash */
 interface SharedProgram {
@@ -68,6 +68,8 @@ export interface InteractionEffectData {
   fieldBTransform: [number, number, number, number]
   params: [number, number, number, number]
   blend: 'alpha' | 'additive' | 'multiply'
+  /** If true, clears underlying field pixels before rendering this interaction */
+  precedence?: boolean
 }
 
 export class FieldRenderer {
@@ -85,6 +87,14 @@ export class FieldRenderer {
   // Interaction effect programs (overlap shaders)
   private interactionPrograms: Map<string, InteractionProgram> = new Map()
   private overlapCountTex: WebGLTexture | null = null
+
+  // Mask clear program — erases underlying pixels where interaction takes precedence
+  private maskClearProgram: WebGLProgram | null = null
+  private mcCamera: WebGLUniformLocation | null = null
+  private mcResolution: WebGLUniformLocation | null = null
+  private mcZoom: WebGLUniformLocation | null = null
+  private mcGridSize: WebGLUniformLocation | null = null
+  private mcFieldMask: WebGLUniformLocation | null = null
 
   // Presence map — field effects rendered to transparent FBO for pixel-perfect readback
   private presenceTex: WebGLTexture | null = null
@@ -154,6 +164,17 @@ export class FieldRenderer {
 
     // Overlap count texture (R8) for interaction shaders
     this.overlapCountTex = this.createEmptyMaskTexture()
+
+    // Mask clear program — erases underlying pixels where interactions take precedence
+    const mcProgram = this.compileProgram(vertexShaderSource, buildMaskClearShader())
+    if (mcProgram) {
+      this.maskClearProgram = mcProgram
+      this.mcCamera = gl.getUniformLocation(mcProgram, 'u_camera')
+      this.mcResolution = gl.getUniformLocation(mcProgram, 'u_resolution')
+      this.mcZoom = gl.getUniformLocation(mcProgram, 'u_zoom')
+      this.mcGridSize = gl.getUniformLocation(mcProgram, 'u_gridSize')
+      this.mcFieldMask = gl.getUniformLocation(mcProgram, 'u_fieldMask')
+    }
 
     return true
   }
@@ -712,6 +733,20 @@ export class FieldRenderer {
         const ip = this.interactionPrograms.get(ix.programKey)
         if (!ip) continue
 
+        // Precedence pass: clear underlying pixels where the overlap mask is active
+        if (ix.precedence && this.maskClearProgram) {
+          gl.disable(gl.BLEND)
+          gl.useProgram(this.maskClearProgram)
+          gl.uniform2f(this.mcCamera, camera.x, camera.y)
+          gl.uniform2f(this.mcResolution, bufferW, bufferH)
+          gl.uniform1f(this.mcZoom, zoom)
+          gl.uniform1f(this.mcGridSize, GRID_SIZE)
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, ip.maskTex)
+          gl.uniform1i(this.mcFieldMask, 0)
+          gl.drawArrays(gl.TRIANGLES, 0, 6)
+        }
+
         this.setBlendMode(ix.blend)
 
         gl.useProgram(ip.program)
@@ -1246,6 +1281,7 @@ export class FieldRenderer {
     }
     this.interactionPrograms.clear()
     if (this.overlapCountTex) gl.deleteTexture(this.overlapCountTex)
+    if (this.maskClearProgram) gl.deleteProgram(this.maskClearProgram)
 
     if (this.colorTex) gl.deleteTexture(this.colorTex)
     if (this.stateTex) gl.deleteTexture(this.stateTex)

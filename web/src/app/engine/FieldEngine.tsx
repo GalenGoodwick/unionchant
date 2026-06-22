@@ -11,7 +11,7 @@ import AgentDialogPanel from './AgentDialogPanel'
 import type { DialogEntry } from './AgentDialogPanel'
 import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
-import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState } from './types'
+import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState, InteractionEffect } from './types'
 import { GRID_SIZE } from './types'
 // DEFAULT_FIELD_EFFECT_GLSL removed — fields are invisible until agents give them a shader
 
@@ -672,7 +672,68 @@ export default function FieldEngine() {
             fieldBTransform: [fieldB.transform.x, fieldB.transform.y, fieldB.transform.rotation, fieldB.transform.scale],
             params: [fieldA.color[0], fieldB.color[0], 0, 0],
             blend: effect.blend,
+            precedence: effect.precedence,
           })
+
+          // Process interaction hooks (throttled per-effect)
+          if (effect.hooks && effect.hooks.length > 0) {
+            const hookKey = `ix_hook_${effect.id}`
+            const lastHookTime = (sim.worldData[hookKey] as number) || 0
+            const minCooldown = Math.min(...effect.hooks.map(h => h.cooldown ?? 1.0))
+            if (time - lastHookTime >= minCooldown) {
+              sim.worldData[hookKey] = time
+              for (const hook of effect.hooks) {
+                const hookCooldownKey = `${hookKey}_${hook.type}`
+                const lastThisHook = (sim.worldData[hookCooldownKey] as number) || 0
+                if (time - lastThisHook < (hook.cooldown ?? 1.0)) continue
+                sim.worldData[hookCooldownKey] = time
+
+                const targets: string[] = []
+                if (hook.target === 'A' || hook.target === 'both' || !hook.target) targets.push(fieldA.id)
+                if (hook.target === 'B' || hook.target === 'both' || !hook.target) targets.push(fieldB.id)
+
+                switch (hook.type) {
+                  case 'memory':
+                    for (const fid of targets) {
+                      sim.addMemory(fid, {
+                        timestamp: new Date().toISOString(),
+                        type: 'collision',
+                        content: hook.message || `Interaction: ${effect.description}`,
+                        sourceFieldId: fid === fieldA.id ? fieldB.id : fieldA.id,
+                      })
+                    }
+                    break
+                  case 'modify_property':
+                    if (hook.property) {
+                      for (const fid of targets) {
+                        const f = sim.fields.get(fid)
+                        if (f) f.properties.set(hook.property, hook.value)
+                      }
+                    }
+                    break
+                  case 'apply_force':
+                    for (const fid of targets) {
+                      sim.applyForce(fid, hook.fx ?? 0, hook.fy ?? 0)
+                    }
+                    break
+                  case 'webhook':
+                    if (hook.url) {
+                      fetch(hook.url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          effectId: effect.id,
+                          fieldA: fieldA.id,
+                          fieldB: fieldB.id,
+                          time,
+                        }),
+                      }).catch(() => {})
+                    }
+                    break
+                }
+              }
+            }
+          }
         }
       }
 
@@ -1367,6 +1428,8 @@ export default function FieldEngine() {
                 blend: ((cmd as Record<string, unknown>).blend as 'alpha' | 'additive' | 'multiply') || 'alpha',
                 spread: (cmd as Record<string, unknown>).spread as number || 0,
                 order: (cmd as Record<string, unknown>).order as number || 0,
+                precedence: !!(cmd as Record<string, unknown>).precedence,
+                hooks: (cmd as Record<string, unknown>).hooks as InteractionEffect['hooks'] || undefined,
               })
               // Pre-compile the shader
               const programKey = `ix_${effectId}`

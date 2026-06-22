@@ -223,6 +223,26 @@ export interface CustomCommand {
 
 
 /** Agent-defined interaction effect — GLSL shader rendered at field overlap pixels */
+/** Behavioral hook triggered when an interaction is active */
+export interface InteractionHook {
+  type: 'memory' | 'modify_property' | 'apply_force' | 'webhook'
+  /** Which field to affect: 'A', 'B', or 'both' (default 'both') */
+  target?: 'A' | 'B' | 'both'
+  /** Memory message (for type='memory') */
+  message?: string
+  /** Property key (for type='modify_property') */
+  property?: string
+  /** Property value (for type='modify_property') */
+  value?: unknown
+  /** Force components (for type='apply_force') */
+  fx?: number
+  fy?: number
+  /** URL to call (for type='webhook') */
+  url?: string
+  /** Minimum seconds between triggers (default 1.0) */
+  cooldown?: number
+}
+
 export interface InteractionEffect {
   id: string
   /** Which agent authored this effect */
@@ -240,5 +260,9 @@ export interface InteractionEffect {
   spread: number
   /** Render order (lower = first) */
   order: number
+  /** If true, clears underlying field pixels before rendering — interaction takes visual precedence */
+  precedence?: boolean
+  /** Behavioral hooks triggered each frame while this interaction is active */
+  hooks?: InteractionHook[]
 }
 
