@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { FieldRenderer } from './renderer'
-import type { FieldEffectData, InteractionEffectData } from './renderer'
+import type { FieldEffectData } from './renderer'
 import { FieldSimulation } from './simulation'
 import { FieldInput } from './input'
 import Toolbar from './Toolbar'
@@ -13,6 +13,7 @@ import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
 import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState, InteractionEffect } from './types'
 import { GRID_SIZE } from './types'
+import { useToast } from '@/components/Toast'
 // DEFAULT_FIELD_EFFECT_GLSL removed — fields are invisible until agents give them a shader
 
 let fieldCounter = 0
@@ -69,7 +70,33 @@ function hueToRgba(hue: number): [number, number, number, number] {
   return [r + m, g + m, b + m, 1.0]
 }
 
+/** Wrap interaction GLSL for the field effect pipeline.
+ *  Interaction shaders define `interactionEffect(coord, regionMin, regionMax, time, params) → vec4`.
+ *  This wrapper adapts it to `fieldEffect(...)` expected by the field pipeline.
+ *
+ *  Two tools are provided to the shader:
+ *  - overlapMask(coord): returns 1.0 where both parent fields' presence overlaps, 0.0 elsewhere.
+ *    Shader can sample at any coordinate to know the overlap shape.
+ *  - The wrapper does NOT clip to the mask — the shader runs across the union of both fields'
+ *    bounding regions and decides its own visibility. Use overlapMask() as a seed/guide. */
+function wrapInteractionGlsl(interactionGlsl: string): string {
+  return `
+// Per-pixel overlap mask: 1.0 where both parent fields' dilated presence overlaps, 0.0 elsewhere.
+// Use as a seed — you can paint effects that extend outward from the overlap zone.
+float overlapMask(vec2 coord) {
+  return texture(u_fieldMask, coord / u_gridSize).r;
+}
+
+${interactionGlsl}
+
+vec4 fieldEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
+  vec4 effect = interactionEffect(coord, regionMin, regionMax, time, params);
+  return effect;
+}`
+}
+
 export default function FieldEngine() {
+  const { showToast } = useToast()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<FieldRenderer | null>(null)
   const simulationRef = useRef<FieldSimulation | null>(null)
@@ -79,6 +106,7 @@ export default function FieldEngine() {
   const lastFrameRef = useRef<number>(0)
   const lastSampleTimeRef = useRef<number>(0)
   const lastPresenceRef = useRef<number>(0)
+  const cachedOverlapMasksRef = useRef<Map<string, Uint8Array>>(new Map())
   const renderedSamplesRef = useRef<Map<string, { width: number; height: number; pixels: number[] }>>(new Map())
 
   // GLSL mods — reusable shader utilities registered by agents
@@ -120,6 +148,7 @@ export default function FieldEngine() {
   // Drag state for fields
   const draggingFieldId = useRef<string | null>(null)
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const dragStartScreen = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Pixel hover tooltip
   const [pixelInfo, setPixelInfo] = useState<{
@@ -338,6 +367,7 @@ export default function FieldEngine() {
           x: hitField.transform.x - grid.x,
           y: hitField.transform.y - grid.y,
         }
+        dragStartScreen.current = { x: e.clientX, y: e.clientY }
         canvas.style.cursor = 'grabbing'
         return
       }
@@ -427,13 +457,37 @@ export default function FieldEngine() {
     lastPointer.current = { x: e.clientX, y: e.clientY }
   }, [syncFields])
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (draggingFieldId.current) {
+      const sim = simulationRef.current
+      const fieldId = draggingFieldId.current
+      const dx = e.clientX - dragStartScreen.current.x
+      const dy = e.clientY - dragStartScreen.current.y
+      const dist = Math.sqrt(dx * dx + dy * dy)
+
       draggingFieldId.current = null
       pointerDown.current = false
       const canvas = canvasRef.current
       if (canvas) canvas.style.cursor = 'grab'
-      syncFields()
+
+      // Click (not drag) — save field to library
+      if (dist < 5 && sim) {
+        const field = sim.fields.get(fieldId)
+        if (field) {
+          const snap = sim.generateSnapshots().find(s => s.id === fieldId)
+          if (snap) {
+            try {
+              const existing: unknown[] = JSON.parse(localStorage.getItem('fieldLibrary') || '[]')
+              const filtered = existing.filter((f: unknown) => (f as { id: string }).id !== fieldId)
+              filtered.push(snap)
+              localStorage.setItem('fieldLibrary', JSON.stringify(filtered))
+              showToast(`Saved "${field.name}" to library`, 'success')
+            } catch { /* ignore */ }
+          }
+        }
+      } else {
+        syncFields()
+      }
       return
     }
 
@@ -441,7 +495,7 @@ export default function FieldEngine() {
     pointerDown.current = false
     const canvas = canvasRef.current
     if (canvas) canvas.style.cursor = 'grab'
-  }, [syncFields])
+  }, [syncFields, showToast])
 
   // Wheel zoom
   useEffect(() => {
@@ -638,39 +692,59 @@ export default function FieldEngine() {
       }
 
 
-      // Build interaction effects — shader overlaps between field pairs
-      const interactionEffects: InteractionEffectData[] = []
+      // --- Interaction effects (merged into field pipeline) ---
       if (sim.interactionEffects.length > 0) {
         const activePairs = sim.getActiveInteractionPairs()
-        // Upload overlap count texture if we have active interactions
-        if (activePairs.length > 0) {
-          const fieldCountTex = sim.computeFieldCountTexture()
-          renderer.uploadOverlapCountTexture(fieldCountTex)
-        }
+
         for (const { effect, fieldA, fieldB } of activePairs) {
-          const programKey = `ix_${effect.id}`
-          // Compile shader if not already compiled
-          if (!renderer.hasInteractionEffect(programKey)) {
-            const result = renderer.compileInteractionEffect(programKey, effect.glsl, getModCode())
+          // Per-pair program key (fixes wildcard mask overwrite bug)
+          const pairKey = `ix_${effect.id}_${fieldA.id}_${fieldB.id}`
+
+          // Lazy compile (wrap interaction GLSL → fieldEffect)
+          if (!renderer.hasFieldEffect(pairKey)) {
+            const wrappedGlsl = wrapInteractionGlsl(effect.glsl)
+            const result = renderer.compileFieldEffect(pairKey, pairKey, wrappedGlsl, getModCode())
             if (!result.success) {
               console.warn(`Interaction effect ${effect.id} compile error:`, result.error)
               continue
             }
           }
-          // Compute overlap mask: pixel-level presence only (no bounding box fallback)
-          const overlapMask = sim.computePixelOverlapMask(fieldA.id, fieldB.id, effect.spread)
-          if (!overlapMask) continue
-          renderer.uploadInteractionMask(programKey, overlapMask)
 
-          interactionEffects.push({
-            programKey,
-            bounds: fullBounds,
+          // Upload cached overlap mask if available (computed at 250ms intervals)
+          const overlapMask = cachedOverlapMasksRef.current.get(pairKey)
+          if (overlapMask) {
+            renderer.uploadFieldMask(pairKey, overlapMask)
+          }
+
+          // Compute union bounds of both fields (expanded by spread) — the interaction
+          // shader runs in this region, NOT the full 512x512 grid.
+          const spread = effect.spread || 0
+          const boundsA = sim.getFieldBounds(fieldA.id)
+          const boundsB = sim.getFieldBounds(fieldB.id)
+          const ixBounds: [number, number, number, number] = boundsA && boundsB
+            ? [
+                Math.max(0, Math.min(boundsA.minX, boundsB.minX) - spread),
+                Math.max(0, Math.min(boundsA.minY, boundsB.minY) - spread),
+                Math.min(GRID_SIZE, Math.max(boundsA.maxX, boundsB.maxX) + spread),
+                Math.min(GRID_SIZE, Math.max(boundsA.maxY, boundsB.maxY) + spread),
+              ]
+            : fullBounds
+
+          fieldEffects.push({
+            fieldId: pairKey,
+            programKey: pairKey,
+            bounds: ixBounds,
+            transform: [
+              (fieldA.transform.x + fieldB.transform.x) / 2,
+              (fieldA.transform.y + fieldB.transform.y) / 2,
+              0, 1
+            ],
+            params: [fieldA.color[0], fieldB.color[0], 0, 0],
+            blend: effect.blend,
             fieldAColor: fieldA.color,
             fieldBColor: fieldB.color,
             fieldATransform: [fieldA.transform.x, fieldA.transform.y, fieldA.transform.rotation, fieldA.transform.scale],
             fieldBTransform: [fieldB.transform.x, fieldB.transform.y, fieldB.transform.rotation, fieldB.transform.scale],
-            params: [fieldA.color[0], fieldB.color[0], 0, 0],
-            blend: effect.blend,
             precedence: effect.precedence,
           })
 
@@ -734,9 +808,18 @@ export default function FieldEngine() {
             }
           }
         }
+
+        // Clean up stale interaction programs
+        const activePairKeys = new Set(activePairs.map(p => `ix_${p.effect.id}_${p.fieldA.id}_${p.fieldB.id}`))
+        for (const key of Array.from(renderer.getFieldEffectKeys())) {
+          if (key.startsWith('ix_') && !activePairKeys.has(key)) {
+            renderer.removeFieldEffect(key)
+            renderer.removeFieldMask(key)
+          }
+        }
       }
 
-      renderer.render(camera, camera.zoom, time, fieldEffects, interactionEffects)
+      renderer.render(camera, camera.zoom, time, fieldEffects)
 
       // Per-field presence map: render each field individually, readback pixel presence (throttled)
       // This is the "field renders to pixels → pixels return superimposition data" pipeline
@@ -753,6 +836,26 @@ export default function FieldEngine() {
           // Store new presence data
           for (const [fieldId, presence] of presenceMaps) {
             sim.fieldPresence.set(fieldId, presence)
+          }
+
+          // Pre-compute overlap masks for interaction effects (expensive dilation runs here at ~4fps, not 60fps)
+          if (sim.interactionEffects.length > 0) {
+            const activePairs = sim.getActiveInteractionPairs()
+            const newMasks = new Map<string, Uint8Array>()
+            for (const { effect, fieldA, fieldB } of activePairs) {
+              const pairKey = `ix_${effect.id}_${fieldA.id}_${fieldB.id}`
+              const presA = sim.fieldPresence.get(fieldA.id)
+              const presB = sim.fieldPresence.get(fieldB.id)
+              const presACount = presA ? presA.reduce((s: number, v: number) => s + (v > 0 ? 1 : 0), 0) : 0
+              const presBCount = presB ? presB.reduce((s: number, v: number) => s + (v > 0 ? 1 : 0), 0) : 0
+              const mask = sim.computePixelOverlapMask(fieldA.id, fieldB.id, effect.spread)
+              const maskCount = mask ? mask.reduce((s: number, v: number) => s + (v > 0 ? 1 : 0), 0) : 0
+              console.log(`[IX MASK] ${fieldA.name} (${presACount}px) x ${fieldB.name} (${presBCount}px) → mask=${maskCount}px spread=${effect.spread} pos=(${fieldA.transform.x.toFixed(0)},${fieldA.transform.y.toFixed(0)}) vs (${fieldB.transform.x.toFixed(0)},${fieldB.transform.y.toFixed(0)})`)
+              if (mask) {
+                newMasks.set(pairKey, mask)
+              }
+            }
+            cachedOverlapMasksRef.current = newMasks
           }
         } catch (e) {
           console.warn('[Presence] readback failed:', e)
@@ -1149,10 +1252,19 @@ export default function FieldEngine() {
               for (const field of sim.fields.values()) {
                 renderer.removeAllFieldEffects(field.id)
               }
+              // Clean up ix_* interaction effect programs
+              for (const key of Array.from(renderer.getFieldEffectKeys())) {
+                if (key.startsWith('ix_')) {
+                  renderer.removeFieldEffect(key)
+                  renderer.removeFieldMask(key)
+                }
+              }
               sim.clearAll()
               sim.fields.clear()
               sim.interactionRules = []
+              sim.interactionEffects = []
               sim.customCommands.clear()
+              cachedOverlapMasksRef.current = new Map()
 
               updateSelectionMask(null)
               setGeneration({ loading: false, error: null, targetFieldId: null })
@@ -1418,6 +1530,20 @@ export default function FieldEngine() {
                 pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, 'ERROR: glsl required')
                 break
               }
+              // Validate the wrapped GLSL before adding
+              const wrappedGlsl = wrapInteractionGlsl(glsl)
+              const testKey = `ix_validate_${Date.now()}`
+              const compileResult = renderer.compileFieldEffect(testKey, testKey, wrappedGlsl, getModCode())
+              if (!compileResult.success) {
+                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, `GLSL error: ${compileResult.error}`)
+                renderer.removeFieldEffect(testKey)
+                renderer.removeFieldMask(testKey)
+                break
+              }
+              // Clean up validation program — real programs are compiled per-pair in the frame loop
+              renderer.removeFieldEffect(testKey)
+              renderer.removeFieldMask(testKey)
+
               const effectId = sim.addInteractionEffect({
                 author: (cmd as Record<string, unknown>).author as string || 'unknown',
                 fieldA: (cmd as Record<string, unknown>).fieldA as string || null,
@@ -1430,18 +1556,11 @@ export default function FieldEngine() {
                 precedence: !!(cmd as Record<string, unknown>).precedence,
                 hooks: (cmd as Record<string, unknown>).hooks as InteractionEffect['hooks'] || undefined,
               })
-              // Pre-compile the shader
-              const programKey = `ix_${effectId}`
-              const compileResult = rendererRef.current?.compileInteractionEffect(programKey, glsl, getModCode())
-              if (compileResult && !compileResult.success) {
-                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, `GLSL error: ${compileResult.error}`)
-              } else {
-                const fieldALabel = (cmd as Record<string, unknown>).fieldA as string || 'any'
-                const fieldBLabel = (cmd as Record<string, unknown>).fieldB as string || 'any'
-                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string,
-                  (cmd as Record<string, unknown>).description as string || `${fieldALabel} × ${fieldBLabel}`,
-                  `id: ${effectId}`, cmdAuthor)
-              }
+              const fieldALabel = (cmd as Record<string, unknown>).fieldA as string || 'any'
+              const fieldBLabel = (cmd as Record<string, unknown>).fieldB as string || 'any'
+              pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string,
+                (cmd as Record<string, unknown>).description as string || `${fieldALabel} × ${fieldBLabel}`,
+                `id: ${effectId}`, cmdAuthor)
               syncFields()
               break
             }
@@ -1450,8 +1569,13 @@ export default function FieldEngine() {
               const effectId = (cmd as Record<string, unknown>).effectId as string
               if (effectId) {
                 sim.removeInteractionEffect(effectId)
-                const programKey = `ix_${effectId}`
-                rendererRef.current?.removeInteractionEffect(programKey)
+                // Clean up any compiled per-pair programs for this effect
+                for (const key of Array.from(renderer.getFieldEffectKeys())) {
+                  if (key.startsWith(`ix_${effectId}_`)) {
+                    renderer.removeFieldEffect(key)
+                    renderer.removeFieldMask(key)
+                  }
+                }
                 syncFields()
                 pushTerminal('remove_interaction_effect', undefined, effectId)
               }

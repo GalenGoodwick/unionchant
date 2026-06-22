@@ -248,6 +248,40 @@ Register reusable GLSL functions that become available in all subsequently compi
 
 **Important:** Do NOT modify engine source files (shaders.ts, renderer.ts, simulation.ts, types.ts) to add GLSL utilities. Use `register_glsl_mod` instead. Source file edits break the build because JS template literal parsing fails on injected GLSL code.
 
+### Tiled Field Pattern — Large Seamless Visuals
+
+A single field renders in a 64x64 pixel region (`FIELD_RENDER_EXTENT = 32`). To create visuals larger than 64x64, use a grid of child fields as tiles, all running the same shader in absolute grid coordinates.
+
+**How it works:**
+1. Create a parent field as a positional anchor (e.g., at 256,256)
+2. Create an N×N grid of child fields, each offset by 64 units, all with `parentFieldId` set to the parent
+3. Apply the same GLSL shader to every tile — use `coord` (absolute grid position) for all math, not tile-local UVs
+4. The renderer deduplicates identical GLSL via FNV-1a hash — N² tile instances share 1 compiled GPU program
+
+**Why it's seamless:** `coord` is the absolute grid position computed from camera + UV. A pixel at the right edge of tile (2,1) and the left edge of tile (2,2) receive adjacent coordinates. Functions like `length(coord - center)` produce continuous values across tile boundaries.
+
+**Example — 5×5 tiled Earth (320×320 pixels):**
+```json
+{"type":"create_field", "name":"Earth", "color":[0,0.3,0.8,1], "x":256, "y":256}
+```
+Then create 25 children at `(256 + (col-2)*64, 256 + (row-2)*64)` for row,col ∈ [0..4]:
+```json
+{"type":"create_field", "name":"tile_0_0", "color":[0,0.3,0.8,1], "x":128, "y":128, "parentFieldId":"EARTH_ID"}
+```
+Apply shader layers to all tiles — each layer uses absolute coords relative to center (256,256):
+```
+| Layer      | Blend    | Order | Shader role                        |
+|------------|----------|-------|------------------------------------|
+| Atmosphere | additive | 5     | Glow ring beyond sphere edge       |
+| Terrain    | alpha    | 10    | Sphere-mapped continents/oceans    |
+| Clouds     | alpha    | 20    | Translucent rotating cloud layer   |
+```
+
+**Key constraints:**
+- Rotation must be done in-shader (rotating longitude), NOT via field transform rotation (which would create gaps between tiles)
+- Movement: set velocity on the parent — all children follow via delta propagation
+- Keep the tile grid contiguous — no empty space inside the shape
+
 ### Bridge response
 
 Each field includes: `id`, `name`, `color`, `shape`, `bounds`, `transform`, `effects`, `memory`, `proximity`, `stateAtCenter`.
