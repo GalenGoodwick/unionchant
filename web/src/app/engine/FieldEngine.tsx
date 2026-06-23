@@ -361,11 +361,17 @@ export default function FieldEngine() {
       const hitField = sim.getFieldAtPoint(grid.x, grid.y)
 
       if (hitField) {
-        // Start dragging this field
-        draggingFieldId.current = hitField.id
+        // Walk up to root parent so dragging a child moves the whole group
+        let dragTarget = hitField
+        while (dragTarget.parentFieldId) {
+          const parent = sim.fields.get(dragTarget.parentFieldId)
+          if (!parent) break
+          dragTarget = parent
+        }
+        draggingFieldId.current = dragTarget.id
         dragOffset.current = {
-          x: hitField.transform.x - grid.x,
-          y: hitField.transform.y - grid.y,
+          x: dragTarget.transform.x - grid.x,
+          y: dragTarget.transform.y - grid.y,
         }
         dragStartScreen.current = { x: e.clientX, y: e.clientY }
         canvas.style.cursor = 'grabbing'
@@ -470,18 +476,36 @@ export default function FieldEngine() {
       const canvas = canvasRef.current
       if (canvas) canvas.style.cursor = 'grab'
 
-      // Click (not drag) — save field to library
+      // Click (not drag) — save field + children to library as a group
       if (dist < 5 && sim) {
         const field = sim.fields.get(fieldId)
         if (field) {
-          const snap = sim.generateSnapshots().find(s => s.id === fieldId)
+          const allSnaps = sim.generateSnapshots()
+          const snap = allSnaps.find(s => s.id === fieldId)
           if (snap) {
+            // Collect this field + all descendants
+            const groupIds = new Set<string>([fieldId])
+            // Walk children recursively
+            let changed = true
+            while (changed) {
+              changed = false
+              for (const s of allSnaps) {
+                if (s.parentFieldId && groupIds.has(s.parentFieldId) && !groupIds.has(s.id)) {
+                  groupIds.add(s.id)
+                  changed = true
+                }
+              }
+            }
+            const groupSnaps = allSnaps.filter(s => groupIds.has(s.id))
             try {
               const existing: unknown[] = JSON.parse(localStorage.getItem('fieldLibrary') || '[]')
-              const filtered = existing.filter((f: unknown) => (f as { id: string }).id !== fieldId)
-              filtered.push(snap)
+              // Remove any previous entries for these IDs
+              const filtered = existing.filter((f: unknown) => !groupIds.has((f as { id: string }).id))
+              filtered.push(...groupSnaps)
               localStorage.setItem('fieldLibrary', JSON.stringify(filtered))
-              showToast(`Saved "${field.name}" to library`, 'success')
+              const childCount = groupSnaps.length - 1
+              const label = childCount > 0 ? `"${field.name}" + ${childCount} children` : `"${field.name}"`
+              showToast(`Saved ${label} to library`, 'success')
             } catch { /* ignore */ }
           }
         }
@@ -687,6 +711,7 @@ export default function FieldEngine() {
             transform: [field.transform.x, field.transform.y, field.transform.rotation, field.transform.scale],
             params: [field.color[0], field.color[1], field.color[2], field.color[3]],
             blend: effect.blend,
+            feedback: effect.feedback,
           })
         }
       }
@@ -1078,6 +1103,7 @@ export default function FieldEngine() {
                   description: cmd.description || 'Injected by agent',
                   blend: 'alpha',
                   order: 10,
+                  feedback: !!cmd.feedback,
                 }
                 sim.addFieldEffect(targetId, effect)
                 syncFields()
@@ -1127,10 +1153,11 @@ export default function FieldEngine() {
                   description: cmd.description || 'effect added',
                   blend,
                   order: cmd.order ?? (field.effects.length + 1) * 10,
+                  feedback: !!cmd.feedback,
                 }
                 sim.addFieldEffect(targetId, effect)
                 syncFields()
-                pushTerminal('add_effect', targetId, `${effect.description} (${blend})`, cmd.glsl, cmdAuthor)
+                pushTerminal('add_effect', targetId, `${effect.description} (${blend}${cmd.feedback ? ' +feedback' : ''})`, cmd.glsl, cmdAuthor)
               } else {
                 // Compile error — write to field memory and worldData so agents can see it
                 const errMsg = result.error?.substring(0, 200) || 'unknown error'
@@ -1185,6 +1212,7 @@ export default function FieldEngine() {
                 oldEffect.glsl = cmd.glsl
                 if (cmd.description) oldEffect.description = cmd.description
                 if (cmd.blend) oldEffect.blend = cmd.blend
+                if (cmd.feedback !== undefined) oldEffect.feedback = !!cmd.feedback
                 syncFields()
                 pushTerminal('update_effect', targetId, `updated ${effectId}: ${cmd.description || oldEffect.description}`, cmd.glsl, cmdAuthor)
               } else {
@@ -1691,6 +1719,7 @@ export default function FieldEngine() {
                     description: effect.description,
                     blend: effect.blend,
                     order: effect.order,
+                    feedback: effect.feedback,
                   })
                 }
               }

@@ -694,9 +694,17 @@ export class FieldSimulation {
   /** Compute pixel-level overlap mask between two fields using GPU-rendered presence data.
    *  Returns null if either field has no presence data or there's no pixel overlap. */
   computePixelOverlapMask(fieldAId: string, fieldBId: string, spread: number = 0): Uint8Array | null {
-    const presA = this.fieldPresence.get(fieldAId)
-    const presB = this.fieldPresence.get(fieldBId)
+    let presA = this.fieldPresence.get(fieldAId)
+    let presB = this.fieldPresence.get(fieldBId)
     if (!presA || !presB) return null
+
+    // Dilate each field's presence BEFORE the AND — fields "reach" toward each other
+    // by `spread` pixels, so the interaction zone starts before strict pixel overlap.
+    // With spread=12, fields within 24px (12+12) of each other get an interaction zone.
+    if (spread > 0) {
+      presA = this.dilateMask(presA, spread)
+      presB = this.dilateMask(presB, spread)
+    }
 
     const overlap = new Uint8Array(GRID_SIZE * GRID_SIZE)
     let hasOverlap = false
@@ -708,11 +716,6 @@ export class FieldSimulation {
     }
 
     if (!hasOverlap) return null
-
-    if (spread > 0) {
-      return this.dilateMask(overlap, spread)
-    }
-
     return overlap
   }
 
@@ -1263,28 +1266,6 @@ export class FieldSimulation {
     return dilated
   }
 
-  /** Compute a texture where each pixel stores the count of fields with bounds coverage at that pixel. */
-  computeFieldCountTexture(): Uint8Array {
-    const count = new Uint8Array(GRID_SIZE * GRID_SIZE)
-
-    for (const field of this.fields.values()) {
-      const bounds = this.getFieldBounds(field.id)
-      if (!bounds) continue
-      const minX = Math.max(0, Math.floor(bounds.minX))
-      const minY = Math.max(0, Math.floor(bounds.minY))
-      const maxX = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxX))
-      const maxY = Math.min(GRID_SIZE - 1, Math.ceil(bounds.maxY))
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          const i = y * GRID_SIZE + x
-          if (count[i] < 255) count[i]++
-        }
-      }
-    }
-
-    return count
-  }
-
   /** Get all active interaction pairs — resolves wildcards, checks for actual overlap.
    *  Returns list of { effect, fieldA, fieldB } for each matching pair with overlap. */
   getActiveInteractionPairs(): Array<{ effect: InteractionEffect; fieldA: Field; fieldB: Field }> {
@@ -1292,17 +1273,20 @@ export class FieldSimulation {
     const fieldList = Array.from(this.fields.values())
 
     for (const effect of this.interactionEffects) {
+      const spread = effect.spread || 0
+
       if (effect.fieldA && effect.fieldB) {
         // Specific pair
         const a = this.fields.get(effect.fieldA)
         const b = this.fields.get(effect.fieldB)
         if (a && b) {
-          // Quick bounds overlap check before expensive mask computation
+          // Bounds overlap check expanded by spread — each field's presence is dilated
+          // by spread in computePixelOverlapMask, so the gate must match.
           const boundsA = this.getFieldBounds(a.id)
           const boundsB = this.getFieldBounds(b.id)
           if (boundsA && boundsB) {
-            const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
-            const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+            const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX) + 2 * spread
+            const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY) + 2 * spread
             if (overlapX > 0 && overlapY > 0) {
               result.push({ effect, fieldA: a, fieldB: b })
             }
@@ -1321,8 +1305,8 @@ export class FieldSimulation {
             const boundsA = this.getFieldBounds(a.id)
             const boundsB = this.getFieldBounds(b.id)
             if (boundsA && boundsB) {
-              const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
-              const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+              const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX) + 2 * spread
+              const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY) + 2 * spread
               if (overlapX > 0 && overlapY > 0) {
                 result.push({ effect, fieldA: a, fieldB: b })
               }

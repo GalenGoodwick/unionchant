@@ -25,8 +25,8 @@ export type EngineCommand =
   | { type: 'get_properties'; fieldId: string }
   | { type: 'set_tool'; tool: string }
   // Shader effect stack
-  | { type: 'inject_glsl'; glsl: string; description?: string; fieldId?: string; fromFieldId?: string }
-  | { type: 'add_effect'; fieldId: string; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; order?: number; author?: string; fromFieldId?: string }
+  | { type: 'inject_glsl'; glsl: string; description?: string; fieldId?: string; fromFieldId?: string; feedback?: boolean }
+  | { type: 'add_effect'; fieldId: string; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; order?: number; author?: string; fromFieldId?: string; feedback?: boolean }
   | { type: 'remove_effect'; fieldId: string; effectId: string }
   // World effects (composited, multiple allowed)
   | { type: 'add_world_effect'; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; fieldId?: string }

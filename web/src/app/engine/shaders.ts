@@ -421,13 +421,27 @@ uniform float u_gridSize;
 uniform vec4 u_effectBounds;   // (minX, minY, maxX, maxY) in grid coords
 uniform vec4 u_effectParams;   // user-controllable params passed to fieldEffect
 uniform vec4 u_fieldTransform; // (posX, posY, rotation, scale)
+uniform vec4 u_fieldAColor;       // interaction parent A color (zero for normal fields)
+uniform vec4 u_fieldBColor;       // interaction parent B color (zero for normal fields)
+uniform vec4 u_fieldATransform;   // interaction parent A (x,y,rot,scale) (zero for normal fields)
+uniform vec4 u_fieldBTransform;   // interaction parent B (x,y,rot,scale) (zero for normal fields)
 uniform sampler2D u_skeletonTex;  // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
 uniform int u_skeletonNodeCount;  // number of active skeleton nodes
+uniform sampler2D u_feedbackTex;  // previous frame output (256x256 RGBA16F, opt-in per effect)
+uniform vec2 u_feedbackSize;      // feedback texture dimensions
 
 in vec2 v_uv;
 out vec4 fragColor;
 
 ${getShaderUtilities(modCode)}
+
+// Map cell coordinate to feedback texture UV (0..1 within effect bounds)
+// Y is flipped because GL renders bottom-to-top but grid Y increases downward
+vec2 feedbackUV(vec2 cellCoord) {
+  vec2 uv = clamp((cellCoord - u_effectBounds.xy) / max(u_effectBounds.zw - u_effectBounds.xy, vec2(1.0)), 0.0, 1.0);
+  uv.y = 1.0 - uv.y;
+  return uv;
+}
 
 ${injectedGlsl}
 
@@ -491,6 +505,8 @@ uniform sampler2D u_colorTex;
 uniform float u_gridSize;
 uniform float u_time;
 uniform float u_dt;
+uniform sampler2D u_skeletonTex;  // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
+uniform int u_skeletonNodeCount;  // number of active skeleton nodes
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -517,64 +533,6 @@ ${deltaCalls.join('\n')}
  * Same fieldEffect(coord, regionMin, regionMax, time, params) signature.
  * regionMin = (0,0), regionMax = (gridSize, gridSize).
  */
-
-/**
- * Interaction effect pass: renders at pixels where two fields' cells overlap.
- * Agent provides an interactionEffect function with the same signature as fieldEffect.
- * Extra uniforms expose both fields' colors, transforms, and an overlap count texture
- * so the shader can differentiate 2-way vs N-way overlaps.
- * The mask (u_fieldMask) contains the AND of participating fields' masks.
- */
-export function buildInteractionFragmentShader(injectedGlsl: string, modCode?: string): string {
-  return `#version 300 es
-precision highp float;
-
-uniform sampler2D u_colorTex;
-uniform sampler2D u_stateTex;
-uniform sampler2D u_fieldMask;       // overlap mask (AND of field masks, optionally dilated)
-uniform sampler2D u_overlapCount;    // R8: number of fields at each pixel
-uniform vec2 u_camera;
-uniform vec2 u_resolution;
-uniform float u_zoom;
-uniform float u_time;
-uniform float u_gridSize;
-uniform vec4 u_effectBounds;         // (minX, minY, maxX, maxY) in grid coords
-uniform vec4 u_effectParams;         // user-controllable params
-uniform vec4 u_fieldTransform;       // (posX, posY, rotation, scale) center of overlap region
-uniform vec4 u_fieldAColor;          // RGBA of field A
-uniform vec4 u_fieldBColor;          // RGBA of field B
-uniform vec4 u_fieldATransform;      // (x, y, rotation, scale) of field A
-uniform vec4 u_fieldBTransform;      // (x, y, rotation, scale) of field B
-uniform sampler2D u_skeletonTex;     // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
-uniform int u_skeletonNodeCount;     // number of active skeleton nodes
-
-in vec2 v_uv;
-out vec4 fragColor;
-
-${getShaderUtilities(modCode)}
-
-${injectedGlsl}
-
-void main() {
-${COORD_MATH}
-
-  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
-    discard;
-  }
-
-  vec2 regionMin = u_effectBounds.xy;
-  vec2 regionMax = u_effectBounds.zw;
-  vec2 cellCoord = floor(gridCoord) + 0.5;
-
-  // Read overlap mask — only render where fields overlap (or within spread)
-  float maskVal = texture(u_fieldMask, texUV).r;
-
-  vec4 effect = interactionEffect(cellCoord, regionMin, regionMax, u_time, u_effectParams);
-  // Multiply alpha by overlap mask
-  fragColor = vec4(effect.rgb, clamp(effect.a * maskVal, 0.0, 1.0));
-}
-`;
-}
 
 /** Mask clear shader — erases underlying pixels where an interaction mask is active.
  *  Renders background color at full alpha, giving interaction effects visual precedence. */

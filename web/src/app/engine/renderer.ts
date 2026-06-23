@@ -1,7 +1,7 @@
 // Field Engine v3 — WebGL2 Renderer (Multi-pass, multi-effect)
 
 import { GRID_SIZE } from './types'
-import { vertexShaderSource, buildBaseFragmentShader, buildEffectFragmentShader, buildInteractionFragmentShader, buildMaskClearShader, buildStateUpdateShader, buildCompositeStateShader } from './shaders'
+import { vertexShaderSource, buildBaseFragmentShader, buildEffectFragmentShader, buildMaskClearShader, buildStateUpdateShader, buildCompositeStateShader } from './shaders'
 
 /** Shared compiled program — deduplicated by GLSL source hash */
 interface SharedProgram {
@@ -18,6 +18,19 @@ interface SharedProgram {
   uEffectBounds: WebGLUniformLocation | null
   uEffectParams: WebGLUniformLocation | null
   uFieldTransform: WebGLUniformLocation | null
+  uFieldAColor: WebGLUniformLocation | null
+  uFieldBColor: WebGLUniformLocation | null
+  uFieldATransform: WebGLUniformLocation | null
+  uFieldBTransform: WebGLUniformLocation | null
+  uFeedbackTex: WebGLUniformLocation | null
+  uFeedbackSize: WebGLUniformLocation | null
+}
+
+/** Per-effect feedback ping-pong texture pair */
+interface FeedbackBuffer {
+  texA: WebGLTexture
+  texB: WebGLTexture
+  currentIndex: 0 | 1
 }
 
 /** Lightweight entry mapping a programKey to its shared program hash */
@@ -34,44 +47,21 @@ export interface FieldEffectData {
   transform: [number, number, number, number]
   params: [number, number, number, number]
   blend: 'alpha' | 'additive' | 'multiply' | 'screen' | 'softlight'
+  /** Interaction parent A color (omit for normal field effects) */
+  fieldAColor?: [number, number, number, number]
+  /** Interaction parent B color (omit for normal field effects) */
+  fieldBColor?: [number, number, number, number]
+  /** Interaction parent A transform (omit for normal field effects) */
+  fieldATransform?: [number, number, number, number]
+  /** Interaction parent B transform (omit for normal field effects) */
+  fieldBTransform?: [number, number, number, number]
+  /** If true, clears underlying field pixels before rendering (interaction precedence) */
+  precedence?: boolean
+  /** Enable per-effect feedback buffer (u_feedbackTex reads previous frame output) */
+  feedback?: boolean
 }
 
 /** Compiled interaction effect program — like FieldProgram but with extra uniforms for both fields */
-interface InteractionProgram {
-  program: WebGLProgram
-  maskTex: WebGLTexture
-  uCamera: WebGLUniformLocation | null
-  uResolution: WebGLUniformLocation | null
-  uZoom: WebGLUniformLocation | null
-  uTime: WebGLUniformLocation | null
-  uGridSize: WebGLUniformLocation | null
-  uColorTex: WebGLUniformLocation | null
-  uStateTex: WebGLUniformLocation | null
-  uFieldMask: WebGLUniformLocation | null
-  uOverlapCount: WebGLUniformLocation | null
-  uEffectBounds: WebGLUniformLocation | null
-  uEffectParams: WebGLUniformLocation | null
-  uFieldTransform: WebGLUniformLocation | null
-  uFieldAColor: WebGLUniformLocation | null
-  uFieldBColor: WebGLUniformLocation | null
-  uFieldATransform: WebGLUniformLocation | null
-  uFieldBTransform: WebGLUniformLocation | null
-}
-
-/** Data passed to render() for each interaction effect pass */
-export interface InteractionEffectData {
-  programKey: string
-  bounds: [number, number, number, number]
-  fieldAColor: [number, number, number, number]
-  fieldBColor: [number, number, number, number]
-  fieldATransform: [number, number, number, number]
-  fieldBTransform: [number, number, number, number]
-  params: [number, number, number, number]
-  blend: 'alpha' | 'additive' | 'multiply'
-  /** If true, clears underlying field pixels before rendering this interaction */
-  precedence?: boolean
-}
-
 export class FieldRenderer {
   gl: WebGL2RenderingContext | null = null
   private baseProgram: WebGLProgram | null = null
@@ -83,10 +73,6 @@ export class FieldRenderer {
   private selectionTex: WebGLTexture | null = null
   private effectTex: WebGLTexture | null = null
   private quadVAO: WebGLVertexArrayObject | null = null
-
-  // Interaction effect programs (overlap shaders)
-  private interactionPrograms: Map<string, InteractionProgram> = new Map()
-  private overlapCountTex: WebGLTexture | null = null
 
   // Mask clear program — erases underlying pixels where interaction takes precedence
   private maskClearProgram: WebGLProgram | null = null
@@ -124,11 +110,16 @@ export class FieldRenderer {
   private uSelectionTex: WebGLUniformLocation | null = null
   private uEffectTex: WebGLUniformLocation | null = null
 
+  // Per-effect feedback buffers
+  private feedbackBuffers: Map<string, FeedbackBuffer> = new Map()
+  private feedbackFBO: WebGLFramebuffer | null = null
+  private static readonly MAX_FEEDBACK_BUFFERS = 32
+  private static readonly FEEDBACK_SIZE = 256
   static readonly MAX_FIELD_EFFECTS = 128
 
-  init(canvas: HTMLCanvasElement): boolean {
+  init(canvas: HTMLCanvasElement, options?: { alpha?: boolean }): boolean {
     const gl = canvas.getContext('webgl2', {
-      alpha: false,
+      alpha: options?.alpha ?? false,
       antialias: false,
       preserveDrawingBuffer: true,
     })
@@ -158,12 +149,10 @@ export class FieldRenderer {
 
     this.stateTex2 = this.createDataTexture()
     this.stateFBO = gl.createFramebuffer()
+    this.feedbackFBO = gl.createFramebuffer()
 
     this.presenceTex = this.createDataTexture()
     this.presenceFBO = gl.createFramebuffer()
-
-    // Overlap count texture (R8) for interaction shaders
-    this.overlapCountTex = this.createEmptyMaskTexture()
 
     // Mask clear program — erases underlying pixels where interactions take precedence
     const mcProgram = this.compileProgram(vertexShaderSource, buildMaskClearShader())
@@ -275,6 +264,36 @@ export class FieldRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     return tex
+  }
+
+  private createFeedbackTexture(): WebGLTexture | null {
+    const gl = this.gl
+    if (!gl) return null
+    const tex = gl.createTexture()
+    if (!tex) return null
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA16F,
+      FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE, 0,
+      gl.RGBA, gl.FLOAT, null
+    )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    return tex
+  }
+
+  private getOrCreateFeedbackBuffer(programKey: string): FeedbackBuffer | null {
+    let buf = this.feedbackBuffers.get(programKey)
+    if (buf) return buf
+    if (this.feedbackBuffers.size >= FieldRenderer.MAX_FEEDBACK_BUFFERS) return null
+    const texA = this.createFeedbackTexture()
+    const texB = this.createFeedbackTexture()
+    if (!texA || !texB) return null
+    buf = { texA, texB, currentIndex: 0 }
+    this.feedbackBuffers.set(programKey, buf)
+    return buf
   }
 
   /** Create a mask texture pre-filled with 0 (empty — effects only render where cells are painted) */
@@ -407,6 +426,12 @@ export class FieldRenderer {
         uEffectBounds: gl.getUniformLocation(program, 'u_effectBounds'),
         uEffectParams: gl.getUniformLocation(program, 'u_effectParams'),
         uFieldTransform: gl.getUniformLocation(program, 'u_fieldTransform'),
+        uFieldAColor: gl.getUniformLocation(program, 'u_fieldAColor'),
+        uFieldBColor: gl.getUniformLocation(program, 'u_fieldBColor'),
+        uFieldATransform: gl.getUniformLocation(program, 'u_fieldATransform'),
+        uFieldBTransform: gl.getUniformLocation(program, 'u_fieldBTransform'),
+        uFeedbackTex: gl.getUniformLocation(program, 'u_feedbackTex'),
+        uFeedbackSize: gl.getUniformLocation(program, 'u_feedbackSize'),
       }
       this.sharedPrograms.set(hash, shared)
     }
@@ -439,6 +464,14 @@ export class FieldRenderer {
 
     this.fieldEntries.delete(programKey)
     // Do NOT delete mask texture — it belongs to the field
+
+    // Clean up feedback buffer for this effect
+    const fb = this.feedbackBuffers.get(programKey)
+    if (fb) {
+      gl.deleteTexture(fb.texA)
+      gl.deleteTexture(fb.texB)
+      this.feedbackBuffers.delete(programKey)
+    }
   }
 
   /** Remove all effect entries for a given field ID prefix, and delete the field's mask texture */
@@ -481,118 +514,18 @@ export class FieldRenderer {
     )
   }
 
-  // ─── Interaction Effects ───
+  /** Get all field effect program keys (for cleanup iteration) */
+  getFieldEffectKeys(): IterableIterator<string> {
+    return this.fieldEntries.keys()
+  }
 
-  /** Compile and store an interaction effect program */
-  compileInteractionEffect(programKey: string, glsl: string, modCode?: string): { success: boolean; error?: string } {
-    const gl = this.gl
-    if (!gl) return { success: false, error: 'No WebGL context' }
-
-    const fragSrc = buildInteractionFragmentShader(glsl, modCode)
-
-    const fs = gl.createShader(gl.FRAGMENT_SHADER)!
-    gl.shaderSource(fs, fragSrc)
-    gl.compileShader(fs)
-    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
-      const error = gl.getShaderInfoLog(fs) || 'Interaction shader compile error'
-      gl.deleteShader(fs)
-      return { success: false, error }
+  /** Remove a field mask texture */
+  removeFieldMask(fieldId: string): void {
+    const tex = this.fieldMaskTextures.get(fieldId)
+    if (tex) {
+      this.gl?.deleteTexture(tex)
+      this.fieldMaskTextures.delete(fieldId)
     }
-    gl.deleteShader(fs)
-
-    const program = this.compileProgram(vertexShaderSource, fragSrc)
-    if (!program) {
-      return { success: false, error: 'Interaction shader link error' }
-    }
-
-    // Remove existing program with this key
-    this.removeInteractionEffect(programKey)
-
-    const maskTex = this.createEmptyMaskTexture()
-
-    const ip: InteractionProgram = {
-      program,
-      maskTex,
-      uCamera: gl.getUniformLocation(program, 'u_camera'),
-      uResolution: gl.getUniformLocation(program, 'u_resolution'),
-      uZoom: gl.getUniformLocation(program, 'u_zoom'),
-      uTime: gl.getUniformLocation(program, 'u_time'),
-      uGridSize: gl.getUniformLocation(program, 'u_gridSize'),
-      uColorTex: gl.getUniformLocation(program, 'u_colorTex'),
-      uStateTex: gl.getUniformLocation(program, 'u_stateTex'),
-      uFieldMask: gl.getUniformLocation(program, 'u_fieldMask'),
-      uOverlapCount: gl.getUniformLocation(program, 'u_overlapCount'),
-      uEffectBounds: gl.getUniformLocation(program, 'u_effectBounds'),
-      uEffectParams: gl.getUniformLocation(program, 'u_effectParams'),
-      uFieldTransform: gl.getUniformLocation(program, 'u_fieldTransform'),
-      uFieldAColor: gl.getUniformLocation(program, 'u_fieldAColor'),
-      uFieldBColor: gl.getUniformLocation(program, 'u_fieldBColor'),
-      uFieldATransform: gl.getUniformLocation(program, 'u_fieldATransform'),
-      uFieldBTransform: gl.getUniformLocation(program, 'u_fieldBTransform'),
-    }
-
-    this.interactionPrograms.set(programKey, ip)
-    return { success: true }
-  }
-
-  /** Remove an interaction effect program */
-  removeInteractionEffect(programKey: string): void {
-    const gl = this.gl
-    if (!gl) return
-
-    const ip = this.interactionPrograms.get(programKey)
-    if (!ip) return
-
-    gl.deleteProgram(ip.program)
-    gl.deleteTexture(ip.maskTex)
-    this.interactionPrograms.delete(programKey)
-  }
-
-  /** Remove all interaction effect programs */
-  removeAllInteractionEffects(): void {
-    const gl = this.gl
-    if (!gl) return
-    for (const ip of this.interactionPrograms.values()) {
-      gl.deleteProgram(ip.program)
-      gl.deleteTexture(ip.maskTex)
-    }
-    this.interactionPrograms.clear()
-  }
-
-  /** Check if an interaction effect exists */
-  hasInteractionEffect(programKey: string): boolean {
-    return this.interactionPrograms.has(programKey)
-  }
-
-  /** Upload the overlap mask for an interaction effect */
-  uploadInteractionMask(programKey: string, data: Uint8Array): void {
-    const gl = this.gl
-    if (!gl) return
-
-    const ip = this.interactionPrograms.get(programKey)
-    if (!ip) return
-
-    gl.bindTexture(gl.TEXTURE_2D, ip.maskTex)
-    gl.texSubImage2D(
-      gl.TEXTURE_2D, 0, 0, 0,
-      GRID_SIZE, GRID_SIZE,
-      gl.RED, gl.UNSIGNED_BYTE,
-      data
-    )
-  }
-
-  /** Upload the shared overlap count texture (per-pixel field count) */
-  uploadOverlapCountTexture(data: Uint8Array): void {
-    const gl = this.gl
-    if (!gl || !this.overlapCountTex) return
-
-    gl.bindTexture(gl.TEXTURE_2D, this.overlapCountTex)
-    gl.texSubImage2D(
-      gl.TEXTURE_2D, 0, 0, 0,
-      GRID_SIZE, GRID_SIZE,
-      gl.RED, gl.UNSIGNED_BYTE,
-      data
-    )
   }
 
   /** Check if a field effect program exists */
@@ -626,13 +559,12 @@ export class FieldRenderer {
     }
   }
 
-  /** Multi-pass render: base pass + per-field effect passes + interaction effects */
+  /** Multi-pass render: base pass + unified field/interaction effect passes */
   render(
     camera: { x: number; y: number },
     zoom: number,
     time: number,
-    fieldEffects?: FieldEffectData[],
-    interactionEffects?: InteractionEffectData[]
+    fieldEffects?: FieldEffectData[]
   ): void {
     const gl = this.gl
     if (!gl || !this.baseProgram) return
@@ -686,13 +618,28 @@ export class FieldRenderer {
     gl.bindVertexArray(this.quadVAO)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // --- Pass 2..N: Per-field effects (with blend modes) ---
+    // --- Pass 2..N: Unified field + interaction effects (with blend modes) ---
     if (fieldEffects && fieldEffects.length > 0) {
       for (const effect of fieldEffects) {
         const entry = this.fieldEntries.get(effect.programKey)
         if (!entry) continue
         const shared = this.sharedPrograms.get(entry.glslHash)
         if (!shared) continue
+
+        // Precedence pass: clear underlying pixels where the overlap mask is active
+        if (effect.precedence && this.maskClearProgram) {
+          gl.disable(gl.BLEND)
+          gl.useProgram(this.maskClearProgram)
+          gl.uniform2f(this.mcCamera, camera.x, camera.y)
+          gl.uniform2f(this.mcResolution, bufferW, bufferH)
+          gl.uniform1f(this.mcZoom, zoom)
+          gl.uniform1f(this.mcGridSize, GRID_SIZE)
+          gl.activeTexture(gl.TEXTURE0)
+          const precMaskTex = this.fieldMaskTextures.get(effect.fieldId)
+          gl.bindTexture(gl.TEXTURE_2D, precMaskTex || null)
+          gl.uniform1i(this.mcFieldMask, 0)
+          gl.drawArrays(gl.TRIANGLES, 0, 6)
+        }
 
         this.setBlendMode(effect.blend)
 
@@ -708,6 +655,16 @@ export class FieldRenderer {
         gl.uniform4f(shared.uEffectParams, effect.params[0], effect.params[1], effect.params[2], effect.params[3])
         gl.uniform4f(shared.uFieldTransform, effect.transform[0], effect.transform[1], effect.transform[2], effect.transform[3])
 
+        // Parent field data (zero for normal fields, populated for interaction effects)
+        const ac = effect.fieldAColor || [0, 0, 0, 0]
+        const bc = effect.fieldBColor || [0, 0, 0, 0]
+        const at = effect.fieldATransform || [0, 0, 0, 0]
+        const bt = effect.fieldBTransform || [0, 0, 0, 0]
+        gl.uniform4f(shared.uFieldAColor, ac[0], ac[1], ac[2], ac[3])
+        gl.uniform4f(shared.uFieldBColor, bc[0], bc[1], bc[2], bc[3])
+        gl.uniform4f(shared.uFieldATransform, at[0], at[1], at[2], at[3])
+        gl.uniform4f(shared.uFieldBTransform, bt[0], bt[1], bt[2], bt[3])
+
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, this.colorTex)
         gl.uniform1i(shared.uColorTex, 0)
@@ -721,79 +678,204 @@ export class FieldRenderer {
         gl.bindTexture(gl.TEXTURE_2D, maskTex || null)
         gl.uniform1i(shared.uFieldMask, 2)
 
-        gl.drawArrays(gl.TRIANGLES, 0, 6)
-      }
+        // Feedback buffer: FBO pass then screen pass
+        const feedbackBuf = effect.feedback ? this.getOrCreateFeedbackBuffer(effect.programKey) : null
 
-      gl.disable(gl.BLEND)
-    }
+        if (feedbackBuf && this.feedbackFBO) {
+          const readTex = feedbackBuf.currentIndex === 0 ? feedbackBuf.texA : feedbackBuf.texB
+          const writeTex = feedbackBuf.currentIndex === 0 ? feedbackBuf.texB : feedbackBuf.texA
 
-    // --- Pass N+1..P: Interaction effects (overlap shaders) ---
-    if (interactionEffects && interactionEffects.length > 0) {
-      for (const ix of interactionEffects) {
-        const ip = this.interactionPrograms.get(ix.programKey)
-        if (!ip) continue
+          // Compute FBO camera/zoom so the effect bounds fill the 256x256 texture
+          const fbW = effect.bounds[2] - effect.bounds[0]
+          const fbH = effect.bounds[3] - effect.bounds[1]
+          const fbMaxDim = Math.max(fbW, fbH, 1)
+          const fbCamX = (effect.bounds[0] + effect.bounds[2]) / 2
+          const fbCamY = (effect.bounds[1] + effect.bounds[3]) / 2
+          const fbZoom = GRID_SIZE / fbMaxDim
 
-        // Precedence pass: clear underlying pixels where the overlap mask is active
-        if (ix.precedence && this.maskClearProgram) {
+          // FBO pass: render to feedback texture
+          gl.bindFramebuffer(gl.FRAMEBUFFER, this.feedbackFBO)
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, writeTex, 0)
+          gl.viewport(0, 0, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
           gl.disable(gl.BLEND)
-          gl.useProgram(this.maskClearProgram)
-          gl.uniform2f(this.mcCamera, camera.x, camera.y)
-          gl.uniform2f(this.mcResolution, bufferW, bufferH)
-          gl.uniform1f(this.mcZoom, zoom)
-          gl.uniform1f(this.mcGridSize, GRID_SIZE)
-          gl.activeTexture(gl.TEXTURE0)
-          gl.bindTexture(gl.TEXTURE_2D, ip.maskTex)
-          gl.uniform1i(this.mcFieldMask, 0)
+
+          // Override camera/resolution/zoom for FBO coordinate space
+          gl.uniform2f(shared.uCamera, fbCamX, fbCamY)
+          gl.uniform2f(shared.uResolution, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
+          gl.uniform1f(shared.uZoom, fbZoom)
+
+          gl.activeTexture(gl.TEXTURE3)
+          gl.bindTexture(gl.TEXTURE_2D, readTex)
+          gl.uniform1i(shared.uFeedbackTex, 3)
+          gl.uniform2f(shared.uFeedbackSize, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
+
+          gl.bindVertexArray(this.quadVAO)
           gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+          // Flip ping-pong
+          feedbackBuf.currentIndex = feedbackBuf.currentIndex === 0 ? 1 : 0
+
+          // Restore screen framebuffer, viewport, and camera uniforms
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+          gl.viewport(0, 0, bufferW, bufferH)
+          gl.uniform2f(shared.uCamera, camera.x, camera.y)
+          gl.uniform2f(shared.uResolution, bufferW, bufferH)
+          gl.uniform1f(shared.uZoom, zoom)
+
+          // Bind updated feedback for screen pass
+          const newReadTex = feedbackBuf.currentIndex === 0 ? feedbackBuf.texA : feedbackBuf.texB
+          gl.activeTexture(gl.TEXTURE3)
+          gl.bindTexture(gl.TEXTURE_2D, newReadTex)
+          gl.uniform1i(shared.uFeedbackTex, 3)
+          gl.uniform2f(shared.uFeedbackSize, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
         }
 
-        this.setBlendMode(ix.blend)
-
-        gl.useProgram(ip.program)
-
-        gl.uniform2f(ip.uCamera, camera.x, camera.y)
-        gl.uniform2f(ip.uResolution, bufferW, bufferH)
-        gl.uniform1f(ip.uZoom, zoom)
-        gl.uniform1f(ip.uTime, time)
-        gl.uniform1f(ip.uGridSize, GRID_SIZE)
-
-        gl.uniform4f(ip.uEffectBounds, ix.bounds[0], ix.bounds[1], ix.bounds[2], ix.bounds[3])
-        gl.uniform4f(ip.uEffectParams, ix.params[0], ix.params[1], ix.params[2], ix.params[3])
-        gl.uniform4f(ip.uFieldTransform,
-          (ix.fieldATransform[0] + ix.fieldBTransform[0]) / 2,
-          (ix.fieldATransform[1] + ix.fieldBTransform[1]) / 2,
-          0, 1)
-
-        // Field A/B colors and transforms
-        gl.uniform4f(ip.uFieldAColor, ix.fieldAColor[0], ix.fieldAColor[1], ix.fieldAColor[2], ix.fieldAColor[3])
-        gl.uniform4f(ip.uFieldBColor, ix.fieldBColor[0], ix.fieldBColor[1], ix.fieldBColor[2], ix.fieldBColor[3])
-        gl.uniform4f(ip.uFieldATransform, ix.fieldATransform[0], ix.fieldATransform[1], ix.fieldATransform[2], ix.fieldATransform[3])
-        gl.uniform4f(ip.uFieldBTransform, ix.fieldBTransform[0], ix.fieldBTransform[1], ix.fieldBTransform[2], ix.fieldBTransform[3])
-
-        gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, this.colorTex)
-        gl.uniform1i(ip.uColorTex, 0)
-
-        gl.activeTexture(gl.TEXTURE1)
-        gl.bindTexture(gl.TEXTURE_2D, currentStateTex)
-        gl.uniform1i(ip.uStateTex, 1)
-
-        // Overlap mask on TEXTURE2
-        gl.activeTexture(gl.TEXTURE2)
-        gl.bindTexture(gl.TEXTURE_2D, ip.maskTex)
-        gl.uniform1i(ip.uFieldMask, 2)
-
-        // Overlap count texture on TEXTURE3
-        gl.activeTexture(gl.TEXTURE3)
-        gl.bindTexture(gl.TEXTURE_2D, this.overlapCountTex)
-        gl.uniform1i(ip.uOverlapCount, 3)
-
+        // Screen pass
+        this.setBlendMode(effect.blend)
+        gl.bindVertexArray(this.quadVAO)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
 
       gl.disable(gl.BLEND)
     }
 
+    gl.bindVertexArray(null)
+  }
+
+  /** Effects-only render: skips base pass, clears to a background color, only renders field effects.
+   *  Used by the spatial canvas to display saved fields as background decoration. */
+  renderEffectsOnly(
+    camera: { x: number; y: number },
+    zoom: number,
+    time: number,
+    fieldEffects: FieldEffectData[],
+    clearColor: [number, number, number, number] = [0.008, 0.024, 0.09, 1.0]
+  ): void {
+    const gl = this.gl
+    if (!gl) return
+
+    const canvas = gl.canvas as HTMLCanvasElement
+    const dpr = window.devicePixelRatio || 1
+    const displayW = canvas.clientWidth
+    const displayH = canvas.clientHeight
+    const bufferW = Math.round(displayW * dpr)
+    const bufferH = Math.round(displayH * dpr)
+
+    if (canvas.width !== bufferW || canvas.height !== bufferH) {
+      canvas.width = bufferW
+      canvas.height = bufferH
+    }
+
+    gl.viewport(0, 0, bufferW, bufferH)
+    gl.disable(gl.BLEND)
+    gl.clearColor(clearColor[0], clearColor[1], clearColor[2], clearColor[3])
+    gl.clear(gl.COLOR_BUFFER_BIT)
+
+    if (fieldEffects.length === 0) return
+
+    const currentStateTex = this.getCurrentStateTex()
+
+    for (const effect of fieldEffects) {
+      const entry = this.fieldEntries.get(effect.programKey)
+      if (!entry) continue
+      const shared = this.sharedPrograms.get(entry.glslHash)
+      if (!shared) continue
+
+      this.setBlendMode(effect.blend)
+
+      gl.useProgram(shared.program)
+
+      gl.uniform2f(shared.uCamera, camera.x, camera.y)
+      gl.uniform2f(shared.uResolution, bufferW, bufferH)
+      gl.uniform1f(shared.uZoom, zoom)
+      gl.uniform1f(shared.uTime, time)
+      gl.uniform1f(shared.uGridSize, GRID_SIZE)
+
+      gl.uniform4f(shared.uEffectBounds, effect.bounds[0], effect.bounds[1], effect.bounds[2], effect.bounds[3])
+      gl.uniform4f(shared.uEffectParams, effect.params[0], effect.params[1], effect.params[2], effect.params[3])
+      gl.uniform4f(shared.uFieldTransform, effect.transform[0], effect.transform[1], effect.transform[2], effect.transform[3])
+
+      const ac = effect.fieldAColor || [0, 0, 0, 0]
+      const bc = effect.fieldBColor || [0, 0, 0, 0]
+      const at = effect.fieldATransform || [0, 0, 0, 0]
+      const bt = effect.fieldBTransform || [0, 0, 0, 0]
+      gl.uniform4f(shared.uFieldAColor, ac[0], ac[1], ac[2], ac[3])
+      gl.uniform4f(shared.uFieldBColor, bc[0], bc[1], bc[2], bc[3])
+      gl.uniform4f(shared.uFieldATransform, at[0], at[1], at[2], at[3])
+      gl.uniform4f(shared.uFieldBTransform, bt[0], bt[1], bt[2], bt[3])
+
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, this.colorTex)
+      gl.uniform1i(shared.uColorTex, 0)
+
+      gl.activeTexture(gl.TEXTURE1)
+      gl.bindTexture(gl.TEXTURE_2D, currentStateTex)
+      gl.uniform1i(shared.uStateTex, 1)
+
+      gl.activeTexture(gl.TEXTURE2)
+      const maskTex = this.fieldMaskTextures.get(effect.fieldId)
+      gl.bindTexture(gl.TEXTURE_2D, maskTex || null)
+      gl.uniform1i(shared.uFieldMask, 2)
+
+      // Feedback buffer: FBO pass then screen pass
+      const feedbackBuf = effect.feedback ? this.getOrCreateFeedbackBuffer(effect.programKey) : null
+
+      if (feedbackBuf && this.feedbackFBO) {
+        const readTex = feedbackBuf.currentIndex === 0 ? feedbackBuf.texA : feedbackBuf.texB
+        const writeTex = feedbackBuf.currentIndex === 0 ? feedbackBuf.texB : feedbackBuf.texA
+
+        // Compute FBO camera/zoom so the effect bounds fill the 256x256 texture
+        const fbW = effect.bounds[2] - effect.bounds[0]
+        const fbH = effect.bounds[3] - effect.bounds[1]
+        const fbMaxDim = Math.max(fbW, fbH, 1)
+        const fbCamX = (effect.bounds[0] + effect.bounds[2]) / 2
+        const fbCamY = (effect.bounds[1] + effect.bounds[3]) / 2
+        const fbZoom = GRID_SIZE / fbMaxDim
+
+        // FBO pass: render to feedback texture
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.feedbackFBO)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, writeTex, 0)
+        gl.viewport(0, 0, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
+        gl.disable(gl.BLEND)
+
+        // Override camera/resolution/zoom for FBO coordinate space
+        gl.uniform2f(shared.uCamera, fbCamX, fbCamY)
+        gl.uniform2f(shared.uResolution, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
+        gl.uniform1f(shared.uZoom, fbZoom)
+
+        gl.activeTexture(gl.TEXTURE3)
+        gl.bindTexture(gl.TEXTURE_2D, readTex)
+        gl.uniform1i(shared.uFeedbackTex, 3)
+        gl.uniform2f(shared.uFeedbackSize, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
+
+        gl.bindVertexArray(this.quadVAO)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+        // Flip ping-pong
+        feedbackBuf.currentIndex = feedbackBuf.currentIndex === 0 ? 1 : 0
+
+        // Restore screen framebuffer, viewport, and camera uniforms
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+        gl.viewport(0, 0, bufferW, bufferH)
+        gl.uniform2f(shared.uCamera, camera.x, camera.y)
+        gl.uniform2f(shared.uResolution, bufferW, bufferH)
+        gl.uniform1f(shared.uZoom, zoom)
+
+        // Bind updated feedback for screen pass
+        const newReadTex = feedbackBuf.currentIndex === 0 ? feedbackBuf.texA : feedbackBuf.texB
+        gl.activeTexture(gl.TEXTURE3)
+        gl.bindTexture(gl.TEXTURE_2D, newReadTex)
+        gl.uniform1i(shared.uFeedbackTex, 3)
+        gl.uniform2f(shared.uFeedbackSize, FieldRenderer.FEEDBACK_SIZE, FieldRenderer.FEEDBACK_SIZE)
+      }
+
+      // Screen pass
+      this.setBlendMode(effect.blend)
+      gl.bindVertexArray(this.quadVAO)
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
+
+    gl.disable(gl.BLEND)
     gl.bindVertexArray(null)
   }
 
@@ -1274,14 +1356,15 @@ export class FieldRenderer {
     }
     this.fieldMaskTextures.clear()
 
-    // Clean up interaction effect programs
-    for (const ip of this.interactionPrograms.values()) {
-      gl.deleteProgram(ip.program)
-      gl.deleteTexture(ip.maskTex)
-    }
-    this.interactionPrograms.clear()
-    if (this.overlapCountTex) gl.deleteTexture(this.overlapCountTex)
     if (this.maskClearProgram) gl.deleteProgram(this.maskClearProgram)
+
+    // Clean up feedback buffers
+    for (const fb of this.feedbackBuffers.values()) {
+      gl.deleteTexture(fb.texA)
+      gl.deleteTexture(fb.texB)
+    }
+    this.feedbackBuffers.clear()
+    if (this.feedbackFBO) gl.deleteFramebuffer(this.feedbackFBO)
 
     if (this.colorTex) gl.deleteTexture(this.colorTex)
     if (this.stateTex) gl.deleteTexture(this.stateTex)

@@ -10,6 +10,7 @@ import ShareMenu from '@/components/ShareMenu'
 import { usePresence } from './usePresence'
 import { useUserspace } from './spatial/useUserspace'
 import SpatialCanvas, { type SpatialCanvasHandle } from './spatial/SpatialCanvas'
+import type { FieldSnapshot } from '@/app/engine/types'
 import SubspaceOverlay from './spatial/SubspaceOverlay'
 import { useChantsFeed } from './useChantsFeed'
 import { useChantDetail } from './useChantDetail'
@@ -217,6 +218,33 @@ function ChantsPageContent() {
   const [dockedUserspace, setDockedUserspace] = useState<{ userId: string; userName: string; userColor: string } | null>(null)
   const [spatialState, setSpatialState] = useState<{ mode: 'lobby' | 'list' | 'player'; listTab?: string | null; playerName?: string | null; canGoBack: boolean }>({ mode: 'lobby', canGoBack: false })
   const spatialCanvasRef = useRef<SpatialCanvasHandle>(null)
+  const [savedFields, setSavedFields] = useState<FieldSnapshot[]>([])
+  const [fieldLibrary, setFieldLibrary] = useState<FieldSnapshot[]>([])
+
+  // Load saved backdrop + library when entering spatial mode
+  useEffect(() => {
+    if (viewMode !== 'spatial') return
+    // Load backdrop (active fields for this space)
+    try {
+      const stored = localStorage.getItem('spatialFields')
+      if (stored) {
+        const fields = JSON.parse(stored)
+        if (Array.isArray(fields) && fields.length > 0) {
+          setSavedFields(fields)
+        }
+      }
+    } catch { /* ignore */ }
+    // Load library (all saved fields)
+    try {
+      const stored = localStorage.getItem('fieldLibrary')
+      if (stored) {
+        const fields = JSON.parse(stored)
+        if (Array.isArray(fields)) {
+          setFieldLibrary(fields)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [viewMode])
   const [followingIds, setFollowingIds] = useState<string[]>([])
 
   const [pendingInput, setPendingInput] = useState<string>('')
@@ -1599,6 +1627,83 @@ function ChantsPageContent() {
           onFollowHost={handleFollowHost}
           onBackFromSpatial={handleBackFromSpatial}
           onSpatialStateChange={setSpatialState}
+          savedFields={savedFields}
+          isAdmin={isAdmin}
+          fieldLibrary={fieldLibrary}
+          onRemoveFromLibrary={(fieldId) => {
+            const updated = fieldLibrary.filter(f => f.id !== fieldId)
+            setFieldLibrary(updated)
+            localStorage.setItem('fieldLibrary', JSON.stringify(updated))
+          }}
+          onRemoveSavedField={(fieldId) => {
+            const updated = savedFields.filter(f => f.id !== fieldId)
+            setSavedFields(updated)
+            localStorage.setItem('spatialFields', JSON.stringify(updated))
+            // Clean up field layout entry
+            try {
+              const layoutStr = localStorage.getItem('spatialFieldLayout')
+              if (layoutStr) {
+                const layout = JSON.parse(layoutStr).filter((m: { fieldId: string }) => m.fieldId !== fieldId)
+                localStorage.setItem('spatialFieldLayout', JSON.stringify(layout))
+              }
+            } catch { /* ignore */ }
+          }}
+          onLoadFromLibrary={(fieldId) => {
+            const field = fieldLibrary.find(f => f.id === fieldId)
+            if (!field) return
+            // Collect field + all descendants recursively
+            const toLoad: FieldSnapshot[] = [field]
+            const collectChildren = (parentId: string) => {
+              for (const f of fieldLibrary) {
+                if (f.parentFieldId === parentId && !toLoad.some(t => t.id === f.id)) {
+                  toLoad.push(f)
+                  collectChildren(f.id)
+                }
+              }
+            }
+            collectChildren(fieldId)
+            const updated = [...savedFields]
+            for (const f of toLoad) {
+              if (!updated.some(s => s.id === f.id)) {
+                updated.push(f)
+              }
+            }
+            setSavedFields(updated)
+            localStorage.setItem('spatialFields', JSON.stringify(updated))
+          }}
+          onImportAllFields={() => {
+            fetch('/api/engine/state')
+              .then(r => r.ok ? r.json() : null)
+              .then(data => {
+                if (data?.fields) {
+                  // Save to library
+                  const existingLib = [...fieldLibrary]
+                  for (const f of data.fields) {
+                    const idx = existingLib.findIndex(e => e.id === f.id)
+                    if (idx >= 0) {
+                      existingLib[idx] = f  // Update existing with fresh data
+                    } else {
+                      existingLib.push(f)
+                    }
+                  }
+                  setFieldLibrary(existingLib)
+                  localStorage.setItem('fieldLibrary', JSON.stringify(existingLib))
+                  // Also load into active backdrop (merge, don't replace)
+                  const mergedBackdrop = [...savedFields]
+                  for (const f of data.fields) {
+                    const idx = mergedBackdrop.findIndex(s => s.id === f.id)
+                    if (idx >= 0) {
+                      mergedBackdrop[idx] = f
+                    } else {
+                      mergedBackdrop.push(f)
+                    }
+                  }
+                  setSavedFields(mergedBackdrop)
+                  localStorage.setItem('spatialFields', JSON.stringify(mergedBackdrop))
+                }
+              })
+              .catch(() => {})
+          }}
         />
 
         {/* SPATIAL DOCKSTAR — centered on canvas */}

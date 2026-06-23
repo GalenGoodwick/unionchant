@@ -58,6 +58,8 @@ export interface FieldEffect {
   blend: 'alpha' | 'additive' | 'multiply'
   /** Render order within the stack (lower = first) */
   order: number
+  /** Enable per-effect feedback buffer (shader reads previous frame via u_feedbackTex) */
+  feedback?: boolean
 }
 
 /** A field = position + color + shader stack. The shader output IS the field body. */
@@ -166,6 +168,7 @@ export interface FieldSnapshot {
     description: string
     blend: 'alpha' | 'additive' | 'multiply'
     order: number
+    feedback?: boolean
   }>
   transform: FieldTransform
   memory: FieldMemoryEntry[]
