@@ -147,7 +147,7 @@ fn gnoise(p: vec2f) -> f32 {
                  dot(hash22(i + vec2f(1.0, 1.0)) * 2.0 - 1.0, f - vec2f(1.0, 1.0)), u.x), u.y);
 }
 
-// Fractal Brownian Motion
+// Fractal Brownian Motion (2D)
 fn fbm(p: vec2f, octaves: i32) -> f32 {
   var val = 0.0;
   var amp = 0.5;
@@ -155,6 +155,45 @@ fn fbm(p: vec2f, octaves: i32) -> f32 {
   for (var i = 0; i < 8; i++) {
     if (i >= octaves) { break; }
     val += amp * vnoise(p * freq);
+    freq *= 2.0;
+    amp *= 0.5;
+  }
+  return val;
+}
+
+// 3D hash → scalar
+fn hash31(p: vec3f) -> f32 {
+  var p3 = fract(p * vec3f(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, vec3f(p3.y, p3.z, p3.x) + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+// 3D value noise — trilinear interpolation of hashed cube corners
+fn vnoise3(p: vec3f) -> f32 {
+  let i = floor(p);
+  var f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  let a = hash31(i);
+  let b = hash31(i + vec3f(1.0, 0.0, 0.0));
+  let c = hash31(i + vec3f(0.0, 1.0, 0.0));
+  let d = hash31(i + vec3f(1.0, 1.0, 0.0));
+  let e = hash31(i + vec3f(0.0, 0.0, 1.0));
+  let g = hash31(i + vec3f(1.0, 0.0, 1.0));
+  let h = hash31(i + vec3f(0.0, 1.0, 1.0));
+  let k = hash31(i + vec3f(1.0, 1.0, 1.0));
+  let x1 = mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  let x2 = mix(mix(e, g, f.x), mix(h, k, f.x), f.y);
+  return mix(x1, x2, f.z);
+}
+
+// 3D Fractal Brownian Motion
+fn fbm3d(p: vec3f, octaves: i32) -> f32 {
+  var val = 0.0;
+  var amp = 0.5;
+  var freq = 1.0;
+  for (var i = 0; i < 8; i++) {
+    if (i >= octaves) { break; }
+    val += amp * vnoise3(p * freq);
     freq *= 2.0;
     amp *= 0.5;
   }
@@ -249,17 +288,24 @@ fn glow(d: f32, col: vec3f, intensity: f32, radius: f32) -> vec3f {
 // ─── Agent-Friendly Convenience Wrappers ───
 // These have fewer arguments and simpler signatures so AI agents can use them without errors.
 
-// FBM with preset octave counts (agents kept forgetting the octaves argument)
+// FBM with preset octave counts — 2D versions
 fn fbm3(p: vec2f) -> f32 { return fbm(p, 3); }
 fn fbm4(p: vec2f) -> f32 { return fbm(p, 4); }
 fn fbm5(p: vec2f) -> f32 { return fbm(p, 5); }
 fn fbm6(p: vec2f) -> f32 { return fbm(p, 6); }
 
+// FBM with preset octave counts — 3D versions (use vec3f for time-animated noise)
+fn fbm3v(p: vec3f) -> f32 { return fbm3d(p, 3); }
+fn fbm4v(p: vec3f) -> f32 { return fbm3d(p, 4); }
+fn fbm5v(p: vec3f) -> f32 { return fbm3d(p, 5); }
+fn fbm6v(p: vec3f) -> f32 { return fbm3d(p, 6); }
+
 // Rotate a 2D point by angle (agents struggled with rot2() * vec2f multiplication)
 fn rotate(p: vec2f, angle: f32) -> vec2f { return rot2(angle) * p; }
 
-// Simple noise at a point (single call, no args to forget)
+// Simple noise at a point — 2D and 3D
 fn noise(p: vec2f) -> f32 { return vnoise(p); }
+fn noisev(p: vec3f) -> f32 { return vnoise3(p); }
 fn noise3(p: vec2f) -> f32 { return fbm(p, 3); }
 
 // Simple circle mask: 1.0 inside, 0.0 outside, with smooth edge
@@ -288,6 +334,23 @@ const BASE_FUNC_NAMES: Set<string> = new Set()
   while ((m = funcDefRegex.exec(SHADER_UTILITIES)) !== null) {
     BASE_FUNC_NAMES.add(m[1])
   }
+}
+
+/**
+ * Auto-fix agent WGSL: rewrite vec2f function calls that got vec3f arguments
+ * to use the 3D variant instead. e.g. fbm4(vec3f(...)) → fbm4v(vec3f(...))
+ */
+const VEC2_TO_VEC3_FUNCS: Record<string, string> = {
+  'vnoise': 'vnoise3', 'noise': 'noisev', 'fbm3': 'fbm3v', 'fbm4': 'fbm4v',
+  'fbm5': 'fbm5v', 'fbm6': 'fbm6v',
+}
+function autoFixVec3Calls(code: string): string {
+  for (const [fn2d, fn3d] of Object.entries(VEC2_TO_VEC3_FUNCS)) {
+    // Match funcName(vec3f( — the agent passed a vec3f to a vec2f function
+    const pattern = new RegExp(`\\b${fn2d}\\(\\s*vec3f\\(`, 'g')
+    code = code.replace(pattern, `${fn3d}(vec3f(`)
+  }
+  return code
 }
 
 /**
@@ -443,6 +506,8 @@ ${COORD_MATH}
  * Effect pass: per-field WGSL effect. Outputs alpha-blended result.
  */
 export function buildEffectFragmentShader(injectedWgsl: string, modCode?: string): string {
+  // Auto-fix common agent mistake: passing vec3f to vec2f functions
+  const fixedWgsl = autoFixVec3Calls(injectedWgsl)
   return /* wgsl */`
 ${FRAME_UNIFORM_STRUCT}
 
@@ -468,7 +533,7 @@ fn feedbackUV(cellCoord: vec2f) -> vec2f {
   return uv;
 }
 
-${injectedWgsl}
+${fixedWgsl}
 
 @fragment
 fn main(in: VertexOutput) -> @location(0) vec4f {
@@ -632,6 +697,130 @@ fn fieldEffect(coord: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, para
   return vec4f(params.rgb, params.a * alpha);
 }
 `
+
+// ─── Compute effect pipeline shaders ───
+
+/**
+ * Compute shader version of effect pass.
+ * Dispatched over a field's pixel region only. Reads/blends into a storage buffer.
+ * Uses storage buffer (universally supported) instead of read_write storage textures.
+ */
+export function buildEffectComputeShader(injectedWgsl: string, modCode?: string): string {
+  const fixedWgsl = autoFixVec3Calls(injectedWgsl)
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+@group(1) @binding(0) var colorTex: texture_2d<f32>;
+@group(1) @binding(1) var stateTex: texture_2d<f32>;
+@group(1) @binding(2) var fieldMask: texture_2d<f32>;
+@group(1) @binding(3) var feedbackTex: texture_2d<f32>;
+@group(1) @binding(4) var texSampler: sampler;
+
+${EFFECT_UNIFORM_STRUCT}
+
+struct DispatchRegion {
+  offset: vec2f,
+  size: vec2f,
+};
+@group(3) @binding(0) var<uniform> dispatchRegion: DispatchRegion;
+@group(3) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
+
+${getShaderUtilities(modCode)}
+
+fn feedbackUV(cellCoord: vec2f) -> vec2f {
+  var uv = clamp((cellCoord - effect.bounds.xy) / max(effect.bounds.zw - effect.bounds.xy, vec2f(1.0)), vec2f(0.0), vec2f(1.0));
+  uv.y = 1.0 - uv.y;
+  return uv;
+}
+
+${fixedWgsl}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let pixel = vec2f(f32(gid.x) + dispatchRegion.offset.x, f32(gid.y) + dispatchRegion.offset.y);
+  let pixelI = vec2i(i32(pixel.x), i32(pixel.y));
+  let stride = u32(frame.resolution.x);
+
+  if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x >= frame.resolution.x || pixel.y >= frame.resolution.y) { return; }
+
+  // Pixel → UV (match fragment shader convention: UV y=0 at bottom, y=1 at top)
+  let uv = vec2f((pixel.x + 0.5) / frame.resolution.x, 1.0 - (pixel.y + 0.5) / frame.resolution.y);
+
+  // UV → grid coordinate (same as fragment shader COORD_MATH)
+  let aspect = frame.resolution.x / frame.resolution.y;
+  let gridRange = vec2f(frame.gridSize) / frame.zoom;
+  var gridCoord: vec2f;
+  if (aspect > 1.0) {
+    gridCoord.x = frame.camera.x + (uv.x - 0.5) * gridRange.x * aspect;
+    gridCoord.y = frame.camera.y + (0.5 - uv.y) * gridRange.y;
+  } else {
+    gridCoord.x = frame.camera.x + (uv.x - 0.5) * gridRange.x;
+    gridCoord.y = frame.camera.y + (0.5 - uv.y) * gridRange.y / aspect;
+  }
+
+  let texUV = gridCoord / frame.gridSize;
+  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) { return; }
+
+  let cellCoord = floor(gridCoord) + 0.5;
+  let regionMin = effect.bounds.xy;
+  let regionMax = effect.bounds.zw;
+
+  let result = fieldEffect(cellCoord, regionMin, regionMax, frame.time, effect.params);
+  let alpha = clamp(result.a, 0.0, 1.0);
+  if (alpha < 0.002) { return; }
+
+  // Alpha-blend into accumulation buffer
+  let idx = u32(pixelI.y) * stride + u32(pixelI.x);
+  let existing = accumBuf[idx];
+  accumBuf[idx] = vec4f(
+    mix(existing.rgb, result.rgb, alpha),
+    existing.a + alpha * (1.0 - existing.a),
+  );
+}
+`
+}
+
+/**
+ * Clear compute shader — zeros the accumulation buffer.
+ */
+export function buildAccumClearComputeShader(): string {
+  return /* wgsl */`
+@group(0) @binding(0) var<storage, read_write> buf: array<vec4f>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  if (gid.x < arrayLength(&buf)) {
+    buf[gid.x] = vec4f(0.0);
+  }
+}
+`
+}
+
+/**
+ * Blit shader — reads from accumulation storage buffer and outputs to screen.
+ */
+export function buildBlitFragmentShader(): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+@group(1) @binding(0) var<storage, read> accumBuf: array<vec4f>;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@fragment
+fn main(in: VertexOutput) -> @location(0) vec4f {
+  let pixel = vec2u(in.position.xy);
+  let stride = u32(frame.resolution.x);
+  let idx = pixel.y * stride + pixel.x;
+  let color = accumBuf[idx];
+  if (color.a < 0.001) { discard; }
+  return color;
+}
+`
+}
 
 // Backward-compatible exports
 export function buildFragmentShader(injectedWgsl?: string): string {

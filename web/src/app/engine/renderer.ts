@@ -5,6 +5,9 @@ import {
   vertexShaderSource,
   buildBaseFragmentShader,
   buildEffectFragmentShader,
+  buildEffectComputeShader,
+  buildAccumClearComputeShader,
+  buildBlitFragmentShader,
   buildMaskClearShader,
   buildStateUpdateComputeShader,
   buildCompositeStateComputeShader,
@@ -121,8 +124,73 @@ export class FieldRenderer {
   private static readonly FEEDBACK_SIZE = 256
   static readonly MAX_FIELD_EFFECTS = 128
 
+  /** Render resolution scale (0.25–2.0). Lower = fewer pixels = faster. Default 1.0. */
+  renderScale: number = 1.0
+
+  // ─── Compute effect pipeline ───
+  /** Whether compute effects are available and enabled */
+  useComputeEffects: boolean = true
+  private accumBuf: GPUBuffer | null = null
+  private accumBufPixelCount: number = 0
+  private accumBufStride: number = 0
+  private clearComputePipeline: GPUComputePipeline | null = null
+  private blitPipeline: GPURenderPipeline | null = null
+  private dispatchUniformBuf: GPUBuffer | null = null
+  private computeDispatchLayout: GPUBindGroupLayout | null = null
+  private clearComputeLayout: GPUBindGroupLayout | null = null
+  private blitStorageLayout: GPUBindGroupLayout | null = null
+  private sharedComputePipelines: Map<string, { pipeline: GPUComputePipeline; refCount: number }> = new Map()
+  private fieldComputeEntries: Map<string, { wgslHash: string }> = new Map()
+
+  // Staging buffers for per-effect uniforms (fixes writeBuffer ordering)
+  private effectUniformStagingBuf: GPUBuffer | null = null
+  private dispatchStagingBuf: GPUBuffer | null = null
+  private static readonly EFFECT_UNIFORM_SIZE = 112 // 28 floats
+  private static readonly DISPATCH_UNIFORM_SIZE = 16 // 4 floats
+
   constructor(gridSize: number = DEFAULT_GRID_SIZE) {
     this.gridSize = gridSize
+  }
+
+  setRenderScale(scale: number): void {
+    this.renderScale = Math.max(0.25, Math.min(2.0, scale))
+  }
+
+  /** Convert grid-space bounds to pixel-perfect screen-space scissor rect [x, y, w, h].
+   *  Grid→UV→pixel: X is direct, Y is flipped (UV y=0 at screen bottom, pixel y=0 at screen top). */
+  private gridBoundsToScissor(
+    bounds: [number, number, number, number],
+    camera: { x: number; y: number },
+    zoom: number,
+    bufferW: number,
+    bufferH: number,
+  ): [number, number, number, number] {
+    const aspect = bufferW / bufferH
+    const gridRange = this.gridSize / zoom
+    const [gMinX, gMinY, gMaxX, gMaxY] = bounds
+
+    // Formula: pixelCoord = ((gridCoord - camera) / visibleRange + 0.5) * bufferSize
+    // This works for both X and Y because the UV→pixel Y flip cancels the grid→UV Y flip.
+    let sMinX: number, sMinY: number, sMaxX: number, sMaxY: number
+    if (aspect > 1) {
+      const rangeX = gridRange * aspect
+      sMinX = ((gMinX - camera.x) / rangeX + 0.5) * bufferW
+      sMaxX = ((gMaxX - camera.x) / rangeX + 0.5) * bufferW
+      sMinY = ((gMinY - camera.y) / gridRange + 0.5) * bufferH
+      sMaxY = ((gMaxY - camera.y) / gridRange + 0.5) * bufferH
+    } else {
+      const rangeY = gridRange / aspect
+      sMinX = ((gMinX - camera.x) / gridRange + 0.5) * bufferW
+      sMaxX = ((gMaxX - camera.x) / gridRange + 0.5) * bufferW
+      sMinY = ((gMinY - camera.y) / rangeY + 0.5) * bufferH
+      sMaxY = ((gMaxY - camera.y) / rangeY + 0.5) * bufferH
+    }
+
+    const x = Math.max(0, Math.floor(sMinX))
+    const y = Math.max(0, Math.floor(sMinY))
+    const w = Math.min(bufferW, Math.ceil(sMaxX)) - x
+    const h = Math.min(bufferH, Math.ceil(sMaxY)) - y
+    return [x, y, Math.max(1, w), Math.max(1, h)]
   }
 
   async init(canvas: HTMLCanvasElement): Promise<boolean> {
@@ -220,11 +288,73 @@ export class FieldRenderer {
     const maskClearFragModule = device.createShaderModule({ code: buildMaskClearShader() })
     this.maskClearPipeline = await this.createMaskClearPipeline(maskClearFragModule)
 
+    // ─── Staging buffers for per-effect uniforms ───
+    // Each effect needs its own uniform slice; we write all to staging, then copyBufferToBuffer per pass.
+    this.effectUniformStagingBuf = device.createBuffer({
+      size: FieldRenderer.EFFECT_UNIFORM_SIZE * FieldRenderer.MAX_FIELD_EFFECTS,
+      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    })
+    this.dispatchStagingBuf = device.createBuffer({
+      size: FieldRenderer.DISPATCH_UNIFORM_SIZE * FieldRenderer.MAX_FIELD_EFFECTS,
+      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+    })
+
+    // ─── Compute effect pipeline resources ───
+    this.dispatchUniformBuf = device.createBuffer({
+      size: 16, // 4 floats: offsetX, offsetY, sizeX, sizeY
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    })
+
+    // Clear compute pipeline
+    {
+      const clearModule = device.createShaderModule({ code: buildAccumClearComputeShader() })
+      this.clearComputePipeline = await device.createComputePipelineAsync({
+        layout: device.createPipelineLayout({ bindGroupLayouts: [this.clearComputeLayout!] }),
+        compute: { module: clearModule, entryPoint: 'main' },
+      })
+    }
+
+    // Blit pipeline (reads from storage buffer, alpha-blends onto screen)
+    {
+      const blitModule = device.createShaderModule({ code: buildBlitFragmentShader() })
+      const blitLayout = device.createPipelineLayout({
+        bindGroupLayouts: [this.frameBindGroupLayout!, this.blitStorageLayout!],
+      })
+      this.blitPipeline = await device.createRenderPipelineAsync({
+        layout: blitLayout,
+        vertex: { module: this.vertexModule!, entryPoint: 'main' },
+        fragment: {
+          module: blitModule,
+          entryPoint: 'main',
+          targets: [{
+            format: this.canvasFormat,
+            blend: blendState('alpha'),
+          }],
+        },
+        primitive: { topology: 'triangle-list' },
+      })
+    }
+
     if (!this.hasFloat32Filterable) {
       console.warn('WebGPU: float32-filterable not available — textureSample on float textures may fail. Consider using a GPU that supports this feature.')
     }
-    console.log('WebGPU renderer initialized')
+    console.log('WebGPU renderer initialized (compute effects: enabled)')
     return true
+  }
+
+  /** Ensure the accumulation buffer matches the current canvas pixel dimensions */
+  private ensureAccumBuf(width: number, height: number): void {
+    const device = this.device!
+    const pixelCount = width * height
+    if (this.accumBuf && this.accumBufPixelCount === pixelCount && this.accumBufStride === width) return
+
+    this.accumBuf?.destroy()
+    this.accumBuf = device.createBuffer({
+      size: pixelCount * 16, // vec4f = 16 bytes per pixel
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.accumBufPixelCount = pixelCount
+    this.accumBufStride = width
   }
 
   private createBindGroupLayouts(): void {
@@ -250,19 +380,44 @@ export class FieldRenderer {
     })
 
     // Group 1 for effect pass: colorTex, stateTex, fieldMask, feedbackTex, sampler
+    // FRAGMENT | COMPUTE so the same bind group works for both render and compute pipelines
     this.effectTextureBindGroupLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: texSampleType } },
-        { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: texSampleType } },
-        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: texSampleType } },
-        { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: texSampleType } },
-        { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: samplerType } },
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: { sampleType: texSampleType } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: { sampleType: texSampleType } },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: { sampleType: texSampleType } },
+        { binding: 3, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, texture: { sampleType: texSampleType } },
+        { binding: 4, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, sampler: { type: samplerType } },
       ],
     })
 
-    // Group 2: per-effect uniforms
+    // Group 2: per-effect uniforms (FRAGMENT | COMPUTE)
     this.effectUniformBindGroupLayout = device.createBindGroupLayout({
-      entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } }],
+      entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }],
+    })
+
+    // ─── Compute effect pipeline layouts ───
+
+    // Group 3 for compute effects: dispatch region uniform + accumulation storage buffer
+    this.computeDispatchLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      ],
+    })
+
+    // Group 0 for accum clear compute: storage buffer
+    this.clearComputeLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      ],
+    })
+
+    // Group 1 for blit: read-only storage buffer
+    this.blitStorageLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      ],
     })
 
     // Mask clear: group 1 with fieldMask + sampler
@@ -389,6 +544,17 @@ export class FieldRenderer {
   private writeFrameUniforms(camera: { x: number; y: number }, resolution: [number, number], zoom: number, time: number): void {
     const data = new Float32Array([camera.x, camera.y, resolution[0], resolution[1], zoom, time, this.gridSize, 0])
     this.device!.queue.writeBuffer(this.frameUniformBuf!, 0, data)
+  }
+
+  /** Write effect uniforms to the staging buffer at the given slot index.
+   *  Use encoder.copyBufferToBuffer before each pass to transfer to effectUniformBuf. */
+  private stageEffectUniforms(index: number, effect: FieldEffectData): void {
+    const ac = effect.fieldAColor || [0, 0, 0, 0]
+    const bc = effect.fieldBColor || [0, 0, 0, 0]
+    const at = effect.fieldATransform || [0, 0, 0, 0]
+    const bt = effect.fieldBTransform || [0, 0, 0, 0]
+    const data = new Float32Array([...effect.bounds, ...effect.params, ...effect.transform, ...ac, ...bc, ...at, ...bt])
+    this.device!.queue.writeBuffer(this.effectUniformStagingBuf!, index * FieldRenderer.EFFECT_UNIFORM_SIZE, data)
   }
 
   private writeEffectUniforms(
@@ -535,6 +701,7 @@ export class FieldRenderer {
 
     this.removeFieldEffect(programKey)
 
+    // ─── Always compile render pipeline (used for presence maps + fallback) ───
     let shared = this.sharedPipelines.get(hash)
     if (shared) {
       shared.refCount++
@@ -572,22 +739,76 @@ export class FieldRenderer {
     }
 
     this.fieldEntries.set(programKey, { wgslHash: hash })
+
+    // ─── Also compile compute pipeline (for main render loop) ───
+    if (this.useComputeEffects) {
+      const computeSrc = buildEffectComputeShader(glsl, modCode)
+      const computeHash = this.hashSource(computeSrc)
+
+      let sharedCompute = this.sharedComputePipelines.get(computeHash)
+      if (sharedCompute) {
+        sharedCompute.refCount++
+      } else {
+        try {
+          const computeModule = device.createShaderModule({ code: computeSrc })
+          const info = await computeModule.getCompilationInfo()
+          const errors = info.messages.filter(m => m.type === 'error')
+          if (errors.length > 0) {
+            console.warn(`[Compute] Shader compile failed for ${programKey}, using render fallback:`, errors[0].message)
+          } else {
+            const computePipelineLayout = device.createPipelineLayout({
+              bindGroupLayouts: [
+                this.frameBindGroupLayout!,
+                this.effectTextureBindGroupLayout!,
+                this.effectUniformBindGroupLayout!,
+                this.computeDispatchLayout!,
+              ],
+            })
+            const pipeline = await device.createComputePipelineAsync({
+              layout: computePipelineLayout,
+              compute: { module: computeModule, entryPoint: 'main' },
+            })
+            sharedCompute = { pipeline, refCount: 1 }
+            this.sharedComputePipelines.set(computeHash, sharedCompute)
+          }
+        } catch (err) {
+          console.warn(`[Compute] Pipeline creation failed for ${programKey}, using render fallback`)
+        }
+      }
+
+      if (sharedCompute) {
+        this.fieldComputeEntries.set(programKey, { wgslHash: sharedCompute ? computeHash : '' })
+      }
+    }
+
     return { success: true }
   }
 
   removeFieldEffect(programKey: string): void {
     const entry = this.fieldEntries.get(programKey)
-    if (!entry) return
-
-    const shared = this.sharedPipelines.get(entry.wgslHash)
-    if (shared) {
-      shared.refCount--
-      if (shared.refCount <= 0) {
-        this.sharedPipelines.delete(entry.wgslHash)
+    if (entry) {
+      const shared = this.sharedPipelines.get(entry.wgslHash)
+      if (shared) {
+        shared.refCount--
+        if (shared.refCount <= 0) {
+          this.sharedPipelines.delete(entry.wgslHash)
+        }
       }
+      this.fieldEntries.delete(programKey)
     }
 
-    this.fieldEntries.delete(programKey)
+    // Also clean up compute pipeline entry
+    const computeEntry = this.fieldComputeEntries.get(programKey)
+    if (computeEntry) {
+      const sharedCompute = this.sharedComputePipelines.get(computeEntry.wgslHash)
+      if (sharedCompute) {
+        sharedCompute.refCount--
+        if (sharedCompute.refCount <= 0) {
+          this.sharedComputePipelines.delete(computeEntry.wgslHash)
+        }
+      }
+      this.fieldComputeEntries.delete(programKey)
+    }
 
     const fb = this.feedbackBuffers.get(programKey)
     if (fb) {
@@ -643,7 +864,7 @@ export class FieldRenderer {
     if (!device || !ctx || !this.basePipeline) return
 
     const canvas = ctx.canvas as HTMLCanvasElement
-    const dpr = window.devicePixelRatio || 1
+    const dpr = (window.devicePixelRatio || 1) * this.renderScale
     const displayW = canvas.clientWidth
     const displayH = canvas.clientHeight
     const bufferW = Math.round(displayW * dpr)
@@ -677,59 +898,182 @@ export class FieldRenderer {
       pass.end()
     }
 
-    // --- Pass 2..N: Effect passes ---
+    // --- Effects ---
     if (fieldEffects && fieldEffects.length > 0) {
-      for (const effect of fieldEffects) {
-        const entry = this.fieldEntries.get(effect.programKey)
-        if (!entry) continue
-        const shared = this.sharedPipelines.get(entry.wgslHash)
-        if (!shared) continue
+      // Separate effects into compute-eligible and render-fallback
+      const computeEffects: FieldEffectData[] = []
+      const renderEffects: FieldEffectData[] = []
 
-        // Precedence pass
-        if (effect.precedence && this.maskClearPipeline) {
-          const maskTex = this.fieldMaskTextures.get(effect.fieldId)
-          if (maskTex) {
-            const mcPass = encoder.beginRenderPass({
-              colorAttachments: [{
-                view: textureView,
-                loadOp: 'load',
-                storeOp: 'store',
-              }],
-            })
-            mcPass.setPipeline(this.maskClearPipeline)
-            mcPass.setBindGroup(0, this.getFrameBindGroup())
-            mcPass.setBindGroup(1, device.createBindGroup({
-              layout: this.maskClearTextureBindGroupLayout!,
-              entries: [
-                { binding: 0, resource: maskTex.createView() },
-                { binding: 1, resource: this.sampler! },
-              ],
-            }))
-            mcPass.draw(6)
-            mcPass.end()
+      if (this.useComputeEffects && this.clearComputePipeline && this.blitPipeline) {
+        for (const effect of fieldEffects) {
+          const computeEntry = this.fieldComputeEntries.get(effect.programKey)
+          if (computeEntry && this.sharedComputePipelines.has(computeEntry.wgslHash)) {
+            computeEffects.push(effect)
+          } else {
+            renderEffects.push(effect)
           }
         }
+      } else {
+        renderEffects.push(...fieldEffects)
+      }
 
-        this.writeEffectUniforms(
-          effect.bounds, effect.params, effect.transform,
-          effect.fieldAColor, effect.fieldBColor,
-          effect.fieldATransform, effect.fieldBTransform,
-        )
+      // ─── Stage ALL effect uniforms upfront ───
+      // queue.writeBuffer writes all complete before encoder commands execute,
+      // so we write each effect to a unique staging slot, then copyBufferToBuffer per pass.
+      let stageIdx = 0
+      const computeStageIndices: number[] = []
+      for (const effect of computeEffects) {
+        this.stageEffectUniforms(stageIdx, effect)
+        computeStageIndices.push(stageIdx++)
+      }
+      const renderStageIndices: number[] = []
+      for (const effect of renderEffects) {
+        this.stageEffectUniforms(stageIdx, effect)
+        renderStageIndices.push(stageIdx++)
+      }
 
-        const pass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: textureView,
-            loadOp: 'load',
-            storeOp: 'store',
-          }],
-        })
+      // Stage dispatch uniforms for compute effects
+      for (let i = 0; i < computeEffects.length; i++) {
+        const scissor = this.gridBoundsToScissor(computeEffects[i].bounds, camera, zoom, bufferW, bufferH)
+        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([scissor[0], scissor[1], scissor[2], scissor[3]]))
+      }
 
-        pass.setPipeline(shared.pipeline)
-        pass.setBindGroup(0, this.getFrameBindGroup())
-        pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
-        pass.setBindGroup(2, this.getEffectUniformBindGroup())
-        pass.draw(6)
-        pass.end()
+      // ─── Compute path: dispatch per-field, blit once ───
+      if (computeEffects.length > 0) {
+        this.ensureAccumBuf(bufferW, bufferH)
+
+        // Clear accumulation buffer
+        {
+          const clearBG = device.createBindGroup({
+            layout: this.clearComputeLayout!,
+            entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
+          })
+          const pass = encoder.beginComputePass()
+          pass.setPipeline(this.clearComputePipeline!)
+          pass.setBindGroup(0, clearBG)
+          pass.dispatchWorkgroups(Math.ceil(this.accumBufPixelCount / 256))
+          pass.end()
+        }
+
+        // Dispatch each compute effect over its pixel region
+        const frameBG = this.getFrameBindGroup()
+        const effectUniformBG = this.getEffectUniformBindGroup()
+
+        for (let i = 0; i < computeEffects.length; i++) {
+          const effect = computeEffects[i]
+          const computeEntry = this.fieldComputeEntries.get(effect.programKey)!
+          const sharedCompute = this.sharedComputePipelines.get(computeEntry.wgslHash)!
+
+          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
+          if (scissor[2] <= 0 || scissor[3] <= 0) continue
+          if (scissor[0] >= bufferW || scissor[1] >= bufferH) continue
+
+          // Copy this effect's uniforms from staging → active buffer (ordered within encoder)
+          encoder.copyBufferToBuffer(
+            this.effectUniformStagingBuf!, computeStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE,
+            this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE,
+          )
+          encoder.copyBufferToBuffer(
+            this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE,
+            this.dispatchUniformBuf!, 0, FieldRenderer.DISPATCH_UNIFORM_SIZE,
+          )
+
+          const dispatchBG = device.createBindGroup({
+            layout: this.computeDispatchLayout!,
+            entries: [
+              { binding: 0, resource: { buffer: this.dispatchUniformBuf! } },
+              { binding: 1, resource: { buffer: this.accumBuf! } },
+            ],
+          })
+
+          const pass = encoder.beginComputePass()
+          pass.setPipeline(sharedCompute.pipeline)
+          pass.setBindGroup(0, frameBG)
+          pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
+          pass.setBindGroup(2, effectUniformBG)
+          pass.setBindGroup(3, dispatchBG)
+          pass.dispatchWorkgroups(
+            Math.ceil(scissor[2] / 16),
+            Math.ceil(scissor[3] / 16),
+          )
+          pass.end()
+        }
+
+        // Blit accumulation buffer to screen
+        {
+          const blitBG = device.createBindGroup({
+            layout: this.blitStorageLayout!,
+            entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
+          })
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+              view: textureView,
+              loadOp: 'load',
+              storeOp: 'store',
+            }],
+          })
+          pass.setPipeline(this.blitPipeline!)
+          pass.setBindGroup(0, frameBG)
+          pass.setBindGroup(1, blitBG)
+          pass.draw(6)
+          pass.end()
+        }
+      }
+
+      // ─── Render pass fallback for effects without compute pipelines ───
+      if (renderEffects.length > 0) {
+        const frameBG = this.getFrameBindGroup()
+        const effectUniformBG = this.getEffectUniformBindGroup()
+
+        for (let i = 0; i < renderEffects.length; i++) {
+          const effect = renderEffects[i]
+          const entry = this.fieldEntries.get(effect.programKey)
+          if (!entry) continue
+          const shared = this.sharedPipelines.get(entry.wgslHash)
+          if (!shared) continue
+
+          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
+          if (scissor[2] <= 0 || scissor[3] <= 0) continue
+          if (scissor[0] >= bufferW || scissor[1] >= bufferH) continue
+
+          // Copy this effect's uniforms from staging → active buffer
+          encoder.copyBufferToBuffer(
+            this.effectUniformStagingBuf!, renderStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE,
+            this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE,
+          )
+
+          if (effect.precedence && this.maskClearPipeline) {
+            const maskTex = this.fieldMaskTextures.get(effect.fieldId)
+            if (maskTex) {
+              const mcPass = encoder.beginRenderPass({
+                colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+              })
+              mcPass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3])
+              mcPass.setPipeline(this.maskClearPipeline)
+              mcPass.setBindGroup(0, frameBG)
+              mcPass.setBindGroup(1, device.createBindGroup({
+                layout: this.maskClearTextureBindGroupLayout!,
+                entries: [
+                  { binding: 0, resource: maskTex.createView() },
+                  { binding: 1, resource: this.sampler! },
+                ],
+              }))
+              mcPass.draw(6)
+              mcPass.end()
+            }
+          }
+
+          const pass = encoder.beginRenderPass({
+            colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
+          })
+          pass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3])
+          pass.setPipeline(shared.pipeline)
+          pass.setBindGroup(0, frameBG)
+          pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
+          pass.setBindGroup(2, effectUniformBG)
+          pass.draw(6)
+          pass.end()
+        }
       }
     }
 
@@ -749,7 +1093,7 @@ export class FieldRenderer {
     if (!device || !ctx) return
 
     const canvas = ctx.canvas as HTMLCanvasElement
-    const dpr = window.devicePixelRatio || 1
+    const dpr = (window.devicePixelRatio || 1) * this.renderScale
     const displayW = canvas.clientWidth
     const displayH = canvas.clientHeight
     const bufferW = Math.round(displayW * dpr)
@@ -779,32 +1123,92 @@ export class FieldRenderer {
     }
 
     if (fieldEffects.length > 0) {
-      for (const effect of fieldEffects) {
-        const entry = this.fieldEntries.get(effect.programKey)
-        if (!entry) continue
-        const shared = this.sharedPipelines.get(entry.wgslHash)
-        if (!shared) continue
+      const computeEffects: FieldEffectData[] = []
+      const renderEffects: FieldEffectData[] = []
 
-        this.writeEffectUniforms(
-          effect.bounds, effect.params, effect.transform,
-          effect.fieldAColor, effect.fieldBColor,
-          effect.fieldATransform, effect.fieldBTransform,
-        )
+      if (this.useComputeEffects && this.clearComputePipeline && this.blitPipeline) {
+        for (const effect of fieldEffects) {
+          const ce = this.fieldComputeEntries.get(effect.programKey)
+          if (ce && this.sharedComputePipelines.has(ce.wgslHash)) {
+            computeEffects.push(effect)
+          } else {
+            renderEffects.push(effect)
+          }
+        }
+      } else {
+        renderEffects.push(...fieldEffects)
+      }
 
-        const pass = encoder.beginRenderPass({
-          colorAttachments: [{
-            view: textureView,
-            loadOp: 'load',
-            storeOp: 'store',
-          }],
-        })
+      // Stage all effect uniforms
+      let stageIdx = 0
+      const computeStageIndices: number[] = []
+      for (const effect of computeEffects) { this.stageEffectUniforms(stageIdx, effect); computeStageIndices.push(stageIdx++) }
+      const renderStageIndices: number[] = []
+      for (const effect of renderEffects) { this.stageEffectUniforms(stageIdx, effect); renderStageIndices.push(stageIdx++) }
+      for (let i = 0; i < computeEffects.length; i++) {
+        const scissor = this.gridBoundsToScissor(computeEffects[i].bounds, camera, zoom, bufferW, bufferH)
+        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([scissor[0], scissor[1], scissor[2], scissor[3]]))
+      }
 
-        pass.setPipeline(shared.pipeline)
-        pass.setBindGroup(0, this.getFrameBindGroup())
-        pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
-        pass.setBindGroup(2, this.getEffectUniformBindGroup())
-        pass.draw(6)
-        pass.end()
+      if (computeEffects.length > 0) {
+        this.ensureAccumBuf(bufferW, bufferH)
+        const clearBG = device.createBindGroup({ layout: this.clearComputeLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
+        { const pass = encoder.beginComputePass(); pass.setPipeline(this.clearComputePipeline!); pass.setBindGroup(0, clearBG); pass.dispatchWorkgroups(Math.ceil(this.accumBufPixelCount / 256)); pass.end() }
+
+        const frameBG = this.getFrameBindGroup()
+        const effectUniformBG = this.getEffectUniformBindGroup()
+
+        for (let i = 0; i < computeEffects.length; i++) {
+          const effect = computeEffects[i]
+          const ce = this.fieldComputeEntries.get(effect.programKey)!
+          const sc = this.sharedComputePipelines.get(ce.wgslHash)!
+          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
+          if (scissor[2] <= 0 || scissor[3] <= 0 || scissor[0] >= bufferW || scissor[1] >= bufferH) continue
+
+          encoder.copyBufferToBuffer(this.effectUniformStagingBuf!, computeStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE, this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE)
+          encoder.copyBufferToBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, this.dispatchUniformBuf!, 0, FieldRenderer.DISPATCH_UNIFORM_SIZE)
+
+          const dispatchBG = device.createBindGroup({ layout: this.computeDispatchLayout!, entries: [{ binding: 0, resource: { buffer: this.dispatchUniformBuf! } }, { binding: 1, resource: { buffer: this.accumBuf! } }] })
+          const pass = encoder.beginComputePass()
+          pass.setPipeline(sc.pipeline)
+          pass.setBindGroup(0, frameBG)
+          pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
+          pass.setBindGroup(2, effectUniformBG)
+          pass.setBindGroup(3, dispatchBG)
+          pass.dispatchWorkgroups(Math.ceil(scissor[2] / 16), Math.ceil(scissor[3] / 16))
+          pass.end()
+        }
+
+        const blitBG = device.createBindGroup({ layout: this.blitStorageLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
+        const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }] })
+        blitPass.setPipeline(this.blitPipeline!)
+        blitPass.setBindGroup(0, this.getFrameBindGroup())
+        blitPass.setBindGroup(1, blitBG)
+        blitPass.draw(6)
+        blitPass.end()
+      }
+
+      if (renderEffects.length > 0) {
+        const frameBG = this.getFrameBindGroup()
+        const effectUniformBG = this.getEffectUniformBindGroup()
+        for (let i = 0; i < renderEffects.length; i++) {
+          const effect = renderEffects[i]
+          const entry = this.fieldEntries.get(effect.programKey)
+          if (!entry) continue
+          const shared = this.sharedPipelines.get(entry.wgslHash)
+          if (!shared) continue
+          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
+          if (scissor[2] <= 0 || scissor[3] <= 0 || scissor[0] >= bufferW || scissor[1] >= bufferH) continue
+          encoder.copyBufferToBuffer(this.effectUniformStagingBuf!, renderStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE, this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE)
+          const pass = encoder.beginRenderPass({ colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }] })
+          pass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3])
+          pass.setPipeline(shared.pipeline)
+          pass.setBindGroup(0, frameBG)
+          pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
+          pass.setBindGroup(2, effectUniformBG)
+          pass.draw(6)
+          pass.end()
+        }
       }
     }
 
@@ -1178,6 +1582,8 @@ export class FieldRenderer {
   destroy(): void {
     this.sharedPipelines.clear()
     this.fieldEntries.clear()
+    this.sharedComputePipelines.clear()
+    this.fieldComputeEntries.clear()
 
     for (const tex of this.fieldMaskTextures.values()) {
       tex.destroy()
@@ -1201,17 +1607,26 @@ export class FieldRenderer {
     this.frameUniformBuf?.destroy()
     this.effectUniformBuf?.destroy()
     this.stateUniformBuf?.destroy()
+    this.dispatchUniformBuf?.destroy()
+    this.effectUniformStagingBuf?.destroy()
+    this.dispatchStagingBuf?.destroy()
+    this.accumBuf?.destroy()
 
     this.device = null
     this.context = null
     this.basePipeline = null
     this.maskClearPipeline = null
     this.stateUpdatePipeline = null
+    this.clearComputePipeline = null
+    this.blitPipeline = null
     this.colorTex = null
     this.stateTex = null
     this.stateTex2 = null
     this.selectionTex = null
     this.effectTex = null
     this.presenceTex = null
+    this.effectUniformStagingBuf = null
+    this.dispatchStagingBuf = null
+    this.accumBuf = null
   }
 }

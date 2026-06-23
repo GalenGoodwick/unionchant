@@ -13,7 +13,7 @@ export type EngineCommand =
   | { type: 'clear_effect'; fieldId?: string }
   | { type: 'clear_all' }
   // Shape-based field creation (no cells — shape IS the body)
-  | { type: 'create_field'; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number; parentFieldId?: string }
+  | { type: 'create_field'; fieldId?: string; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number; parentFieldId?: string }
   | { type: 'delete_field'; fieldId: string }
   | { type: 'set_parent'; fieldId: string; parentFieldId?: string }
   | { type: 'set_shape'; fieldId: string; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number }
@@ -217,12 +217,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Max 500 commands per request' }, { status: 400 })
     }
 
-    const results: { id: string; type: string }[] = []
+    const results: { id: string; type: string; fieldId?: string }[] = []
     let statusPayload: ReturnType<typeof getEngineState> | null = null
 
     for (const cmd of commands) {
+      // Assign a stable fieldId for create_field commands so browser and agents share the same ID
+      if (cmd.type === 'create_field' && !cmd.fieldId) {
+        cmd.fieldId = `field_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      }
+
       const entry = pushCommand(cmd)
-      results.push({ id: entry.id, type: cmd.type })
+      const result: { id: string; type: string; fieldId?: string } = { id: entry.id, type: cmd.type }
+      if (cmd.type === 'create_field' && cmd.fieldId) {
+        result.fieldId = cmd.fieldId
+      }
+      results.push(result)
 
       // Server-side memory injection for field messages (immediate visibility before client sync)
       if (cmd.type === 'field_message') {

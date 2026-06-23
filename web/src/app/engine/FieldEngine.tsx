@@ -1120,10 +1120,17 @@ export default function FieldEngine() {
                 pushTerminal('add_effect', undefined, 'ERROR: fieldId required')
                 break
               }
-              const field = sim.fields.get(targetId)
+              let field = sim.fields.get(targetId)
               if (!field) {
-                pushTerminal('add_effect', targetId, 'ERROR: field not found')
-                break
+                // Auto-create field when add_effect references one that doesn't exist yet
+                // (handles race conditions where add_effect arrives before create_field is processed)
+                const hue = DEFAULT_HUES[sim.fields.size % DEFAULT_HUES.length]
+                const color = hueToRgba(hue)
+                const autoName = `Field ${sim.fields.size + 1}`
+                sim.createField(targetId, autoName, color)
+                field = sim.fields.get(targetId)!
+                syncFields()
+                pushTerminal('create_field', targetId, `auto-created '${autoName}' for add_effect`)
               }
               // Accept glsl at top level, as 'shader', or nested inside cmd.effect
               if (!cmd.glsl && cmd.shader) cmd.glsl = cmd.shader
@@ -1301,7 +1308,8 @@ export default function FieldEngine() {
               break
 
             case 'create_field': {
-              const id = genFieldId()
+              // Use server-assigned fieldId if available, otherwise generate locally
+              const id = cmd.fieldId || genFieldId()
               const hue = DEFAULT_HUES[sim.fields.size % DEFAULT_HUES.length]
               const color = cmd.color || hueToRgba(hue)
               const name = cmd.name || `Field ${sim.fields.size + 1}`
