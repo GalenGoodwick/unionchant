@@ -1,8 +1,14 @@
 // Field Engine — Input Handling (pointer → cell mapping, shape tools)
 
-import { GRID_SIZE } from './types'
+import { DEFAULT_GRID_SIZE } from './types'
 
 export class FieldInput {
+  gridSize: number
+
+  constructor(gridSize: number = DEFAULT_GRID_SIZE) {
+    this.gridSize = gridSize
+  }
+
   /** Convert screen pixel coordinates to grid cell coordinates */
   screenToCell(
     screenX: number,
@@ -16,7 +22,7 @@ export class FieldInput {
     const normY = (screenY - canvasRect.top) / canvasRect.height
 
     const aspect = canvasRect.width / canvasRect.height
-    const gridRange = GRID_SIZE / zoom
+    const gridRange = this.gridSize / zoom
 
     let gridX: number, gridY: number
     if (aspect > 1) {
@@ -41,7 +47,7 @@ export class FieldInput {
     zoom: number
   ): { dx: number; dy: number } {
     const aspect = canvasRect.width / canvasRect.height
-    const gridRange = GRID_SIZE / zoom
+    const gridRange = this.gridSize / zoom
 
     let dx: number, dy: number
     if (aspect > 1) {
@@ -65,8 +71,8 @@ export class FieldInput {
         if (dx * dx + dy * dy > radius * radius) continue
         const x = cellX + dx
         const y = cellY + dy
-        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) continue
-        cells.push(y * GRID_SIZE + x)
+        if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) continue
+        cells.push(y * this.gridSize + x)
       }
     }
 
@@ -112,8 +118,8 @@ export class FieldInput {
         if (dx * dx + dy * dy > radius * radius) continue
         const x = center.x + dx
         const y = center.y + dy
-        if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) continue
-        cells.add(y * GRID_SIZE + x)
+        if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) continue
+        cells.add(y * this.gridSize + x)
       }
     }
 
@@ -127,13 +133,13 @@ export class FieldInput {
   ): number[] {
     const cells: number[] = []
     const minX = Math.max(0, Math.min(corner1.x, corner2.x))
-    const maxX = Math.min(GRID_SIZE - 1, Math.max(corner1.x, corner2.x))
+    const maxX = Math.min(this.gridSize - 1, Math.max(corner1.x, corner2.x))
     const minY = Math.max(0, Math.min(corner1.y, corner2.y))
-    const maxY = Math.min(GRID_SIZE - 1, Math.max(corner1.y, corner2.y))
+    const maxY = Math.min(this.gridSize - 1, Math.max(corner1.y, corner2.y))
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        cells.push(y * GRID_SIZE + x)
+        cells.push(y * this.gridSize + x)
       }
     }
 

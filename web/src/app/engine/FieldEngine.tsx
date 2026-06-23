@@ -12,7 +12,7 @@ import type { DialogEntry } from './AgentDialogPanel'
 import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
 import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState, InteractionEffect } from './types'
-import { GRID_SIZE } from './types'
+import { DEFAULT_GRID_SIZE } from './types'
 import { useToast } from '@/components/Toast'
 // DEFAULT_FIELD_EFFECT_GLSL removed — fields are invisible until agents give them a shader
 
@@ -31,12 +31,13 @@ function screenToGrid(
   screenX: number, screenY: number,
   canvasRect: DOMRect,
   camera: { x: number; y: number },
-  zoom: number
+  zoom: number,
+  gridSize: number = DEFAULT_GRID_SIZE
 ): { x: number; y: number } {
   const normX = (screenX - canvasRect.left) / canvasRect.width
   const normY = (screenY - canvasRect.top) / canvasRect.height
   const aspect = canvasRect.width / canvasRect.height
-  const gridRange = GRID_SIZE / zoom
+  const gridRange = gridSize / zoom
 
   if (aspect > 1) {
     return {
@@ -70,28 +71,21 @@ function hueToRgba(hue: number): [number, number, number, number] {
   return [r + m, g + m, b + m, 1.0]
 }
 
-/** Wrap interaction GLSL for the field effect pipeline.
- *  Interaction shaders define `interactionEffect(coord, regionMin, regionMax, time, params) → vec4`.
- *  This wrapper adapts it to `fieldEffect(...)` expected by the field pipeline.
- *
- *  Two tools are provided to the shader:
- *  - overlapMask(coord): returns 1.0 where both parent fields' presence overlaps, 0.0 elsewhere.
- *    Shader can sample at any coordinate to know the overlap shape.
- *  - The wrapper does NOT clip to the mask — the shader runs across the union of both fields'
- *    bounding regions and decides its own visibility. Use overlapMask() as a seed/guide. */
-function wrapInteractionGlsl(interactionGlsl: string): string {
+/** Wrap interaction WGSL for the field effect pipeline.
+ *  Interaction shaders define `fn interactionEffect(coord, regionMin, regionMax, time, params) → vec4f`.
+ *  This wrapper adapts it to `fn fieldEffect(...)` expected by the field pipeline. */
+function wrapInteractionGlsl(interactionWgsl: string): string {
   return `
 // Per-pixel overlap mask: 1.0 where both parent fields' dilated presence overlaps, 0.0 elsewhere.
-// Use as a seed — you can paint effects that extend outward from the overlap zone.
-float overlapMask(vec2 coord) {
-  return texture(u_fieldMask, coord / u_gridSize).r;
+fn overlapMask(coord: vec2f) -> f32 {
+  return textureSample(fieldMask, texSampler, coord / frame.gridSize).r;
 }
 
-${interactionGlsl}
+${interactionWgsl}
 
-vec4 fieldEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
-  vec4 effect = interactionEffect(coord, regionMin, regionMax, time, params);
-  return effect;
+fn fieldEffect(coord: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f {
+  let eff = interactionEffect(coord, regionMin, regionMax, time, params);
+  return eff;
 }`
 }
 
@@ -113,7 +107,8 @@ export default function FieldEngine() {
   const glslModsRef = useRef<Map<string, { id: string; code: string }>>(new Map())
 
   // Camera
-  const cameraRef = useRef<Camera>({ x: GRID_SIZE / 2, y: GRID_SIZE / 2, zoom: 1 })
+  const gridSize = DEFAULT_GRID_SIZE
+  const cameraRef = useRef<Camera>({ x: gridSize / 2, y: gridSize / 2, zoom: 1 })
   const [, forceUpdate] = useState(0)
 
   // Brush state
@@ -130,7 +125,7 @@ export default function FieldEngine() {
   // Selection state
   const [selection, setSelection] = useState<SelectionState>({
     selectedFieldId: null,
-    selectionMask: new Uint8Array(GRID_SIZE * GRID_SIZE),
+    selectionMask: new Uint8Array(DEFAULT_GRID_SIZE * DEFAULT_GRID_SIZE),
   })
 
   // Generation state — UI-only loading tracker, GLSL lives on Field objects
@@ -177,7 +172,7 @@ export default function FieldEngine() {
   const updateSelectionMask = useCallback((fieldId: string | null) => {
     const renderer = rendererRef.current
     if (!renderer) return
-    const mask = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const mask = new Uint8Array(gridSize * gridSize)
     renderer.uploadSelectionData(mask)
     setSelection({ selectedFieldId: fieldId, selectionMask: mask })
   }, [])
@@ -295,7 +290,7 @@ export default function FieldEngine() {
       // Add as an effect
       const effectId = genEffectId()
       const programKey = `${targetFieldId}_${effectId}`
-      const result = renderer.compileFieldEffect(programKey, targetFieldId, data.glsl, getModCode())
+      const result = await renderer.compileFieldEffect(programKey, targetFieldId, data.glsl, getModCode())
 
       if (result.success) {
         const effect: FieldEffect = {
@@ -422,29 +417,27 @@ export default function FieldEngine() {
       if (pixelInfoTimeout.current) clearTimeout(pixelInfoTimeout.current)
       pixelInfoTimeout.current = setTimeout(() => {
         const renderer = rendererRef.current
-        const gl = renderer?.gl
-        if (!gl || !sim) { setPixelInfo(null); return }
+        if (!renderer?.device || !sim) { setPixelInfo(null); return }
         const gx = Math.floor(gridPos.x)
         const gy = Math.floor(gridPos.y)
-        if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) { setPixelInfo(null); return }
+        if (gx < 0 || gx >= gridSize || gy < 0 || gy >= gridSize) { setPixelInfo(null); return }
 
-        // Read the rendered pixel color at the mouse position (framebuffer coordinates)
-        const canvasEl = gl.canvas as HTMLCanvasElement
-        const dpr = window.devicePixelRatio || 1
-        const fbX = Math.floor((e.clientX - rect.left) * dpr)
-        const fbY = canvasEl.height - 1 - Math.floor((e.clientY - rect.top) * dpr)
-        const pixel = new Uint8Array(4)
-        gl.readPixels(fbX, fbY, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+        // Read color from CPU-side colorData (avoids GPU readback for tooltip)
+        const idx = (gy * gridSize + gx) * 4
+        const cd = sim.world.colorData
+        const r = Math.round(cd[idx] * 255)
+        const g = Math.round(cd[idx + 1] * 255)
+        const b = Math.round(cd[idx + 2] * 255)
+        const a = Math.round(cd[idx + 3] * 255)
 
         // Use pixel-perfect presence data for field identification
-        // (populated by per-field GPU readback in the render loop)
         const fieldIds = sim.getFieldsAtPixel(gx, gy)
         const fieldsHere = fieldIds.map(id => sim.fields.get(id)?.name).filter(Boolean) as string[]
 
         setPixelInfo({
           screenX: e.clientX, screenY: e.clientY,
           gridX: gx, gridY: gy,
-          r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3],
+          r, g, b, a,
           fields: fieldsHere,
         })
       }, 50)
@@ -574,93 +567,94 @@ export default function FieldEngine() {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const renderer = new FieldRenderer()
-    const sim = new FieldSimulation()
-    const input = new FieldInput()
+    const renderer = new FieldRenderer(gridSize)
+    const sim = new FieldSimulation(gridSize)
+    const input = new FieldInput(gridSize)
 
     rendererRef.current = renderer
     simulationRef.current = sim
     inputRef.current = input
 
-    if (!renderer.init(canvas)) {
-      console.error('Failed to initialize WebGL2 renderer')
+    let cancelled = false
+
+    async function initEngine() {
+    const ok = await renderer.init(canvas!)
+    if (!ok || cancelled) {
+      console.error('Failed to initialize WebGPU renderer')
       return
     }
 
     // Upload initial empty textures
     renderer.uploadColorData(sim.world.colorData)
     renderer.uploadStateData(sim.world.stateData)
-    renderer.uploadSelectionData(new Uint8Array(GRID_SIZE * GRID_SIZE))
+    renderer.uploadSelectionData(new Uint8Array(gridSize * gridSize))
 
     startTimeRef.current = performance.now() / 1000
     lastFrameRef.current = performance.now()
 
     // Restore state from server, or create initial field
-    fetch('/api/engine/state')
-      .then(r => r.json())
-      .then(data => {
-        const sim = simulationRef.current
-        const renderer = rendererRef.current
-        if (!sim || !renderer) return
-        const snaps = data.fields || []
-        if (snaps.length > 0) {
-          sim.restoreFromSnapshots(snaps)
-          if (data.worldParams) sim.setWorldParams(data.worldParams)
+    try {
+      const r = await fetch('/api/engine/state')
+      const data = await r.json()
+      if (cancelled) return
+      const snaps = data.fields || []
+      if (snaps.length > 0) {
+        sim.restoreFromSnapshots(snaps)
+        if (data.worldParams) sim.setWorldParams(data.worldParams)
 
-          // Restore GLSL mods BEFORE compiling effects (effects may use mod functions)
-          if (Array.isArray(data.glslMods)) {
-            for (const mod of data.glslMods) {
-              if (mod.id && mod.code) {
-                glslModsRef.current.set(mod.id, { id: mod.id, code: mod.code })
-              }
-            }
-          }
-
-          const firstId = snaps[0].id
-
-          // Restore effect programs for all fields
-          let compiled = 0, failed = 0
-          for (const field of sim.fields.values()) {
-            for (const effect of field.effects) {
-              const programKey = `${field.id}_${effect.id}`
-              const result = renderer.compileFieldEffect(programKey, field.id, effect.glsl, getModCode())
-              if (result.success) {
-                compiled++
-              } else {
-                failed++
-                console.warn(`[Restore] Effect compile failed for ${field.name}/${effect.id}: ${result.error?.substring(0, 200)}`)
-              }
-            }
-          }
-          console.log(`[Restore] Effects: ${compiled} compiled, ${failed} failed, mods: ${glslModsRef.current.size}`)
-
-          setBrush(prev => ({ ...prev, activeFieldId: firstId }))
-        }
-        // Restore step hooks
-        if (Array.isArray(data.stepHooks)) {
-          for (const hook of data.stepHooks) {
-            if (hook.id && hook.code) {
-              sim.addStepHook(hook.id, hook.author || 'unknown', hook.description || '', hook.code)
+        // Restore WGSL mods BEFORE compiling effects (effects may use mod functions)
+        if (Array.isArray(data.glslMods)) {
+          for (const mod of data.glslMods) {
+            if (mod.id && mod.code) {
+              glslModsRef.current.set(mod.id, { id: mod.id, code: mod.code })
             }
           }
         }
-        // Restore interaction effects
-        if (Array.isArray(data.interactionEffects)) {
-          for (const ie of data.interactionEffects) {
-            if (ie.glsl) {
-              sim.addInteractionEffect(ie)
+
+        const firstId = snaps[0].id
+
+        // Restore effect programs for all fields
+        let compiled = 0, failed = 0
+        for (const field of sim.fields.values()) {
+          for (const effect of field.effects) {
+            const programKey = `${field.id}_${effect.id}`
+            const result = await renderer.compileFieldEffect(programKey, field.id, effect.glsl, getModCode())
+            if (result.success) {
+              compiled++
+            } else {
+              failed++
+              console.warn(`[Restore] Effect compile failed for ${field.name}/${effect.id}: ${result.error?.substring(0, 200)}`)
             }
           }
         }
-        // Restore world data
-        if (data.worldData && typeof data.worldData === 'object') {
-          Object.assign(sim.worldData, data.worldData)
+        console.log(`[Restore] Effects: ${compiled} compiled, ${failed} failed, mods: ${glslModsRef.current.size}`)
+
+        setBrush(prev => ({ ...prev, activeFieldId: firstId }))
+      }
+      // Restore step hooks
+      if (Array.isArray(data.stepHooks)) {
+        for (const hook of data.stepHooks) {
+          if (hook.id && hook.code) {
+            sim.addStepHook(hook.id, hook.author || 'unknown', hook.description || '', hook.code)
+          }
         }
-        setFields(new Map(sim.fields))
-      })
-      .catch(() => {
-        setFields(new Map(sim.fields))
-      })
+      }
+      // Restore interaction effects
+      if (Array.isArray(data.interactionEffects)) {
+        for (const ie of data.interactionEffects) {
+          if (ie.glsl) {
+            sim.addInteractionEffect(ie)
+          }
+        }
+      }
+      // Restore world data
+      if (data.worldData && typeof data.worldData === 'object') {
+        Object.assign(sim.worldData, data.worldData)
+      }
+      setFields(new Map(sim.fields))
+    } catch {
+      if (!cancelled) setFields(new Map(sim.fields))
+    }
 
     // Render loop
     function frame() {
@@ -685,8 +679,8 @@ export default function FieldEngine() {
       if (renderer.hasStateUpdate()) {
         const stateTime = now / 1000 - startTimeRef.current
         renderer.runStateUpdate(stateTime, dt / 1000)
-        // Read back GPU state to CPU so step hooks can see it
-        renderer.readbackState(sim.world.stateData)
+        // Async readback — don't block the frame. State syncs next frame.
+        renderer.readbackState(sim.world.stateData).catch(() => {})
       }
 
       const camera = cameraRef.current
@@ -694,7 +688,7 @@ export default function FieldEngine() {
 
       // Build effect list — mask texture clips to painted cells only
       const fieldEffects: FieldEffectData[] = []
-      const fullBounds: [number, number, number, number] = [0, 0, GRID_SIZE, GRID_SIZE]
+      const fullBounds: [number, number, number, number] = [0, 0, gridSize, gridSize]
       for (const field of sim.fields.values()) {
         const bounds = sim.getFieldBounds(field.id)
 
@@ -728,11 +722,10 @@ export default function FieldEngine() {
           // Lazy compile (wrap interaction GLSL → fieldEffect)
           if (!renderer.hasFieldEffect(pairKey)) {
             const wrappedGlsl = wrapInteractionGlsl(effect.glsl)
-            const result = renderer.compileFieldEffect(pairKey, pairKey, wrappedGlsl, getModCode())
-            if (!result.success) {
-              console.warn(`Interaction effect ${effect.id} compile error:`, result.error)
-              continue
-            }
+            // Fire-and-forget async compile — will be ready next frame
+            renderer.compileFieldEffect(pairKey, pairKey, wrappedGlsl, getModCode())
+              .then(result => { if (!result.success) console.warn(`Interaction effect ${effect.id} compile error:`, result.error) })
+            continue
           }
 
           // Upload cached overlap mask if available (computed at 250ms intervals)
@@ -750,8 +743,8 @@ export default function FieldEngine() {
             ? [
                 Math.max(0, Math.min(boundsA.minX, boundsB.minX) - spread),
                 Math.max(0, Math.min(boundsA.minY, boundsB.minY) - spread),
-                Math.min(GRID_SIZE, Math.max(boundsA.maxX, boundsB.maxX) + spread),
-                Math.min(GRID_SIZE, Math.max(boundsA.maxY, boundsB.maxY) + spread),
+                Math.min(gridSize, Math.max(boundsA.maxX, boundsB.maxX) + spread),
+                Math.min(gridSize, Math.max(boundsA.maxY, boundsB.maxY) + spread),
               ]
             : fullBounds
 
@@ -887,22 +880,24 @@ export default function FieldEngine() {
         }
       }
 
-      // Sample rendered pixels per field (throttled to once per second)
+      // Sample rendered pixels per field (throttled to once per second, async)
       if (now - lastSampleTimeRef.current > 1000) {
         lastSampleTimeRef.current = now
-        const samples = new Map<string, { width: number; height: number; pixels: number[] }>()
-        for (const field of sim.fields.values()) {
-          const bounds = sim.getFieldBounds(field.id)
-          if (!bounds) continue
-          const sample = renderer.sampleRenderedRegion(
-            camera, camera.zoom,
-            bounds.minX, bounds.minY,
-            bounds.maxX - bounds.minX, bounds.maxY - bounds.minY,
-            16
-          )
-          if (sample) samples.set(field.id, sample)
-        }
-        renderedSamplesRef.current = samples
+        // Fire async sampling — results land next cycle
+        ;(async () => {
+          const samples = new Map<string, { width: number; height: number; pixels: number[] }>()
+          for (const field of sim.fields.values()) {
+            const bounds = sim.getFieldBounds(field.id)
+            if (!bounds) continue
+            const sample = await renderer.sampleRenderedRegion(
+              camera, camera.zoom,
+              bounds.minX, bounds.minY,
+              bounds.maxX - bounds.minX, bounds.maxY - bounds.minY,
+              16
+            )
+            if (sample) samples.set(field.id, sample)
+          }
+          renderedSamplesRef.current = samples
         // Expose pixel samples to step hooks via worldData
         const pixelData: Record<string, { width: number; height: number; avgColor: [number, number, number]; brightness: number }> = {}
         for (const [fid, s] of samples) {
@@ -919,14 +914,19 @@ export default function FieldEngine() {
           }
         }
         sim.worldData['fieldPixels'] = pixelData
+        })().catch(() => {})
       }
 
       animFrameRef.current = requestAnimationFrame(frame)
     }
 
     animFrameRef.current = requestAnimationFrame(frame)
+    } // end initEngine
+
+    initEngine()
 
     return () => {
+      cancelled = true
       cancelAnimationFrame(animFrameRef.current)
       renderer.destroy()
       rendererRef.current = null
@@ -1032,7 +1032,7 @@ export default function FieldEngine() {
 
                 const effectId = genEffectId()
                 const programKey = `${targetFieldId}_${effectId}`
-                const result = renderer.compileFieldEffect(programKey, targetFieldId, genData.glsl, getModCode())
+                const result = await renderer.compileFieldEffect(programKey, targetFieldId, genData.glsl, getModCode())
                 if (result.success) {
                   const effect: FieldEffect = {
                     id: effectId,
@@ -1093,7 +1093,7 @@ export default function FieldEngine() {
 
               const effectId = genEffectId()
               const programKey = `${targetId}_${effectId}`
-              const result = renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
+              const result = await renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
 
               if (result.success) {
                 const effect: FieldEffect = {
@@ -1143,7 +1143,7 @@ export default function FieldEngine() {
               // Accept blend mode from 'blend' or 'effectType' (agents sometimes use effectType for blend)
               const rawBlend = cmd.blend || cmd.effectType
               const blend = (rawBlend === 'additive' || rawBlend === 'multiply') ? rawBlend : 'alpha'
-              const result = renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
+              const result = await renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
 
               if (result.success) {
                 const effect: FieldEffect = {
@@ -1206,7 +1206,7 @@ export default function FieldEngine() {
               if (!oldEffect) { pushTerminal('update_effect', targetId, `ERROR: effect ${effectId} not found`); break }
 
               const programKey = `${targetId}_${effectId}`
-              const result = renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
+              const result = await renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
               if (result.success) {
                 // Update in place — no gap
                 oldEffect.glsl = cmd.glsl
@@ -1561,9 +1561,9 @@ export default function FieldEngine() {
               // Validate the wrapped GLSL before adding
               const wrappedGlsl = wrapInteractionGlsl(glsl)
               const testKey = `ix_validate_${Date.now()}`
-              const compileResult = renderer.compileFieldEffect(testKey, testKey, wrappedGlsl, getModCode())
+              const compileResult = await renderer.compileFieldEffect(testKey, testKey, wrappedGlsl, getModCode())
               if (!compileResult.success) {
-                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, `GLSL error: ${compileResult.error}`)
+                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, `WGSL error: ${compileResult.error}`)
                 renderer.removeFieldEffect(testKey)
                 renderer.removeFieldMask(testKey)
                 break
@@ -1668,7 +1668,7 @@ export default function FieldEngine() {
               // GPU state update shader — runs each frame via render-to-texture ping-pong
               // Agent provides cellUpdate(coord, state, color, time, dt) function
               if (cmd.glsl) {
-                const stateResult = renderer.compileStateUpdate(cmd.glsl as string, getModCode())
+                const stateResult = await renderer.compileStateUpdate(cmd.glsl as string, getModCode())
                 if (stateResult.success) {
                   pushTerminal('add_state_shader', cmd.fieldId, cmd.description || 'state update shader active', cmd.glsl as string, cmd.author as string)
                 } else {
@@ -1710,7 +1710,7 @@ export default function FieldEngine() {
               for (const effect of sourceField.effects) {
                 const newEffectId = genEffectId()
                 const programKey = `${cloneId}_${newEffectId}`
-                const result = renderer.compileFieldEffect(programKey, cloneId, effect.glsl, getModCode())
+                const result = await renderer.compileFieldEffect(programKey, cloneId, effect.glsl, getModCode())
                 if (result.success) {
                   sim.addFieldEffect(cloneId, {
                     id: newEffectId,
@@ -1927,7 +1927,7 @@ export default function FieldEngine() {
           {/* Info overlay */}
           <div className="absolute top-3 left-3 text-[10px] text-muted font-mono flex items-center gap-2">
             <span className="pointer-events-none">
-              {GRID_SIZE}x{GRID_SIZE} | zoom: {cameraRef.current.zoom.toFixed(1)}x
+              {gridSize}x{gridSize} | zoom: {cameraRef.current.zoom.toFixed(1)}x
               {selectedField && <span> | selected: {selectedField.name}</span>}
               {agentConnected && <span className="text-accent"> | agent live</span>}
             </span>

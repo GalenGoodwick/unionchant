@@ -1,6 +1,6 @@
 // Field Engine v3 — Simulation (CPU-side)
 
-import { GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type InteractionEffect, type CustomCommand, type Projectile } from './types'
+import { DEFAULT_GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type InteractionEffect, type CustomCommand, type Projectile } from './types'
 
 /** Default render extent from field center (pixels). Not a "size" — just the shader execution area. */
 const FIELD_RENDER_EXTENT = 32
@@ -26,7 +26,7 @@ export class FieldSimulation {
   /** Lightweight projectiles — rendered via effectData, not as fields */
   projectiles: Projectile[] = []
   /** Per-field pixel presence — populated from GPU readback of each field's rendered output.
-   *  Map from fieldId → Uint8Array(GRID_SIZE × GRID_SIZE), 0 or 255 per pixel.
+   *  Map from fieldId → Uint8Array(gridSize × gridSize), 0 or 255 per pixel.
    *  This is the "field renders to pixels → pixels return data" pipeline. */
   fieldPresence: Map<string, Uint8Array> = new Map()
   static readonly MAX_MEMORY = 100
@@ -42,10 +42,13 @@ export class FieldSimulation {
     gravitationalConstant: 0,
   }
 
-  constructor() {
-    const totalCells = GRID_SIZE * GRID_SIZE * 4
+  gridSize: number
+
+  constructor(gridSize: number = DEFAULT_GRID_SIZE) {
+    this.gridSize = gridSize
+    const totalCells = gridSize * gridSize * 4
     this.world = {
-      size: GRID_SIZE,
+      size: gridSize,
       colorData: new Float32Array(totalCells),
       stateData: new Float32Array(totalCells),
       effectData: new Float32Array(totalCells),
@@ -505,16 +508,16 @@ export class FieldSimulation {
         field.transform.x -= bounds.minX
         if (field.transform.vx < 0) field.transform.vx = -field.transform.vx * wp.bounciness
       }
-      if (bounds.maxX >= GRID_SIZE) {
-        field.transform.x -= (bounds.maxX - (GRID_SIZE - 1))
+      if (bounds.maxX >= this.gridSize) {
+        field.transform.x -= (bounds.maxX - (this.gridSize - 1))
         if (field.transform.vx > 0) field.transform.vx = -field.transform.vx * wp.bounciness
       }
       if (bounds.minY < 0) {
         field.transform.y -= bounds.minY
         if (field.transform.vy < 0) field.transform.vy = -field.transform.vy * wp.bounciness
       }
-      if (bounds.maxY >= GRID_SIZE) {
-        field.transform.y -= (bounds.maxY - (GRID_SIZE - 1))
+      if (bounds.maxY >= this.gridSize) {
+        field.transform.y -= (bounds.maxY - (this.gridSize - 1))
         if (field.transform.vy > 0) field.transform.vy = -field.transform.vy * wp.bounciness
       }
     }
@@ -525,10 +528,10 @@ export class FieldSimulation {
     for (const field of this.fields.values()) {
       const t = field.transform
       // Wrap position around grid
-      if (t.x < 0) t.x += GRID_SIZE
-      if (t.x >= GRID_SIZE) t.x -= GRID_SIZE
-      if (t.y < 0) t.y += GRID_SIZE
-      if (t.y >= GRID_SIZE) t.y -= GRID_SIZE
+      if (t.x < 0) t.x += this.gridSize
+      if (t.x >= this.gridSize) t.x -= this.gridSize
+      if (t.y < 0) t.y += this.gridSize
+      if (t.y >= this.gridSize) t.y -= this.gridSize
     }
   }
 
@@ -544,16 +547,16 @@ export class FieldSimulation {
 
       // Wrap horizontally
       if (bounds.maxX < 0) {
-        t.x += GRID_SIZE + fieldW
-      } else if (bounds.minX >= GRID_SIZE) {
-        t.x -= GRID_SIZE + fieldW
+        t.x += this.gridSize + fieldW
+      } else if (bounds.minX >= this.gridSize) {
+        t.x -= this.gridSize + fieldW
       }
 
       // Wrap vertically
       if (bounds.maxY < 0) {
-        t.y += GRID_SIZE + fieldH
-      } else if (bounds.minY >= GRID_SIZE) {
-        t.y -= GRID_SIZE + fieldH
+        t.y += this.gridSize + fieldH
+      } else if (bounds.minY >= this.gridSize) {
+        t.y -= this.gridSize + fieldH
       }
     }
   }
@@ -680,8 +683,8 @@ export class FieldSimulation {
   /** Get all field IDs present at a specific pixel, based on GPU-rendered presence data.
    *  This is pixel-perfect: only returns fields whose shaders actually rendered at this pixel. */
   getFieldsAtPixel(x: number, y: number): string[] {
-    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return []
-    const idx = y * GRID_SIZE + x
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return []
+    const idx = y * this.gridSize + x
     const result: string[] = []
     for (const [fieldId, presence] of this.fieldPresence) {
       if (presence[idx] > 0) {
@@ -706,9 +709,9 @@ export class FieldSimulation {
       presB = this.dilateMask(presB, spread)
     }
 
-    const overlap = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const overlap = new Uint8Array(this.gridSize * this.gridSize)
     let hasOverlap = false
-    for (let i = 0; i < GRID_SIZE * GRID_SIZE; i++) {
+    for (let i = 0; i < this.gridSize * this.gridSize; i++) {
       if (presA[i] > 0 && presB[i] > 0) {
         overlap[i] = 255
         hasOverlap = true
@@ -721,7 +724,7 @@ export class FieldSimulation {
 
   /** Query cell presence data at a single pixel — uses GPU-rendered presence for pixel-perfect results */
   getCellInfo(x: number, y: number): { color: [number, number, number, number]; fieldCount: number; fieldIds: string[] } | null {
-    if (x < 0 || x >= GRID_SIZE || y < 0 || y >= GRID_SIZE) return null
+    if (x < 0 || x >= this.gridSize || y < 0 || y >= this.gridSize) return null
 
     // Use pixel-perfect presence data from GPU readback
     const fieldIds = this.getFieldsAtPixel(x, y)
@@ -736,16 +739,16 @@ export class FieldSimulation {
   /** Sample aggregate field presence info over a rectangular region */
   sampleRegion(cx: number, cy: number, radius: number): { avgColor: [number, number, number]; totalFieldCount: number; uniqueFieldIds: string[] } {
     const minX = Math.max(0, Math.floor(cx - radius))
-    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(cx + radius))
+    const maxX = Math.min(this.gridSize - 1, Math.ceil(cx + radius))
     const minY = Math.max(0, Math.floor(cy - radius))
-    const maxY = Math.min(GRID_SIZE - 1, Math.ceil(cy + radius))
+    const maxY = Math.min(this.gridSize - 1, Math.ceil(cy + radius))
 
     let rSum = 0, gSum = 0, bSum = 0, count = 0, totalFields = 0
     const fieldIdSet = new Set<string>()
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        const idx = (y * GRID_SIZE + x) * 4
+        const idx = (y * this.gridSize + x) * 4
         const fc = this.world.colorData[idx + 3]
         if (fc > 0) {
           rSum += this.world.colorData[idx]
@@ -973,8 +976,8 @@ export class FieldSimulation {
       let stateAtCenter: { r: number; g: number; b: number; a: number } | undefined
       if (center) {
         const cx = Math.floor(center.x), cy = Math.floor(center.y)
-        if (cx >= 0 && cx < GRID_SIZE && cy >= 0 && cy < GRID_SIZE) {
-          const base = (cy * GRID_SIZE + cx) * 4
+        if (cx >= 0 && cx < this.gridSize && cy >= 0 && cy < this.gridSize) {
+          const base = (cy * this.gridSize + cx) * 4
           stateAtCenter = { r: this.world.stateData[base], g: this.world.stateData[base + 1], b: this.world.stateData[base + 2], a: this.world.stateData[base + 3] }
         }
       }
@@ -1102,8 +1105,8 @@ export class FieldSimulation {
    *  Shapes are defined by which pixels you write to. */
   stampEffectPixel(x: number, y: number, effectType: number, hue: number, brightness: number, intensity: number): void {
     const gx = Math.round(x), gy = Math.round(y)
-    if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) return
-    const idx = (gy * GRID_SIZE + gx) * 4
+    if (gx < 0 || gx >= this.gridSize || gy < 0 || gy >= this.gridSize) return
+    const idx = (gy * this.gridSize + gx) * 4
     const data = this.world.effectData
     data[idx] = effectType
     data[idx + 1] = hue
@@ -1140,8 +1143,8 @@ export class FieldSimulation {
       for (let dx = -r; dx <= r; dx++) {
         if (dx * dx + dy * dy > r * r) continue
         const px = gx + dx, py = gy + dy
-        if (px < 0 || px >= GRID_SIZE || py < 0 || py >= GRID_SIZE) continue
-        const idx = (py * GRID_SIZE + px) * 4
+        if (px < 0 || px >= this.gridSize || py < 0 || py >= this.gridSize) continue
+        const idx = (py * this.gridSize + px) * 4
         data[idx] = 0
         data[idx + 1] = 0
         data[idx + 2] = 0
@@ -1181,7 +1184,7 @@ export class FieldSimulation {
       p.y += p.vy * dt
       p.age += dt
       if (p.age >= p.lifetime) continue
-      if (p.x < 0 || p.x >= GRID_SIZE || p.y < 0 || p.y >= GRID_SIZE) continue
+      if (p.x < 0 || p.x >= this.gridSize || p.y < 0 || p.y >= this.gridSize) continue
       const fade = 1.0 - (p.age / p.lifetime)
       this.stampEffectCircle(p.x, p.y, p.size, p.effectType, p.color, 1.0, p.intensity * fade)
       alive.push(p)
@@ -1220,15 +1223,15 @@ export class FieldSimulation {
 
     if (overlapMinX >= overlapMaxX || overlapMinY >= overlapMaxY) return null
 
-    const overlap = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const overlap = new Uint8Array(this.gridSize * this.gridSize)
     const minX = Math.max(0, Math.floor(overlapMinX))
     const minY = Math.max(0, Math.floor(overlapMinY))
-    const maxX = Math.min(GRID_SIZE - 1, Math.ceil(overlapMaxX))
-    const maxY = Math.min(GRID_SIZE - 1, Math.ceil(overlapMaxY))
+    const maxX = Math.min(this.gridSize - 1, Math.ceil(overlapMaxX))
+    const maxY = Math.min(this.gridSize - 1, Math.ceil(overlapMaxY))
 
     for (let y = minY; y <= maxY; y++) {
       for (let x = minX; x <= maxX; x++) {
-        overlap[y * GRID_SIZE + x] = 255
+        overlap[y * this.gridSize + x] = 255
       }
     }
 
@@ -1241,21 +1244,22 @@ export class FieldSimulation {
 
   /** Dilate a binary mask by radius pixels (box dilation) */
   private dilateMask(mask: Uint8Array, radius: number): Uint8Array {
-    const dilated = new Uint8Array(GRID_SIZE * GRID_SIZE)
+    const gs = this.gridSize
+    const dilated = new Uint8Array(gs * gs)
     const r = Math.min(radius, 50) // cap to prevent huge loops
 
-    for (let y = 0; y < GRID_SIZE; y++) {
-      for (let x = 0; x < GRID_SIZE; x++) {
-        if (mask[y * GRID_SIZE + x] > 0) {
+    for (let y = 0; y < gs; y++) {
+      for (let x = 0; x < gs; x++) {
+        if (mask[y * gs + x] > 0) {
           // Stamp a filled circle of radius r
           const minDy = Math.max(-r, -y)
-          const maxDy = Math.min(r, GRID_SIZE - 1 - y)
+          const maxDy = Math.min(r, gs - 1 - y)
           for (let dy = minDy; dy <= maxDy; dy++) {
             const minDx = Math.max(-r, -x)
-            const maxDx = Math.min(r, GRID_SIZE - 1 - x)
+            const maxDx = Math.min(r, gs - 1 - x)
             for (let dx = minDx; dx <= maxDx; dx++) {
               if (dx * dx + dy * dy <= r * r) {
-                dilated[(y + dy) * GRID_SIZE + (x + dx)] = 255
+                dilated[(y + dy) * gs + (x + dx)] = 255
               }
             }
           }

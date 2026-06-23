@@ -6,21 +6,21 @@ import { checkRateLimit } from '@/lib/rate-limit'
 
 export const maxDuration = 30
 
-const SYSTEM_PROMPT = `You are a pixel art engine. You write GLSL that renders animated pixel art sprites on a grid where each cell = 1 pixel of solid color.
+const SYSTEM_PROMPT = `You are a pixel art engine. You write WGSL that renders animated pixel art sprites on a grid where each cell = 1 pixel of solid color.
 
 Your output is clipped to the user's painted region (which may be any shape — circle, blob, freeform). You fill the bounding box with your design and the shape acts as a stencil.
 
 Write ONE function with this exact signature:
 
-vec4 fieldEffect(vec2 cellPos, vec2 regionMin, vec2 regionMax, float time, vec4 params) { ... }
+fn fieldEffect(cellPos: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f { ... }
 
 INPUTS:
-- cellPos: integer-snapped cell center (e.g. 120.5, 245.5) — one call per pixel
+- cellPos: integer-snapped cell center (e.g. vec2f(120.5, 245.5)) — one call per pixel
 - regionMin/regionMax: bounding box of the painted workspace
 - time: seconds elapsed (for animation)
-- params: vec4 of 0-1 user knobs
+- params: vec4f of 0-1 user knobs
 
-OUTPUT: vec4(r, g, b, 1.0) — always return a=1.0 (the stencil handles clipping)
+OUTPUT: vec4f(r, g, b, 1.0) — always return a=1.0 (the stencil handles clipping)
 
 COORDINATE HELPERS (pre-defined — just call them):
 - regionUV(cellPos, regionMin, regionMax) → 0..1 normalized position in region
@@ -28,17 +28,20 @@ COORDINATE HELPERS (pre-defined — just call them):
 - regionUVAspect(cellPos, regionMin, regionMax) → -1..1 aspect-corrected
 
 NOISE (pre-defined):
-- vnoise(vec2) → 0..1, gnoise(vec2) → -1..1, fbm(vec2, int octaves) → layered noise
-- hash21(vec2) → 0..1, hash22(vec2) → vec2, warp(vec2, strength, time) → warped coords
+- vnoise(vec2f) → 0..1, gnoise(vec2f) → -1..1, fbm(vec2f, i32 octaves) → layered noise
+- hash21(vec2f) → 0..1, hash22(vec2f) → vec2f, warp(vec2f, f32 strength, f32 time) → warped coords
 
 SHAPES (pre-defined):
-- sdCircle(vec2 p, float r), sdBox(vec2 p, vec2 b), sdRoundedBox(vec2 p, vec2 b, float r)
-- sdSegment(vec2 p, vec2 a, vec2 b), sdEquilateralTriangle(vec2 p, float r), sdStar(vec2 p, float r, int n, float m)
-- opSmoothUnion(d1, d2, k), opSubtract(d1, d2) — combine SDFs
+- sdCircle(vec2f p, f32 r), sdBox(vec2f p, vec2f b), sdRoundedBox(vec2f p, vec2f b, f32 r)
+- sdSegment(vec2f p, vec2f a, vec2f b), sdEquilateralTriangle(vec2f p, f32 r), sdStar(vec2f p, f32 r, i32 n, f32 m)
+- opSmoothUnion(f32, f32, f32), opSubtract(f32, f32) — combine SDFs
 
 COLOR (pre-defined):
-- hsv2rgb(vec3(h,s,v)), palette(t, a, b, c, d) → rainbow from cosine palette
-- rot2(angle) → 2x2 rotation matrix
+- hsv2rgb(vec3f(h,s,v)), palette(f32 t, vec3f a, vec3f b, vec3f c, vec3f d) → rainbow from cosine palette
+- rot2(f32 angle) → mat2x2f rotation matrix
+
+MATH:
+- glsl_mod(x: f32, y: f32) → GLSL-style mod (x - y * floor(x / y))
 
 TECHNIQUE — build sprites like this:
 1. Get uv = regionUV(cellPos, regionMin, regionMax) for 0..1 position
@@ -49,43 +52,48 @@ TECHNIQUE — build sprites like this:
 6. Layer: background → main shape → details → highlights
 
 EXAMPLE — campfire:
-vec4 fieldEffect(vec2 cellPos, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
-  vec2 uv = regionUV(cellPos, regionMin, regionMax);
-  vec2 center = uv - vec2(0.5);
+fn fieldEffect(cellPos: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f {
+  let uv = regionUV(cellPos, regionMin, regionMax);
+  let center = uv - vec2f(0.5);
   // Logs
-  float log1 = sdBox(center - vec2(-0.15, 0.3), vec2(0.25, 0.04));
-  float log2 = sdBox(center - vec2(0.1, 0.35), vec2(0.2, 0.04));
+  let log1 = sdBox(center - vec2f(-0.15, 0.3), vec2f(0.25, 0.04));
+  let log2 = sdBox(center - vec2f(0.1, 0.35), vec2f(0.2, 0.04));
   // Flame body — wobble with noise
-  vec2 flameP = center - vec2(0.0, -0.05);
-  flameP.x += gnoise(vec2(time * 2.0, uv.y * 3.0)) * 0.08;
-  float flame = sdCircle(flameP * vec2(1.0, 0.6), 0.2 - uv.y * 0.15);
+  var flameP = center - vec2f(0.0, -0.05);
+  flameP.x += gnoise(vec2f(time * 2.0, uv.y * 3.0)) * 0.08;
+  let flame = sdCircle(flameP * vec2f(1.0, 0.6), 0.2 - uv.y * 0.15);
   // Inner flame
-  float inner = sdCircle(flameP * vec2(1.2, 0.7), 0.1 - uv.y * 0.08);
+  let inner = sdCircle(flameP * vec2f(1.2, 0.7), 0.1 - uv.y * 0.08);
   // Sparks
-  float spark = hash21(floor(cellPos * 0.5) + floor(time * 3.0)) > 0.97 && uv.y < 0.3 ? 1.0 : 0.0;
+  var spark = 0.0;
+  if (hash21(floor(cellPos * 0.5) + floor(time * 3.0)) > 0.97 && uv.y < 0.3) { spark = 1.0; }
   // Compose color
-  vec3 col = vec3(0.1, 0.05, 0.02); // dark bg
-  if (log1 < 0.0 || log2 < 0.0) col = vec3(0.35, 0.18, 0.06) + vnoise(cellPos * 0.5) * 0.1;
-  if (flame < 0.0) col = vec3(0.9, 0.3 + vnoise(cellPos + time) * 0.2, 0.05);
-  if (inner < 0.0) col = vec3(1.0, 0.85, 0.2);
-  if (spark > 0.0) col = vec3(1.0, 0.7, 0.1);
-  return vec4(col, 1.0);
+  var col = vec3f(0.1, 0.05, 0.02); // dark bg
+  if (log1 < 0.0 || log2 < 0.0) { col = vec3f(0.35, 0.18, 0.06) + vnoise(cellPos * 0.5) * 0.1; }
+  if (flame < 0.0) { col = vec3f(0.9, 0.3 + vnoise(cellPos + time) * 0.2, 0.05); }
+  if (inner < 0.0) { col = vec3f(1.0, 0.85, 0.2); }
+  if (spark > 0.0) { col = vec3f(1.0, 0.7, 0.1); }
+  return vec4f(col, 1.0);
 }
 
 RULES:
-- GLSL 300 ES only. No uniforms/textures/globals — only function params + the utility library above
+- WGSL syntax only. No GLSL. Use fn, let, var, vec2f, vec3f, vec4f, f32, i32, mat2x2f
+- No uniforms/textures/globals — only function params + the utility library above
 - Do NOT redeclare any utility function
-- You CAN define helper functions before fieldEffect
+- You CAN define helper functions before fieldEffect (use fn name(args) -> return_type { } syntax)
 - Always return a=1.0
 - Make it look GOOD — rich colors, detail, animation. This should look like quality sprite art.
 - Use the FULL workspace — scale your design to fill regionMin→regionMax
+- WGSL requires explicit type constructors: vec2f(), vec3f(), vec4f() — NOT vec2(), vec3(), vec4()
+- Ternary operator does NOT exist in WGSL — use select(falseVal, trueVal, condition) or if/else
+- Use glsl_mod() instead of the % operator for float modulus
 
 Respond in this exact format:
 
 DESCRIPTION: one line
 
-\`\`\`glsl
-vec4 fieldEffect(vec2 cellPos, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
+\`\`\`wgsl
+fn fieldEffect(cellPos: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f {
   // code
 }
 \`\`\``
@@ -128,35 +136,22 @@ Workspace: ${width}x${height} cells (from (${bounds?.minX ?? 0}, ${bounds?.minY 
       2048
     )
 
-    // Extract GLSL from code fence and description from text
-    const glslMatch = result.match(/```glsl\s*\n([\s\S]*?)```/)
+    // Extract WGSL from code fence and description from text
+    const wgslMatch = result.match(/```wgsl\s*\n([\s\S]*?)```/)
       || result.match(/```\s*\n([\s\S]*?)```/)
     const descMatch = result.match(/DESCRIPTION:\s*(.+)/)
 
-    let glsl = glslMatch?.[1]?.trim()
+    let glsl = wgslMatch?.[1]?.trim()
     const description = descMatch?.[1]?.trim() || 'Generated effect'
 
     // Fallback: if no code fence, try to extract the function directly
     if (!glsl) {
-      const funcMatch = result.match(/(vec4\s+fieldEffect\s*\([\s\S]*\})\s*$/)
+      const funcMatch = result.match(/(fn\s+fieldEffect\s*\([\s\S]*\})\s*$/)
       glsl = funcMatch?.[1]?.trim()
     }
 
-    // Last resort: try JSON parse (in case AI still returns JSON)
     if (!glsl) {
-      try {
-        const jsonMatch = result.match(/\{[\s\S]*"glsl"[\s\S]*\}/)
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0])
-          glsl = parsed.glsl
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    if (!glsl) {
-      console.error('Failed to extract GLSL from response:', result.substring(0, 500))
+      console.error('Failed to extract WGSL from response:', result.substring(0, 500))
       return NextResponse.json(
         { error: 'Failed to parse AI response. Try a different prompt.' },
         { status: 502 }

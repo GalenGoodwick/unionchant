@@ -2,7 +2,7 @@
 // Decodes sprite images and maps pixels to grid cell indices
 
 import sharp from 'sharp'
-import { GRID_SIZE } from '@/app/engine/types'
+import { DEFAULT_GRID_SIZE as GRID_SIZE } from '@/app/engine/types'
 
 export interface SpriteData {
   width: number

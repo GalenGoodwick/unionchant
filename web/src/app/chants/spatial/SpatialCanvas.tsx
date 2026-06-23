@@ -561,10 +561,12 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     const webglCanvas = webglCanvasRef.current
     if (!webglCanvas) return
 
-    // Init renderer if needed
+    // Init renderer if needed (async for WebGPU)
+    ;(async () => {
     if (!fieldRendererRef.current) {
       const renderer = new FieldRenderer()
-      if (!renderer.init(webglCanvas)) return
+      const ok = await renderer.init(webglCanvas!)
+      if (!ok) return
       fieldRendererRef.current = renderer
     }
 
@@ -577,7 +579,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
         const programKey = `${field.id}_${effect.id}`
         newCompiled.add(programKey)
         if (!compiledFieldsRef.current.has(programKey)) {
-          renderer.compileFieldEffect(programKey, field.id, effect.glsl)
+          await renderer.compileFieldEffect(programKey, field.id, effect.glsl)
         }
       }
     }
@@ -590,6 +592,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     }
 
     compiledFieldsRef.current = newCompiled
+    })()
   }, [visible, savedFields])
 
   // WebGL backdrop: render field effects each frame with per-field parallax

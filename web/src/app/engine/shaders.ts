@@ -1,113 +1,159 @@
-// Field Engine — GLSL 300 ES Shaders
-// Split into base pass (grid + colors + selection highlight) and effect pass (per-field GLSL)
+// Field Engine — WGSL Shaders
+// Split into base pass (grid + colors + selection highlight), effect pass (per-field WGSL),
+// state update compute, and utility library
 
-export const vertexShaderSource = `#version 300 es
-precision highp float;
+// ─── Vertex shader (fullscreen quad) ───
 
-// Fullscreen quad — two triangles covering clip space
-const vec2 positions[6] = vec2[6](
-  vec2(-1.0, -1.0),
-  vec2( 1.0, -1.0),
-  vec2(-1.0,  1.0),
-  vec2(-1.0,  1.0),
-  vec2( 1.0, -1.0),
-  vec2( 1.0,  1.0)
-);
+export const vertexShaderSource = /* wgsl */`
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
 
-const vec2 uvs[6] = vec2[6](
-  vec2(0.0, 0.0),
-  vec2(1.0, 0.0),
-  vec2(0.0, 1.0),
-  vec2(0.0, 1.0),
-  vec2(1.0, 0.0),
-  vec2(1.0, 1.0)
-);
-
-out vec2 v_uv;
-
-void main() {
-  v_uv = uvs[gl_VertexID];
-  gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
+@vertex
+fn main(@builtin(vertex_index) vi: u32) -> VertexOutput {
+  var positions = array<vec2f, 6>(
+    vec2f(-1.0, -1.0),
+    vec2f( 1.0, -1.0),
+    vec2f(-1.0,  1.0),
+    vec2f(-1.0,  1.0),
+    vec2f( 1.0, -1.0),
+    vec2f( 1.0,  1.0),
+  );
+  var uvs = array<vec2f, 6>(
+    vec2f(0.0, 0.0),
+    vec2f(1.0, 0.0),
+    vec2f(0.0, 1.0),
+    vec2f(0.0, 1.0),
+    vec2f(1.0, 0.0),
+    vec2f(1.0, 1.0),
+  );
+  var out: VertexOutput;
+  out.position = vec4f(positions[vi], 0.0, 1.0);
+  out.uv = uvs[vi];
+  return out;
 }
 `
 
-// Shared coordinate math — camera → grid coord conversion
-const COORD_MATH = `
-  float aspect = u_resolution.x / u_resolution.y;
-  vec2 gridRange = vec2(u_gridSize) / u_zoom;
-
-  vec2 gridCoord;
-  if (aspect > 1.0) {
-    gridCoord.x = u_camera.x + (v_uv.x - 0.5) * gridRange.x * aspect;
-    gridCoord.y = u_camera.y + (0.5 - v_uv.y) * gridRange.y;
-  } else {
-    gridCoord.x = u_camera.x + (v_uv.x - 0.5) * gridRange.x;
-    gridCoord.y = u_camera.y + (0.5 - v_uv.y) * gridRange.y / aspect;
-  }
-
-  vec2 texUV = gridCoord / u_gridSize;
+// ─── Per-frame uniform struct (Group 0) ───
+const FRAME_UNIFORM_STRUCT = /* wgsl */`
+struct FrameUniforms {
+  camera: vec2f,
+  resolution: vec2f,
+  zoom: f32,
+  time: f32,
+  gridSize: f32,
+  _pad: f32,
+};
+@group(0) @binding(0) var<uniform> frame: FrameUniforms;
 `
 
-// Shader utility library — available to all AI-generated fieldEffect functions
-const SHADER_UTILITIES = `
+// ─── Per-effect uniform struct (Group 2) ───
+const EFFECT_UNIFORM_STRUCT = /* wgsl */`
+struct EffectUniforms {
+  bounds: vec4f,
+  params: vec4f,
+  transform: vec4f,
+  fieldAColor: vec4f,
+  fieldBColor: vec4f,
+  fieldATransform: vec4f,
+  fieldBTransform: vec4f,
+};
+@group(2) @binding(0) var<uniform> effect: EffectUniforms;
+`
+
+// ─── State update uniform struct ───
+const STATE_UNIFORM_STRUCT = /* wgsl */`
+struct StateUniforms {
+  gridSize: f32,
+  time: f32,
+  dt: f32,
+  _pad: f32,
+};
+@group(0) @binding(0) var<uniform> state_uniforms: StateUniforms;
+`
+
+// ─── Shared coordinate math — camera → grid coord conversion ───
+const COORD_MATH = /* wgsl */`
+  let aspect = frame.resolution.x / frame.resolution.y;
+  let gridRange = vec2f(frame.gridSize) / frame.zoom;
+
+  var gridCoord: vec2f;
+  if (aspect > 1.0) {
+    gridCoord.x = frame.camera.x + (in.uv.x - 0.5) * gridRange.x * aspect;
+    gridCoord.y = frame.camera.y + (0.5 - in.uv.y) * gridRange.y;
+  } else {
+    gridCoord.x = frame.camera.x + (in.uv.x - 0.5) * gridRange.x;
+    gridCoord.y = frame.camera.y + (0.5 - in.uv.y) * gridRange.y / aspect;
+  }
+
+  let texUV = gridCoord / frame.gridSize;
+`
+
+// ─── WGSL Utility Library ───
+const SHADER_UTILITIES = /* wgsl */`
 // --- Utility Library ---
 
+// GLSL mod semantics: x - y * floor(x / y)
+fn glsl_mod(x: f32, y: f32) -> f32 { return x - y * floor(x / y); }
+fn glsl_mod2(x: vec2f, y: vec2f) -> vec2f { return x - y * floor(x / y); }
+
 // Hash functions
-float hash11(float p) {
-  p = fract(p * 0.1031);
+fn hash11(p_in: f32) -> f32 {
+  var p = fract(p_in * 0.1031);
   p *= p + 33.33;
   p *= p + p;
   return fract(p);
 }
 
-float hash21(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
+fn hash21(p: vec2f) -> f32 {
+  var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, vec3f(p3.y, p3.z, p3.x) + 33.33);
   return fract((p3.x + p3.y) * p3.z);
 }
 
-vec2 hash22(vec2 p) {
-  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.xx + p3.yz) * p3.zy);
+fn hash22(p: vec2f) -> vec2f {
+  var p3 = fract(vec3f(p.x, p.y, p.x) * vec3f(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, vec3f(p3.y, p3.z, p3.x) + 33.33);
+  return fract((vec2f(p3.x, p3.x) + vec2f(p3.y, p3.z)) * vec2f(p3.z, p3.y));
 }
 
-vec3 hash33(vec3 p3) {
-  p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
-  p3 += dot(p3, p3.yxz + 33.33);
-  return fract((p3.xxy + p3.yxx) * p3.zyx);
+fn hash33(p3_in: vec3f) -> vec3f {
+  var p3 = fract(p3_in * vec3f(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, vec3f(p3.y, p3.x, p3.z) + 33.33);
+  return fract((vec3f(p3.x, p3.x, p3.y) + vec3f(p3.y, p3.x, p3.x)) * vec3f(p3.z, p3.y, p3.x));
 }
 
 // Value noise
-float vnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
+fn vnoise(p: vec2f) -> f32 {
+  let i = floor(p);
+  var f = fract(p);
   f = f * f * (3.0 - 2.0 * f);
-  float a = hash21(i);
-  float b = hash21(i + vec2(1.0, 0.0));
-  float c = hash21(i + vec2(0.0, 1.0));
-  float d = hash21(i + vec2(1.0, 1.0));
+  let a = hash21(i);
+  let b = hash21(i + vec2f(1.0, 0.0));
+  let c = hash21(i + vec2f(0.0, 1.0));
+  let d = hash21(i + vec2f(1.0, 1.0));
   return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
 // Gradient noise (Perlin-like)
-float gnoise(vec2 p) {
-  vec2 i = floor(p);
-  vec2 f = fract(p);
-  vec2 u = f * f * (3.0 - 2.0 * f);
+fn gnoise(p: vec2f) -> f32 {
+  let i = floor(p);
+  let f = fract(p);
+  let u = f * f * (3.0 - 2.0 * f);
   return mix(mix(dot(hash22(i) * 2.0 - 1.0, f),
-                 dot(hash22(i + vec2(1.0, 0.0)) * 2.0 - 1.0, f - vec2(1.0, 0.0)), u.x),
-             mix(dot(hash22(i + vec2(0.0, 1.0)) * 2.0 - 1.0, f - vec2(0.0, 1.0)),
-                 dot(hash22(i + vec2(1.0, 1.0)) * 2.0 - 1.0, f - vec2(1.0, 1.0)), u.x), u.y);
+                 dot(hash22(i + vec2f(1.0, 0.0)) * 2.0 - 1.0, f - vec2f(1.0, 0.0)), u.x),
+             mix(dot(hash22(i + vec2f(0.0, 1.0)) * 2.0 - 1.0, f - vec2f(0.0, 1.0)),
+                 dot(hash22(i + vec2f(1.0, 1.0)) * 2.0 - 1.0, f - vec2f(1.0, 1.0)), u.x), u.y);
 }
 
 // Fractal Brownian Motion
-float fbm(vec2 p, int octaves) {
-  float val = 0.0;
-  float amp = 0.5;
-  float freq = 1.0;
-  for (int i = 0; i < 8; i++) {
-    if (i >= octaves) break;
+fn fbm(p: vec2f, octaves: i32) -> f32 {
+  var val = 0.0;
+  var amp = 0.5;
+  var freq = 1.0;
+  for (var i = 0; i < 8; i++) {
+    if (i >= octaves) { break; }
     val += amp * vnoise(p * freq);
     freq *= 2.0;
     amp *= 0.5;
@@ -116,122 +162,120 @@ float fbm(vec2 p, int octaves) {
 }
 
 // Domain warping
-vec2 warp(vec2 p, float strength, float time) {
-  vec2 q = vec2(fbm(p + vec2(0.0, 0.0), 4), fbm(p + vec2(5.2, 1.3), 4));
-  vec2 r = vec2(fbm(p + 4.0 * q + vec2(1.7, 9.2) + 0.15 * time, 4),
-                fbm(p + 4.0 * q + vec2(8.3, 2.8) + 0.126 * time, 4));
+fn warp(p: vec2f, strength: f32, time: f32) -> vec2f {
+  let q = vec2f(fbm(p + vec2f(0.0, 0.0), 4), fbm(p + vec2f(5.2, 1.3), 4));
+  let r = vec2f(fbm(p + 4.0 * q + vec2f(1.7, 9.2) + 0.15 * time, 4),
+                fbm(p + 4.0 * q + vec2f(8.3, 2.8) + 0.126 * time, 4));
   return p + strength * r;
 }
 
 // SDF primitives (2D)
-float sdCircle(vec2 p, float r) { return length(p) - r; }
-float sdBox(vec2 p, vec2 b) { vec2 d = abs(p) - b; return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0); }
-float sdRoundedBox(vec2 p, vec2 b, float r) { return sdBox(p, b - r) - r; }
-float sdSegment(vec2 p, vec2 a, vec2 b) { vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
-float sdEquilateralTriangle(vec2 p, float r) {
-  float k = 1.732050808;
+fn sdCircle(p: vec2f, r: f32) -> f32 { return length(p) - r; }
+fn sdBox(p: vec2f, b: vec2f) -> f32 { let d = abs(p) - b; return length(max(d, vec2f(0.0))) + min(max(d.x, d.y), 0.0); }
+fn sdRoundedBox(p: vec2f, b: vec2f, r: f32) -> f32 { return sdBox(p, b - r) - r; }
+fn sdSegment(p: vec2f, a: vec2f, b: vec2f) -> f32 { let pa = p - a; let ba = b - a; let h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0); return length(pa - ba * h); }
+fn sdEquilateralTriangle(p_in: vec2f, r: f32) -> f32 {
+  let k = 1.732050808;
+  var p = p_in;
   p.x = abs(p.x) - r;
   p.y = p.y + r / k;
-  if (p.x + k * p.y > 0.0) p = vec2(p.x - k * p.y, -k * p.x - p.y) / 2.0;
+  if (p.x + k * p.y > 0.0) { p = vec2f(p.x - k * p.y, -k * p.x - p.y) / 2.0; }
   p.x -= clamp(p.x, -2.0 * r, 0.0);
   return -length(p) * sign(p.y);
 }
-float sdStar(vec2 p, float r, int n, float m) {
-  float an = 3.141593 / float(n);
-  float en = 3.141593 / m;
-  vec2 acs = vec2(cos(an), sin(an));
-  vec2 ecs = vec2(cos(en), sin(en));
-  float bn = mod(atan(p.x, p.y), 2.0 * an) - an;
-  p = length(p) * vec2(cos(bn), abs(sin(bn)));
+fn sdStar(p_in: vec2f, r: f32, n: i32, m: f32) -> f32 {
+  let an = 3.141593 / f32(n);
+  let en = 3.141593 / m;
+  let acs = vec2f(cos(an), sin(an));
+  let ecs = vec2f(cos(en), sin(en));
+  let bn = glsl_mod(atan2(p_in.x, p_in.y), 2.0 * an) - an;
+  var p = length(p_in) * vec2f(cos(bn), abs(sin(bn)));
   p -= r * acs;
   p += ecs * clamp(-dot(p, ecs), 0.0, r * acs.y / ecs.y);
   return length(p) * sign(p.x);
 }
 
 // SDF operations
-float opUnion(float d1, float d2) { return min(d1, d2); }
-float opSubtract(float d1, float d2) { return max(-d1, d2); }
-float opIntersect(float d1, float d2) { return max(d1, d2); }
-float opSmoothUnion(float d1, float d2, float k) { float h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0); return mix(d2, d1, h) - k * h * (1.0 - h); }
-float opSmoothSubtract(float d1, float d2, float k) { float h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0); return mix(d2, -d1, h) + k * h * (1.0 - h); }
+fn opUnion(d1: f32, d2: f32) -> f32 { return min(d1, d2); }
+fn opSubtract(d1: f32, d2: f32) -> f32 { return max(-d1, d2); }
+fn opIntersect(d1: f32, d2: f32) -> f32 { return max(d1, d2); }
+fn opSmoothUnion(d1: f32, d2: f32, k: f32) -> f32 { let h = clamp(0.5 + 0.5 * (d2 - d1) / k, 0.0, 1.0); return mix(d2, d1, h) - k * h * (1.0 - h); }
+fn opSmoothSubtract(d1: f32, d2: f32, k: f32) -> f32 { let h = clamp(0.5 - 0.5 * (d2 + d1) / k, 0.0, 1.0); return mix(d2, -d1, h) + k * h * (1.0 - h); }
 
 // Color utilities
-vec3 hsv2rgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+fn hsv2rgb(c: vec3f) -> vec3f {
+  let K = vec4f(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  let p = abs(fract(vec3f(c.x) + vec3f(K.x, K.y, K.z)) * 6.0 - vec3f(K.w));
+  return c.z * mix(vec3f(K.x), clamp(p - vec3f(K.x), vec3f(0.0), vec3f(1.0)), c.y);
 }
 
-vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d) {
+fn palette(t: f32, a: vec3f, b: vec3f, c: vec3f, d: vec3f) -> vec3f {
   return a + b * cos(6.28318 * (c * t + d));
 }
 
 // Rotation matrix
-mat2 rot2(float a) { float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+fn rot2(a: f32) -> mat2x2f { let c = cos(a); let s = sin(a); return mat2x2f(c, -s, s, c); }
 
 // Normalize position within region to 0..1
-vec2 regionUV(vec2 cellPos, vec2 regionMin, vec2 regionMax) {
-  return (cellPos - regionMin) / max(regionMax - regionMin, vec2(1.0));
+fn regionUV(cellPos: vec2f, regionMin: vec2f, regionMax: vec2f) -> vec2f {
+  return (cellPos - regionMin) / max(regionMax - regionMin, vec2f(1.0));
 }
 
 // Centered region UV (-1..1)
-vec2 regionUVCentered(vec2 cellPos, vec2 regionMin, vec2 regionMax) {
+fn regionUVCentered(cellPos: vec2f, regionMin: vec2f, regionMax: vec2f) -> vec2f {
   return regionUV(cellPos, regionMin, regionMax) * 2.0 - 1.0;
 }
 
 // Aspect-corrected centered UV
-vec2 regionUVAspect(vec2 cellPos, vec2 regionMin, vec2 regionMax) {
-  vec2 uv = regionUVCentered(cellPos, regionMin, regionMax);
-  vec2 size = regionMax - regionMin;
-  float aspect = size.x / max(size.y, 1.0);
+fn regionUVAspect(cellPos: vec2f, regionMin: vec2f, regionMax: vec2f) -> vec2f {
+  var uv = regionUVCentered(cellPos, regionMin, regionMax);
+  let size = regionMax - regionMin;
+  let aspect = size.x / max(size.y, 1.0);
   uv.x *= aspect;
   return uv;
 }
 
 // Simple lighting
-float diffuseLight(vec2 p, vec2 lightPos, float falloff) {
-  float d = length(p - lightPos);
+fn diffuseLight(p: vec2f, lightPos: vec2f, falloff: f32) -> f32 {
+  let d = length(p - lightPos);
   return 1.0 / (1.0 + d * d * falloff);
 }
 
 // Glow effect
-vec3 glow(float d, vec3 col, float intensity, float radius) {
+fn glow(d: f32, col: vec3f, intensity: f32, radius: f32) -> vec3f {
   return col * intensity * exp(-d * d / (radius * radius));
 }
 
-// --- Skeleton Utilities ---
-// Skeleton data is a 128x1 RGBA32F texture: each pixel = (x, y, radius, parentIndex)
+// ─── Agent-Friendly Convenience Wrappers ───
+// These have fewer arguments and simpler signatures so AI agents can use them without errors.
 
-// Read skeleton node: returns vec4(x, y, radius, parentIndex)
-vec4 skelNode(int i) {
-  return texelFetch(u_skeletonTex, ivec2(i, 0), 0);
-}
+// FBM with preset octave counts (agents kept forgetting the octaves argument)
+fn fbm3(p: vec2f) -> f32 { return fbm(p, 3); }
+fn fbm4(p: vec2f) -> f32 { return fbm(p, 4); }
+fn fbm5(p: vec2f) -> f32 { return fbm(p, 5); }
+fn fbm6(p: vec2f) -> f32 { return fbm(p, 6); }
 
-// SDF for a tapered capsule between two skeleton nodes
-float sdSkelEdge(vec2 p, int nodeA, int nodeB) {
-  vec4 a = skelNode(nodeA);
-  vec4 b = skelNode(nodeB);
-  vec2 pa = p - a.xy;
-  vec2 ba = b.xy - a.xy;
-  float lenSq = dot(ba, ba);
-  if (lenSq < 0.001) return length(pa) - a.z;
-  float h = clamp(dot(pa, ba) / lenSq, 0.0, 1.0);
-  float r = mix(a.z, b.z, h);  // taper radius
-  return length(pa - ba * h) - r;
-}
+// Rotate a 2D point by angle (agents struggled with rot2() * vec2f multiplication)
+fn rotate(p: vec2f, angle: f32) -> vec2f { return rot2(angle) * p; }
 
-// Full skeleton SDF — union of all parent→child tapered edges
-float sdSkeleton(vec2 p) {
-  float d = 1e9;
-  for (int i = 0; i < u_skeletonNodeCount; i++) {
-    vec4 node = skelNode(i);
-    int parent = int(node.w);
-    if (parent >= 0) {
-      d = min(d, sdSkelEdge(p, parent, i));
-    }
-  }
-  return d;
-}
+// Simple noise at a point (single call, no args to forget)
+fn noise(p: vec2f) -> f32 { return vnoise(p); }
+fn noise3(p: vec2f) -> f32 { return fbm(p, 3); }
+
+// Simple circle mask: 1.0 inside, 0.0 outside, with smooth edge
+fn circleMask(uv: vec2f, radius: f32) -> f32 { return smoothstep(radius, radius - 0.05, length(uv)); }
+
+// Polar coordinates from centered UV
+fn polar(uv: vec2f) -> vec2f { return vec2f(length(uv), atan2(uv.y, uv.x)); }
+
+// Quick color ramp between two colors based on value 0..1
+fn colorRamp(a: vec3f, b: vec3f, t: f32) -> vec3f { return mix(a, b, clamp(t, 0.0, 1.0)); }
+
+// Soft glow centered at origin
+fn softGlow(uv: vec2f, intensity: f32, radius: f32) -> f32 { return intensity * exp(-dot(uv, uv) / (radius * radius)); }
+
+// Ring shape: returns intensity of a ring at given radius with given width
+fn ring(uv: vec2f, radius: f32, width: f32) -> f32 { return exp(-pow(length(uv) - radius, 2.0) / (width * width)); }
 
 // --- End Utility Library ---
 `
@@ -239,7 +283,7 @@ float sdSkeleton(vec2 p) {
 // Extract function names defined in the base SHADER_UTILITIES
 const BASE_FUNC_NAMES: Set<string> = new Set()
 {
-  const funcDefRegex = /(?:float|vec[234]|mat[234]|int|void|bool)\s+(\w+)\s*\(/g
+  const funcDefRegex = /fn\s+(\w+)\s*\(/g
   let m: RegExpExecArray | null
   while ((m = funcDefRegex.exec(SHADER_UTILITIES)) !== null) {
     BASE_FUNC_NAMES.add(m[1])
@@ -247,19 +291,18 @@ const BASE_FUNC_NAMES: Set<string> = new Set()
 }
 
 /**
- * Strip duplicate GLSL function definitions from mod code.
+ * Strip duplicate WGSL function definitions from mod code.
  * Single pass: accumulates seen names as it goes, so both base conflicts
  * and cross-mod conflicts are handled.
  */
 function deduplicateModCode(code: string, seen: Set<string>): string {
-  const funcStartRegex = /(?:float|vec[234]|mat[234]|int|void|bool)\s+(\w+)\s*\([^)]*\)\s*\{/g
+  const funcStartRegex = /fn\s+(\w+)\s*\([^)]*\)\s*(?:-> [^{]+)?\{/g
   let result = ''
   let lastEnd = 0
 
   let match: RegExpExecArray | null
   while ((match = funcStartRegex.exec(code)) !== null) {
     const funcName = match[1]
-    // Find matching closing brace (handle nesting)
     const braceStart = match.index + match[0].length - 1
     let depth = 1
     let pos = braceStart + 1
@@ -270,7 +313,6 @@ function deduplicateModCode(code: string, seen: Set<string>): string {
     }
 
     if (seen.has(funcName)) {
-      // Strip: keep text before this function, skip the function body
       result += code.slice(lastEnd, match.index)
       lastEnd = pos
       funcStartRegex.lastIndex = pos
@@ -287,7 +329,7 @@ export function getShaderUtilities(modCode?: string): string {
   if (!modCode) return SHADER_UTILITIES
   const seen = new Set(BASE_FUNC_NAMES)
   const cleaned = deduplicateModCode(modCode, seen)
-  return SHADER_UTILITIES + '\n// --- GLSL Mods ---\n' + cleaned + '\n// --- End GLSL Mods ---\n'
+  return SHADER_UTILITIES + '\n// --- WGSL Mods ---\n' + cleaned + '\n// --- End WGSL Mods ---\n'
 }
 
 /**
@@ -295,323 +337,306 @@ export function getShaderUtilities(modCode?: string): string {
  * No fieldEffect(). Uses u_selectionTex for UI selection highlight only.
  */
 export function buildBaseFragmentShader(): string {
-  return `#version 300 es
-precision highp float;
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
 
-uniform sampler2D u_colorTex;
-uniform sampler2D u_stateTex;
-uniform sampler2D u_selectionTex;
-uniform sampler2D u_effectTex;
-uniform vec2 u_camera;
-uniform vec2 u_resolution;
-uniform float u_zoom;
-uniform float u_time;
-uniform float u_gridSize;
+@group(1) @binding(0) var colorTex: texture_2d<f32>;
+@group(1) @binding(1) var stateTex: texture_2d<f32>;
+@group(1) @binding(2) var selectionTex: texture_2d<f32>;
+@group(1) @binding(3) var effectTex: texture_2d<f32>;
+@group(1) @binding(4) var texSampler: sampler;
 
-in vec2 v_uv;
-out vec4 fragColor;
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
 
-void main() {
+@fragment
+fn main(in: VertexOutput) -> @location(0) vec4f {
 ${COORD_MATH}
+
+  // Use textureLoad (integer coords, no sampler) — works on all GPUs including
+  // those without float32-filterable (Safari). No filtering needed for a grid engine.
+  let texCoord = vec2i(clamp(vec2i(floor(gridCoord)), vec2i(0), vec2i(i32(frame.gridSize) - 1)));
+  let cellColor = textureLoad(colorTex, texCoord, 0);
+  let selection = textureLoad(selectionTex, texCoord, 0).r;
+  let effectPixel = textureLoad(effectTex, texCoord, 0);
 
   // Out-of-bounds background
   if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
-    fragColor = vec4(0.035, 0.045, 0.065, 1.0);
-    return;
+    return vec4f(0.035, 0.045, 0.065, 1.0);
   }
 
-  vec4 cellColor = texture(u_colorTex, texUV);
-  float selection = texture(u_selectionTex, texUV).r;
+  // Grid lines
+  let cellSize = frame.resolution.y * frame.zoom / frame.gridSize;
+  let gridAlpha = smoothstep(2.0, 6.0, cellSize) * 0.15;
+  let cellFrac = fract(gridCoord);
+  let lineWidth = 1.0 / max(cellSize, 1.0);
+  let gridLine = 1.0 - step(lineWidth, cellFrac.x) * step(lineWidth, cellFrac.y)
+                     * step(cellFrac.x, 1.0 - lineWidth) * step(cellFrac.y, 1.0 - lineWidth);
+
+  let bg = vec3f(0.055, 0.065, 0.09);
+  var color = bg;
 
   // Grid lines
-  float cellSize = u_resolution.y * u_zoom / u_gridSize;
-  float gridAlpha = smoothstep(2.0, 6.0, cellSize) * 0.15;
-  vec2 cellFrac = fract(gridCoord);
-  float lineWidth = 1.0 / max(cellSize, 1.0);
-  float gridLine = 1.0 - step(lineWidth, cellFrac.x) * step(lineWidth, cellFrac.y)
-                       * step(cellFrac.x, 1.0 - lineWidth) * step(cellFrac.y, 1.0 - lineWidth);
-
-  vec3 bg = vec3(0.055, 0.065, 0.09);
-  // colorData stores field presence (R,G,B=avg color, A=field count) — not for visual rendering.
-  // Effect shaders read it via u_colorTex. Base pass just shows the dark background.
-  vec3 color = bg;
-
-  // Grid lines
-  vec3 gridColor = vec3(0.15, 0.18, 0.22);
+  let gridColor = vec3f(0.15, 0.18, 0.22);
   color = mix(color, gridColor, gridLine * gridAlpha);
 
   // Selection highlight
   if (selection > 0.5) {
-    float pulse = 0.5 + 0.5 * sin(u_time * 3.0);
-    // Brighten selected cells
-    color = mix(color, vec3(1.0), 0.08 + 0.04 * pulse);
-    // Edge glow: detect border of selection region
-    vec2 texelSize = 1.0 / vec2(u_gridSize);
-    float nL = texture(u_selectionTex, texUV + vec2(-texelSize.x, 0.0)).r;
-    float nR = texture(u_selectionTex, texUV + vec2( texelSize.x, 0.0)).r;
-    float nU = texture(u_selectionTex, texUV + vec2(0.0, -texelSize.y)).r;
-    float nD = texture(u_selectionTex, texUV + vec2(0.0,  texelSize.y)).r;
-    float edge = step(0.5, 1.0 - min(min(nL, nR), min(nU, nD)));
-    color = mix(color, vec3(0.3, 0.7, 1.0), edge * (0.4 + 0.2 * pulse));
+    let pulse = 0.5 + 0.5 * sin(frame.time * 3.0);
+    color = mix(color, vec3f(1.0), 0.08 + 0.04 * pulse);
+    let selTexCoord = vec2i(floor(gridCoord));
+    let nL = textureLoad(selectionTex, selTexCoord + vec2i(-1, 0), 0).r;
+    let nR = textureLoad(selectionTex, selTexCoord + vec2i(1, 0), 0).r;
+    let nU = textureLoad(selectionTex, selTexCoord + vec2i(0, -1), 0).r;
+    let nD = textureLoad(selectionTex, selTexCoord + vec2i(0, 1), 0).r;
+    let edge = step(0.5, 1.0 - min(min(nL, nR), min(nU, nD)));
+    color = mix(color, vec3f(0.3, 0.7, 1.0), edge * (0.4 + 0.2 * pulse));
   }
 
   // --- Effect layer rendering ---
-  vec4 effectPixel = texture(u_effectTex, texUV);
-  float effectType = effectPixel.r;
+  let effectType = effectPixel.r;
 
   if (effectType > 0.5) {
-    float hue = effectPixel.g;
-    float brightness = effectPixel.b;
-    float intensity = effectPixel.a;
+    let hue = effectPixel.g;
+    let brightness = effectPixel.b;
+    let intensity = effectPixel.a;
 
-    // HSV to RGB (inline)
-    float h6 = hue * 6.0;
-    float h6i = floor(h6);
-    float f = h6 - h6i;
-    float q = 1.0 - f;
-    float t = f;
-    vec3 effectColor;
-    if (h6i < 1.0) effectColor = vec3(1.0, t, 0.0);
-    else if (h6i < 2.0) effectColor = vec3(q, 1.0, 0.0);
-    else if (h6i < 3.0) effectColor = vec3(0.0, 1.0, t);
-    else if (h6i < 4.0) effectColor = vec3(0.0, q, 1.0);
-    else if (h6i < 5.0) effectColor = vec3(t, 0.0, 1.0);
-    else effectColor = vec3(1.0, 0.0, q);
+    let h6 = hue * 6.0;
+    let h6i = floor(h6);
+    let f = h6 - h6i;
+    let q = 1.0 - f;
+    let t = f;
+    var effectColor: vec3f;
+    if (h6i < 1.0) { effectColor = vec3f(1.0, t, 0.0); }
+    else if (h6i < 2.0) { effectColor = vec3f(q, 1.0, 0.0); }
+    else if (h6i < 3.0) { effectColor = vec3f(0.0, 1.0, t); }
+    else if (h6i < 4.0) { effectColor = vec3f(0.0, q, 1.0); }
+    else if (h6i < 5.0) { effectColor = vec3f(t, 0.0, 1.0); }
+    else { effectColor = vec3f(1.0, 0.0, q); }
     effectColor *= brightness;
 
     // Glow from neighbors
-    float glow = 0.0;
-    vec2 texelSize = 1.0 / vec2(u_gridSize);
-    for (int dy = -2; dy <= 2; dy++) {
-      for (int dx = -2; dx <= 2; dx++) {
-        if (dx == 0 && dy == 0) continue;
-        vec2 nb = texUV + vec2(float(dx), float(dy)) * texelSize;
-        vec4 nbData = texture(u_effectTex, nb);
-        if (nbData.r > 0.5) glow += nbData.a;
+    var glowVal = 0.0;
+    let glowCenter = vec2i(floor(gridCoord));
+    for (var dy = -2; dy <= 2; dy++) {
+      for (var dx = -2; dx <= 2; dx++) {
+        if (dx == 0 && dy == 0) { continue; }
+        let nbCoord = glowCenter + vec2i(dx, dy);
+        let nbData = textureLoad(effectTex, nbCoord, 0);
+        if (nbData.r > 0.5) { glowVal += nbData.a; }
       }
     }
-    glow = min(glow * 0.06, 0.8);
+    glowVal = min(glowVal * 0.06, 0.8);
 
-    // Additive blend onto scene
     color = mix(color, effectColor, intensity * 0.9);
-    color += effectColor * glow * 0.4;
+    color += effectColor * glowVal * 0.4;
   }
 
-  fragColor = vec4(color, 1.0);
+  return vec4f(color, 1.0);
 }
 `
 }
 
 /**
- * Effect pass: per-field GLSL effect. Uses u_fieldMask (R8 texture) instead of u_selectionTex.
- * Outputs alpha-blended result. Pixels outside the field mask get discard.
+ * Effect pass: per-field WGSL effect. Outputs alpha-blended result.
  */
-export function buildEffectFragmentShader(injectedGlsl: string, modCode?: string): string {
-  return `#version 300 es
-precision highp float;
+export function buildEffectFragmentShader(injectedWgsl: string, modCode?: string): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
 
-uniform sampler2D u_colorTex;
-uniform sampler2D u_stateTex;
-uniform sampler2D u_fieldMask;
-uniform vec2 u_camera;
-uniform vec2 u_resolution;
-uniform float u_zoom;
-uniform float u_time;
-uniform float u_gridSize;
-uniform vec4 u_effectBounds;   // (minX, minY, maxX, maxY) in grid coords
-uniform vec4 u_effectParams;   // user-controllable params passed to fieldEffect
-uniform vec4 u_fieldTransform; // (posX, posY, rotation, scale)
-uniform vec4 u_fieldAColor;       // interaction parent A color (zero for normal fields)
-uniform vec4 u_fieldBColor;       // interaction parent B color (zero for normal fields)
-uniform vec4 u_fieldATransform;   // interaction parent A (x,y,rot,scale) (zero for normal fields)
-uniform vec4 u_fieldBTransform;   // interaction parent B (x,y,rot,scale) (zero for normal fields)
-uniform sampler2D u_skeletonTex;  // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
-uniform int u_skeletonNodeCount;  // number of active skeleton nodes
-uniform sampler2D u_feedbackTex;  // previous frame output (256x256 RGBA16F, opt-in per effect)
-uniform vec2 u_feedbackSize;      // feedback texture dimensions
+@group(1) @binding(0) var colorTex: texture_2d<f32>;
+@group(1) @binding(1) var stateTex: texture_2d<f32>;
+@group(1) @binding(2) var fieldMask: texture_2d<f32>;
+@group(1) @binding(3) var feedbackTex: texture_2d<f32>;
+@group(1) @binding(4) var texSampler: sampler;
 
-in vec2 v_uv;
-out vec4 fragColor;
+${EFFECT_UNIFORM_STRUCT}
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
 
 ${getShaderUtilities(modCode)}
 
 // Map cell coordinate to feedback texture UV (0..1 within effect bounds)
-// Y is flipped because GL renders bottom-to-top but grid Y increases downward
-vec2 feedbackUV(vec2 cellCoord) {
-  vec2 uv = clamp((cellCoord - u_effectBounds.xy) / max(u_effectBounds.zw - u_effectBounds.xy, vec2(1.0)), 0.0, 1.0);
+fn feedbackUV(cellCoord: vec2f) -> vec2f {
+  var uv = clamp((cellCoord - effect.bounds.xy) / max(effect.bounds.zw - effect.bounds.xy, vec2f(1.0)), vec2f(0.0), vec2f(1.0));
   uv.y = 1.0 - uv.y;
   return uv;
 }
 
-${injectedGlsl}
+${injectedWgsl}
 
-void main() {
+@fragment
+fn main(in: VertexOutput) -> @location(0) vec4f {
 ${COORD_MATH}
 
-  // Out-of-bounds: transparent (will be blended)
+  let regionMin = effect.bounds.xy;
+  let regionMax = effect.bounds.zw;
+
+  // Snap to cell center
+  let cellCoord = floor(gridCoord) + 0.5;
+
+  // Call fieldEffect in uniform control flow (before any non-uniform branches)
+  // so that user-injected code can safely use textureSample
+  let effectResult = fieldEffect(cellCoord, regionMin, regionMax, frame.time, effect.params);
+
   if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
-    discard;
+    return vec4f(0.0);
   }
-
-  vec2 regionMin = u_effectBounds.xy;
-  vec2 regionMax = u_effectBounds.zw;
-
-  // Snap to cell center — pixel art style
-  vec2 cellCoord = floor(gridCoord) + 0.5;
-
-  // No mask clipping — the shader itself defines its form via alpha
-  vec4 effect = fieldEffect(cellCoord, regionMin, regionMax, u_time, u_effectParams);
-  fragColor = vec4(effect.rgb, clamp(effect.a, 0.0, 1.0));
+  return vec4f(effectResult.rgb, clamp(effectResult.a, 0.0, 1.0));
 }
 `
 }
 
 /**
- * State update pass: agent-authored GLSL that reads current state + neighbors, writes new state.
- * Runs per-pixel on GPU each frame via render-to-texture ping-pong.
+ * State update compute shader template.
  * Agent provides a cellUpdate function:
- *   vec4 cellUpdate(vec2 coord, vec4 state, vec4 color, float time, float dt)
- * Available: texture(u_stateTex, ...) for neighbor reads, u_colorTex, u_gridSize
+ *   fn cellUpdate(coord: vec2f, state: vec4f, color: vec4f, time: f32, dt: f32) -> vec4f
  */
-export function buildStateUpdateShader(injectedGlsl: string, modCode?: string): string {
-  return buildCompositeStateShader([{ id: 'single', glsl: injectedGlsl }], modCode)
+export function buildStateUpdateComputeShader(injectedWgsl: string, modCode?: string): string {
+  return buildCompositeStateComputeShader([{ id: 'single', glsl: injectedWgsl }], modCode)
 }
 
 /**
- * Build a composite state shader from multiple field contributions.
- * Each field's cellUpdate is renamed to cellUpdate_N.
- * ADDITIVE composition: all shaders read the ORIGINAL state independently,
- * and their DELTAS (changes from original) are summed.
- * This prevents later shaders from overwriting earlier ones.
- * If a shader returns `state` unchanged for a pixel, its delta is zero.
+ * Build a composite state compute shader from multiple field contributions.
+ * ADDITIVE composition: all shaders read ORIGINAL state, deltas are summed.
  */
-export function buildCompositeStateShader(fields: { id: string; glsl: string }[], modCode?: string): string {
-  // Rename each field's cellUpdate to cellUpdate_N
+export function buildCompositeStateComputeShader(fields: { id: string; glsl: string }[], modCode?: string): string {
   const renamedFunctions = fields.map((f, i) => {
     return f.glsl.replace(/cellUpdate\s*\(/g, `cellUpdate_${i}(`)
   })
 
-  // Each shader reads original state, computes delta, sum all deltas
   const deltaCalls = fields.map((_, i) => {
-    return `  vec4 out${i} = cellUpdate_${i}(coord, state, color, u_time, u_dt);
+    return `  let out${i} = cellUpdate_${i}(coord, state, color, state_uniforms.time, state_uniforms.dt);
   delta += (out${i} - state);`
   })
 
-  return `#version 300 es
-precision highp float;
+  return /* wgsl */`
+${STATE_UNIFORM_STRUCT}
 
-uniform sampler2D u_stateTex;
-uniform sampler2D u_colorTex;
-uniform float u_gridSize;
-uniform float u_time;
-uniform float u_dt;
-uniform sampler2D u_skeletonTex;  // 128x1 RGBA32F: (x, y, radius, parentIndex) per node
-uniform int u_skeletonNodeCount;  // number of active skeleton nodes
-
-in vec2 v_uv;
-out vec4 fragColor;
+@group(1) @binding(0) var stateTex: texture_2d<f32>;
+@group(1) @binding(1) var colorTex: texture_2d<f32>;
+@group(1) @binding(2) var outputTex: texture_storage_2d<rgba32float, write>;
 
 ${getShaderUtilities(modCode)}
 
 ${renamedFunctions.join('\n\n')}
 
-void main() {
-  vec2 coord = floor(v_uv * u_gridSize) + 0.5;
-  vec4 state = texture(u_stateTex, v_uv);
-  vec4 color = texture(u_colorTex, v_uv);
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let gs = u32(state_uniforms.gridSize);
+  if (gid.x >= gs || gid.y >= gs) { return; }
 
-  vec4 delta = vec4(0.0);
+  let coord = vec2f(f32(gid.x) + 0.5, f32(gid.y) + 0.5);
+  let uv = coord / state_uniforms.gridSize;
+  let texCoord = vec2i(gid.xy);
+  let state = textureLoad(stateTex, texCoord, 0);
+  let color = textureLoad(colorTex, texCoord, 0);
+
+  var delta = vec4f(0.0);
 ${deltaCalls.join('\n')}
-  fragColor = clamp(state + delta, 0.0, 1.0);
+  textureStore(outputTex, texCoord, clamp(state + delta, vec4f(0.0), vec4f(1.0)));
+}
+`
+}
+
+// Backward compat: buildStateUpdateShader wraps single field
+export function buildStateUpdateShader(glsl: string, modCode?: string): string {
+  return buildCompositeStateComputeShader([{ id: 'single', glsl }], modCode)
+}
+
+export function buildCompositeStateShader(fields: { id: string; glsl: string }[], modCode?: string): string {
+  return buildCompositeStateComputeShader(fields, modCode)
+}
+
+/**
+ * Mask clear shader — erases underlying pixels where an interaction mask is active.
+ */
+export function buildMaskClearShader(): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+@group(1) @binding(0) var fieldMask: texture_2d<f32>;
+@group(1) @binding(1) var texSampler: sampler;
+
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@fragment
+fn main(in: VertexOutput) -> @location(0) vec4f {
+${COORD_MATH}
+  // Use textureLoad — works on all GPUs (no sampler/filtering needed)
+  let maskTexCoord = vec2i(clamp(vec2i(floor(gridCoord)), vec2i(0), vec2i(i32(frame.gridSize) - 1)));
+  let maskVal = textureLoad(fieldMask, maskTexCoord, 0).r;
+  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
+    discard;
+  }
+  if (maskVal < 0.5) { discard; }
+  return vec4f(0.055, 0.065, 0.09, 1.0);
 }
 `
 }
 
 /**
- * World effect pass: full-grid GLSL effect with no field mask.
- * Renders behind field effects, covers the entire grid.
- * Same fieldEffect(coord, regionMin, regionMax, time, params) signature.
- * regionMin = (0,0), regionMax = (gridSize, gridSize).
+ * World effect pass: full-grid WGSL effect with no field mask.
  */
+export function buildWorldEffectFragmentShader(injectedWgsl: string, modCode?: string): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
 
-/** Mask clear shader — erases underlying pixels where an interaction mask is active.
- *  Renders background color at full alpha, giving interaction effects visual precedence. */
-export function buildMaskClearShader(): string {
-  return `#version 300 es
-precision highp float;
-uniform sampler2D u_fieldMask;
-uniform vec2 u_camera;
-uniform vec2 u_resolution;
-uniform float u_zoom;
-uniform float u_gridSize;
-in vec2 v_uv;
-out vec4 fragColor;
-void main() {
-${COORD_MATH}
-  if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
-    discard;
-  }
-  float maskVal = texture(u_fieldMask, texUV).r;
-  if (maskVal < 0.5) discard;
-  // Paint background color — erases fire/ice/etc underneath so interaction takes precedence
-  fragColor = vec4(0.055, 0.065, 0.09, 1.0);
-}
-`;
-}
+@group(1) @binding(0) var colorTex: texture_2d<f32>;
+@group(1) @binding(1) var stateTex: texture_2d<f32>;
+@group(1) @binding(4) var texSampler: sampler;
 
-export function buildWorldEffectFragmentShader(injectedGlsl: string, modCode?: string): string {
-  return `#version 300 es
-precision highp float;
+${EFFECT_UNIFORM_STRUCT}
 
-uniform sampler2D u_colorTex;
-uniform sampler2D u_stateTex;
-uniform vec2 u_camera;
-uniform vec2 u_resolution;
-uniform float u_zoom;
-uniform float u_time;
-uniform float u_gridSize;
-uniform vec4 u_effectParams;
-
-in vec2 v_uv;
-out vec4 fragColor;
+struct VertexOutput {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
 
 ${getShaderUtilities(modCode)}
 
-${injectedGlsl}
+${injectedWgsl}
 
-void main() {
+@fragment
+fn main(in: VertexOutput) -> @location(0) vec4f {
 ${COORD_MATH}
 
+  let cellCoord = floor(gridCoord) + 0.5;
+
+  // Call fieldEffect in uniform control flow so user code can use textureSample
+  let effectResult = fieldEffect(cellCoord, vec2f(0.0), vec2f(frame.gridSize), frame.time, effect.params);
+
   if (texUV.x < 0.0 || texUV.x > 1.0 || texUV.y < 0.0 || texUV.y > 1.0) {
-    discard;
+    return vec4f(0.0);
   }
-
-  vec2 cellCoord = floor(gridCoord) + 0.5;
-  vec4 effect = fieldEffect(cellCoord, vec2(0.0), vec2(u_gridSize), u_time, u_effectParams);
-  fragColor = vec4(effect.rgb, clamp(effect.a, 0.0, 1.0));
+  return vec4f(effectResult.rgb, clamp(effectResult.a, 0.0, 1.0));
 }
 `
 }
 
-/** Default field effect — SDF circle at field position using u_fieldTransform.
- *  Renders a smooth circle at the field's position without relying on shape masks.
- *  The field's shape radius is encoded in u_effectBounds (bounding box). */
-export const DEFAULT_FIELD_EFFECT_GLSL = `
-vec4 fieldEffect(vec2 coord, vec2 regionMin, vec2 regionMax, float time, vec4 params) {
-  vec2 pos = u_fieldTransform.xy;
-  float d = length(coord - pos);
-  // Derive radius from bounding box
-  float r = (regionMax.x - regionMin.x) * 0.5;
-  float alpha = smoothstep(r + 0.5, r - 0.5, d);
-  return vec4(params.rgb, params.a * alpha);
+/** Default field effect — SDF circle at field position using transform. */
+export const DEFAULT_FIELD_EFFECT_GLSL = /* wgsl */`
+fn fieldEffect(coord: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f {
+  let pos = effect.transform.xy;
+  let d = length(coord - pos);
+  let r = (regionMax.x - regionMin.x) * 0.5;
+  let alpha = smoothstep(r + 0.5, r - 0.5, d);
+  return vec4f(params.rgb, params.a * alpha);
 }
 `
-
 
 // Backward-compatible exports
-export function buildFragmentShader(injectedGlsl?: string): string {
-  if (injectedGlsl) {
-    return buildEffectFragmentShader(injectedGlsl)
+export function buildFragmentShader(injectedWgsl?: string): string {
+  if (injectedWgsl) {
+    return buildEffectFragmentShader(injectedWgsl)
   }
   return buildBaseFragmentShader()
 }

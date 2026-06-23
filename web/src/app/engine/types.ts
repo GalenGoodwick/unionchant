@@ -1,10 +1,10 @@
 // Field Engine v3 — Core Data Types
 
-export const GRID_SIZE = 512
+export const DEFAULT_GRID_SIZE = 512
 
-/** The world state — three 512x512 textures */
+/** The world state — three NxN textures */
 export interface FieldWorld {
-  size: typeof GRID_SIZE
+  size: number
   /** Texture 0: cell color (background layer) — GRID*GRID*4 RGBA */
   colorData: Float32Array
   /** Texture 1: shared data bus — GRID*GRID*4 RGBA

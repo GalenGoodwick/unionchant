@@ -8,7 +8,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { loadSprite, spriteToFieldCells, extractPalette } from '@/lib/sprite-loader'
 import { getFieldSnapshot, appendMemory } from '../store'
-import { GRID_SIZE } from '@/app/engine/types'
+import { DEFAULT_GRID_SIZE as GRID_SIZE } from '@/app/engine/types'
 
 export const dynamic = 'force-dynamic'
 
