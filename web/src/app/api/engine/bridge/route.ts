@@ -207,7 +207,7 @@ export async function POST(req: NextRequest) {
           triggerDistance: rule.triggerDistance as number | undefined,
           fieldA: rule.fieldA as string | undefined,
           fieldB: rule.fieldB as string | undefined,
-          effect: rule.effect as 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event',
+          effect: rule.effect as 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_wgsl' | 'send_event',
           effectParams: (rule.effectParams as Record<string, unknown>) || {},
           description: rule.description as string | undefined,
         })

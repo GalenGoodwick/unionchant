@@ -579,7 +579,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
         const programKey = `${field.id}_${effect.id}`
         newCompiled.add(programKey)
         if (!compiledFieldsRef.current.has(programKey)) {
-          await renderer.compileFieldEffect(programKey, field.id, effect.glsl)
+          await renderer.compileFieldEffect(programKey, field.id, effect.wgsl)
         }
       }
     }
@@ -1910,7 +1910,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
                                 <p className="text-[10px] text-muted/60 mb-1.5 leading-snug">{effect.description}</p>
                               )}
                               <pre className="text-[9px] font-mono text-foreground/40 bg-background/50 rounded p-1.5 overflow-x-auto max-h-24 leading-tight">
-                                {effect.glsl.slice(0, 300)}{effect.glsl.length > 300 ? '...' : ''}
+                                {effect.wgsl.slice(0, 300)}{effect.wgsl.length > 300 ? '...' : ''}
                               </pre>
                             </div>
                           ))}

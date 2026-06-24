@@ -25,13 +25,13 @@ export type EngineCommand =
   | { type: 'get_properties'; fieldId: string }
   | { type: 'set_tool'; tool: string }
   // Shader effect stack
-  | { type: 'inject_glsl'; glsl: string; description?: string; fieldId?: string; fromFieldId?: string; feedback?: boolean }
-  | { type: 'add_effect'; fieldId: string; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; order?: number; author?: string; fromFieldId?: string; feedback?: boolean }
+  | { type: 'inject_wgsl'; wgsl: string; description?: string; fieldId?: string; fromFieldId?: string; feedback?: boolean }
+  | { type: 'add_effect'; fieldId: string; wgsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; order?: number; author?: string; fromFieldId?: string; feedback?: boolean }
   | { type: 'remove_effect'; fieldId: string; effectId: string }
   // World effects (composited, multiple allowed)
-  | { type: 'add_world_effect'; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; fieldId?: string }
+  | { type: 'add_world_effect'; wgsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; fieldId?: string }
   | { type: 'remove_world_effect'; effectId: string }
-  | { type: 'inject_world_glsl'; glsl: string; description?: string; fieldId?: string }
+  | { type: 'inject_world_wgsl'; wgsl: string; description?: string; fieldId?: string }
   | { type: 'clear_world_effect' }
   // Communication
   | { type: 'field_message'; fromFieldId: string; toFieldId: string; content: string; data?: Record<string, unknown> }
@@ -44,12 +44,12 @@ export type EngineCommand =
   | { type: 'define_interaction'; rule: {
       definedBy: string; trigger: 'overlap' | 'proximity' | 'always';
       triggerDistance?: number; fieldA?: string; fieldB?: string;
-      effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event' | 'damage' | 'destroy_field';
+      effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_wgsl' | 'send_event' | 'damage' | 'destroy_field';
       effectParams: Record<string, unknown>; description?: string;
     }}
   | { type: 'remove_interaction'; ruleId: string }
-  // Interaction effects — GLSL shaders rendered at field overlap pixels
-  | { type: 'add_interaction_effect'; fieldA?: string; fieldB?: string; glsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; spread?: number; order?: number; author?: string }
+  // Interaction effects — WGSL shaders rendered at field overlap pixels
+  | { type: 'add_interaction_effect'; fieldA?: string; fieldB?: string; wgsl: string; description?: string; blend?: 'alpha' | 'additive' | 'multiply'; spread?: number; order?: number; author?: string }
   | { type: 'remove_interaction_effect'; effectId: string }
   // Custom commands
   | { type: 'define_command'; command: {
@@ -63,9 +63,9 @@ export type EngineCommand =
   // Field links — visual energy beams between fields
   | { type: 'link_fields'; fromFieldId: string; toFieldId: string; color?: [number, number, number, number]; width?: number; style?: 'beam' | 'lightning' | 'pulse' | 'helix'; intensity?: number; bidirectional?: boolean; author?: string }
   | { type: 'unlink_fields'; linkId: string }
-  // GLSL mods — reusable shader code registered by agents
-  | { type: 'register_glsl_mod'; id: string; author: string; description: string; code: string }
-  | { type: 'remove_glsl_mod'; id: string }
+  // WGSL mods — reusable shader code registered by agents
+  | { type: 'register_wgsl_mod'; id: string; author: string; description: string; code: string }
+  | { type: 'remove_wgsl_mod'; id: string }
   // Field cloning
   | { type: 'clone_field'; fieldId: string; name?: string; color?: [number, number, number, number]; offsetX?: number; offsetY?: number }
   | { type: 'list_fields' }

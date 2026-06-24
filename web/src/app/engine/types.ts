@@ -52,7 +52,7 @@ export interface FieldEffect {
   id: string
   /** Which agent/entity authored this effect */
   author: string
-  glsl: string
+  wgsl: string
   description: string
   /** How this effect composites with layers below */
   blend: 'alpha' | 'additive' | 'multiply'
@@ -76,6 +76,14 @@ export interface Field {
   properties: Map<string, unknown>
   /** Optional parent field ID — child fields move/rotate with their parent */
   parentFieldId?: string
+  /** Shape type — determines bounding region and visual form */
+  shapeType?: 'circle' | 'rect'
+  /** Circle radius in grid pixels (used when shapeType === 'circle') */
+  radius?: number
+  /** Rect width in grid pixels (used when shapeType === 'rect') */
+  w?: number
+  /** Rect height in grid pixels (used when shapeType === 'rect') */
+  h?: number
 }
 
 /** Drawing tool state */
@@ -101,7 +109,7 @@ export interface SelectionState {
   selectionMask: Uint8Array
 }
 
-/** State for AI GLSL generation — UI-only loading tracker */
+/** State for AI WGSL generation — UI-only loading tracker */
 export interface GenerationState {
   loading: boolean
   error: string | null
@@ -164,7 +172,7 @@ export interface FieldSnapshot {
   effects: Array<{
     id: string
     author: string
-    glsl: string
+    wgsl: string
     description: string
     blend: 'alpha' | 'additive' | 'multiply'
     order: number
@@ -179,6 +187,14 @@ export interface FieldSnapshot {
   properties?: Record<string, unknown>
   /** Parent field ID for hierarchy (child moves with parent) */
   parentFieldId?: string
+  /** Shape type */
+  shapeType?: 'circle' | 'rect'
+  /** Circle radius in grid pixels */
+  radius?: number
+  /** Rect width in grid pixels */
+  w?: number
+  /** Rect height in grid pixels */
+  h?: number
 }
 
 /** Full world state snapshot (sent via bridge to agents) */
@@ -208,7 +224,7 @@ export interface InteractionRule {
   /** Specific field (null = any) */
   fieldB?: string
   /** What happens when triggered */
-  effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_glsl' | 'send_event' | 'damage' | 'destroy_field'
+  effect: 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_wgsl' | 'send_event' | 'damage' | 'destroy_field'
   /** Effect-specific parameters */
   effectParams: Record<string, unknown>
   /** Human-readable description */
@@ -254,8 +270,8 @@ export interface InteractionEffect {
   fieldA: string | null
   /** Specific field B (null = any field) */
   fieldB: string | null
-  /** GLSL code providing interactionEffect() function */
-  glsl: string
+  /** WGSL code providing interactionEffect() function */
+  wgsl: string
   description: string
   /** How this effect composites */
   blend: 'alpha' | 'additive' | 'multiply'

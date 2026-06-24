@@ -74,7 +74,7 @@ function hueToRgba(hue: number): [number, number, number, number] {
 /** Wrap interaction WGSL for the field effect pipeline.
  *  Interaction shaders define `fn interactionEffect(coord, regionMin, regionMax, time, params) → vec4f`.
  *  This wrapper adapts it to `fn fieldEffect(...)` expected by the field pipeline. */
-function wrapInteractionGlsl(interactionWgsl: string): string {
+function wrapInteractionWgsl(interactionWgsl: string): string {
   return `
 // Per-pixel overlap mask: 1.0 where both parent fields' dilated presence overlaps, 0.0 elsewhere.
 fn overlapMask(coord: vec2f) -> f32 {
@@ -85,7 +85,8 @@ ${interactionWgsl}
 
 fn fieldEffect(coord: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f {
   let eff = interactionEffect(coord, regionMin, regionMax, time, params);
-  return eff;
+  let mask = overlapMask(coord);
+  return vec4f(eff.rgb, eff.a * mask);
 }`
 }
 
@@ -103,8 +104,8 @@ export default function FieldEngine() {
   const cachedOverlapMasksRef = useRef<Map<string, Uint8Array>>(new Map())
   const renderedSamplesRef = useRef<Map<string, { width: number; height: number; pixels: number[] }>>(new Map())
 
-  // GLSL mods — reusable shader utilities registered by agents
-  const glslModsRef = useRef<Map<string, { id: string; code: string }>>(new Map())
+  // WGSL mods — reusable shader utilities registered by agents
+  const wgslModsRef = useRef<Map<string, { id: string; code: string }>>(new Map())
 
   // Camera
   const gridSize = DEFAULT_GRID_SIZE
@@ -128,7 +129,7 @@ export default function FieldEngine() {
     selectionMask: new Uint8Array(DEFAULT_GRID_SIZE * DEFAULT_GRID_SIZE),
   })
 
-  // Generation state — UI-only loading tracker, GLSL lives on Field objects
+  // Generation state — UI-only loading tracker, WGSL lives on Field objects
   const [generation, setGeneration] = useState<GenerationState>({
     loading: false,
     error: null,
@@ -154,9 +155,9 @@ export default function FieldEngine() {
   } | null>(null)
   const pixelInfoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  /** Get concatenated GLSL mod code from all registered mods */
+  /** Get concatenated WGSL mod code from all registered mods */
   const getModCode = useCallback((): string | undefined => {
-    const mods = glslModsRef.current
+    const mods = wgslModsRef.current
     if (mods.size === 0) return undefined
     return Array.from(mods.values()).map(m => m.code).join('\n')
   }, [])
@@ -290,13 +291,13 @@ export default function FieldEngine() {
       // Add as an effect
       const effectId = genEffectId()
       const programKey = `${targetFieldId}_${effectId}`
-      const result = await renderer.compileFieldEffect(programKey, targetFieldId, data.glsl, getModCode())
+      const result = await renderer.compileFieldEffect(programKey, targetFieldId, data.wgsl, getModCode())
 
       if (result.success) {
         const effect: FieldEffect = {
           id: effectId,
           author: 'user',
-          glsl: data.glsl,
+          wgsl: data.wgsl,
           description: data.description || 'AI generated',
           blend: 'alpha',
           order: 10,
@@ -603,10 +604,10 @@ export default function FieldEngine() {
         if (data.worldParams) sim.setWorldParams(data.worldParams)
 
         // Restore WGSL mods BEFORE compiling effects (effects may use mod functions)
-        if (Array.isArray(data.glslMods)) {
-          for (const mod of data.glslMods) {
+        if (Array.isArray(data.wgslMods || data.glslMods)) {
+          for (const mod of (data.wgslMods || data.glslMods)) {
             if (mod.id && mod.code) {
-              glslModsRef.current.set(mod.id, { id: mod.id, code: mod.code })
+              wgslModsRef.current.set(mod.id, { id: mod.id, code: mod.code })
             }
           }
         }
@@ -618,7 +619,7 @@ export default function FieldEngine() {
         for (const field of sim.fields.values()) {
           for (const effect of field.effects) {
             const programKey = `${field.id}_${effect.id}`
-            const result = await renderer.compileFieldEffect(programKey, field.id, effect.glsl, getModCode())
+            const result = await renderer.compileFieldEffect(programKey, field.id, effect.wgsl, getModCode())
             if (result.success) {
               compiled++
             } else {
@@ -627,7 +628,7 @@ export default function FieldEngine() {
             }
           }
         }
-        console.log(`[Restore] Effects: ${compiled} compiled, ${failed} failed, mods: ${glslModsRef.current.size}`)
+        console.log(`[Restore] Effects: ${compiled} compiled, ${failed} failed, mods: ${wgslModsRef.current.size}`)
 
         setBrush(prev => ({ ...prev, activeFieldId: firstId }))
       }
@@ -642,7 +643,7 @@ export default function FieldEngine() {
       // Restore interaction effects
       if (Array.isArray(data.interactionEffects)) {
         for (const ie of data.interactionEffects) {
-          if (ie.glsl) {
+          if (ie.wgsl) {
             sim.addInteractionEffect(ie)
           }
         }
@@ -721,9 +722,9 @@ export default function FieldEngine() {
 
           // Lazy compile (wrap interaction GLSL → fieldEffect)
           if (!renderer.hasFieldEffect(pairKey)) {
-            const wrappedGlsl = wrapInteractionGlsl(effect.glsl)
+            const wrappedWgsl = wrapInteractionWgsl(effect.wgsl)
             // Fire-and-forget async compile — will be ready next frame
-            renderer.compileFieldEffect(pairKey, pairKey, wrappedGlsl, getModCode())
+            renderer.compileFieldEffect(pairKey, pairKey, wrappedWgsl, getModCode())
               .then(result => { if (!result.success) console.warn(`Interaction effect ${effect.id} compile error:`, result.error) })
             continue
           }
@@ -1032,12 +1033,13 @@ export default function FieldEngine() {
 
                 const effectId = genEffectId()
                 const programKey = `${targetFieldId}_${effectId}`
-                const result = await renderer.compileFieldEffect(programKey, targetFieldId, genData.glsl, getModCode())
+                const shaderCode = genData.wgsl || genData.glsl
+                const result = await renderer.compileFieldEffect(programKey, targetFieldId, shaderCode, getModCode())
                 if (result.success) {
                   const effect: FieldEffect = {
                     id: effectId,
                     author: 'ai_generate',
-                    glsl: genData.glsl,
+                    wgsl: shaderCode,
                     description: genData.description || 'AI generated',
                     blend: 'alpha',
                     order: 10,
@@ -1045,7 +1047,7 @@ export default function FieldEngine() {
                   sim.addFieldEffect(targetFieldId, effect)
                   setGeneration({ loading: false, error: null, targetFieldId: null })
                   syncFields()
-                  pushTerminal('generate', targetFieldId, 'complete', genData.glsl)
+                  pushTerminal('generate', targetFieldId, 'complete', shaderCode)
                 } else {
                   setGeneration({ loading: false, error: `Shader compile error: ${result.error}`, targetFieldId })
                 }
@@ -1059,13 +1061,15 @@ export default function FieldEngine() {
               break
             }
 
+            case 'inject_wgsl':
             case 'inject_glsl': {
               // Backward-compatible: translates to add_effect. If same author has an
               // existing effect, replaces it.
+              const shaderCode = cmd.wgsl || cmd.glsl
               const allFieldIds = Array.from(sim.fields.keys())
               const targetId = cmd.fieldId || allFieldIds[0]
               if (!targetId) {
-                pushTerminal('inject_glsl', undefined, 'ERROR: no fields exist')
+                pushTerminal('inject_wgsl', undefined, 'ERROR: no fields exist')
                 break
               }
 
@@ -1073,7 +1077,7 @@ export default function FieldEngine() {
               const fromField = (cmd as Record<string, unknown>).fromFieldId as string | undefined
               if (fromField && fromField !== targetId) {
                 const targetField = sim.fields.get(targetId)
-                pushTerminal('inject_glsl', fromField, `BLOCKED: cannot code '${targetField?.name || targetId}' — send a field_message proposing your shader instead`)
+                pushTerminal('inject_wgsl', fromField, `BLOCKED: cannot code '${targetField?.name || targetId}' — send a field_message proposing your shader instead`)
                 break
               }
 
@@ -1093,13 +1097,13 @@ export default function FieldEngine() {
 
               const effectId = genEffectId()
               const programKey = `${targetId}_${effectId}`
-              const result = await renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
+              const result = await renderer.compileFieldEffect(programKey, targetId, shaderCode, getModCode())
 
               if (result.success) {
                 const effect: FieldEffect = {
                   id: effectId,
                   author,
-                  glsl: cmd.glsl,
+                  wgsl: shaderCode,
                   description: cmd.description || 'Injected by agent',
                   blend: 'alpha',
                   order: 10,
@@ -1107,9 +1111,9 @@ export default function FieldEngine() {
                 }
                 sim.addFieldEffect(targetId, effect)
                 syncFields()
-                pushTerminal('inject_glsl', targetId, cmd.description || 'shader injected', cmd.glsl)
+                pushTerminal('inject_wgsl', targetId, cmd.description || 'shader injected', shaderCode)
               } else {
-                pushTerminal('inject_glsl', targetId, `COMPILE ERROR: ${result.error?.substring(0, 100)}`)
+                pushTerminal('inject_wgsl', targetId, `COMPILE ERROR: ${result.error?.substring(0, 100)}`)
               }
               break
             }
@@ -1132,16 +1136,16 @@ export default function FieldEngine() {
                 syncFields()
                 pushTerminal('create_field', targetId, `auto-created '${autoName}' for add_effect`)
               }
-              // Accept glsl at top level, as 'shader', or nested inside cmd.effect
-              if (!cmd.glsl && cmd.shader) cmd.glsl = cmd.shader
-              if (!cmd.glsl && cmd.effect && typeof cmd.effect === 'object') {
-                cmd.glsl = cmd.effect.glsl
+              // Accept wgsl/glsl at top level, as 'shader', or nested inside cmd.effect
+              const shaderSrc = cmd.wgsl || cmd.glsl || cmd.shader
+                || (cmd.effect && typeof cmd.effect === 'object' ? (cmd.effect.wgsl || cmd.effect.glsl) : undefined)
+              if (cmd.effect && typeof cmd.effect === 'object') {
                 cmd.blend = cmd.blend || cmd.effect.blend
                 cmd.author = cmd.author || cmd.effect.author
                 cmd.description = cmd.description || cmd.effect.description
               }
-              if (!cmd.glsl || typeof cmd.glsl !== 'string') {
-                pushTerminal('add_effect', targetId, 'ERROR: glsl string required')
+              if (!shaderSrc || typeof shaderSrc !== 'string') {
+                pushTerminal('add_effect', targetId, 'ERROR: wgsl string required')
                 break
               }
 
@@ -1150,13 +1154,13 @@ export default function FieldEngine() {
               // Accept blend mode from 'blend' or 'effectType' (agents sometimes use effectType for blend)
               const rawBlend = cmd.blend || cmd.effectType
               const blend = (rawBlend === 'additive' || rawBlend === 'multiply') ? rawBlend : 'alpha'
-              const result = await renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
+              const result = await renderer.compileFieldEffect(programKey, targetId, shaderSrc, getModCode())
 
               if (result.success) {
                 const effect: FieldEffect = {
                   id: effectId,
                   author: cmd.author || cmd.fromFieldId || 'agent',
-                  glsl: cmd.glsl,
+                  wgsl: shaderSrc,
                   description: cmd.description || 'effect added',
                   blend,
                   order: cmd.order ?? (field.effects.length + 1) * 10,
@@ -1164,7 +1168,7 @@ export default function FieldEngine() {
                 }
                 sim.addFieldEffect(targetId, effect)
                 syncFields()
-                pushTerminal('add_effect', targetId, `${effect.description} (${blend}${cmd.feedback ? ' +feedback' : ''})`, cmd.glsl, cmdAuthor)
+                pushTerminal('add_effect', targetId, `${effect.description} (${blend}${cmd.feedback ? ' +feedback' : ''})`, shaderSrc, cmdAuthor)
               } else {
                 // Compile error — write to field memory and worldData so agents can see it
                 const errMsg = result.error?.substring(0, 200) || 'unknown error'
@@ -1203,8 +1207,9 @@ export default function FieldEngine() {
               // Atomic swap: remove old effect by effectId, compile + add new one in one step
               const targetId = cmd.fieldId
               const effectId = cmd.effectId
-              if (!targetId || !effectId || !cmd.glsl) {
-                pushTerminal('update_effect', targetId, 'ERROR: fieldId, effectId, and glsl required')
+              const updateShader = cmd.wgsl || cmd.glsl
+              if (!targetId || !effectId || !updateShader) {
+                pushTerminal('update_effect', targetId, 'ERROR: fieldId, effectId, and wgsl required')
                 break
               }
               const field = sim.fields.get(targetId)
@@ -1213,15 +1218,15 @@ export default function FieldEngine() {
               if (!oldEffect) { pushTerminal('update_effect', targetId, `ERROR: effect ${effectId} not found`); break }
 
               const programKey = `${targetId}_${effectId}`
-              const result = await renderer.compileFieldEffect(programKey, targetId, cmd.glsl, getModCode())
+              const result = await renderer.compileFieldEffect(programKey, targetId, updateShader, getModCode())
               if (result.success) {
                 // Update in place — no gap
-                oldEffect.glsl = cmd.glsl
+                oldEffect.wgsl = updateShader
                 if (cmd.description) oldEffect.description = cmd.description
                 if (cmd.blend) oldEffect.blend = cmd.blend
                 if (cmd.feedback !== undefined) oldEffect.feedback = !!cmd.feedback
                 syncFields()
-                pushTerminal('update_effect', targetId, `updated ${effectId}: ${cmd.description || oldEffect.description}`, cmd.glsl, cmdAuthor)
+                pushTerminal('update_effect', targetId, `updated ${effectId}: ${cmd.description || oldEffect.description}`, updateShader, cmdAuthor)
               } else {
                 const errMsg = result.error?.substring(0, 200) || 'unknown error'
                 sim.worldData['last_compile_error'] = { fieldId: targetId, effectId, error: errMsg, timestamp: Date.now() }
@@ -1318,6 +1323,16 @@ export default function FieldEngine() {
 
               if (cmd.x !== undefined && cmd.y !== undefined) {
                 sim.setPosition(id, cmd.x as number, cmd.y as number)
+              }
+
+              // Store shape properties on the field
+              const newField = sim.fields.get(id)
+              if (newField) {
+                const shapeVal = (cmd.shape || cmd.shapeType) as 'circle' | 'rect' | undefined
+                if (shapeVal) newField.shapeType = shapeVal
+                if (cmd.radius !== undefined) newField.radius = cmd.radius as number
+                if (cmd.w !== undefined) newField.w = cmd.w as number
+                if (cmd.h !== undefined) newField.h = cmd.h as number
               }
 
               setBrush(prev => ({ ...prev, activeFieldId: id }))
@@ -1428,6 +1443,20 @@ export default function FieldEngine() {
               field.transform.scale = (cmd.scale as number) || 1.0
               syncFields()
               pushTerminal('set_scale', cmd.fieldId, `scale=${field.transform.scale.toFixed(2)}`)
+              break
+            }
+
+            case 'set_shape': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              const shapeVal = ((cmd as Record<string, unknown>).shape || (cmd as Record<string, unknown>).shapeType) as 'circle' | 'rect' | undefined
+              if (shapeVal) field.shapeType = shapeVal
+              if ((cmd as Record<string, unknown>).radius !== undefined) field.radius = (cmd as Record<string, unknown>).radius as number
+              if ((cmd as Record<string, unknown>).w !== undefined) field.w = (cmd as Record<string, unknown>).w as number
+              if ((cmd as Record<string, unknown>).h !== undefined) field.h = (cmd as Record<string, unknown>).h as number
+              syncFields()
+              const shapeDesc = field.shapeType === 'circle' ? `circle r=${field.radius}` : `rect ${field.w}x${field.h}`
+              pushTerminal('set_shape', cmd.fieldId, shapeDesc)
               break
             }
 
@@ -1561,15 +1590,15 @@ export default function FieldEngine() {
             }
 
             case 'add_interaction_effect': {
-              const glsl = (cmd as Record<string, unknown>).glsl as string
-              if (!glsl) {
-                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, 'ERROR: glsl required')
+              const ixWgsl = ((cmd as Record<string, unknown>).wgsl || (cmd as Record<string, unknown>).glsl) as string
+              if (!ixWgsl) {
+                pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, 'ERROR: wgsl required')
                 break
               }
-              // Validate the wrapped GLSL before adding
-              const wrappedGlsl = wrapInteractionGlsl(glsl)
+              // Validate the wrapped WGSL before adding
+              const wrappedWgsl = wrapInteractionWgsl(ixWgsl)
               const testKey = `ix_validate_${Date.now()}`
-              const compileResult = await renderer.compileFieldEffect(testKey, testKey, wrappedGlsl, getModCode())
+              const compileResult = await renderer.compileFieldEffect(testKey, testKey, wrappedWgsl, getModCode())
               if (!compileResult.success) {
                 pushTerminal('add_interaction_effect', (cmd as Record<string, unknown>).author as string, `WGSL error: ${compileResult.error}`)
                 renderer.removeFieldEffect(testKey)
@@ -1584,7 +1613,7 @@ export default function FieldEngine() {
                 author: (cmd as Record<string, unknown>).author as string || 'unknown',
                 fieldA: (cmd as Record<string, unknown>).fieldA as string || null,
                 fieldB: (cmd as Record<string, unknown>).fieldB as string || null,
-                glsl,
+                wgsl: ixWgsl,
                 description: (cmd as Record<string, unknown>).description as string || '',
                 blend: ((cmd as Record<string, unknown>).blend as 'alpha' | 'additive' | 'multiply') || 'alpha',
                 spread: (cmd as Record<string, unknown>).spread as number || 0,
@@ -1675,10 +1704,11 @@ export default function FieldEngine() {
             case 'add_state_shader': {
               // GPU state update shader — runs each frame via render-to-texture ping-pong
               // Agent provides cellUpdate(coord, state, color, time, dt) function
-              if (cmd.glsl) {
-                const stateResult = await renderer.compileStateUpdate(cmd.glsl as string, getModCode())
+              const stateShader = (cmd.wgsl || cmd.glsl) as string
+              if (stateShader) {
+                const stateResult = await renderer.compileStateUpdate(stateShader, getModCode())
                 if (stateResult.success) {
-                  pushTerminal('add_state_shader', cmd.fieldId, cmd.description || 'state update shader active', cmd.glsl as string, cmd.author as string)
+                  pushTerminal('add_state_shader', cmd.fieldId, cmd.description || 'state update shader active', stateShader, cmd.author as string)
                 } else {
                   pushTerminal('add_state_shader', cmd.fieldId, `STATE SHADER COMPILE ERROR: ${stateResult.error?.substring(0, 100)}`)
                   sim.worldData['last_compile_error'] = {
@@ -1718,12 +1748,12 @@ export default function FieldEngine() {
               for (const effect of sourceField.effects) {
                 const newEffectId = genEffectId()
                 const programKey = `${cloneId}_${newEffectId}`
-                const result = await renderer.compileFieldEffect(programKey, cloneId, effect.glsl, getModCode())
+                const result = await renderer.compileFieldEffect(programKey, cloneId, effect.wgsl, getModCode())
                 if (result.success) {
                   sim.addFieldEffect(cloneId, {
                     id: newEffectId,
                     author: effect.author,
-                    glsl: effect.glsl,
+                    wgsl: effect.wgsl,
                     description: effect.description,
                     blend: effect.blend,
                     order: effect.order,
@@ -1779,27 +1809,29 @@ export default function FieldEngine() {
               break
             }
 
-            // --- GLSL Mod commands ---
+            // --- WGSL Mod commands ---
+            case 'register_wgsl_mod':
             case 'register_glsl_mod': {
               const modId = cmd.id as string
               const modCode = cmd.code as string
               if (!modId || !modCode) {
-                pushTerminal('register_glsl_mod', undefined, 'ERROR: id and code required')
+                pushTerminal('register_wgsl_mod', undefined, 'ERROR: id and code required')
                 break
               }
-              glslModsRef.current.set(modId, { id: modId, code: modCode })
-              pushTerminal('register_glsl_mod', undefined, `Registered mod "${modId}" (${modCode.length} chars)`)
+              wgslModsRef.current.set(modId, { id: modId, code: modCode })
+              pushTerminal('register_wgsl_mod', undefined, `Registered mod "${modId}" (${modCode.length} chars)`)
               break
             }
 
+            case 'remove_wgsl_mod':
             case 'remove_glsl_mod': {
               const modId = cmd.id as string
               if (!modId) {
-                pushTerminal('remove_glsl_mod', undefined, 'ERROR: id required')
+                pushTerminal('remove_wgsl_mod', undefined, 'ERROR: id required')
                 break
               }
-              const existed = glslModsRef.current.delete(modId)
-              pushTerminal('remove_glsl_mod', undefined, existed ? `Removed mod "${modId}"` : `Mod "${modId}" not found`)
+              const existed = wgslModsRef.current.delete(modId)
+              pushTerminal('remove_wgsl_mod', undefined, existed ? `Removed mod "${modId}"` : `Mod "${modId}" not found`)
               break
             }
 
@@ -1813,7 +1845,7 @@ export default function FieldEngine() {
             }
 
             case 'status':
-              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length} projectiles=${sim.projectiles.length} mods=${glslModsRef.current.size}`)
+              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length} projectiles=${sim.projectiles.length} mods=${wgslModsRef.current.size}`)
               break
           }
         } catch (err) {

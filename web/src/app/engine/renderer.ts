@@ -932,10 +932,9 @@ export class FieldRenderer {
         renderStageIndices.push(stageIdx++)
       }
 
-      // Stage dispatch uniforms for compute effects
+      // Stage dispatch uniforms for compute effects — fullscreen dispatch (no scissor clipping)
       for (let i = 0; i < computeEffects.length; i++) {
-        const scissor = this.gridBoundsToScissor(computeEffects[i].bounds, camera, zoom, bufferW, bufferH)
-        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([scissor[0], scissor[1], scissor[2], scissor[3]]))
+        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([0, 0, bufferW, bufferH]))
       }
 
       // ─── Compute path: dispatch per-field, blit once ───
@@ -964,10 +963,6 @@ export class FieldRenderer {
           const computeEntry = this.fieldComputeEntries.get(effect.programKey)!
           const sharedCompute = this.sharedComputePipelines.get(computeEntry.wgslHash)!
 
-          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
-          if (scissor[2] <= 0 || scissor[3] <= 0) continue
-          if (scissor[0] >= bufferW || scissor[1] >= bufferH) continue
-
           // Copy this effect's uniforms from staging → active buffer (ordered within encoder)
           encoder.copyBufferToBuffer(
             this.effectUniformStagingBuf!, computeStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE,
@@ -992,9 +987,10 @@ export class FieldRenderer {
           pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
           pass.setBindGroup(2, effectUniformBG)
           pass.setBindGroup(3, dispatchBG)
+          // Fullscreen dispatch — shader handles pixel-perfect shape via alpha
           pass.dispatchWorkgroups(
-            Math.ceil(scissor[2] / 16),
-            Math.ceil(scissor[3] / 16),
+            Math.ceil(bufferW / 16),
+            Math.ceil(bufferH / 16),
           )
           pass.end()
         }
@@ -1032,10 +1028,6 @@ export class FieldRenderer {
           const shared = this.sharedPipelines.get(entry.wgslHash)
           if (!shared) continue
 
-          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
-          if (scissor[2] <= 0 || scissor[3] <= 0) continue
-          if (scissor[0] >= bufferW || scissor[1] >= bufferH) continue
-
           // Copy this effect's uniforms from staging → active buffer
           encoder.copyBufferToBuffer(
             this.effectUniformStagingBuf!, renderStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE,
@@ -1048,7 +1040,7 @@ export class FieldRenderer {
               const mcPass = encoder.beginRenderPass({
                 colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
               })
-              mcPass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3])
+              // maskClear uses fullscreen — mask texture handles pixel-perfect clearing
               mcPass.setPipeline(this.maskClearPipeline)
               mcPass.setBindGroup(0, frameBG)
               mcPass.setBindGroup(1, device.createBindGroup({
@@ -1063,10 +1055,10 @@ export class FieldRenderer {
             }
           }
 
+          // Fullscreen render pass — no scissor rect, shader alpha defines pixel-perfect shape
           const pass = encoder.beginRenderPass({
             colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }],
           })
-          pass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3])
           pass.setPipeline(shared.pipeline)
           pass.setBindGroup(0, frameBG)
           pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
@@ -1145,9 +1137,9 @@ export class FieldRenderer {
       for (const effect of computeEffects) { this.stageEffectUniforms(stageIdx, effect); computeStageIndices.push(stageIdx++) }
       const renderStageIndices: number[] = []
       for (const effect of renderEffects) { this.stageEffectUniforms(stageIdx, effect); renderStageIndices.push(stageIdx++) }
+      // Fullscreen dispatch — no scissor clipping
       for (let i = 0; i < computeEffects.length; i++) {
-        const scissor = this.gridBoundsToScissor(computeEffects[i].bounds, camera, zoom, bufferW, bufferH)
-        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([scissor[0], scissor[1], scissor[2], scissor[3]]))
+        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([0, 0, bufferW, bufferH]))
       }
 
       if (computeEffects.length > 0) {
@@ -1162,8 +1154,6 @@ export class FieldRenderer {
           const effect = computeEffects[i]
           const ce = this.fieldComputeEntries.get(effect.programKey)!
           const sc = this.sharedComputePipelines.get(ce.wgslHash)!
-          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
-          if (scissor[2] <= 0 || scissor[3] <= 0 || scissor[0] >= bufferW || scissor[1] >= bufferH) continue
 
           encoder.copyBufferToBuffer(this.effectUniformStagingBuf!, computeStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE, this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE)
           encoder.copyBufferToBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, this.dispatchUniformBuf!, 0, FieldRenderer.DISPATCH_UNIFORM_SIZE)
@@ -1175,7 +1165,7 @@ export class FieldRenderer {
           pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
           pass.setBindGroup(2, effectUniformBG)
           pass.setBindGroup(3, dispatchBG)
-          pass.dispatchWorkgroups(Math.ceil(scissor[2] / 16), Math.ceil(scissor[3] / 16))
+          pass.dispatchWorkgroups(Math.ceil(bufferW / 16), Math.ceil(bufferH / 16))
           pass.end()
         }
 
@@ -1197,11 +1187,9 @@ export class FieldRenderer {
           if (!entry) continue
           const shared = this.sharedPipelines.get(entry.wgslHash)
           if (!shared) continue
-          const scissor = this.gridBoundsToScissor(effect.bounds, camera, zoom, bufferW, bufferH)
-          if (scissor[2] <= 0 || scissor[3] <= 0 || scissor[0] >= bufferW || scissor[1] >= bufferH) continue
           encoder.copyBufferToBuffer(this.effectUniformStagingBuf!, renderStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE, this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE)
+          // Fullscreen render — no scissor, shader alpha defines pixel-perfect shape
           const pass = encoder.beginRenderPass({ colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }] })
-          pass.setScissorRect(scissor[0], scissor[1], scissor[2], scissor[3])
           pass.setPipeline(shared.pipeline)
           pass.setBindGroup(0, frameBG)
           pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
@@ -1294,11 +1282,11 @@ export class FieldRenderer {
 
   // --- State update compute ---
 
-  async compileStateUpdate(glsl: string, modCode?: string): Promise<{ success: boolean; error?: string }> {
-    return this.compileCompositeStateUpdate([{ id: 'single', glsl }], modCode)
+  async compileStateUpdate(wgsl: string, modCode?: string): Promise<{ success: boolean; error?: string }> {
+    return this.compileCompositeStateUpdate([{ id: 'single', wgsl }], modCode)
   }
 
-  async compileCompositeStateUpdate(fields: { id: string; glsl: string }[], modCode?: string): Promise<{ success: boolean; error?: string }> {
+  async compileCompositeStateUpdate(fields: { id: string; wgsl: string }[], modCode?: string): Promise<{ success: boolean; error?: string }> {
     const device = this.device
     if (!device) return { success: false, error: 'No WebGPU device' }
     if (fields.length === 0) {

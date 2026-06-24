@@ -19,7 +19,7 @@ export class FieldSimulation {
   stepHooks: Map<string, { author: string; description: string; code: string; fn: (sim: FieldSimulation, dt: number) => void }> = new Map()
   /** Spawn queue — fields created by step hooks are queued and processed after all hooks run */
   spawnQueue: Array<{ name: string; color: [number, number, number, number]; x: number; y: number }> = []
-  /** Agent-defined interaction effects — GLSL shaders rendered at field overlap pixels */
+  /** Agent-defined interaction effects — WGSL shaders rendered at field overlap pixels */
   interactionEffects: InteractionEffect[] = []
   /** Shared world data — key-value store accessible from step hooks */
   worldData: Record<string, unknown> = {}
@@ -74,6 +74,11 @@ export class FieldSimulation {
       if (snap.parentFieldId) {
         field.parentFieldId = snap.parentFieldId
       }
+      // Restore shape properties
+      if (snap.shapeType) field.shapeType = snap.shapeType
+      if (snap.radius !== undefined) field.radius = snap.radius
+      if (snap.w !== undefined) field.w = snap.w
+      if (snap.h !== undefined) field.h = snap.h
       if (snap.memory?.length) {
         this.fieldMemory.set(snap.id, [...snap.memory])
       }
@@ -776,18 +781,26 @@ export class FieldSimulation {
     }
   }
 
-  /** Get the axis-aligned bounding box of a field — shader execution area centered on position */
+  /** Get the axis-aligned bounding box of a field — shader execution area centered on position.
+   *  Uses actual shape dimensions (radius/w/h) when available, falls back to FIELD_RENDER_EXTENT. */
   getFieldBounds(fieldId: string): { minX: number; minY: number; maxX: number; maxY: number } | null {
     const field = this.fields.get(fieldId)
     if (!field) return null
     const t = field.transform
-    const r = FIELD_RENDER_EXTENT * t.scale
-    return {
-      minX: t.x - r,
-      minY: t.y - r,
-      maxX: t.x + r,
-      maxY: t.y + r,
+    const s = t.scale
+
+    if (field.shapeType === 'circle' && field.radius) {
+      const r = field.radius * s
+      return { minX: t.x - r, minY: t.y - r, maxX: t.x + r, maxY: t.y + r }
+    } else if (field.shapeType === 'rect' && field.w && field.h) {
+      const hw = (field.w / 2) * s
+      const hh = (field.h / 2) * s
+      return { minX: t.x - hw, minY: t.y - hh, maxX: t.x + hw, maxY: t.y + hh }
     }
+
+    // Fallback for fields without shape info
+    const r = FIELD_RENDER_EXTENT * s
+    return { minX: t.x - r, minY: t.y - r, maxX: t.x + r, maxY: t.y + r }
   }
 
   /** Get the center of a field */
@@ -986,7 +999,7 @@ export class FieldSimulation {
         name: field.name,
         color: field.color,
         effects: field.effects.map(e => ({
-          id: e.id, author: e.author, glsl: e.glsl,
+          id: e.id, author: e.author, wgsl: e.wgsl,
           description: e.description, blend: e.blend, order: e.order,
         })),
         transform: { ...field.transform },
@@ -995,7 +1008,11 @@ export class FieldSimulation {
         stateAtCenter,
         properties: Object.fromEntries(field.properties),
         parentFieldId: field.parentFieldId,
-      })
+        ...(field.shapeType ? { shapeType: field.shapeType } : {}),
+        ...(field.radius !== undefined ? { radius: field.radius } : {}),
+        ...(field.w !== undefined ? { w: field.w } : {}),
+        ...(field.h !== undefined ? { h: field.h } : {}),
+      } as FieldSnapshot)
     }
     return snapshots
   }

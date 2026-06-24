@@ -563,16 +563,16 @@ ${COORD_MATH}
  *   fn cellUpdate(coord: vec2f, state: vec4f, color: vec4f, time: f32, dt: f32) -> vec4f
  */
 export function buildStateUpdateComputeShader(injectedWgsl: string, modCode?: string): string {
-  return buildCompositeStateComputeShader([{ id: 'single', glsl: injectedWgsl }], modCode)
+  return buildCompositeStateComputeShader([{ id: 'single', wgsl: injectedWgsl }], modCode)
 }
 
 /**
  * Build a composite state compute shader from multiple field contributions.
  * ADDITIVE composition: all shaders read ORIGINAL state, deltas are summed.
  */
-export function buildCompositeStateComputeShader(fields: { id: string; glsl: string }[], modCode?: string): string {
+export function buildCompositeStateComputeShader(fields: { id: string; wgsl: string }[], modCode?: string): string {
   const renamedFunctions = fields.map((f, i) => {
-    return f.glsl.replace(/cellUpdate\s*\(/g, `cellUpdate_${i}(`)
+    return f.wgsl.replace(/cellUpdate\s*\(/g, `cellUpdate_${i}(`)
   })
 
   const deltaCalls = fields.map((_, i) => {
@@ -610,11 +610,11 @@ ${deltaCalls.join('\n')}
 }
 
 // Backward compat: buildStateUpdateShader wraps single field
-export function buildStateUpdateShader(glsl: string, modCode?: string): string {
-  return buildCompositeStateComputeShader([{ id: 'single', glsl }], modCode)
+export function buildStateUpdateShader(wgsl: string, modCode?: string): string {
+  return buildCompositeStateComputeShader([{ id: 'single', wgsl }], modCode)
 }
 
-export function buildCompositeStateShader(fields: { id: string; glsl: string }[], modCode?: string): string {
+export function buildCompositeStateShader(fields: { id: string; wgsl: string }[], modCode?: string): string {
   return buildCompositeStateComputeShader(fields, modCode)
 }
 
@@ -688,7 +688,7 @@ ${COORD_MATH}
 }
 
 /** Default field effect — SDF circle at field position using transform. */
-export const DEFAULT_FIELD_EFFECT_GLSL = /* wgsl */`
+export const DEFAULT_FIELD_EFFECT_WGSL = /* wgsl */`
 fn fieldEffect(coord: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, params: vec4f) -> vec4f {
   let pos = effect.transform.xy;
   let d = length(coord - pos);
