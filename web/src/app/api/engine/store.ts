@@ -2,7 +2,7 @@
 // Uses globalThis to share state across Next.js API route modules
 // Persists to disk so state survives server restarts
 
-import type { FieldSnapshot, FieldMemoryEntry, WorldParams, InteractionRule, InteractionEffect, CustomCommand } from '@/app/engine/types'
+import type { FieldSnapshot, FieldMemoryEntry, WorldParams, InteractionRule, InteractionEffect, CustomCommand, SceneSnapshot } from '@/app/engine/types'
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
@@ -15,6 +15,13 @@ export interface StepHookSnapshot {
   author: string
   description: string
   code: string
+}
+
+/** Registered visual type for the superimposed uber-shader */
+export interface VisualTypeDef {
+  name: string
+  wgsl: string
+  timestamp: number
 }
 
 /** Registered GLSL mod (reusable shader utility code) */
@@ -51,6 +58,10 @@ interface EngineStore {
   renderedSamples: Record<string, RenderedSample>
   /** Registered GLSL mods — reusable shader utilities injected into all new compilations */
   glslMods: Map<string, GlslMod>
+  /** Registered visual types for superimposed uber-shader (persisted) */
+  visualTypes: Map<string, VisualTypeDef>
+  /** Saved scenes — complete engine state snapshots */
+  scenes: Map<string, SceneSnapshot>
 }
 
 const DEFAULT_WORLD_PARAMS: WorldParams = {
@@ -73,6 +84,8 @@ interface SerializedStore {
   customCommands: Record<string, CustomCommand>
   stepHooks?: StepHookSnapshot[]
   glslMods?: Record<string, GlslMod>
+  visualTypes?: Record<string, VisualTypeDef>
+  scenes?: Record<string, SceneSnapshot>
   lastSyncTime: number
 }
 
@@ -98,7 +111,19 @@ function loadFromDisk(): Partial<EngineStore> | null {
         glslMods.set(id, mod)
       }
     }
-    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${Object.keys(data.worldData || {}).length} worldData keys`)
+    const visualTypes = new Map<string, VisualTypeDef>()
+    if (data.visualTypes) {
+      for (const [name, vt] of Object.entries(data.visualTypes)) {
+        visualTypes.set(name, vt)
+      }
+    }
+    const scenes = new Map<string, SceneSnapshot>()
+    if (data.scenes) {
+      for (const [name, scene] of Object.entries(data.scenes)) {
+        scenes.set(name, scene)
+      }
+    }
+    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${visualTypes.size} visual types, ${scenes.size} scenes, ${Object.keys(data.worldData || {}).length} worldData keys`)
     return {
       fieldSnapshots,
       lastSyncTime: data.lastSyncTime || 0,
@@ -110,6 +135,8 @@ function loadFromDisk(): Partial<EngineStore> | null {
       stepHooks: data.stepHooks || [],
       renderedSamples: {},
       glslMods,
+      visualTypes,
+      scenes,
     }
   } catch {
     // No file or invalid — start fresh
@@ -133,6 +160,8 @@ function schedulePersist(): void {
         customCommands: Object.fromEntries(store.customCommands),
         stepHooks: store.stepHooks,
         glslMods: Object.fromEntries(store.glslMods),
+        visualTypes: Object.fromEntries(store.visualTypes),
+        scenes: Object.fromEntries(store.scenes),
         lastSyncTime: store.lastSyncTime,
       }
       writeFileSync(PERSIST_PATH, JSON.stringify(data), 'utf-8')
@@ -161,6 +190,8 @@ if (!globalStore.__engineStore) {
       stepHooks: [],
       renderedSamples: {},
       glslMods: new Map(),
+      visualTypes: new Map(),
+      scenes: new Map(),
     }
   }
 }
@@ -189,6 +220,12 @@ if (!store.renderedSamples) {
 }
 if (!store.glslMods) {
   store.glslMods = new Map()
+}
+if (!store.visualTypes) {
+  store.visualTypes = new Map()
+}
+if (!store.scenes) {
+  store.scenes = new Map()
 }
 
 /** Full replace from client sync */
@@ -285,6 +322,24 @@ export function getAllGlslMods(): GlslMod[] {
   return Array.from(store.glslMods.values())
 }
 
+/** Add/update a visual type (server-side persistence) */
+export function addVisualType(name: string, wgsl: string): void {
+  store.visualTypes.set(name, { name, wgsl, timestamp: Date.now() })
+  schedulePersist()
+}
+
+/** Remove a visual type */
+export function removeVisualType(name: string): boolean {
+  const existed = store.visualTypes.delete(name)
+  if (existed) schedulePersist()
+  return existed
+}
+
+/** Get all visual types */
+export function getAllVisualTypes(): VisualTypeDef[] {
+  return Array.from(store.visualTypes.values())
+}
+
 export function getEngineState(): {
   fields: FieldSnapshot[]
   fieldCount: number
@@ -297,6 +352,7 @@ export function getEngineState(): {
   customCommands: CustomCommand[]
   stepHooks: StepHookSnapshot[]
   glslMods: GlslMod[]
+  visualTypes: VisualTypeDef[]
 } {
   return {
     fields: getAllFieldSnapshots(),
@@ -310,6 +366,7 @@ export function getEngineState(): {
     customCommands: getAllCustomCommands(),
     stepHooks: getStepHooks(),
     glslMods: getAllGlslMods(),
+    visualTypes: getAllVisualTypes(),
   }
 }
 
@@ -374,6 +431,7 @@ export function resetStore(): void {
   store.customCommands.clear()
   store.stepHooks = []
   store.glslMods.clear()
+  store.visualTypes.clear()
   store.lastSyncTime = 0
   schedulePersist()
 }
@@ -387,4 +445,29 @@ export function appendMemory(fieldId: string, entry: FieldMemoryEntry): void {
     snap.memory.splice(0, snap.memory.length - MAX_MEMORY_ENTRIES)
   }
   schedulePersist()
+}
+
+// ─── Scene Persistence ───
+
+/** Save a scene snapshot */
+export function saveScene(name: string, scene: SceneSnapshot): void {
+  store.scenes.set(name, scene)
+  schedulePersist()
+}
+
+/** Load a scene snapshot by name */
+export function loadScene(name: string): SceneSnapshot | undefined {
+  return store.scenes.get(name)
+}
+
+/** List all saved scene names */
+export function listScenes(): string[] {
+  return Array.from(store.scenes.keys())
+}
+
+/** Delete a saved scene */
+export function deleteScene(name: string): boolean {
+  const existed = store.scenes.delete(name)
+  if (existed) schedulePersist()
+  return existed
 }

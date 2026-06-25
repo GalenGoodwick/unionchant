@@ -1,6 +1,6 @@
 // Field Engine v3 — Simulation (CPU-side)
 
-import { DEFAULT_GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type InteractionEffect, type CustomCommand, type Projectile } from './types'
+import { DEFAULT_GRID_SIZE, type FieldWorld, type Field, type FieldTransform, type FieldEffect, type FieldMemoryEntry, type FieldSnapshot, type FieldProximity, type WorldParams, type InteractionRule, type InteractionEffect, type CustomCommand, type Projectile, type TweenDef, type TimerDef, type CollisionCallback, type GameStateDef } from './types'
 
 /** Default render extent from field center (pixels). Not a "size" — just the shader execution area. */
 const FIELD_RENDER_EXTENT = 32
@@ -29,6 +29,26 @@ export class FieldSimulation {
    *  Map from fieldId → Uint8Array(gridSize × gridSize), 0 or 255 per pixel.
    *  This is the "field renders to pixels → pixels return data" pipeline. */
   fieldPresence: Map<string, Uint8Array> = new Map()
+  /** Tag index — O(1) lookup from tag name to field IDs */
+  tagIndex: Map<string, Set<string>> = new Map()
+  /** Maps GPU super field array index → fieldId (set by render loop) */
+  superFieldOrder: string[] = []
+  /** Interaction pairs — maps field IDs to interaction type IDs */
+  interactionPairs: { name: string; fieldA: string; fieldB: string; interactionTypeId: number }[] = []
+  /** GPU hit map reference — set by render loop from renderer.hitMap */
+  superHitMap: Uint32Array | null = null
+  superHitMapWidth: number = 0
+  superHitMapHeight: number = 0
+  /** Active tweens */
+  tweens: Map<string, TweenDef> = new Map()
+  /** Active timers */
+  timers: Map<string, TimerDef> = new Map()
+  /** Collision callbacks */
+  collisionCallbacks: Map<string, CollisionCallback> = new Map()
+  /** Game state machine */
+  gameState: string = ''
+  gameStates: Map<string, GameStateDef> = new Map()
+
   static readonly MAX_MEMORY = 100
   static readonly MAX_PROJECTILES = 200
 
@@ -79,6 +99,21 @@ export class FieldSimulation {
       if (snap.radius !== undefined) field.radius = snap.radius
       if (snap.w !== undefined) field.w = snap.w
       if (snap.h !== undefined) field.h = snap.h
+      // Restore tags
+      if (snap.tags?.length) {
+        field.tags = [...snap.tags]
+        for (const tag of field.tags) {
+          if (!this.tagIndex.has(tag)) this.tagIndex.set(tag, new Set())
+          this.tagIndex.get(tag)!.add(field.id)
+        }
+      }
+      // Restore visual type for superimposed rendering
+      if ((snap as FieldSnapshot & { visualType?: number }).visualType !== undefined) {
+        field.visualType = (snap as FieldSnapshot & { visualType?: number }).visualType
+      }
+      if ((snap as FieldSnapshot & { visualParams?: [number, number, number, number] }).visualParams) {
+        field.visualParams = [...(snap as FieldSnapshot & { visualParams?: [number, number, number, number] }).visualParams!] as [number, number, number, number]
+      }
       if (snap.memory?.length) {
         this.fieldMemory.set(snap.id, [...snap.memory])
       }
@@ -134,6 +169,14 @@ export class FieldSimulation {
 
   /** Remove a field — orphans any children (they keep their position) */
   removeField(id: string): void {
+    // Remove from tag index
+    const field = this.fields.get(id)
+    if (field?.tags) {
+      for (const tag of field.tags) {
+        this.tagIndex.get(tag)?.delete(id)
+        if (this.tagIndex.get(tag)?.size === 0) this.tagIndex.delete(tag)
+      }
+    }
     // Orphan all children before deleting
     for (const child of this.fields.values()) {
       if (child.parentFieldId === id) {
@@ -224,40 +267,46 @@ export class FieldSimulation {
   step(dt: number): void {
     if (!this.running) return
 
+    // Check if current game state pauses physics
+    const currentGameState = this.gameState ? this.gameStates.get(this.gameState) : null
+    const physicsActive = !currentGameState?.pausePhysics
+
     const wp = this.worldParams
 
-    // Apply gravity to all fields
-    if (wp.gravity !== 0) {
-      for (const field of this.fields.values()) {
-        field.transform.vy += wp.gravity * dt
+    if (physicsActive) {
+      // Apply gravity to all fields
+      if (wp.gravity !== 0) {
+        for (const field of this.fields.values()) {
+          field.transform.vy += wp.gravity * dt
+        }
       }
-    }
 
-    // Apply friction (velocity damping)
-    if (wp.friction > 0) {
-      const damping = Math.max(0, 1 - wp.friction * dt)
-      for (const field of this.fields.values()) {
-        field.transform.vx *= damping
-        field.transform.vy *= damping
-        field.transform.vr *= damping
-        if (Math.abs(field.transform.vx) < 0.01) field.transform.vx = 0
-        if (Math.abs(field.transform.vy) < 0.01) field.transform.vy = 0
-        if (Math.abs(field.transform.vr) < 0.001) field.transform.vr = 0
+      // Apply friction (velocity damping)
+      if (wp.friction > 0) {
+        const damping = Math.max(0, 1 - wp.friction * dt)
+        for (const field of this.fields.values()) {
+          field.transform.vx *= damping
+          field.transform.vy *= damping
+          field.transform.vr *= damping
+          if (Math.abs(field.transform.vx) < 0.01) field.transform.vx = 0
+          if (Math.abs(field.transform.vy) < 0.01) field.transform.vy = 0
+          if (Math.abs(field.transform.vr) < 0.001) field.transform.vr = 0
+        }
       }
+
+      // N-body gravitational attraction/repulsion between fields
+      if (wp.gravitationalConstant !== 0) {
+        this.stepGravitation(dt)
+      }
+
+      // Collision detection + forces
+      this.stepCollisions(dt)
+
+      // Agent-defined interaction rules
+      this.stepInteractionRules(dt)
     }
 
-    // N-body gravitational attraction/repulsion between fields
-    if (wp.gravitationalConstant !== 0) {
-      this.stepGravitation(dt)
-    }
-
-    // Collision detection + forces
-    this.stepCollisions(dt)
-
-    // Agent-defined interaction rules
-    this.stepInteractionRules(dt)
-
-    // Agent-defined step hooks
+    // Agent-defined step hooks (always run, even when physics paused)
     for (const [hookId, hook] of this.stepHooks) {
       try {
         hook.fn(this, dt)
@@ -271,15 +320,17 @@ export class FieldSimulation {
       this.processSpawnQueue()
     }
 
-    // Boundary enforcement
-    if (wp.boundaryMode === 'solid') {
-      this.stepBoundaries()
-    } else if (wp.boundaryMode === 'wrap') {
-      this.stepWrapBoundaries()
-    }
+    if (physicsActive) {
+      // Boundary enforcement
+      if (wp.boundaryMode === 'solid') {
+        this.stepBoundaries()
+      } else if (wp.boundaryMode === 'wrap') {
+        this.stepWrapBoundaries()
+      }
 
-    // Update field transforms (velocity → position)
-    this.stepTransforms(dt)
+      // Update field transforms (velocity → position)
+      this.stepTransforms(dt)
+    }
 
     // Update particles (fade, shrink, despawn expired)
     this.stepParticles(dt)
@@ -289,6 +340,17 @@ export class FieldSimulation {
 
     // Fade effect layer
     this.fadeEffects(dt)
+
+    // Step tweens (always run)
+    this.stepTweens(dt)
+
+    // Step timers (always run)
+    this.stepTimers(dt)
+
+    // Step collision callbacks (only when physics active)
+    if (physicsActive) {
+      this.stepCollisionCallbacks()
+    }
   }
 
   /** Apply n-body gravitational attraction/repulsion between all field pairs */
@@ -660,29 +722,72 @@ export class FieldSimulation {
     return count
   }
 
-  /** Given a grid coordinate (float), return the topmost field whose bounds contain it, or null.
+  /** Given a grid coordinate (float), return the topmost field at this pixel.
+   *  Prefers pixel-perfect presence data from GPU readback when available,
+   *  falls back to rectangular bounds when presence isn't ready yet.
    *  Iterates in reverse insertion order so the most recently created field wins. */
   getFieldAtPoint(x: number, y: number): Field | null {
-    const fields = Array.from(this.fields.values()).reverse()
-    for (const field of fields) {
-      const bounds = this.getFieldBounds(field.id)
-      if (bounds && x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
-        return field
+    // Use GPU hit map for pixel-perfect hit testing (from uber-shader readback)
+    if (this.superHitMap && this.superHitMapWidth > 0 && this.superFieldOrder.length > 0) {
+      const fieldId = this.getFieldAtPixelFromHitMap(x, y)
+      if (fieldId) {
+        const field = this.fields.get(fieldId)
+        if (field) return field
+      }
+      // If hit map says no field here, still check per-field presence below
+    }
+
+    const px = Math.floor(x)
+    const py = Math.floor(y)
+    const hasPresence = this.fieldPresence.size > 0
+    const inBounds = px >= 0 && px < this.gridSize && py >= 0 && py < this.gridSize
+    const idx = py * this.gridSize + px
+
+    if (hasPresence && inBounds) {
+      const fields = Array.from(this.fields.values()).reverse()
+      for (const field of fields) {
+        const presence = this.fieldPresence.get(field.id)
+        if (presence && presence[idx] > 0) {
+          return field
+        }
       }
     }
+
     return null
   }
 
+  /** Look up the GPU hit map to find which field is at a grid coordinate.
+   *  Converts grid coords → screen pixel using the same camera transform as the shader. */
+  private getFieldAtPixelFromHitMap(gridX: number, gridY: number): string | null {
+    if (!this.superHitMap || !this.superHitMapWidth || !this.superHitMapHeight) return null
+
+    // We need to convert grid coordinates to pixel coordinates
+    // This must match the shader's gridCoord → pixel mapping (inverse of what the shader does)
+    // The hit map is stored by the FieldEngine with camera/zoom context
+    // We use screenToGridInverse stored on the simulation
+    const px = this._gridToPixelX
+    const py = this._gridToPixelY
+    if (!px || !py) return null
+
+    const pixelX = Math.floor(px(gridX))
+    const pixelY = Math.floor(py(gridY))
+
+    if (pixelX < 0 || pixelX >= this.superHitMapWidth || pixelY < 0 || pixelY >= this.superHitMapHeight) return null
+
+    const idx = pixelY * this.superHitMapWidth + pixelX
+    const fieldIdx = this.superHitMap[idx]
+    if (fieldIdx === 0xFFFFFFFF || fieldIdx >= this.superFieldOrder.length) return null
+
+    return this.superFieldOrder[fieldIdx]
+  }
+
+  /** Grid-to-pixel conversion functions, set by the render loop */
+  _gridToPixelX: ((gx: number) => number) | null = null
+  _gridToPixelY: ((gy: number) => number) | null = null
+
   /** Given a grid coordinate, return the field whose bounds contain it, or null */
   getFieldAtCell(x: number, y: number): Field | null {
-    for (const field of this.fields.values()) {
-      const bounds = this.getFieldBounds(field.id)
-      if (!bounds) continue
-      if (x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY) {
-        return field
-      }
-    }
-    return null
+    return this.getFieldAtPoint(x, y)
   }
 
   /** Get all field IDs present at a specific pixel, based on GPU-rendered presence data.
@@ -1012,6 +1117,9 @@ export class FieldSimulation {
         ...(field.radius !== undefined ? { radius: field.radius } : {}),
         ...(field.w !== undefined ? { w: field.w } : {}),
         ...(field.h !== undefined ? { h: field.h } : {}),
+        ...(field.tags?.length ? { tags: [...field.tags] } : {}),
+        ...(field.visualType !== undefined ? { visualType: field.visualType } : {}),
+        ...(field.visualParams ? { visualParams: [...field.visualParams] as [number, number, number, number] } : {}),
       } as FieldSnapshot)
     }
     return snapshots
@@ -1338,6 +1446,264 @@ export class FieldSimulation {
     }
 
     return result
+  }
+
+  // ─── Tags / Groups ───
+
+  /** Add tags to a field */
+  addTag(fieldId: string, tags: string[]): void {
+    const field = this.fields.get(fieldId)
+    if (!field) return
+    if (!field.tags) field.tags = []
+    for (const tag of tags) {
+      if (!field.tags.includes(tag)) {
+        field.tags.push(tag)
+        if (!this.tagIndex.has(tag)) this.tagIndex.set(tag, new Set())
+        this.tagIndex.get(tag)!.add(fieldId)
+      }
+    }
+  }
+
+  /** Remove tags from a field */
+  removeTag(fieldId: string, tags: string[]): void {
+    const field = this.fields.get(fieldId)
+    if (!field?.tags) return
+    for (const tag of tags) {
+      const idx = field.tags.indexOf(tag)
+      if (idx !== -1) {
+        field.tags.splice(idx, 1)
+        this.tagIndex.get(tag)?.delete(fieldId)
+        if (this.tagIndex.get(tag)?.size === 0) this.tagIndex.delete(tag)
+      }
+    }
+  }
+
+  /** Get all fields with a given tag */
+  getFieldsByTag(tag: string): Field[] {
+    const ids = this.tagIndex.get(tag)
+    if (!ids) return []
+    const result: Field[] = []
+    for (const id of ids) {
+      const field = this.fields.get(id)
+      if (field) result.push(field)
+    }
+    return result
+  }
+
+  /** Check if a field has a tag */
+  hasTag(fieldId: string, tag: string): boolean {
+    return this.tagIndex.get(tag)?.has(fieldId) ?? false
+  }
+
+  // ─── Tweens ───
+
+  private static easingFns: Record<string, (t: number) => number> = {
+    linear: (t) => t,
+    easeIn: (t) => t * t,
+    easeOut: (t) => t * (2 - t),
+    easeInOut: (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
+  }
+
+  /** Add a tween animation */
+  addTween(id: string, fieldId: string, property: string, to: number, duration: number, easing: TweenDef['easing'] = 'linear', onComplete?: string): void {
+    const field = this.fields.get(fieldId)
+    if (!field) return
+    // Read current value as `from`
+    let from = 0
+    switch (property) {
+      case 'x': from = field.transform.x; break
+      case 'y': from = field.transform.y; break
+      case 'scale': from = field.transform.scale; break
+      case 'rotation': from = field.transform.rotation; break
+      case 'vx': from = field.transform.vx; break
+      case 'vy': from = field.transform.vy; break
+      case 'r': from = field.color[0]; break
+      case 'g': from = field.color[1]; break
+      case 'b': from = field.color[2]; break
+      case 'a': from = field.color[3]; break
+      default: from = (field.properties.get(property) as number) ?? 0
+    }
+    this.tweens.set(id, { id, fieldId, property, from, to, duration, elapsed: 0, easing, onComplete })
+  }
+
+  /** Cancel a tween */
+  cancelTween(id: string): boolean {
+    return this.tweens.delete(id)
+  }
+
+  /** Step all active tweens */
+  stepTweens(dt: number): void {
+    if (this.tweens.size === 0) return
+    const completed: string[] = []
+    for (const [id, tween] of this.tweens) {
+      tween.elapsed += dt
+      const field = this.fields.get(tween.fieldId)
+      if (!field) { completed.push(id); continue }
+
+      const t = Math.min(tween.elapsed / tween.duration, 1)
+      const easeFn = FieldSimulation.easingFns[tween.easing] || FieldSimulation.easingFns.linear
+      const value = tween.from + (tween.to - tween.from) * easeFn(t)
+
+      switch (tween.property) {
+        case 'x': field.transform.x = value; break
+        case 'y': field.transform.y = value; break
+        case 'scale': field.transform.scale = value; break
+        case 'rotation': field.transform.rotation = value; break
+        case 'vx': field.transform.vx = value; break
+        case 'vy': field.transform.vy = value; break
+        case 'r': field.color[0] = value; break
+        case 'g': field.color[1] = value; break
+        case 'b': field.color[2] = value; break
+        case 'a': field.color[3] = value; break
+        default: field.properties.set(tween.property, value)
+      }
+
+      if (t >= 1) completed.push(id)
+    }
+    for (const id of completed) {
+      const tween = this.tweens.get(id)
+      this.tweens.delete(id)
+      if (tween?.onComplete) {
+        const hook = this.stepHooks.get(tween.onComplete)
+        if (hook) {
+          try { hook.fn(this, 0) } catch (e) { console.warn(`Tween onComplete hook ${tween.onComplete} failed:`, e) }
+        }
+      }
+    }
+  }
+
+  // ─── Timers ───
+
+  /** Add a timer that fires a step hook after a delay */
+  addTimer(id: string, hookId: string, delay: number, repeat: boolean = false): void {
+    this.timers.set(id, { id, hookId, delay, elapsed: 0, repeat })
+  }
+
+  /** Remove a timer */
+  removeTimer(id: string): boolean {
+    return this.timers.delete(id)
+  }
+
+  /** Step all timers */
+  stepTimers(dt: number): void {
+    if (this.timers.size === 0) return
+    const toRemove: string[] = []
+    for (const [id, timer] of this.timers) {
+      timer.elapsed += dt
+      if (timer.elapsed >= timer.delay) {
+        const hook = this.stepHooks.get(timer.hookId)
+        if (hook) {
+          try { hook.fn(this, dt) } catch (e) { console.warn(`Timer ${id} hook ${timer.hookId} failed:`, e) }
+        }
+        if (timer.repeat) {
+          timer.elapsed -= timer.delay
+        } else {
+          toRemove.push(id)
+        }
+      }
+    }
+    for (const id of toRemove) this.timers.delete(id)
+  }
+
+  // ─── Events ───
+
+  /** Fire an event — writes to worldData for step hooks to consume */
+  fireEvent(name: string, data?: Record<string, unknown>): void {
+    const events = (this.worldData['__events'] as Array<{ name: string; data?: Record<string, unknown>; time: number }>) || []
+    events.push({ name, data, time: Date.now() })
+    // Keep last 50 events
+    if (events.length > 50) events.splice(0, events.length - 50)
+    this.worldData['__events'] = events
+  }
+
+  // ─── Collision Callbacks ───
+
+  /** Register a collision callback */
+  addCollisionCallback(cb: CollisionCallback): void {
+    this.collisionCallbacks.set(cb.id, cb)
+  }
+
+  /** Remove a collision callback */
+  removeCollisionCallback(id: string): boolean {
+    return this.collisionCallbacks.delete(id)
+  }
+
+  /** Check collision callbacks against current collision state */
+  private stepCollisionCallbacks(): void {
+    if (this.collisionCallbacks.size === 0) return
+
+    const fieldList = Array.from(this.fields.values())
+
+    for (const [, cb] of this.collisionCallbacks) {
+      for (let i = 0; i < fieldList.length; i++) {
+        for (let j = i + 1; j < fieldList.length; j++) {
+          const a = fieldList[i]
+          const b = fieldList[j]
+
+          const aMatchesA = this.matchesCollisionFilter(a, cb.matchA)
+          const bMatchesB = this.matchesCollisionFilter(b, cb.matchB)
+          const aMatchesB = this.matchesCollisionFilter(a, cb.matchB)
+          const bMatchesA = this.matchesCollisionFilter(b, cb.matchA)
+
+          if (!(aMatchesA && bMatchesB) && !(aMatchesB && bMatchesA)) continue
+
+          const isColliding = this.collisionState.get(a.id)?.has(b.id) ?? false
+          const wasColliding = (this.worldData[`__cb_${cb.id}_${a.id}_${b.id}`] as boolean) ?? false
+
+          if (isColliding && !wasColliding && cb.onEnter) {
+            this.worldData['__collision'] = { a: a.id, b: b.id, type: 'enter', callbackId: cb.id }
+            const hook = this.stepHooks.get(cb.onEnter)
+            if (hook) try { hook.fn(this, 0) } catch (e) { console.warn(`Collision callback ${cb.id} onEnter failed:`, e) }
+          } else if (isColliding && wasColliding && cb.onStay) {
+            this.worldData['__collision'] = { a: a.id, b: b.id, type: 'stay', callbackId: cb.id }
+            const hook = this.stepHooks.get(cb.onStay)
+            if (hook) try { hook.fn(this, 0) } catch (e) { console.warn(`Collision callback ${cb.id} onStay failed:`, e) }
+          } else if (!isColliding && wasColliding && cb.onExit) {
+            this.worldData['__collision'] = { a: a.id, b: b.id, type: 'exit', callbackId: cb.id }
+            const hook = this.stepHooks.get(cb.onExit)
+            if (hook) try { hook.fn(this, 0) } catch (e) { console.warn(`Collision callback ${cb.id} onExit failed:`, e) }
+          }
+
+          this.worldData[`__cb_${cb.id}_${a.id}_${b.id}`] = isColliding
+        }
+      }
+    }
+  }
+
+  /** Check if a field matches a collision filter */
+  private matchesCollisionFilter(field: Field, filter: { fieldId?: string; tag?: string }): boolean {
+    if (filter.fieldId && filter.fieldId === field.id) return true
+    if (filter.tag && field.tags?.includes(filter.tag)) return true
+    if (!filter.fieldId && !filter.tag) return true // empty filter matches all
+    return false
+  }
+
+  // ─── Game State Machine ───
+
+  /** Define a game state */
+  defineGameState(name: string, def: GameStateDef): void {
+    this.gameStates.set(name, def)
+  }
+
+  /** Transition to a new game state */
+  setGameState(newState: string): void {
+    const oldDef = this.gameState ? this.gameStates.get(this.gameState) : null
+    const newDef = this.gameStates.get(newState)
+
+    // Run exit hook of old state
+    if (oldDef?.onExit) {
+      const hook = this.stepHooks.get(oldDef.onExit)
+      if (hook) try { hook.fn(this, 0) } catch (e) { console.warn(`Game state exit hook failed:`, e) }
+    }
+
+    this.gameState = newState
+    this.worldData['gameState'] = newState
+
+    // Run enter hook of new state
+    if (newDef?.onEnter) {
+      const hook = this.stepHooks.get(newDef.onEnter)
+      if (hook) try { hook.fn(this, 0) } catch (e) { console.warn(`Game state enter hook failed:`, e) }
+    }
   }
 
 }

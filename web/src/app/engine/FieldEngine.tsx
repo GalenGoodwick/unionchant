@@ -11,8 +11,9 @@ import AgentDialogPanel from './AgentDialogPanel'
 import type { DialogEntry } from './AgentDialogPanel'
 import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
-import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState, InteractionEffect } from './types'
+import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState, InteractionEffect, CameraFollow, HudElement, SuperFieldGPU } from './types'
 import { DEFAULT_GRID_SIZE } from './types'
+import { GameAudio } from './audio'
 import { useToast } from '@/components/Toast'
 // DEFAULT_FIELD_EFFECT_GLSL removed — fields are invisible until agents give them a shader
 
@@ -107,6 +108,15 @@ export default function FieldEngine() {
   // WGSL mods — reusable shader utilities registered by agents
   const wgslModsRef = useRef<Map<string, { id: string; code: string }>>(new Map())
 
+  // Camera follow mode
+  const cameraFollowRef = useRef<CameraFollow | null>(null)
+
+  // Audio system
+  const audioRef = useRef<GameAudio>(new GameAudio())
+
+  // HUD elements (driven by worldData['hud'])
+  const hudContainerRef = useRef<HTMLDivElement>(null)
+
   // Camera
   const gridSize = DEFAULT_GRID_SIZE
   const cameraRef = useRef<Camera>({ x: gridSize / 2, y: gridSize / 2, zoom: 1 })
@@ -136,9 +146,10 @@ export default function FieldEngine() {
     targetFieldId: null,
   })
 
-  // Pointer state for panning
+  // Pointer state for panning (Space + drag to pan)
   const pointerDown = useRef(false)
   const isPanning = useRef(false)
+  const spaceHeld = useRef(false)
   const lastPointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Drag state for fields
@@ -349,6 +360,13 @@ export default function FieldEngine() {
     pointerDown.current = true
     lastPointer.current = { x: e.clientX, y: e.clientY }
 
+    // Space + click = pan camera
+    if (spaceHeld.current) {
+      isPanning.current = true
+      canvas.style.cursor = 'grabbing'
+      return
+    }
+
     // Hit-test: check if pointer is over a field
     if (sim) {
       const rect = canvas.getBoundingClientRect()
@@ -374,10 +392,6 @@ export default function FieldEngine() {
         return
       }
     }
-
-    // No field hit — fall through to panning
-    isPanning.current = true
-    canvas.style.cursor = 'grabbing'
   }, [])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
@@ -540,6 +554,7 @@ export default function FieldEngine() {
     const onKeyDown = (e: KeyboardEvent) => {
       const sim = simulationRef.current
       if (!sim) return
+      if (e.key === ' ') spaceHeld.current = true
       const mapped = keyMap[e.key]
       if (mapped) {
         sim.worldData[mapped] = true
@@ -550,6 +565,7 @@ export default function FieldEngine() {
     const onKeyUp = (e: KeyboardEvent) => {
       const sim = simulationRef.current
       if (!sim) return
+      if (e.key === ' ') spaceHeld.current = false
       const mapped = keyMap[e.key]
       if (mapped) {
         sim.worldData[mapped] = false
@@ -612,6 +628,15 @@ export default function FieldEngine() {
           }
         }
 
+        // Restore visual types for superimposed uber-shader
+        if (Array.isArray(data.visualTypes)) {
+          for (const vt of data.visualTypes) {
+            if (vt.name && vt.wgsl) {
+              renderer.registerVisualType(vt.name, vt.wgsl)
+            }
+          }
+        }
+
         const firstId = snaps[0].id
 
         // Restore effect programs for all fields
@@ -669,6 +694,87 @@ export default function FieldEngine() {
 
       sim.step(dt)
 
+      // Process audio triggers from worldData
+      const playSound = sim.worldData['__play_sound'] as { id?: string; frequency?: number; duration?: number; volume?: number; pitch?: number; type?: OscillatorType } | undefined
+      if (playSound) {
+        delete sim.worldData['__play_sound']
+        const audio = audioRef.current
+        if (playSound.id && audio.hasSound(playSound.id)) {
+          audio.play(playSound.id, playSound.volume ?? 1.0, playSound.pitch ?? 1.0)
+        } else if (playSound.frequency) {
+          audio.beep(playSound.frequency, playSound.duration ?? 0.2, playSound.volume ?? 0.5, playSound.type)
+        }
+      }
+
+      // Update HUD overlay from worldData
+      const hudData = sim.worldData['hud'] as HudElement[] | undefined
+      const hudContainer = hudContainerRef.current
+      if (hudContainer) {
+        if (hudData && Array.isArray(hudData)) {
+          // Build or update HUD elements via DOM
+          const existingIds = new Set<string>()
+          for (const elem of hudData) {
+            if (!elem.id || elem.visible === false) continue
+            existingIds.add(elem.id)
+            let el = hudContainer.querySelector(`[data-hud-id="${elem.id}"]`) as HTMLElement | null
+            if (!el) {
+              el = document.createElement('div')
+              el.setAttribute('data-hud-id', elem.id)
+              el.style.position = 'absolute'
+              hudContainer.appendChild(el)
+            }
+            // Position
+            el.style.left = elem.x ?? ''
+            el.style.top = elem.y ?? ''
+            el.style.right = elem.right ?? ''
+            el.style.bottom = elem.bottom ?? ''
+            el.style.color = elem.color ?? '#fff'
+            el.style.fontSize = elem.fontSize ?? '16px'
+
+            if (elem.type === 'text') {
+              el.textContent = elem.text ?? ''
+            } else if (elem.type === 'bar') {
+              const pct = elem.max ? Math.min(100, ((elem.value ?? 0) / elem.max) * 100) : 0
+              el.innerHTML = ''
+              el.style.width = elem.width ?? '100px'
+              el.style.height = '12px'
+              el.style.backgroundColor = 'rgba(255,255,255,0.2)'
+              el.style.borderRadius = '2px'
+              el.style.overflow = 'hidden'
+              const fill = document.createElement('div')
+              fill.style.width = `${pct}%`
+              fill.style.height = '100%'
+              fill.style.backgroundColor = elem.barColor ?? elem.color ?? '#0f0'
+              fill.style.transition = 'width 0.15s'
+              el.appendChild(fill)
+            } else if (elem.type === 'image') {
+              if (el.tagName !== 'IMG') {
+                const img = document.createElement('img') as HTMLImageElement
+                img.setAttribute('data-hud-id', elem.id)
+                img.style.position = 'absolute'
+                el.replaceWith(img)
+                el = img
+              }
+              (el as HTMLImageElement).src = elem.src ?? ''
+              el.style.width = elem.imgWidth ?? ''
+              el.style.height = elem.imgHeight ?? ''
+              el.style.left = elem.x ?? ''
+              el.style.top = elem.y ?? ''
+              el.style.right = elem.right ?? ''
+              el.style.bottom = elem.bottom ?? ''
+            }
+          }
+          // Remove stale elements
+          for (const child of Array.from(hudContainer.children)) {
+            const id = child.getAttribute('data-hud-id')
+            if (id && !existingIds.has(id)) child.remove()
+          }
+        } else {
+          // No HUD data — clear all
+          hudContainer.innerHTML = ''
+        }
+      }
+
       // Paint field shapes into colorData so base pass renders them
       sim.paintFieldShapes()
 
@@ -686,6 +792,24 @@ export default function FieldEngine() {
 
       const camera = cameraRef.current
       const time = now / 1000 - startTimeRef.current
+
+      // Camera follow mode — lerp toward target field position
+      const follow = cameraFollowRef.current
+      if (follow) {
+        const targetField = sim.fields.get(follow.targetFieldId)
+        if (targetField) {
+          const targetX = targetField.transform.x + follow.offsetX
+          const targetY = targetField.transform.y + follow.offsetY
+          const dx = targetX - camera.x
+          const dy = targetY - camera.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          if (dist > follow.deadZone) {
+            const s = 1 - Math.pow(1 - follow.smoothing, dt * 60)
+            camera.x += dx * s
+            camera.y += dy * s
+          }
+        }
+      }
 
       // Build effect list — mask texture clips to painted cells only
       const fieldEffects: FieldEffectData[] = []
@@ -838,7 +962,84 @@ export default function FieldEngine() {
         }
       }
 
-      renderer.render(camera, camera.zoom, time, fieldEffects)
+      // ─── Superimposed fields — pack fields with visualType for uber-shader ───
+      const superFields: SuperFieldGPU[] = []
+      const superFieldOrder: string[] = []  // Maps GPU array index → fieldId
+      for (const field of sim.fields.values()) {
+        if (field.visualType === undefined) continue
+        const t = field.transform
+        const shapeType = field.shapeType === 'rect' ? 1 : 0
+        const dim1 = shapeType === 1 ? (field.w || 20) : (field.radius || 10)
+        const dim2 = shapeType === 1 ? (field.h || 20) : 0
+        const vp = field.visualParams || [0, 0, 0, 0]
+        superFieldOrder.push(field.id)
+        superFields.push({
+          posScaleRot: [t.x, t.y, t.scale, t.rotation],
+          shapeDims: [shapeType, dim1, dim2, 0],
+          color: field.color,
+          visualAndParams: [field.visualType, vp[0], vp[1], vp[2]],
+          extraParams: [vp[3], 0, 0, 0],
+        })
+      }
+
+      // Trigger lazy compilation of superimposed pipeline
+      if (superFields.length > 0) {
+        renderer.isSuperReady()
+      }
+
+      // Store field order for pixel-perfect hit testing
+      sim.superFieldOrder = superFieldOrder
+
+      // Map interaction pairs (fieldId → fieldId) to GPU indices (idx → idx)
+      const activeInteractions: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[] = []
+      if (sim.interactionPairs && sim.interactionPairs.length > 0) {
+        for (const pair of sim.interactionPairs) {
+          const idxA = superFieldOrder.indexOf(pair.fieldA)
+          const idxB = superFieldOrder.indexOf(pair.fieldB)
+          if (idxA >= 0 && idxB >= 0) {
+            activeInteractions.push({ fieldIdxA: idxA, fieldIdxB: idxB, interactionType: pair.interactionTypeId })
+          }
+        }
+      }
+
+      renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions)
+
+      // Trigger async readback of hit ID map for pixel-perfect hit testing
+      if (superFields.length > 0) {
+        renderer.readbackHitMap()
+        // Update simulation with latest hit map and grid-to-pixel converters
+        sim.superHitMap = renderer.hitMap
+        sim.superHitMapWidth = renderer.hitMapWidth
+        sim.superHitMapHeight = renderer.hitMapHeight
+
+        const canvas = canvasRef.current
+        if (canvas) {
+          const dpr = (window.devicePixelRatio || 1) * renderer.renderScale
+          const cw = canvas.clientWidth
+          const ch = canvas.clientHeight
+          const bw = Math.round(cw * dpr)
+          const bh = Math.round(ch * dpr)
+          const aspect = bw / bh
+          const gridRange = sim.gridSize / camera.zoom
+
+          // Grid → buffer pixel (inverse of shader's pixel → grid transform)
+          // Shader: gridCoord.y = camera.y + (0.5 - uv.y) * gridRange  (note: Y is flipped)
+          // Inverse: uv.y = 0.5 - (gridY - camera.y) / gridRange
+          //          pixel.y = (1.0 - uv.y) * bh  ... wait, shader does uv = 1 - pixel/res
+          // Shader: uv.y = 1 - (pixel.y + 0.5) / bh
+          //         gridCoord.y = camera.y + (0.5 - uv.y) * gridRange
+          //                     = camera.y + (0.5 - 1 + (pixel.y+0.5)/bh) * gridRange
+          //                     = camera.y + ((pixel.y+0.5)/bh - 0.5) * gridRange
+          // Inverse: pixel.y = ((gridY - camera.y) / gridRange + 0.5) * bh - 0.5
+          if (aspect > 1) {
+            sim._gridToPixelX = (gx: number) => ((gx - camera.x) / (gridRange * aspect) + 0.5) * bw
+            sim._gridToPixelY = (gy: number) => ((gy - camera.y) / gridRange + 0.5) * bh
+          } else {
+            sim._gridToPixelX = (gx: number) => ((gx - camera.x) / gridRange + 0.5) * bw
+            sim._gridToPixelY = (gy: number) => ((gy - camera.y) / (gridRange / aspect) + 0.5) * bh
+          }
+        }
+      }
 
       // Per-field presence map: render each field individually, readback pixel presence (throttled)
       // This is the "field renders to pixels → pixels return superimposition data" pipeline
@@ -930,6 +1131,7 @@ export default function FieldEngine() {
       cancelled = true
       cancelAnimationFrame(animFrameRef.current)
       renderer.destroy()
+      audioRef.current.destroy()
       rendererRef.current = null
       simulationRef.current = null
       inputRef.current = null
@@ -1124,17 +1326,10 @@ export default function FieldEngine() {
                 pushTerminal('add_effect', undefined, 'ERROR: fieldId required')
                 break
               }
-              let field = sim.fields.get(targetId)
+              const field = sim.fields.get(targetId)
               if (!field) {
-                // Auto-create field when add_effect references one that doesn't exist yet
-                // (handles race conditions where add_effect arrives before create_field is processed)
-                const hue = DEFAULT_HUES[sim.fields.size % DEFAULT_HUES.length]
-                const color = hueToRgba(hue)
-                const autoName = `Field ${sim.fields.size + 1}`
-                sim.createField(targetId, autoName, color)
-                field = sim.fields.get(targetId)!
-                syncFields()
-                pushTerminal('create_field', targetId, `auto-created '${autoName}' for add_effect`)
+                pushTerminal('add_effect', targetId, `ERROR: field '${targetId}' not found — create_field first`)
+                break
               }
               // Accept wgsl/glsl at top level, as 'shader', or nested inside cmd.effect
               const shaderSrc = cmd.wgsl || cmd.glsl || cmd.shader
@@ -1304,6 +1499,13 @@ export default function FieldEngine() {
               sim.interactionRules = []
               sim.interactionEffects = []
               sim.customCommands.clear()
+              sim.tweens.clear()
+              sim.timers.clear()
+              sim.collisionCallbacks.clear()
+              sim.tagIndex.clear()
+              sim.gameState = ''
+              sim.gameStates.clear()
+              cameraFollowRef.current = null
               cachedOverlapMasksRef.current = new Map()
 
               updateSelectionMask(null)
@@ -1313,8 +1515,8 @@ export default function FieldEngine() {
               break
 
             case 'create_field': {
-              // Use server-assigned fieldId if available, otherwise generate locally
-              const id = cmd.fieldId || genFieldId()
+              // Accept id, fieldId, or fall back to name, then auto-generate
+              const id = cmd.id || cmd.fieldId || cmd.name || genFieldId()
               const hue = DEFAULT_HUES[sim.fields.size % DEFAULT_HUES.length]
               const color = cmd.color || hueToRgba(hue)
               const name = cmd.name || `Field ${sim.fields.size + 1}`
@@ -1328,11 +1530,38 @@ export default function FieldEngine() {
               // Store shape properties on the field
               const newField = sim.fields.get(id)
               if (newField) {
-                const shapeVal = (cmd.shape || cmd.shapeType) as 'circle' | 'rect' | undefined
-                if (shapeVal) newField.shapeType = shapeVal
+                // Accept shape as string ('rect'/'circle') or object ({type:'rect', width, height})
+                const shapeRaw = cmd.shape || cmd.shapeType
+                if (typeof shapeRaw === 'string') {
+                  newField.shapeType = shapeRaw as 'circle' | 'rect'
+                } else if (shapeRaw && typeof shapeRaw === 'object') {
+                  const so = shapeRaw as Record<string, unknown>
+                  if (so.type) newField.shapeType = so.type as 'circle' | 'rect'
+                  if (so.width !== undefined) newField.w = so.width as number
+                  if (so.height !== undefined) newField.h = so.height as number
+                  if (so.radius !== undefined) newField.radius = so.radius as number
+                }
+                // Also accept top-level w/h/radius
                 if (cmd.radius !== undefined) newField.radius = cmd.radius as number
                 if (cmd.w !== undefined) newField.w = cmd.w as number
                 if (cmd.h !== undefined) newField.h = cmd.h as number
+                if (cmd.width !== undefined) newField.w = cmd.width as number
+                if (cmd.height !== undefined) newField.h = cmd.height as number
+                // Visual type for superimposed rendering
+                if (cmd.visualType !== undefined) {
+                  const vt = cmd.visualType
+                  if (typeof vt === 'string') {
+                    const resolved = renderer.resolveVisualType(vt)
+                    if (resolved !== undefined) {
+                      newField.visualType = resolved
+                    }
+                  } else if (typeof vt === 'number') {
+                    newField.visualType = vt
+                  }
+                }
+                if (cmd.visualParams) {
+                  newField.visualParams = cmd.visualParams as [number, number, number, number]
+                }
               }
 
               setBrush(prev => ({ ...prev, activeFieldId: id }))
@@ -1555,6 +1784,27 @@ export default function FieldEngine() {
             }
 
             case 'define_interaction': {
+              // Route: if cmd.wgsl is present, this is a superimposed interaction (a + b = c)
+              if (cmd.wgsl) {
+                const name = cmd.name as string
+                const wgsl = cmd.wgsl as string
+                const fieldA = cmd.fieldA as string
+                const fieldB = cmd.fieldB as string
+                if (!name) { pushTerminal('define_interaction', '', 'ERROR: name required'); break }
+                if (!fieldA || !fieldB) { pushTerminal('define_interaction', name, 'ERROR: fieldA and fieldB required'); break }
+                const expectedFn = `interaction_${name}`
+                if (!wgsl.includes(expectedFn)) {
+                  pushTerminal('define_interaction', name, `ERROR: WGSL must define fn ${expectedFn}(uvA: vec2f, uvB: vec2f, colorA: vec4f, colorB: vec4f, time: f32) -> vec4f`)
+                  break
+                }
+                const result = renderer.registerInteraction(name, wgsl)
+                if (!sim.interactionPairs) sim.interactionPairs = []
+                sim.interactionPairs = sim.interactionPairs.filter((p: { name: string }) => p.name !== name)
+                sim.interactionPairs.push({ name, fieldA, fieldB, interactionTypeId: result.id })
+                pushTerminal('define_interaction', name, `${fieldA} + ${fieldB} = ${name} (type ${result.id})`, undefined, cmdAuthor)
+                break
+              }
+              // Legacy: interaction rule system
               const rule = cmd.rule
               if (!rule || !rule.trigger || !rule.effect) {
                 pushTerminal('define_interaction', (rule as Record<string, unknown>)?.definedBy as string, 'ERROR: missing trigger or effect')
@@ -1844,8 +2094,318 @@ export default function FieldEngine() {
               break
             }
 
+            // ─── Game Engine Commands ───
+
+            case 'set_camera': {
+              if (cmd.follow) {
+                cameraFollowRef.current = {
+                  targetFieldId: cmd.follow as string,
+                  smoothing: (cmd.smoothing as number) ?? 0.1,
+                  offsetX: (cmd.offsetX as number) ?? 0,
+                  offsetY: (cmd.offsetY as number) ?? 0,
+                  deadZone: (cmd.deadZone as number) ?? 5,
+                }
+                pushTerminal('set_camera', cmd.follow as string, `following, smoothing=${cameraFollowRef.current.smoothing}`)
+              } else if (cmd.follow === null || cmd.follow === false) {
+                cameraFollowRef.current = null
+                pushTerminal('set_camera', undefined, 'follow disabled')
+              }
+              if (cmd.x !== undefined && cmd.y !== undefined) {
+                cameraRef.current.x = cmd.x as number
+                cameraRef.current.y = cmd.y as number
+              }
+              if (cmd.zoom !== undefined) {
+                cameraRef.current.zoom = Math.max(0.1, Math.min(10, cmd.zoom as number))
+              }
+              break
+            }
+
+            case 'save_scene': {
+              const sceneName = cmd.name as string
+              if (!sceneName) { pushTerminal('save_scene', undefined, 'ERROR: name required'); break }
+              const sceneData = {
+                name: sceneName,
+                fields: sim.generateSnapshots(),
+                worldParams: sim.getWorldParams(),
+                worldData: { ...sim.worldData },
+                stepHooks: sim.getStepHookSnapshots(),
+                interactionRules: [...sim.interactionRules],
+                interactionEffects: [...sim.interactionEffects],
+                timestamp: Date.now(),
+              }
+              try {
+                await fetch('/api/engine/scene', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ action: 'save', name: sceneName, scene: sceneData }),
+                })
+                pushTerminal('save_scene', undefined, `"${sceneName}" saved (${sceneData.fields.length} fields)`)
+              } catch { pushTerminal('save_scene', undefined, `ERROR: failed to save "${sceneName}"`) }
+              break
+            }
+
+            case 'load_scene': {
+              const sceneName = cmd.name as string
+              if (!sceneName) { pushTerminal('load_scene', undefined, 'ERROR: name required'); break }
+              try {
+                const resp = await fetch(`/api/engine/scene?name=${encodeURIComponent(sceneName)}`)
+                const { scene } = await resp.json()
+                if (!scene) { pushTerminal('load_scene', undefined, `ERROR: scene "${sceneName}" not found`); break }
+
+                // Clear current state
+                for (const field of sim.fields.values()) {
+                  renderer.removeAllFieldEffects(field.id)
+                }
+                for (const key of Array.from(renderer.getFieldEffectKeys())) {
+                  if (key.startsWith('ix_')) { renderer.removeFieldEffect(key); renderer.removeFieldMask(key) }
+                }
+                sim.clearAll()
+                sim.fields.clear()
+                sim.interactionRules = []
+                sim.interactionEffects = []
+                sim.stepHooks.clear()
+                sim.tweens.clear()
+                sim.timers.clear()
+                sim.collisionCallbacks.clear()
+                cachedOverlapMasksRef.current = new Map()
+
+                // Restore scene
+                sim.restoreFromSnapshots(scene.fields || [])
+                if (scene.worldParams) sim.setWorldParams(scene.worldParams)
+                if (scene.worldData) Object.assign(sim.worldData, scene.worldData)
+                if (scene.interactionRules) sim.interactionRules = scene.interactionRules
+                if (scene.interactionEffects) {
+                  for (const ie of scene.interactionEffects) sim.addInteractionEffect(ie)
+                }
+                if (scene.stepHooks) {
+                  for (const h of scene.stepHooks) sim.addStepHook(h.id, h.author, h.description, h.code)
+                }
+
+                // Recompile effects
+                for (const field of sim.fields.values()) {
+                  for (const effect of field.effects) {
+                    const programKey = `${field.id}_${effect.id}`
+                    await renderer.compileFieldEffect(programKey, field.id, effect.wgsl, getModCode())
+                  }
+                }
+
+                updateSelectionMask(null)
+                syncFields()
+                pushTerminal('load_scene', undefined, `"${sceneName}" loaded (${scene.fields?.length || 0} fields)`)
+              } catch { pushTerminal('load_scene', undefined, `ERROR: failed to load "${sceneName}"`) }
+              break
+            }
+
+            case 'list_scenes': {
+              try {
+                const resp = await fetch('/api/engine/scene?action=list')
+                const { scenes } = await resp.json()
+                pushTerminal('list_scenes', undefined, `${(scenes as string[])?.length || 0} scenes`, (scenes as string[])?.join(', ') || 'none')
+              } catch { pushTerminal('list_scenes', undefined, 'ERROR: failed to list scenes') }
+              break
+            }
+
+            case 'delete_scene': {
+              const sceneName = cmd.name as string
+              if (!sceneName) { pushTerminal('delete_scene', undefined, 'ERROR: name required'); break }
+              try {
+                await fetch('/api/engine/scene', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ name: sceneName }),
+                })
+                pushTerminal('delete_scene', undefined, `"${sceneName}" deleted`)
+              } catch { pushTerminal('delete_scene', undefined, `ERROR: failed to delete "${sceneName}"`) }
+              break
+            }
+
+            case 'play_sound': {
+              const audio = audioRef.current
+              if (cmd.id && audio.hasSound(cmd.id as string)) {
+                audio.play(cmd.id as string, (cmd.volume as number) ?? 1.0, (cmd.pitch as number) ?? 1.0)
+                pushTerminal('play_sound', undefined, `"${cmd.id}"`)
+              } else if (cmd.frequency) {
+                audio.beep(cmd.frequency as number, (cmd.duration as number) ?? 0.2, (cmd.volume as number) ?? 0.5, (cmd.type as OscillatorType) ?? 'sine')
+                pushTerminal('play_sound', undefined, `beep ${cmd.frequency}Hz`)
+              } else {
+                pushTerminal('play_sound', undefined, 'ERROR: id or frequency required')
+              }
+              break
+            }
+
+            case 'load_sound': {
+              if (!cmd.id || !cmd.url) { pushTerminal('load_sound', undefined, 'ERROR: id and url required'); break }
+              const loaded = await audioRef.current.loadSound(cmd.id as string, cmd.url as string)
+              pushTerminal('load_sound', undefined, loaded ? `"${cmd.id}" loaded` : `ERROR: failed to load "${cmd.id}"`)
+              break
+            }
+
+            case 'set_volume': {
+              audioRef.current.setVolume((cmd.volume as number) ?? 1.0)
+              pushTerminal('set_volume', undefined, `${audioRef.current.getVolume().toFixed(2)}`)
+              break
+            }
+
+            case 'set_game_state': {
+              const stateName = cmd.state as string
+              if (!stateName) { pushTerminal('set_game_state', undefined, 'ERROR: state required'); break }
+              sim.setGameState(stateName)
+              pushTerminal('set_game_state', undefined, `→ "${stateName}"`)
+              break
+            }
+
+            case 'define_game_state': {
+              const stateName = cmd.name as string
+              if (!stateName) { pushTerminal('define_game_state', undefined, 'ERROR: name required'); break }
+              sim.defineGameState(stateName, {
+                name: stateName,
+                onEnter: cmd.onEnter as string | undefined,
+                onExit: cmd.onExit as string | undefined,
+                pausePhysics: !!(cmd.pausePhysics),
+              })
+              pushTerminal('define_game_state', undefined, `"${stateName}" defined${cmd.pausePhysics ? ' (pauses physics)' : ''}`)
+              break
+            }
+
+            case 'add_tag': {
+              const fieldId = cmd.fieldId as string
+              const tags = cmd.tags as string[]
+              if (!fieldId || !tags?.length) { pushTerminal('add_tag', cmd.fieldId, 'ERROR: fieldId and tags required'); break }
+              sim.addTag(fieldId, tags)
+              syncFields()
+              pushTerminal('add_tag', fieldId, tags.join(', '))
+              break
+            }
+
+            case 'remove_tag': {
+              const fieldId = cmd.fieldId as string
+              const tags = cmd.tags as string[]
+              if (!fieldId || !tags?.length) { pushTerminal('remove_tag', cmd.fieldId, 'ERROR: fieldId and tags required'); break }
+              sim.removeTag(fieldId, tags)
+              syncFields()
+              pushTerminal('remove_tag', fieldId, tags.join(', '))
+              break
+            }
+
+            case 'set_visual': {
+              const fieldId = cmd.fieldId as string
+              if (!fieldId) { pushTerminal('set_visual', '', 'ERROR: fieldId required'); break }
+              const field = sim.fields.get(fieldId)
+              if (!field) { pushTerminal('set_visual', fieldId, 'ERROR: field not found'); break }
+              const vt = cmd.visualType
+              if (vt !== undefined) {
+                if (typeof vt === 'string') {
+                  const resolved = renderer.resolveVisualType(vt)
+                  if (resolved !== undefined) {
+                    field.visualType = resolved
+                  }
+                } else if (typeof vt === 'number') {
+                  field.visualType = vt
+                } else if (vt === null) {
+                  field.visualType = undefined
+                }
+              }
+              if (cmd.visualParams !== undefined) {
+                field.visualParams = cmd.visualParams as [number, number, number, number]
+              }
+              syncFields()
+              pushTerminal('set_visual', fieldId, `type=${field.visualType}`, undefined, cmdAuthor)
+              break
+            }
+
+            case 'define_visual': {
+              const name = cmd.name as string
+              const wgsl = cmd.wgsl as string
+              if (!name) { pushTerminal('define_visual', '', 'ERROR: name required'); break }
+              if (!wgsl) { pushTerminal('define_visual', name, 'ERROR: wgsl required'); break }
+              // Validate function name matches
+              const expectedFn = `visual_${name}`
+              if (!wgsl.includes(expectedFn)) {
+                pushTerminal('define_visual', name, `ERROR: WGSL must define fn ${expectedFn}(uv: vec2f, sdf: f32, color: vec4f, time: f32, params: vec4f, behind: vec4f) -> vec4f`)
+                break
+              }
+              const result = renderer.registerVisualType(name, wgsl)
+              pushTerminal('define_visual', name, `registered as type ${result.id}`, undefined, cmdAuthor)
+              break
+            }
+
+            case 'add_timer': {
+              const timerId = cmd.id as string || cmd.timerId as string
+              const hookId = cmd.hookId as string
+              const delay = cmd.delay as number
+              if (!timerId || !hookId || !delay) { pushTerminal('add_timer', undefined, 'ERROR: id, hookId, and delay required'); break }
+              sim.addTimer(timerId, hookId, delay, !!(cmd.repeat))
+              if (!sim.running) { sim.running = true; setRunning(true) }
+              pushTerminal('add_timer', undefined, `"${timerId}" → hook "${hookId}" after ${delay}s${cmd.repeat ? ' (repeat)' : ''}`)
+              break
+            }
+
+            case 'remove_timer': {
+              const timerId = cmd.id as string || cmd.timerId as string
+              if (!timerId) { pushTerminal('remove_timer', undefined, 'ERROR: id required'); break }
+              sim.removeTimer(timerId)
+              pushTerminal('remove_timer', undefined, `"${timerId}" removed`)
+              break
+            }
+
+            case 'fire_event': {
+              const eventName = cmd.event as string || cmd.name as string
+              if (!eventName) { pushTerminal('fire_event', undefined, 'ERROR: event/name required'); break }
+              sim.fireEvent(eventName, cmd.data as Record<string, unknown> | undefined)
+              pushTerminal('fire_event', undefined, `"${eventName}"`)
+              break
+            }
+
+            case 'add_collision_callback': {
+              const cbId = cmd.id as string
+              if (!cbId) { pushTerminal('add_collision_callback', undefined, 'ERROR: id required'); break }
+              sim.addCollisionCallback({
+                id: cbId,
+                matchA: (cmd.matchA as { fieldId?: string; tag?: string }) || {},
+                matchB: (cmd.matchB as { fieldId?: string; tag?: string }) || {},
+                onEnter: cmd.onEnter as string | undefined,
+                onExit: cmd.onExit as string | undefined,
+                onStay: cmd.onStay as string | undefined,
+              })
+              if (!sim.running) { sim.running = true; setRunning(true) }
+              pushTerminal('add_collision_callback', undefined, `"${cbId}" registered`)
+              break
+            }
+
+            case 'remove_collision_callback': {
+              const cbId = cmd.id as string
+              if (!cbId) { pushTerminal('remove_collision_callback', undefined, 'ERROR: id required'); break }
+              sim.removeCollisionCallback(cbId)
+              pushTerminal('remove_collision_callback', undefined, `"${cbId}" removed`)
+              break
+            }
+
+            case 'tween': {
+              const tweenId = cmd.id as string || `tween_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+              const fieldId = cmd.fieldId as string
+              const property = cmd.property as string
+              const to = cmd.to as number
+              const duration = cmd.duration as number
+              if (!fieldId || !property || to === undefined || !duration) {
+                pushTerminal('tween', cmd.fieldId, 'ERROR: fieldId, property, to, and duration required')
+                break
+              }
+              sim.addTween(tweenId, fieldId, property, to, duration, (cmd.easing as 'linear' | 'easeIn' | 'easeOut' | 'easeInOut') || 'linear', cmd.onComplete as string | undefined)
+              if (!sim.running) { sim.running = true; setRunning(true) }
+              pushTerminal('tween', fieldId, `${property} → ${to} over ${duration}s (${cmd.easing || 'linear'})`)
+              break
+            }
+
+            case 'cancel_tween': {
+              const tweenId = cmd.id as string
+              if (!tweenId) { pushTerminal('cancel_tween', undefined, 'ERROR: id required'); break }
+              sim.cancelTween(tweenId)
+              pushTerminal('cancel_tween', undefined, `"${tweenId}" cancelled`)
+              break
+            }
+
             case 'status':
-              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length} projectiles=${sim.projectiles.length} mods=${wgslModsRef.current.size}`)
+              pushTerminal('status', undefined, `fields=${sim.fields.size} running=${sim.running} effects=${sim.getFieldsWithEffects().length} rules=${sim.interactionRules.length} projectiles=${sim.projectiles.length} mods=${wgslModsRef.current.size} tweens=${sim.tweens.size} timers=${sim.timers.size} gameState=${sim.gameState || 'none'}`)
               break
           }
         } catch (err) {
@@ -1942,6 +2502,13 @@ export default function FieldEngine() {
             onPointerCancel={handlePointerUp}
             onContextMenu={e => e.preventDefault()}
             onPointerLeave={() => { setPixelInfo(null); if (pixelInfoTimeout.current) clearTimeout(pixelInfoTimeout.current) }}
+          />
+
+          {/* HUD overlay — positioned absolutely over the canvas, pointer-events disabled */}
+          <div
+            ref={hudContainerRef}
+            className="absolute inset-0 pointer-events-none z-10 font-mono"
+            style={{ fontFamily: 'monospace' }}
           />
 
           {/* Pixel hover tooltip */}

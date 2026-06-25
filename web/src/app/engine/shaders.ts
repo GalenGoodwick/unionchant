@@ -822,6 +822,307 @@ fn main(in: VertexOutput) -> @location(0) vec4f {
 `
 }
 
+// ─── Dynamic Visual Type System ───
+
+/** Visual type definition — each type provides a WGSL rendering function.
+ *  Function signature: fn visual_NAME(uv: vec2f, sdf: f32, color: vec4f, time: f32, params: vec4f) -> vec4f
+ *  - uv: local UV coordinates within the field (-1..1)
+ *  - sdf: signed distance to field boundary (negative = inside)
+ *  - color: field's base color (RGBA)
+ *  - time: current frame time in seconds
+ *  - params: 4 custom parameters from visualParams
+ *  Returns: RGBA color for this pixel (alpha=0 means transparent)
+ */
+export interface VisualTypeEntry {
+  id: number
+  name: string
+  /** Complete WGSL function definition */
+  wgsl: string
+}
+
+// No built-in visual types. All visual types are defined at runtime via define_visual.
+// The uber-shader's default case provides a basic solid fill as fallback.
+
+/** Interaction visual — renders at pixels where two specific fields overlap.
+ *  Function signature: fn interaction_NAME(uvA: vec2f, uvB: vec2f, colorA: vec4f, colorB: vec4f, time: f32) -> vec4f
+ *  - uvA/uvB: local UV coordinates within each field (-1..1)
+ *  - colorA/colorB: base colors of each field
+ *  - time: frame time in seconds
+ *  Returns: RGBA color to render at the overlap pixel (replaces both field visuals) */
+export interface InteractionEntry {
+  id: number
+  name: string
+  wgsl: string
+}
+
+// ─── Superimposed rendering compute shader ───
+
+/**
+ * Uber-shader for superimposed rendering. All fields are evaluated in a single
+ * compute pass. Each pixel loops over every field, evaluates SDF membership and
+ * visual type, and resolves overlaps natively (no alpha compositing between fields).
+ *
+ * Fields are stored in a storage buffer as packed FieldGPU structs (5 vec4f each).
+ * Visual types are parameterized function IDs dispatched via switch.
+ */
+export function buildSuperimposedComputeShader(
+  visualTypes?: VisualTypeEntry[],
+  interactionTypes?: InteractionEntry[],
+): string {
+  const types = visualTypes || []
+  const interactions = interactionTypes || []
+
+  // Generate visual function definitions from registry (deduplicate by name)
+  const seenNames = new Set<string>()
+  const dedupedTypes = types.filter(t => {
+    if (seenNames.has(t.name)) return false
+    seenNames.add(t.name)
+    return true
+  })
+  const visualFunctions = dedupedTypes.map(t => t.wgsl).join('\n\n')
+
+  // Generate switch cases for visual dispatch
+  const switchCases = dedupedTypes.map(t =>
+    `    case ${t.id}u: { return visual_${t.name}(uv, sdf, col, time, p, behind); }`
+  ).join('\n')
+
+  // Generate interaction function definitions (deduplicate by name)
+  const seenIx = new Set<string>()
+  const dedupedIx = interactions.filter(ix => {
+    if (seenIx.has(ix.name)) return false
+    seenIx.add(ix.name)
+    return true
+  })
+  const interactionFunctions = dedupedIx.map(ix => ix.wgsl).join('\n\n')
+  const interactionSwitchCases = dedupedIx.map(ix =>
+    `    case ${ix.id}u: { return interaction_${ix.name}(uvA, uvB, colorA, colorB, time); }`
+  ).join('\n')
+  const hasInteractions = dedupedIx.length > 0
+
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+struct FieldGPU {
+  posScaleRot: vec4f,
+  shapeDims: vec4f,
+  color: vec4f,
+  visualAndParams: vec4f,
+  extraParams: vec4f,
+};
+
+struct InteractionGPU {
+  fieldIdxA: u32,
+  fieldIdxB: u32,
+  interactionType: u32,
+  _pad: u32,
+};
+
+@group(1) @binding(0) var<storage, read> superFields: array<FieldGPU>;
+@group(1) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
+@group(1) @binding(2) var<storage, read_write> hitIdBuf: array<u32>;
+@group(1) @binding(3) var<storage, read> interactions: array<InteractionGPU>;
+
+${SHADER_UTILITIES}
+
+// ─── SDF for field shape ───
+fn superSDF(coord: vec2f, f: FieldGPU) -> f32 {
+  let pos = f.posScaleRot.xy;
+  let scale = max(f.posScaleRot.z, 0.001);
+  let rot = f.posScaleRot.w;
+
+  var local = coord - pos;
+  if (rot != 0.0) {
+    let c = cos(-rot);
+    let s = sin(-rot);
+    local = vec2f(c * local.x - s * local.y, s * local.x + c * local.y);
+  }
+  local /= scale;
+
+  let st = u32(f.shapeDims.x);
+  if (st == 1u) { // rect
+    return sdBox(local, vec2f(f.shapeDims.y * 0.5, f.shapeDims.z * 0.5));
+  }
+  // default: circle
+  return length(local) - f.shapeDims.y;
+}
+
+// ─── Local UV within field bounds (-1..1) ───
+fn superLocalUV(coord: vec2f, f: FieldGPU) -> vec2f {
+  let pos = f.posScaleRot.xy;
+  let scale = max(f.posScaleRot.z, 0.001);
+  let rot = f.posScaleRot.w;
+
+  var local = coord - pos;
+  if (rot != 0.0) {
+    let c = cos(-rot);
+    let s = sin(-rot);
+    local = vec2f(c * local.x - s * local.y, s * local.x + c * local.y);
+  }
+  local /= scale;
+
+  let st = u32(f.shapeDims.x);
+  if (st == 1u) { // rect — normalize by half-extents
+    return vec2f(local.x / max(f.shapeDims.y * 0.5, 1.0), local.y / max(f.shapeDims.z * 0.5, 1.0));
+  }
+  // circle — normalize by radius
+  return local / max(f.shapeDims.y, 1.0);
+}
+
+// ─── Visual type functions (dynamically generated from registry) ───
+${visualFunctions}
+
+// ─── Visual dispatch (dynamically generated switch) ───
+// behind: vec4f(rgb, a) = whatever has already been rendered at this pixel by
+// earlier fields in the loop. Fields can see and respond to what's underneath.
+fn superVisual(uv: vec2f, sdf: f32, f: FieldGPU, time: f32, behind: vec4f) -> vec4f {
+  let vtype = u32(f.visualAndParams.x);
+  let col = f.color;
+  let p = vec4f(f.visualAndParams.yzw, f.extraParams.x);
+
+  switch (vtype) {
+${switchCases}
+    default: {
+      // Inline solid fallback — no visual type defined for this field
+      let fa = smoothstep(0.5, -0.5, sdf);
+      if (fa < 0.01) { return vec4f(0.0); }
+      return vec4f(col.rgb, fa);
+    }
+  }
+}
+
+// ─── Interaction functions (a + b = c at overlap pixels) ───
+${interactionFunctions}
+
+fn dispatchInteraction(itype: u32, uvA: vec2f, uvB: vec2f, colorA: vec4f, colorB: vec4f, time: f32) -> vec4f {
+  switch (itype) {
+${interactionSwitchCases}
+    default: { return vec4f(0.0); }
+  }
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let pixel = vec2f(f32(gid.x), f32(gid.y));
+  if (pixel.x >= frame.resolution.x || pixel.y >= frame.resolution.y) { return; }
+
+  let stride = u32(frame.resolution.x);
+  let idx = gid.y * stride + gid.x;
+
+  // Pixel → UV → grid coord (same transform as effect compute shader)
+  let uv = vec2f((pixel.x + 0.5) / frame.resolution.x, 1.0 - (pixel.y + 0.5) / frame.resolution.y);
+  let aspect = frame.resolution.x / frame.resolution.y;
+  let gridRange = vec2f(frame.gridSize) / frame.zoom;
+  var gridCoord: vec2f;
+  if (aspect > 1.0) {
+    gridCoord.x = frame.camera.x + (uv.x - 0.5) * gridRange.x * aspect;
+    gridCoord.y = frame.camera.y + (0.5 - uv.y) * gridRange.y;
+  } else {
+    gridCoord.x = frame.camera.x + (uv.x - 0.5) * gridRange.x;
+    gridCoord.y = frame.camera.y + (0.5 - uv.y) * gridRange.y / aspect;
+  }
+
+  let cellCoord = floor(gridCoord) + 0.5;
+  let fieldCount = arrayLength(&superFields);
+
+  // ─── Superimposed field evaluation ───
+  //
+  // SUPERIMPOSITION LEAK (intentional, documented behavior):
+  //
+  // Fields do NOT composite independently. The overlap loop has a structural
+  // asymmetry: color is OVERWRITTEN by each successive field (last wins), but
+  // presence (alpha) is ACCUMULATED via max(). This means:
+  //
+  //   - If field A (alpha=1.0) is behind field B (alpha=0.3 at its edge),
+  //     the pixel renders B's color at A's alpha. B appears more opaque than
+  //     it would alone because A's presence is "ghost-writing" B's compositing.
+  //
+  //   - Neither field fully owns the pixel. The color belongs to one field,
+  //     the opacity to another. It's an accidental superposition where each
+  //     field leaks into the other's rendering.
+  //
+  //   - The effect is asymmetric and order-dependent: field array position
+  //     determines which field's color survives, but any field's alpha can
+  //     dominate. Reordering the fields changes the visual.
+  //
+  //   - At overlap boundaries where both fields have partial SDF coverage,
+  //     the result is a color-opacity mismatch that creates a third visual
+  //     state — belonging to neither field alone.
+  //
+  // This is NOT a bug. It creates emergent visual interaction between fields
+  // without any explicit interaction shader. The fields affect each other
+  // through shared compositing state, not through shared computation.
+  //
+  var resultColor = vec3f(0.0);
+  var resultPresence: f32 = 0.0;
+
+  // Overlap tracking — store indices of all fields present at this pixel (max 8)
+  var overlapIndices: array<u32, 8>;
+  var overlapCount: u32 = 0u;
+
+  for (var i = 0u; i < fieldCount; i++) {
+    let f = superFields[i];
+    let sdf = superSDF(cellCoord, f);
+    let localUV = superLocalUV(cellCoord, f);
+    let behind = vec4f(resultColor, resultPresence);
+    let visual = superVisual(localUV, sdf, f, frame.time, behind);
+
+    if (visual.a > 0.01) {
+      resultColor = visual.rgb;
+      resultPresence = max(resultPresence, visual.a);
+      if (overlapCount < 8u) {
+        overlapIndices[overlapCount] = i;
+        overlapCount++;
+      }
+    }
+  }
+
+  if (resultPresence < 0.01) {
+    hitIdBuf[idx] = 0xFFFFFFFFu;
+    return;
+  }
+
+  // ─── Interaction effects: a + b = c ───
+  // When two fields overlap, check if an interaction is defined for that pair.
+  // If so, the interaction visual replaces both fields at this pixel.
+  let intCount = arrayLength(&interactions);
+  if (overlapCount >= 2u && intCount > 0u) {
+    for (var oi = 0u; oi < overlapCount; oi++) {
+      for (var oj = oi + 1u; oj < overlapCount; oj++) {
+        let idxA = overlapIndices[oi];
+        let idxB = overlapIndices[oj];
+        for (var k = 0u; k < intCount; k++) {
+          let ix = interactions[k];
+          let matchAB = (ix.fieldIdxA == idxA && ix.fieldIdxB == idxB);
+          let matchBA = (ix.fieldIdxA == idxB && ix.fieldIdxB == idxA);
+          if (matchAB || matchBA) {
+            let fA = superFields[idxA];
+            let fB = superFields[idxB];
+            let uvA = superLocalUV(cellCoord, fA);
+            let uvB = superLocalUV(cellCoord, fB);
+            let ixResult = dispatchInteraction(ix.interactionType, uvA, uvB, fA.color, fB.color, frame.time);
+            if (ixResult.a > 0.01) {
+              resultColor = ixResult.rgb;
+              resultPresence = ixResult.a;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Write topmost field index for pixel-perfect hit testing
+  hitIdBuf[idx] = overlapIndices[overlapCount - 1u];
+
+  // Write to accumulation buffer (blend with existing for coexistence with per-field effects)
+  let existing = accumBuf[idx];
+  accumBuf[idx] = vec4f(
+    mix(existing.rgb, resultColor, resultPresence),
+    existing.a + resultPresence * (1.0 - existing.a),
+  );
+}
+`
+}
+
 // Backward-compatible exports
 export function buildFragmentShader(injectedWgsl?: string): string {
   if (injectedWgsl) {

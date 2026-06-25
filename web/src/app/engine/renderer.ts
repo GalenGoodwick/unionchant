@@ -11,9 +11,13 @@ import {
   buildMaskClearShader,
   buildStateUpdateComputeShader,
   buildCompositeStateComputeShader,
+  buildSuperimposedComputeShader,
+  VisualTypeEntry,
+  InteractionEntry,
 } from './shaders'
+import type { SuperFieldGPU } from './types'
 
-type BlendMode = 'alpha' | 'additive' | 'multiply' | 'screen' | 'softlight'
+type BlendMode = 'alpha' | 'additive' | 'multiply' | 'screen' | 'softlight' | 'opaque'
 
 /** Shared compiled pipeline — deduplicated by WGSL source hash + blend mode */
 interface SharedPipeline {
@@ -62,6 +66,8 @@ function blendState(mode: BlendMode): GPUBlendState {
       return { color: { srcFactor: 'one', dstFactor: 'one-minus-src', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } }
     case 'softlight':
       return { color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' } }
+    case 'opaque':
+      return { color: { srcFactor: 'one', dstFactor: 'zero', operation: 'add' }, alpha: { srcFactor: 'one', dstFactor: 'zero', operation: 'add' } }
   }
 }
 
@@ -89,10 +95,10 @@ export class FieldRenderer {
   private fieldMaskTextures: Map<string, GPUTexture> = new Map()
   private sampler: GPUSampler | null = null
 
-  // Presence map (async readback)
+  // Presence map (async readback — per-field rendering)
   private presenceTex: GPUTexture | null = null
   private presenceStagingBuf: GPUBuffer | null = null
-  private presenceStagingBuf2: GPUBuffer | null = null
+  private presenceStagingBufCapacity: number = 0
   private presenceReadPending: boolean = false
   private presenceLastResult: Map<string, Uint8Array> = new Map()
 
@@ -147,6 +153,39 @@ export class FieldRenderer {
   private dispatchStagingBuf: GPUBuffer | null = null
   private static readonly EFFECT_UNIFORM_SIZE = 112 // 28 floats
   private static readonly DISPATCH_UNIFORM_SIZE = 16 // 4 floats
+
+  // ─── Superimposed rendering ───
+  private superFieldBuffer: GPUBuffer | null = null
+  private superFieldBufferCapacity: number = 0
+  private superPipeline: GPUComputePipeline | null = null
+  private superBindGroupLayout: GPUBindGroupLayout | null = null
+  private superPipelineReady: boolean = false
+  private superCompilationId: number = 0  // Bumped only by registerVisualType/registerInteraction
+  private superCompiling: boolean = false  // Prevents re-entrant compilation
+  static readonly SUPER_FIELD_STRIDE = 80 // 5 vec4f = 20 floats = 80 bytes per field
+  static readonly SUPER_MAX_FIELDS = 128
+
+  // ─── Pixel-perfect hit testing ───
+  private hitIdBuffer: GPUBuffer | null = null
+  private hitIdStagingBuffer: GPUBuffer | null = null
+  private hitIdPixelCount: number = 0
+  private hitIdReadbackPending: boolean = false
+  /** Latest readback: per-pixel field index (0xFFFFFFFF = no field) */
+  hitMap: Uint32Array | null = null
+  hitMapWidth: number = 0
+  hitMapHeight: number = 0
+
+  // Visual type registry (dynamic visual types)
+  private visualTypeRegistry: Map<string, VisualTypeEntry> = new Map()
+  private nextVisualTypeId: number = 0  // All visual types are runtime-defined
+
+  // Interaction registry (a + b = c effects at overlap pixels)
+  private interactionRegistry: Map<string, InteractionEntry> = new Map()
+  private nextInteractionId: number = 0
+  private interactionBuffer: GPUBuffer | null = null
+  private interactionBufferCapacity: number = 0
+  static readonly INTERACTION_STRIDE = 16 // 4 u32 per interaction
+  private _ixLogDone = false
 
   constructor(gridSize: number = DEFAULT_GRID_SIZE) {
     this.gridSize = gridSize
@@ -266,19 +305,8 @@ export class FieldRenderer {
     this.effectTex = this.createDataTexture()
     this.presenceTex = this.createDataTexture()
 
-    // Presence staging buffers (double-buffered for async readback)
-    const presenceBufSize = this.gridSize * this.gridSize * 4 * 4 // RGBA32F
-    // Align row to 256 bytes for copyTextureToBuffer
-    const bytesPerRow = Math.ceil(this.gridSize * 16 / 256) * 256
-    const totalBufSize = bytesPerRow * this.gridSize
-    this.presenceStagingBuf = device.createBuffer({
-      size: totalBufSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    })
-    this.presenceStagingBuf2 = device.createBuffer({
-      size: totalBufSize,
-      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    })
+    // Presence staging buffer — created dynamically in schedulePresenceReadback
+    // sized to numFields * bytesPerRow * gridSize for per-field rendering
 
     // Build base pipeline
     const baseFragModule = device.createShaderModule({ code: buildBaseFragmentShader() })
@@ -425,6 +453,17 @@ export class FieldRenderer {
       entries: [
         { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: texSampleType } },
         { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: { type: samplerType } },
+      ],
+    })
+
+    // ─── Superimposed rendering bind group layout ───
+    // Group 1: fields (read) + accum (rw) + hitId (rw) + interactions (read)
+    this.superBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     })
 
@@ -858,6 +897,8 @@ export class FieldRenderer {
     zoom: number,
     time: number,
     fieldEffects?: FieldEffectData[],
+    superFields?: SuperFieldGPU[],
+    activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[],
   ): void {
     const device = this.device
     const ctx = this.context
@@ -899,27 +940,28 @@ export class FieldRenderer {
     }
 
     // --- Effects ---
-    if (fieldEffects && fieldEffects.length > 0) {
+    const hasSuperFields = superFields && superFields.length > 0 && this.superPipelineReady
+    if ((fieldEffects && fieldEffects.length > 0) || hasSuperFields) {
       // Separate effects into compute-eligible and render-fallback
       const computeEffects: FieldEffectData[] = []
       const renderEffects: FieldEffectData[] = []
 
-      if (this.useComputeEffects && this.clearComputePipeline && this.blitPipeline) {
-        for (const effect of fieldEffects) {
-          const computeEntry = this.fieldComputeEntries.get(effect.programKey)
-          if (computeEntry && this.sharedComputePipelines.has(computeEntry.wgslHash)) {
-            computeEffects.push(effect)
-          } else {
-            renderEffects.push(effect)
+      if (fieldEffects && fieldEffects.length > 0) {
+        if (this.useComputeEffects && this.clearComputePipeline && this.blitPipeline) {
+          for (const effect of fieldEffects) {
+            const computeEntry = this.fieldComputeEntries.get(effect.programKey)
+            if (computeEntry && this.sharedComputePipelines.has(computeEntry.wgslHash)) {
+              computeEffects.push(effect)
+            } else {
+              renderEffects.push(effect)
+            }
           }
+        } else {
+          renderEffects.push(...fieldEffects)
         }
-      } else {
-        renderEffects.push(...fieldEffects)
       }
 
       // ─── Stage ALL effect uniforms upfront ───
-      // queue.writeBuffer writes all complete before encoder commands execute,
-      // so we write each effect to a unique staging slot, then copyBufferToBuffer per pass.
       let stageIdx = 0
       const computeStageIndices: number[] = []
       for (const effect of computeEffects) {
@@ -932,13 +974,14 @@ export class FieldRenderer {
         renderStageIndices.push(stageIdx++)
       }
 
-      // Stage dispatch uniforms for compute effects — fullscreen dispatch (no scissor clipping)
+      // Stage dispatch uniforms for compute effects
       for (let i = 0; i < computeEffects.length; i++) {
         device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([0, 0, bufferW, bufferH]))
       }
 
-      // ─── Compute path: dispatch per-field, blit once ───
-      if (computeEffects.length > 0) {
+      // ─── Compute path: superimposed + per-field, blit once ───
+      const needsAccum = computeEffects.length > 0 || hasSuperFields
+      if (needsAccum) {
         this.ensureAccumBuf(bufferW, bufferH)
 
         // Clear accumulation buffer
@@ -954,7 +997,12 @@ export class FieldRenderer {
           pass.end()
         }
 
-        // Dispatch each compute effect over its pixel region
+        // ─── Superimposed fields (single uber-shader dispatch) ───
+        if (hasSuperFields) {
+          this.renderSuperimposed(encoder, superFields!, bufferW, bufferH, activeInteractions)
+        }
+
+        // ─── Per-field compute effects ───
         const frameBG = this.getFrameBindGroup()
         const effectUniformBG = this.getEffectUniformBindGroup()
 
@@ -1397,7 +1445,8 @@ export class FieldRenderer {
     buf.destroy()
   }
 
-  /** Render field effects to presence texture and initiate async readback.
+  /** Render each field's effects individually to the presence texture, then async readback
+   *  into per-field Uint8Array maps. Each field gets its OWN presence map (not shared).
    *  Call consumePresenceMaps() next frame to get results. */
   schedulePresenceReadback(
     time: number,
@@ -1417,9 +1466,25 @@ export class FieldRenderer {
       list.push(effect)
     }
 
-    if (effectsByField.size === 0) return
+    const numFields = effectsByField.size
+    if (numFields === 0) return
 
-    // For simplicity, render ALL field effects into the presence texture with identity camera
+    // Calculate per-field slice in the staging buffer
+    const bytesPerRow = Math.ceil(this.gridSize * 16 / 256) * 256
+    const sliceSize = bytesPerRow * this.gridSize
+    const totalBufSize = numFields * sliceSize
+
+    // Resize staging buffer if it's too small for current field count
+    if (!this.presenceStagingBuf || this.presenceStagingBufCapacity < totalBufSize) {
+      this.presenceStagingBuf?.destroy()
+      this.presenceStagingBuf = device.createBuffer({
+        size: totalBufSize,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+      })
+      this.presenceStagingBufCapacity = totalBufSize
+    }
+
+    // Identity camera — render full grid
     this.writeFrameUniforms(
       { x: this.gridSize / 2, y: this.gridSize / 2 },
       [this.gridSize, this.gridSize],
@@ -1427,87 +1492,107 @@ export class FieldRenderer {
       time,
     )
 
-    const encoder = device.createCommandEncoder()
-
-    // Clear presence texture
-    {
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.presenceTex.createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          loadOp: 'clear',
-          storeOp: 'store',
-        }],
-      })
-      pass.end()
+    // Stage all effect uniforms upfront into the staging buffer
+    let stageIdx = 0
+    const fieldStageMap = new Map<string, number[]>()
+    for (const [fieldId, effects] of effectsByField) {
+      const indices: number[] = []
+      for (const effect of effects) {
+        this.stageEffectUniforms(stageIdx, effect)
+        indices.push(stageIdx++)
+      }
+      fieldStageMap.set(fieldId, indices)
     }
 
-    // Render effects
-    for (const effect of fieldEffects) {
-      const entry = this.fieldEntries.get(effect.programKey)
-      if (!entry) continue
-      const shared = this.sharedPipelines.get(entry.wgslHash)
-      if (!shared) continue
+    const encoder = device.createCommandEncoder()
+    const frameBG = this.getFrameBindGroup()
+    const effectUniformBG = this.getEffectUniformBindGroup()
+    const fieldOrder: string[] = []
+    let fieldIdx = 0
 
-      this.writeEffectUniforms(
-        effect.bounds, effect.params, effect.transform,
-        effect.fieldAColor, effect.fieldBColor,
-        effect.fieldATransform, effect.fieldBTransform,
+    for (const [fieldId, effects] of effectsByField) {
+      fieldOrder.push(fieldId)
+      const stageIndices = fieldStageMap.get(fieldId)!
+
+      // Clear presence texture before rendering this field
+      {
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.presenceTex.createView(),
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+            loadOp: 'clear',
+            storeOp: 'store',
+          }],
+        })
+        pass.end()
+      }
+
+      // Render only this field's effects
+      for (let i = 0; i < effects.length; i++) {
+        const effect = effects[i]
+        const entry = this.fieldEntries.get(effect.programKey)
+        if (!entry) continue
+        const shared = this.sharedPipelines.get(entry.wgslHash)
+        if (!shared) continue
+
+        // Copy this effect's uniforms from staging → active buffer
+        encoder.copyBufferToBuffer(
+          this.effectUniformStagingBuf!, stageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE,
+          this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE,
+        )
+
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view: this.presenceTex.createView(),
+            loadOp: 'load',
+            storeOp: 'store',
+          }],
+        })
+        pass.setPipeline(shared.pipeline)
+        pass.setBindGroup(0, frameBG)
+        pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
+        pass.setBindGroup(2, effectUniformBG)
+        pass.draw(6)
+        pass.end()
+      }
+
+      // Copy this field's presence render to its slot in the staging buffer
+      encoder.copyTextureToBuffer(
+        { texture: this.presenceTex },
+        { buffer: this.presenceStagingBuf!, bytesPerRow, offset: fieldIdx * sliceSize },
+        [this.gridSize, this.gridSize],
       )
 
-      // Need a presence-format pipeline (rgba32float target)
-      // For now, reuse the shared pipeline (it's configured for canvas format)
-      // TODO: cache presence pipelines separately if format differs
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: this.presenceTex.createView(),
-          loadOp: 'load',
-          storeOp: 'store',
-        }],
-      })
-
-      pass.setPipeline(shared.pipeline)
-      pass.setBindGroup(0, this.getFrameBindGroup())
-      pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
-      pass.setBindGroup(2, this.getEffectUniformBindGroup())
-      pass.draw(6)
-      pass.end()
+      fieldIdx++
     }
-
-    // Copy presence texture to staging buffer
-    const bytesPerRow = Math.ceil(this.gridSize * 16 / 256) * 256
-    encoder.copyTextureToBuffer(
-      { texture: this.presenceTex },
-      { buffer: this.presenceStagingBuf!, bytesPerRow },
-      [this.gridSize, this.gridSize],
-    )
 
     device.queue.submit([encoder.finish()])
 
-    // Start async map
+    // Async readback — split staging buffer into per-field presence maps
     this.presenceReadPending = true
     this.presenceStagingBuf!.mapAsync(GPUMapMode.READ).then(() => {
-      const mapped = new Float32Array(this.presenceStagingBuf!.getMappedRange())
-      const rowFloats = bytesPerRow / 4
+      const mapped = this.presenceStagingBuf!.getMappedRange()
       const gs = this.gridSize
+      const rowFloats = bytesPerRow / 4
+      const result = new Map<string, Uint8Array>()
 
-      // Build per-field presence from the combined render
-      // Since all effects are rendered together, we get combined presence
-      const presence = new Uint8Array(gs * gs)
-      for (let y = 0; y < gs; y++) {
-        const srcRow = y * rowFloats
-        const dstRow = y * gs
-        for (let x = 0; x < gs; x++) {
-          const alpha = mapped[srcRow + x * 4 + 3]
-          if (alpha > 0.02) {
-            presence[dstRow + x] = 255
+      for (let fi = 0; fi < fieldOrder.length; fi++) {
+        const fieldId = fieldOrder[fi]
+        const sliceOffset = fi * sliceSize
+        const fieldData = new Float32Array(mapped, sliceOffset, sliceSize / 4)
+        const presence = new Uint8Array(gs * gs)
+
+        for (let y = 0; y < gs; y++) {
+          const srcRow = y * rowFloats
+          const dstRow = y * gs
+          for (let x = 0; x < gs; x++) {
+            const alpha = fieldData[srcRow + x * 4 + 3]
+            if (alpha > 0.02) {
+              presence[dstRow + x] = 255
+            }
           }
         }
-      }
 
-      // Group presence by field using effect bounds
-      const result = new Map<string, Uint8Array>()
-      for (const [fieldId] of effectsByField) {
         result.set(fieldId, presence)
       }
 
@@ -1567,6 +1652,312 @@ export class FieldRenderer {
     this.schedulePresenceReadback(time, fieldEffects)
   }
 
+  // ─── Superimposed rendering ───
+
+  /** Lazily compile the superimposed compute pipeline.
+   *  Guards against re-entrant calls (render loop calls every frame).
+   *  compilationId is only bumped by register methods — if it changes
+   *  during async compilation, the result is discarded and recompilation
+   *  is triggered on the next frame. */
+  private async ensureSuperPipeline(): Promise<boolean> {
+    if (this.superPipelineReady) return true
+    if (this.superCompiling) return false  // Already compiling, wait for it
+    const device = this.device
+    if (!device || !this.superBindGroupLayout || !this.frameBindGroupLayout) return false
+
+    this.superCompiling = true
+    const myCompilationId = this.superCompilationId  // Snapshot — don't bump
+
+    try {
+      const allVisuals = this.getAllVisualTypes()
+      const allInteractions = this.getAllInteractionTypes()
+      console.log(`[Super] Compiling uber-shader with ${allVisuals.length} visuals, ${allInteractions.length} interactions`)
+      const shaderSrc = buildSuperimposedComputeShader(allVisuals, allInteractions)
+      console.log('[Super] Generated WGSL length:', shaderSrc.length, 'chars')
+      // Log interaction-related WGSL
+      if (allInteractions.length > 0) {
+        const ixLines = shaderSrc.split('\n').filter((l: string) => l.includes('interaction') || l.includes('Interaction') || l.includes('dispatchInteraction'))
+        console.log('[Super] Interaction-related WGSL lines:', ixLines)
+      }
+      const module = device.createShaderModule({ code: shaderSrc })
+      const info = await module.getCompilationInfo()
+      const errors = info.messages.filter(m => m.type === 'error')
+      if (errors.length > 0) {
+        console.error('[Super] Shader compile errors:')
+        for (const e of errors) {
+          console.error(`  Line ${e.lineNum}:${e.linePos}: ${e.message}`)
+        }
+        console.error('[Super] Generated shader source:\n', shaderSrc)
+        return false
+      }
+      // Log warnings too
+      const warnings = info.messages.filter(m => m.type === 'warning')
+      if (warnings.length > 0) {
+        console.warn('[Super] Shader warnings:', warnings.map(w => w.message).join('\n'))
+      }
+
+      // Check if a register call invalidated during compilation
+      if (myCompilationId !== this.superCompilationId) {
+        console.log('[Super] Compilation superseded, will recompile next frame')
+        return false
+      }
+
+      const pipelineLayout = device.createPipelineLayout({
+        bindGroupLayouts: [this.frameBindGroupLayout, this.superBindGroupLayout],
+      })
+      this.superPipeline = await device.createComputePipelineAsync({
+        layout: pipelineLayout,
+        compute: { module, entryPoint: 'main' },
+      })
+
+      if (myCompilationId !== this.superCompilationId) {
+        console.log('[Super] Compilation superseded after pipeline creation, will recompile')
+        return false
+      }
+
+      this.superPipelineReady = true
+      console.log('[Super] Pipeline compiled (' + this.getAllVisualTypes().length + ' visuals, ' + this.getAllInteractionTypes().length + ' interactions)')
+      return true
+    } catch (err) {
+      console.error('[Super] Pipeline creation failed:', err)
+      return false
+    } finally {
+      this.superCompiling = false
+    }
+  }
+
+  /** Ensure the field storage buffer can hold the given number of fields */
+  private ensureSuperFieldBuffer(fieldCount: number): void {
+    const device = this.device!
+    const needed = fieldCount * FieldRenderer.SUPER_FIELD_STRIDE
+    if (this.superFieldBuffer && this.superFieldBufferCapacity >= needed) return
+
+    this.superFieldBuffer?.destroy()
+    const capacity = Math.max(needed, FieldRenderer.SUPER_MAX_FIELDS * FieldRenderer.SUPER_FIELD_STRIDE)
+    this.superFieldBuffer = device.createBuffer({
+      size: capacity,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.superFieldBufferCapacity = capacity
+  }
+
+  /** Ensure the hit ID buffer exists and is large enough for the current canvas size */
+  private ensureHitIdBuffer(pixelCount: number): void {
+    const device = this.device!
+    if (this.hitIdBuffer && this.hitIdPixelCount >= pixelCount) return
+
+    this.hitIdBuffer?.destroy()
+    this.hitIdStagingBuffer?.destroy()
+
+    const byteSize = pixelCount * 4 // u32 per pixel
+    this.hitIdBuffer = device.createBuffer({
+      size: byteSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    })
+    this.hitIdStagingBuffer = device.createBuffer({
+      size: byteSize,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    })
+    this.hitIdPixelCount = pixelCount
+  }
+
+  /** Ensure the interaction buffer exists and is large enough */
+  private ensureInteractionBuffer(count: number): void {
+    const device = this.device!
+    // Need at least 1 entry so the storage buffer is non-zero size
+    const needed = Math.max(1, count) * FieldRenderer.INTERACTION_STRIDE
+    if (this.interactionBuffer && this.interactionBufferCapacity >= needed) return
+
+    this.interactionBuffer?.destroy()
+    this.interactionBuffer = device.createBuffer({
+      size: needed,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.interactionBufferCapacity = needed
+  }
+
+  /** Pack field data into the GPU storage buffer and dispatch the superimposed shader.
+   *  Call between accum clear and blit. */
+  renderSuperimposed(
+    encoder: GPUCommandEncoder,
+    fields: SuperFieldGPU[],
+    bufferW: number,
+    bufferH: number,
+    activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[],
+  ): void {
+    if (fields.length === 0 || !this.superPipeline || !this.accumBuf) return
+
+    this.ensureSuperFieldBuffer(fields.length)
+    this.ensureHitIdBuffer(bufferW * bufferH)
+    this.hitMapWidth = bufferW
+    this.hitMapHeight = bufferH
+
+    // Pack all fields into a Float32Array (20 floats per field)
+    const data = new Float32Array(fields.length * 20)
+    for (let i = 0; i < fields.length; i++) {
+      const f = fields[i]
+      const off = i * 20
+      data[off +  0] = f.posScaleRot[0]
+      data[off +  1] = f.posScaleRot[1]
+      data[off +  2] = f.posScaleRot[2]
+      data[off +  3] = f.posScaleRot[3]
+      data[off +  4] = f.shapeDims[0]
+      data[off +  5] = f.shapeDims[1]
+      data[off +  6] = f.shapeDims[2]
+      data[off +  7] = f.shapeDims[3]
+      data[off +  8] = f.color[0]
+      data[off +  9] = f.color[1]
+      data[off + 10] = f.color[2]
+      data[off + 11] = f.color[3]
+      data[off + 12] = f.visualAndParams[0]
+      data[off + 13] = f.visualAndParams[1]
+      data[off + 14] = f.visualAndParams[2]
+      data[off + 15] = f.visualAndParams[3]
+      data[off + 16] = f.extraParams[0]
+      data[off + 17] = f.extraParams[1]
+      data[off + 18] = f.extraParams[2]
+      data[off + 19] = f.extraParams[3]
+    }
+    this.device!.queue.writeBuffer(this.superFieldBuffer!, 0, data)
+
+    // Pack interactions (4 u32 each: fieldIdxA, fieldIdxB, interactionType, pad)
+    const ixList = activeInteractions || []
+    if (ixList.length > 0 && !this._ixLogDone) {
+      console.log('[Super] Active interactions:', JSON.stringify(ixList))
+      this._ixLogDone = true
+    }
+    this.ensureInteractionBuffer(ixList.length)
+    const ixData = new Uint32Array(Math.max(1, ixList.length) * 4)
+    for (let i = 0; i < ixList.length; i++) {
+      ixData[i * 4 + 0] = ixList[i].fieldIdxA
+      ixData[i * 4 + 1] = ixList[i].fieldIdxB
+      ixData[i * 4 + 2] = ixList[i].interactionType
+      ixData[i * 4 + 3] = 0
+    }
+    // If no interactions, write a sentinel (0xFFFFFFFF indices won't match anything)
+    if (ixList.length === 0) {
+      ixData[0] = 0xFFFFFFFF
+      ixData[1] = 0xFFFFFFFF
+      ixData[2] = 0
+      ixData[3] = 0
+    }
+    this.device!.queue.writeBuffer(this.interactionBuffer!, 0, ixData)
+
+    // Create bind group
+    const superBG = this.device!.createBindGroup({
+      layout: this.superBindGroupLayout!,
+      entries: [
+        { binding: 0, resource: { buffer: this.superFieldBuffer!, size: fields.length * FieldRenderer.SUPER_FIELD_STRIDE } },
+        { binding: 1, resource: { buffer: this.accumBuf } },
+        { binding: 2, resource: { buffer: this.hitIdBuffer! } },
+        { binding: 3, resource: { buffer: this.interactionBuffer!, size: Math.max(1, ixList.length) * FieldRenderer.INTERACTION_STRIDE } },
+      ],
+    })
+
+    const pass = encoder.beginComputePass()
+    pass.setPipeline(this.superPipeline)
+    pass.setBindGroup(0, this.getFrameBindGroup())
+    pass.setBindGroup(1, superBG)
+    pass.dispatchWorkgroups(
+      Math.ceil(bufferW / 16),
+      Math.ceil(bufferH / 16),
+    )
+    pass.end()
+
+    // Copy hit ID buffer to staging for CPU readback
+    if (this.hitIdStagingBuffer && !this.hitIdReadbackPending) {
+      const byteSize = bufferW * bufferH * 4
+      encoder.copyBufferToBuffer(this.hitIdBuffer!, 0, this.hitIdStagingBuffer, 0, byteSize)
+    }
+  }
+
+  /** Trigger async readback of the hit ID buffer. Call after queue.submit(). */
+  readbackHitMap(): void {
+    if (!this.hitIdStagingBuffer || this.hitIdReadbackPending) return
+    this.hitIdReadbackPending = true
+
+    const staging = this.hitIdStagingBuffer
+    const w = this.hitMapWidth
+    const h = this.hitMapHeight
+
+    staging.mapAsync(GPUMapMode.READ).then(() => {
+      const data = new Uint32Array(staging.getMappedRange().slice(0))
+      staging.unmap()
+      this.hitMap = data
+      this.hitIdReadbackPending = false
+    }).catch(() => {
+      this.hitIdReadbackPending = false
+    })
+  }
+
+  /** Check if the superimposed pipeline is ready, and trigger compilation if not */
+  isSuperReady(): boolean {
+    if (this.superPipelineReady) return true
+    // Trigger lazy compilation
+    this.ensureSuperPipeline()
+    return false
+  }
+
+  /** Register a new visual type. Returns the assigned ID or updates existing.
+   *  Triggers uber-shader recompilation. */
+  registerVisualType(name: string, wgsl: string): { id: number; error?: string } {
+    const existing = this.visualTypeRegistry.get(name)
+    let id: number
+    if (existing) {
+      id = existing.id
+      existing.wgsl = wgsl
+    } else {
+      id = this.nextVisualTypeId++
+      this.visualTypeRegistry.set(name, { id, name, wgsl })
+    }
+    // Invalidate uber-shader — bump compilation ID so any in-flight compilation is discarded
+    this.superCompilationId++
+    this.superPipelineReady = false
+    this.superPipeline = null
+    return { id }
+  }
+
+  /** Get all registered visual types */
+  getAllVisualTypes(): VisualTypeEntry[] {
+    return [...this.visualTypeRegistry.values()]
+  }
+
+  /** Resolve a visual type name to its ID */
+  resolveVisualType(name: string): number | undefined {
+    const entry = this.visualTypeRegistry.get(name)
+    return entry?.id
+  }
+
+  /** Register an interaction type. Triggers uber-shader recompilation. */
+  registerInteraction(name: string, wgsl: string): { id: number } {
+    const existing = this.interactionRegistry.get(name)
+    let id: number
+    if (existing) {
+      id = existing.id
+      existing.wgsl = wgsl
+    } else {
+      id = this.nextInteractionId++
+      this.interactionRegistry.set(name, { id, name, wgsl })
+    }
+    this.superCompilationId++
+    this.superPipelineReady = false
+    this.superPipeline = null
+    this._ixLogDone = false
+    console.log(`[Super] Registered interaction '${name}' as id ${id}, triggering recompilation (compilationId=${this.superCompilationId})`)
+    return { id }
+  }
+
+  /** Get all registered interaction types */
+  getAllInteractionTypes(): InteractionEntry[] {
+    return [...this.interactionRegistry.values()]
+  }
+
+  /** Resolve an interaction name to its ID */
+  resolveInteraction(name: string): number | undefined {
+    const entry = this.interactionRegistry.get(name)
+    return entry?.id
+  }
+
   destroy(): void {
     this.sharedPipelines.clear()
     this.fieldEntries.clear()
@@ -1591,7 +1982,6 @@ export class FieldRenderer {
     this.effectTex?.destroy()
     this.presenceTex?.destroy()
     this.presenceStagingBuf?.destroy()
-    this.presenceStagingBuf2?.destroy()
     this.frameUniformBuf?.destroy()
     this.effectUniformBuf?.destroy()
     this.stateUniformBuf?.destroy()
@@ -1599,6 +1989,7 @@ export class FieldRenderer {
     this.effectUniformStagingBuf?.destroy()
     this.dispatchStagingBuf?.destroy()
     this.accumBuf?.destroy()
+    this.superFieldBuffer?.destroy()
 
     this.device = null
     this.context = null
@@ -1616,5 +2007,19 @@ export class FieldRenderer {
     this.effectUniformStagingBuf = null
     this.dispatchStagingBuf = null
     this.accumBuf = null
+    this.superFieldBuffer = null
+    this.superPipeline = null
+    this.superPipelineReady = false
+    this.visualTypeRegistry.clear()
+    this.nextVisualTypeId = 0
+    this.interactionRegistry.clear()
+    this.nextInteractionId = 0
+    this.interactionBuffer?.destroy()
+    this.interactionBuffer = null
+    this.hitIdBuffer?.destroy()
+    this.hitIdStagingBuffer?.destroy()
+    this.hitIdBuffer = null
+    this.hitIdStagingBuffer = null
+    this.hitMap = null
   }
 }

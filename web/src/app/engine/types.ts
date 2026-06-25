@@ -84,6 +84,12 @@ export interface Field {
   w?: number
   /** Rect height in grid pixels (used when shapeType === 'rect') */
   h?: number
+  /** Tags for group-based queries and collision callbacks */
+  tags?: string[]
+  /** Visual type ID for superimposed rendering (undefined = use per-field WGSL effects) */
+  visualType?: number
+  /** Parameters for the visual type function [p0, p1, p2, p3] */
+  visualParams?: [number, number, number, number]
 }
 
 /** Drawing tool state */
@@ -195,6 +201,12 @@ export interface FieldSnapshot {
   w?: number
   /** Rect height in grid pixels */
   h?: number
+  /** Tags for group-based queries */
+  tags?: string[]
+  /** Visual type for superimposed rendering */
+  visualType?: number
+  /** Visual params for superimposed rendering */
+  visualParams?: [number, number, number, number]
 }
 
 /** Full world state snapshot (sent via bridge to agents) */
@@ -283,5 +295,134 @@ export interface InteractionEffect {
   precedence?: boolean
   /** Behavioral hooks triggered each frame while this interaction is active */
   hooks?: InteractionHook[]
+}
+
+// ─── Superimposed Rendering Types ───
+
+/** Visual type IDs for superimposed rendering — parameterized function IDs */
+export const VISUAL_TYPES = {
+  solid: 0,
+  circle: 1,
+  glow: 2,
+  ring: 3,
+  eyes: 4,
+  coin: 5,
+  platform: 6,
+  stripe: 7,
+  pulse: 8,
+  gradient: 9,
+} as const
+
+export type VisualTypeName = keyof typeof VISUAL_TYPES
+
+/** GPU-side field data for superimposed rendering (5 vec4f = 80 bytes) */
+export interface SuperFieldGPU {
+  /** vec4f 0: x, y, scale, rotation */
+  posScaleRot: [number, number, number, number]
+  /** vec4f 1: shapeType (0=circle, 1=rect), dim1, dim2, edgeSmooth */
+  shapeDims: [number, number, number, number]
+  /** vec4f 2: r, g, b, a */
+  color: [number, number, number, number]
+  /** vec4f 3: visualType, param0, param1, param2 */
+  visualAndParams: [number, number, number, number]
+  /** vec4f 4: param3, param4, param5, param6 */
+  extraParams: [number, number, number, number]
+}
+
+// ─── Game Engine Types ───
+
+/** HUD element — rendered as DOM overlay on top of the canvas */
+export interface HudElement {
+  id: string
+  type: 'text' | 'bar' | 'image'
+  /** CSS positioning — use px or % values */
+  x?: string
+  y?: string
+  right?: string
+  bottom?: string
+  /** Text content (for type='text') */
+  text?: string
+  /** Font size in CSS units (default '16px') */
+  fontSize?: string
+  /** CSS color string */
+  color?: string
+  /** Current value (for type='bar') */
+  value?: number
+  /** Max value (for type='bar') */
+  max?: number
+  /** Bar width in CSS units (default '100px') */
+  width?: string
+  /** Bar background color */
+  barColor?: string
+  /** Image URL (for type='image') */
+  src?: string
+  /** Image width in CSS units */
+  imgWidth?: string
+  /** Image height in CSS units */
+  imgHeight?: string
+  /** Whether element is visible (default true) */
+  visible?: boolean
+}
+
+/** Scene snapshot — stores complete engine state for save/load */
+export interface SceneSnapshot {
+  name: string
+  fields: FieldSnapshot[]
+  worldParams: WorldParams
+  worldData: Record<string, unknown>
+  stepHooks: Array<{ id: string; author: string; description: string; code: string }>
+  interactionRules: InteractionRule[]
+  interactionEffects: InteractionEffect[]
+  timestamp: number
+}
+
+/** Camera follow configuration */
+export interface CameraFollow {
+  targetFieldId: string
+  smoothing: number
+  offsetX: number
+  offsetY: number
+  deadZone: number
+}
+
+/** Tween definition for property animation */
+export interface TweenDef {
+  id: string
+  fieldId: string
+  property: string
+  from: number
+  to: number
+  duration: number
+  elapsed: number
+  easing: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut'
+  onComplete?: string
+}
+
+/** Timer definition */
+export interface TimerDef {
+  id: string
+  hookId: string
+  delay: number
+  elapsed: number
+  repeat: boolean
+}
+
+/** Collision callback registration */
+export interface CollisionCallback {
+  id: string
+  /** Match by fieldId or tag */
+  matchA: { fieldId?: string; tag?: string }
+  matchB: { fieldId?: string; tag?: string }
+  onEnter?: string
+  onExit?: string
+  onStay?: string
+}
+
+/** Game state definition */
+export interface GameStateDef {
+  name: string
+  onEnter?: string
+  onExit?: string
+  pausePhysics?: boolean
 }
 
