@@ -921,6 +921,7 @@ struct InteractionGPU {
 @group(1) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
 @group(1) @binding(2) var<storage, read_write> hitIdBuf: array<u32>;
 @group(1) @binding(3) var<storage, read> interactions: array<InteractionGPU>;
+@group(1) @binding(4) var<storage, read_write> ixBuf: array<vec4f>;
 
 ${SHADER_UTILITIES}
 
@@ -1007,6 +1008,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   let stride = u32(frame.resolution.x);
   let idx = gid.y * stride + gid.x;
+
+  // Clear interaction buffer for this pixel (before any early return)
+  ixBuf[idx] = vec4f(0.0);
 
   // Pixel → UV → grid coord (same transform as effect compute shader)
   let uv = vec2f((pixel.x + 0.5) / frame.resolution.x, 1.0 - (pixel.y + 0.5) / frame.resolution.y);
@@ -1103,6 +1107,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
             if (ixResult.a > 0.01) {
               resultColor = ixResult.rgb;
               resultPresence = ixResult.a;
+              ixBuf[idx] = ixResult;
             }
           }
         }
@@ -1119,6 +1124,92 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     mix(existing.rgb, resultColor, resultPresence),
     existing.a + resultPresence * (1.0 - existing.a),
   );
+}
+`
+}
+
+/**
+ * Propagation compute shader — spreads interaction results beyond the overlap zone.
+ * Reads ixBuf (raw interaction output from uber-shader), samples at offset positions
+ * below the current pixel (so effects visually rise upward), and blends into accumBuf.
+ */
+export function buildPropagationComputeShader(): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+@group(1) @binding(0) var<storage, read> ixBuf: array<vec4f>;
+@group(1) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
+
+fn propHash(p: vec2f) -> f32 {
+  var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
+  p3 += dot(p3, vec3f(p3.y, p3.z, p3.x) + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let px = f32(gid.x);
+  let py = f32(gid.y);
+  if (px >= frame.resolution.x || py >= frame.resolution.y) { return; }
+
+  let stride = u32(frame.resolution.x);
+  let idx = gid.y * stride + gid.x;
+  let resX = i32(frame.resolution.x);
+  let resY = i32(frame.resolution.y);
+
+  var spreadColor = vec3f(0.0);
+  var spreadAlpha: f32 = 0.0;
+  let maxDist: f32 = 200.0;
+  let steps: i32 = 16;
+  let stepSize: f32 = maxDist / f32(steps);
+
+  // Sample pixels BELOW this pixel (larger y = lower on screen)
+  // so the propagated effect appears ABOVE the source = rising steam
+  for (var s: i32 = 1; s <= steps; s++) {
+    let dist = f32(s) * stepSize;
+    let srcY = i32(py) + i32(dist);
+    if (srcY >= resY) { break; }
+
+    // Turbulent horizontal wobble — wider at greater distance
+    let seed1 = vec2f(px * 0.07 + frame.time * 1.3, f32(srcY) * 0.09 + f32(s) * 3.7);
+    let seed2 = vec2f(px * 0.13 - frame.time * 0.9, f32(srcY) * 0.05 + f32(s) * 7.1);
+    let wobble = (propHash(seed1) - 0.5) * 2.0 + (propHash(seed2) - 0.5);
+    let wobbleAmt = dist * 0.4;
+    let srcX = clamp(i32(px + wobble * wobbleAmt), 0, resX - 1);
+
+    let srcIdx = u32(srcY) * stride + u32(srcX);
+    let samp = ixBuf[srcIdx];
+
+    if (samp.a > 0.01) {
+      let t = dist / maxDist;
+      let falloff = (1.0 - t * t);  // inverse-quadratic: stays strong near source
+      spreadColor = max(spreadColor, samp.rgb * falloff);
+      spreadAlpha = max(spreadAlpha, samp.a * falloff);
+    }
+  }
+
+  // Wider lateral spread — sample neighbors at multiple offsets
+  for (var dx: i32 = -3; dx <= 3; dx++) {
+    if (dx == 0) { continue; }
+    let lSrcX = i32(px) + dx * 4;
+    let lSrcY = i32(py) + 3;
+    if (lSrcX < 0 || lSrcX >= resX || lSrcY >= resY) { continue; }
+    let lIdx = u32(lSrcY) * stride + u32(lSrcX);
+    let lSamp = ixBuf[lIdx];
+    if (lSamp.a > 0.01) {
+      let lFalloff = 1.0 - f32(abs(dx)) * 0.2;
+      spreadColor = max(spreadColor, lSamp.rgb * lFalloff * 0.5);
+      spreadAlpha = max(spreadAlpha, lSamp.a * lFalloff * 0.5);
+    }
+  }
+
+  if (spreadAlpha > 0.005) {
+    let existing = accumBuf[idx];
+    accumBuf[idx] = vec4f(
+      existing.rgb + spreadColor * spreadAlpha,
+      max(existing.a, spreadAlpha),
+    );
+  }
 }
 `
 }

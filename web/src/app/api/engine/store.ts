@@ -24,6 +24,15 @@ export interface VisualTypeDef {
   timestamp: number
 }
 
+/** Registered uber-shader interaction definition */
+export interface InteractionDef {
+  name: string
+  wgsl: string
+  fieldA: string  // field ID
+  fieldB: string  // field ID
+  timestamp: number
+}
+
 /** Registered GLSL mod (reusable shader utility code) */
 export interface GlslMod {
   id: string
@@ -60,6 +69,8 @@ interface EngineStore {
   glslMods: Map<string, GlslMod>
   /** Registered visual types for superimposed uber-shader (persisted) */
   visualTypes: Map<string, VisualTypeDef>
+  /** Registered uber-shader interaction definitions (persisted) */
+  interactionDefs: Map<string, InteractionDef>
   /** Saved scenes — complete engine state snapshots */
   scenes: Map<string, SceneSnapshot>
 }
@@ -85,6 +96,7 @@ interface SerializedStore {
   stepHooks?: StepHookSnapshot[]
   glslMods?: Record<string, GlslMod>
   visualTypes?: Record<string, VisualTypeDef>
+  interactionDefs?: Record<string, InteractionDef>
   scenes?: Record<string, SceneSnapshot>
   lastSyncTime: number
 }
@@ -117,13 +129,19 @@ function loadFromDisk(): Partial<EngineStore> | null {
         visualTypes.set(name, vt)
       }
     }
+    const interactionDefs = new Map<string, InteractionDef>()
+    if (data.interactionDefs) {
+      for (const [name, def] of Object.entries(data.interactionDefs)) {
+        interactionDefs.set(name, def)
+      }
+    }
     const scenes = new Map<string, SceneSnapshot>()
     if (data.scenes) {
       for (const [name, scene] of Object.entries(data.scenes)) {
         scenes.set(name, scene)
       }
     }
-    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${visualTypes.size} visual types, ${scenes.size} scenes, ${Object.keys(data.worldData || {}).length} worldData keys`)
+    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${visualTypes.size} visual types, ${interactionDefs.size} interaction defs, ${scenes.size} scenes, ${Object.keys(data.worldData || {}).length} worldData keys`)
     return {
       fieldSnapshots,
       lastSyncTime: data.lastSyncTime || 0,
@@ -136,6 +154,7 @@ function loadFromDisk(): Partial<EngineStore> | null {
       renderedSamples: {},
       glslMods,
       visualTypes,
+      interactionDefs,
       scenes,
     }
   } catch {
@@ -161,6 +180,7 @@ function schedulePersist(): void {
         stepHooks: store.stepHooks,
         glslMods: Object.fromEntries(store.glslMods),
         visualTypes: Object.fromEntries(store.visualTypes),
+        interactionDefs: Object.fromEntries(store.interactionDefs),
         scenes: Object.fromEntries(store.scenes),
         lastSyncTime: store.lastSyncTime,
       }
@@ -191,6 +211,7 @@ if (!globalStore.__engineStore) {
       renderedSamples: {},
       glslMods: new Map(),
       visualTypes: new Map(),
+      interactionDefs: new Map(),
       scenes: new Map(),
     }
   }
@@ -223,6 +244,9 @@ if (!store.glslMods) {
 }
 if (!store.visualTypes) {
   store.visualTypes = new Map()
+}
+if (!store.interactionDefs) {
+  store.interactionDefs = new Map()
 }
 if (!store.scenes) {
   store.scenes = new Map()
@@ -340,6 +364,24 @@ export function getAllVisualTypes(): VisualTypeDef[] {
   return Array.from(store.visualTypes.values())
 }
 
+/** Add/update an interaction definition (server-side persistence) */
+export function addInteractionDef(name: string, wgsl: string, fieldA: string, fieldB: string): void {
+  store.interactionDefs.set(name, { name, wgsl, fieldA, fieldB, timestamp: Date.now() })
+  schedulePersist()
+}
+
+/** Remove an interaction definition */
+export function removeInteractionDef(name: string): boolean {
+  const existed = store.interactionDefs.delete(name)
+  if (existed) schedulePersist()
+  return existed
+}
+
+/** Get all interaction definitions */
+export function getAllInteractionDefs(): InteractionDef[] {
+  return Array.from(store.interactionDefs.values())
+}
+
 export function getEngineState(): {
   fields: FieldSnapshot[]
   fieldCount: number
@@ -353,6 +395,7 @@ export function getEngineState(): {
   stepHooks: StepHookSnapshot[]
   glslMods: GlslMod[]
   visualTypes: VisualTypeDef[]
+  interactionDefs: InteractionDef[]
 } {
   return {
     fields: getAllFieldSnapshots(),
@@ -367,6 +410,7 @@ export function getEngineState(): {
     stepHooks: getStepHooks(),
     glslMods: getAllGlslMods(),
     visualTypes: getAllVisualTypes(),
+    interactionDefs: getAllInteractionDefs(),
   }
 }
 
@@ -432,6 +476,7 @@ export function resetStore(): void {
   store.stepHooks = []
   store.glslMods.clear()
   store.visualTypes.clear()
+  store.interactionDefs.clear()
   store.lastSyncTime = 0
   schedulePersist()
 }

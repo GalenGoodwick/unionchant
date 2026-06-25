@@ -12,6 +12,7 @@ import {
   buildStateUpdateComputeShader,
   buildCompositeStateComputeShader,
   buildSuperimposedComputeShader,
+  buildPropagationComputeShader,
   VisualTypeEntry,
   InteractionEntry,
 } from './shaders'
@@ -165,6 +166,13 @@ export class FieldRenderer {
   static readonly SUPER_FIELD_STRIDE = 80 // 5 vec4f = 20 floats = 80 bytes per field
   static readonly SUPER_MAX_FIELDS = 128
 
+  // ─── Interaction propagation ───
+  private ixBuf: GPUBuffer | null = null
+  private ixBufPixelCount: number = 0
+  private propagationPipeline: GPUComputePipeline | null = null
+  private propagationBindGroupLayout: GPUBindGroupLayout | null = null
+  private superLayoutHasIxBuf: boolean = false
+
   // ─── Pixel-perfect hit testing ───
   private hitIdBuffer: GPUBuffer | null = null
   private hitIdStagingBuffer: GPUBuffer | null = null
@@ -186,6 +194,7 @@ export class FieldRenderer {
   private interactionBufferCapacity: number = 0
   static readonly INTERACTION_STRIDE = 16 // 4 u32 per interaction
   private _ixLogDone = false
+  private _propLogDone = false
 
   constructor(gridSize: number = DEFAULT_GRID_SIZE) {
     this.gridSize = gridSize
@@ -342,6 +351,17 @@ export class FieldRenderer {
       })
     }
 
+    // Propagation compute pipeline (spreads interaction results beyond overlap zone)
+    {
+      const propModule = device.createShaderModule({ code: buildPropagationComputeShader() })
+      this.propagationPipeline = await device.createComputePipelineAsync({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.frameBindGroupLayout!, this.propagationBindGroupLayout!],
+        }),
+        compute: { module: propModule, entryPoint: 'main' },
+      })
+    }
+
     // Blit pipeline (reads from storage buffer, alpha-blends onto screen)
     {
       const blitModule = device.createShaderModule({ code: buildBlitFragmentShader() })
@@ -383,6 +403,20 @@ export class FieldRenderer {
     })
     this.accumBufPixelCount = pixelCount
     this.accumBufStride = width
+  }
+
+  /** Ensure the interaction result buffer matches the current canvas pixel dimensions */
+  private ensureIxBuf(width: number, height: number): void {
+    const device = this.device!
+    const pixelCount = width * height
+    if (this.ixBuf && this.ixBufPixelCount === pixelCount) return
+
+    this.ixBuf?.destroy()
+    this.ixBuf = device.createBuffer({
+      size: pixelCount * 16, // vec4f = 16 bytes per pixel
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.ixBufPixelCount = pixelCount
   }
 
   private createBindGroupLayouts(): void {
@@ -457,13 +491,24 @@ export class FieldRenderer {
     })
 
     // ─── Superimposed rendering bind group layout ───
-    // Group 1: fields (read) + accum (rw) + hitId (rw) + interactions (read)
+    // Group 1: fields (read) + accum (rw) + hitId (rw) + interactions (read) + ixBuf (rw)
     this.superBindGroupLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      ],
+    })
+
+    this.superLayoutHasIxBuf = true
+
+    // Propagation pass: ixBuf (read) + accumBuf (rw)
+    this.propagationBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
       ],
     })
 
@@ -1041,6 +1086,30 @@ export class FieldRenderer {
             Math.ceil(bufferH / 16),
           )
           pass.end()
+        }
+
+        // ─── Interaction propagation pass ───
+        if (!this._propLogDone && hasSuperFields) {
+          console.log('[Propagation] Check:', { hasPipeline: !!this.propagationPipeline, hasIxBuf: !!this.ixBuf, ixBufPixels: this.ixBufPixelCount })
+          this._propLogDone = true
+        }
+        if (hasSuperFields && this.propagationPipeline && this.ixBuf) {
+          const propBG = device.createBindGroup({
+            layout: this.propagationBindGroupLayout!,
+            entries: [
+              { binding: 0, resource: { buffer: this.ixBuf } },
+              { binding: 1, resource: { buffer: this.accumBuf! } },
+            ],
+          })
+          const propPass = encoder.beginComputePass()
+          propPass.setPipeline(this.propagationPipeline)
+          propPass.setBindGroup(0, frameBG)
+          propPass.setBindGroup(1, propBG)
+          propPass.dispatchWorkgroups(
+            Math.ceil(bufferW / 16),
+            Math.ceil(bufferH / 16),
+          )
+          propPass.end()
         }
 
         // Blit accumulation buffer to screen
@@ -1787,8 +1856,43 @@ export class FieldRenderer {
   ): void {
     if (fields.length === 0 || !this.superPipeline || !this.accumBuf) return
 
+    // Lazy upgrade: if renderer was initialized before ixBuf support, recreate layout
+    if (!this.superLayoutHasIxBuf && this.device) {
+      this.superBindGroupLayout = this.device.createBindGroupLayout({
+        entries: [
+          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+          { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+          { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+          { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+          { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        ],
+      })
+      this.superLayoutHasIxBuf = true
+      this.superPipelineReady = false // force uber-shader recompilation with new layout
+    }
+
+    // Lazy create propagation pipeline if missing
+    if (!this.propagationPipeline && this.device) {
+      if (!this.propagationBindGroupLayout) {
+        this.propagationBindGroupLayout = this.device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+          ],
+        })
+      }
+      const propModule = this.device.createShaderModule({ code: buildPropagationComputeShader() })
+      this.propagationPipeline = this.device.createComputePipeline({
+        layout: this.device.createPipelineLayout({
+          bindGroupLayouts: [this.frameBindGroupLayout!, this.propagationBindGroupLayout!],
+        }),
+        compute: { module: propModule, entryPoint: 'main' },
+      })
+    }
+
     this.ensureSuperFieldBuffer(fields.length)
     this.ensureHitIdBuffer(bufferW * bufferH)
+    this.ensureIxBuf(bufferW, bufferH)
     this.hitMapWidth = bufferW
     this.hitMapHeight = bufferH
 
@@ -1851,6 +1955,7 @@ export class FieldRenderer {
         { binding: 1, resource: { buffer: this.accumBuf } },
         { binding: 2, resource: { buffer: this.hitIdBuffer! } },
         { binding: 3, resource: { buffer: this.interactionBuffer!, size: Math.max(1, ixList.length) * FieldRenderer.INTERACTION_STRIDE } },
+        { binding: 4, resource: { buffer: this.ixBuf! } },
       ],
     })
 
@@ -1989,6 +2094,7 @@ export class FieldRenderer {
     this.effectUniformStagingBuf?.destroy()
     this.dispatchStagingBuf?.destroy()
     this.accumBuf?.destroy()
+    this.ixBuf?.destroy()
     this.superFieldBuffer?.destroy()
 
     this.device = null

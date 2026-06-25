@@ -637,6 +637,19 @@ export default function FieldEngine() {
           }
         }
 
+        // Restore uber-shader interaction definitions
+        if (Array.isArray(data.interactionDefs)) {
+          if (!sim.interactionPairs) sim.interactionPairs = []
+          for (const def of data.interactionDefs) {
+            if (def.name && def.wgsl && def.fieldA && def.fieldB) {
+              const result = renderer.registerInteraction(def.name, def.wgsl)
+              sim.interactionPairs = sim.interactionPairs.filter((p: { name: string }) => p.name !== def.name)
+              sim.interactionPairs.push({ name: def.name, fieldA: def.fieldA, fieldB: def.fieldB, interactionTypeId: result.id })
+              console.log(`[Restore] Interaction '${def.name}': ${def.fieldA} + ${def.fieldB} (type ${result.id})`)
+            }
+          }
+        }
+
         const firstId = snaps[0].id
 
         // Restore effect programs for all fields
@@ -990,12 +1003,19 @@ export default function FieldEngine() {
       // Store field order for pixel-perfect hit testing
       sim.superFieldOrder = superFieldOrder
 
-      // Map interaction pairs (fieldId → fieldId) to GPU indices (idx → idx)
+      // Map interaction pairs (field name → field name) to GPU indices (idx → idx)
+      // Build name→ID lookup since interactionPairs store field names, not IDs
+      const nameToId = new Map<string, string>()
+      for (const field of sim.fields.values()) {
+        nameToId.set(field.name, field.id)
+      }
       const activeInteractions: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[] = []
       if (sim.interactionPairs && sim.interactionPairs.length > 0) {
         for (const pair of sim.interactionPairs) {
-          const idxA = superFieldOrder.indexOf(pair.fieldA)
-          const idxB = superFieldOrder.indexOf(pair.fieldB)
+          const idA = nameToId.get(pair.fieldA) || pair.fieldA
+          const idB = nameToId.get(pair.fieldB) || pair.fieldB
+          const idxA = superFieldOrder.indexOf(idA)
+          const idxB = superFieldOrder.indexOf(idB)
           if (idxA >= 0 && idxB >= 0) {
             activeInteractions.push({ fieldIdxA: idxA, fieldIdxB: idxB, interactionType: pair.interactionTypeId })
           }

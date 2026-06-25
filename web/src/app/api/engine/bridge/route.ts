@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, addInteractionDef } from '../store'
 import type { GlslMod } from '../store'
 
 export const maxDuration = 30
@@ -237,6 +237,11 @@ export async function POST(req: NextRequest) {
       // define_visual: persist server-side AND forward to browser
       if (cmd.type === 'define_visual' && cmd.name && cmd.wgsl) {
         addVisualType(cmd.name as string, cmd.wgsl as string)
+      }
+
+      // define_interaction (uber-shader): persist server-side AND forward to browser
+      if (cmd.type === 'define_interaction' && cmd.wgsl && cmd.name && cmd.fieldA && cmd.fieldB) {
+        addInteractionDef(cmd.name as string, cmd.wgsl as string, cmd.fieldA as string, cmd.fieldB as string)
       }
 
       // register_glsl_mod: store server-side AND forward to browser
