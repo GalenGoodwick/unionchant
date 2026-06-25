@@ -139,12 +139,16 @@ export async function GET(req: NextRequest) {
       // Send initial heartbeat
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`))
 
-      // Send any recent pending commands (last 5 seconds)
-      const cutoff = Date.now() - 5000
-      for (const entry of commandQueue) {
-        if (entry.timestamp > cutoff) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`))
+      // Replay all commands since the last reset (survives browser reload)
+      let replayStart = 0
+      for (let i = commandQueue.length - 1; i >= 0; i--) {
+        if (commandQueue[i].command.type === 'reset') {
+          replayStart = i
+          break
         }
+      }
+      for (let i = replayStart; i < commandQueue.length; i++) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(commandQueue[i])}\n\n`))
       }
 
       // Listen for new commands

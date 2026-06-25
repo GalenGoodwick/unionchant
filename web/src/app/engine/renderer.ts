@@ -2063,6 +2063,18 @@ export class FieldRenderer {
     return entry?.id
   }
 
+  /** Clear all visual type and interaction registries. Called on reset. */
+  clearRegistries(): void {
+    this.visualTypeRegistry.clear()
+    this.nextVisualTypeId = 0
+    this.interactionRegistry.clear()
+    this.nextInteractionId = 0
+    this.superPipelineReady = false
+    this.superPipeline = null
+    this.superCompilationId++
+    this._ixLogDone = false
+  }
+
   destroy(): void {
     this.sharedPipelines.clear()
     this.fieldEntries.clear()

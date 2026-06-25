@@ -211,7 +211,7 @@ function ChantsPageContent() {
   const [flashDocks, setFlashDocks] = useState(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [externalDragStart, setExternalDragStart] = useState<{ x: number; y: number } | null>(null)
-  const [undockingAnim, setUndockingAnim] = useState(false)
+  // undockingAnim removed — was set but never read
   // ── SPATIAL UNIVERSE STATE ──
   const [viewMode, setViewMode] = useState<'feed' | 'spatial'>('feed')
   const [dockstarRotation, setDockstarRotation] = useState(0)
@@ -925,6 +925,7 @@ function ChantsPageContent() {
       setDockedIdeaId(null)
       setDockedPodium(null)
       setDockedGroup(null)
+      setActiveSubspaceId(null)
       setXpAllocations({})
       setPendingInput('')
       setPendingInputType(null)
@@ -966,6 +967,7 @@ function ChantsPageContent() {
       setDockedPostId(id)
       setDockedIdeaId(null)
       setDockedGroup(null)
+      setActiveSubspaceId(null)
       setCreateMode(false)
       setDockedPodiumLoading(true)
       setDockedPodium(null)
@@ -991,6 +993,7 @@ function ChantsPageContent() {
       setDockedPostId(id)
       setDockedIdeaId(null)
       setDockedPodium(null)
+      setActiveSubspaceId(null)
       setCreateMode(false)
       setDockedGroupLoading(true)
       setDockedGroup(null)
@@ -1027,6 +1030,7 @@ function ChantsPageContent() {
     setCreateMode(false)
     setDockedPodium(null)
     setDockedGroup(null)
+    setActiveSubspaceId(null)
     setDockedPostId(id)
     setDockedIdeaId(null)
     setDockedPostVisible(true)
@@ -1042,24 +1046,20 @@ function ChantsPageContent() {
     if (dockedPostId && dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:')) {
       leaveChant()
     }
-    setUndockingAnim(true)
-    setTimeout(() => {
-      setActiveSubspaceId(null)
-      setDockedPostId(null)
-      setDockedIdeaId(null)
-      setDockedPodium(null)
-      setDockedGroup(null)
-      setXpAllocations({})
-      setPendingInput('')
-      setPendingInputType(null)
-      setCreateMode(false)
-      setManageMode(false)
-      setGroupCreateOpen(false)
-      setGroupSettingsOpen(false)
-      setPodiumSettingsOpen(false)
-      setUndockingAnim(false)
-      refreshFeed()
-    }, 200)
+    setActiveSubspaceId(null)
+    setDockedPostId(null)
+    setDockedIdeaId(null)
+    setDockedPodium(null)
+    setDockedGroup(null)
+    setXpAllocations({})
+    setPendingInput('')
+    setPendingInputType(null)
+    setCreateMode(false)
+    setManageMode(false)
+    setGroupCreateOpen(false)
+    setGroupSettingsOpen(false)
+    setPodiumSettingsOpen(false)
+    refreshFeed()
   }, [dockedPostId, leaveChant, refreshFeed])
 
   const handleUndock = useCallback(() => {
@@ -2437,7 +2437,7 @@ function ChantsPageContent() {
           </div>
         </div>
 
-        {activeSubspaceId?.startsWith('podiumchat:') ? (
+        {viewMode !== 'spatial' && (activeSubspaceId?.startsWith('podiumchat:') ? (
           /* PODIUM SUBSPACE VIEW — uses IdeaSubspace with podium comments API */
           <div
             id="subspace-container"
@@ -4140,7 +4140,7 @@ function ChantsPageContent() {
 
           <div className="h-32" />
         </div>
-        )}
+        ))}
 
         {/* BOTTOM BAR */}
         {(() => {

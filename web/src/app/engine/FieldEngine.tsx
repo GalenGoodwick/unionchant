@@ -1253,9 +1253,13 @@ export default function FieldEngine() {
                   break
                 }
 
+                const shaderCode = genData.wgsl || genData.glsl
+                if (!shaderCode || typeof shaderCode !== 'string') {
+                  setGeneration({ loading: false, error: 'No shader code in response', targetFieldId })
+                  break
+                }
                 const effectId = genEffectId()
                 const programKey = `${targetFieldId}_${effectId}`
-                const shaderCode = genData.wgsl || genData.glsl
                 const result = await renderer.compileFieldEffect(programKey, targetFieldId, shaderCode, getModCode())
                 if (result.success) {
                   const effect: FieldEffect = {
@@ -1288,6 +1292,10 @@ export default function FieldEngine() {
               // Backward-compatible: translates to add_effect. If same author has an
               // existing effect, replaces it.
               const shaderCode = cmd.wgsl || cmd.glsl
+              if (!shaderCode || typeof shaderCode !== 'string') {
+                pushTerminal('inject_wgsl', undefined, 'ERROR: wgsl or glsl string required')
+                break
+              }
               const allFieldIds = Array.from(sim.fields.keys())
               const targetId = cmd.fieldId || allFieldIds[0]
               if (!targetId) {
@@ -1525,8 +1533,12 @@ export default function FieldEngine() {
               sim.tagIndex.clear()
               sim.gameState = ''
               sim.gameStates.clear()
+              sim.interactionPairs = []
+              sim.worldData = {}
+              sim.stepHooks.clear()
               cameraFollowRef.current = null
               cachedOverlapMasksRef.current = new Map()
+              renderer.clearRegistries()
 
               updateSelectionMask(null)
               setGeneration({ loading: false, error: null, targetFieldId: null })

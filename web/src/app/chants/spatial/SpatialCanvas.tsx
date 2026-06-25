@@ -168,13 +168,16 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
   // Player drop zone hidden elements
   const playerDropEls = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  // Reset state when spatial view is hidden
+  // Reset state when spatial view is hidden, force redraw when shown
   useEffect(() => {
     if (!visible) {
       setSpatialMode('lobby')
       setListTab(null)
       setDockedPlayer(null)
       setNavStack([])
+    } else {
+      // Double-rAF: first frame the browser lays out the element, second frame we redraw
+      requestAnimationFrame(() => requestAnimationFrame(() => setRenderTick(t => t + 1)))
     }
   }, [visible])
 
@@ -1188,7 +1191,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     <div
       ref={containerRef}
       className={`fixed inset-0 ${libraryOpen ? 'z-[10000]' : 'z-30'}`}
-      style={{ touchAction: 'none' }}
+      style={{ touchAction: 'none', display: visible ? 'block' : 'none' }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

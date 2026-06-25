@@ -345,6 +345,7 @@ const VEC2_TO_VEC3_FUNCS: Record<string, string> = {
   'fbm5': 'fbm5v', 'fbm6': 'fbm6v',
 }
 function autoFixVec3Calls(code: string): string {
+  if (!code) return code ?? ''
   for (const [fn2d, fn3d] of Object.entries(VEC2_TO_VEC3_FUNCS)) {
     // Match funcName(vec3f( — the agent passed a vec3f to a vec2f function
     const pattern = new RegExp(`\\b${fn2d}\\(\\s*vec3f\\(`, 'g')
@@ -1056,6 +1057,27 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // without any explicit interaction shader. The fields affect each other
   // through shared compositing state, not through shared computation.
   //
+  // ─── Pass 1: Preview (full scene composite) ───
+  // Forward-composite all fields to build a complete scene preview.
+  // This is used in pass 2 so every field can see every other field.
+  var previewColor = vec3f(0.0);
+  var previewPresence: f32 = 0.0;
+
+  for (var i = 0u; i < fieldCount; i++) {
+    let f = superFields[i];
+    let sdf = superSDF(cellCoord, f);
+    let localUV = superLocalUV(cellCoord, f);
+    let behind = vec4f(previewColor, previewPresence);
+    let visual = superVisual(localUV, sdf, f, frame.time, behind);
+    if (visual.a > 0.01) {
+      previewColor = visual.rgb;
+      previewPresence = max(previewPresence, visual.a);
+    }
+  }
+
+  // ─── Pass 2: Final (every field sees full scene via behind) ───
+  // Each field's behind merges forward-accumulated with the full scene preview.
+  // Field[0] can now see Field[N] because previewColor contains everything.
   var resultColor = vec3f(0.0);
   var resultPresence: f32 = 0.0;
 
@@ -1067,7 +1089,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let f = superFields[i];
     let sdf = superSDF(cellCoord, f);
     let localUV = superLocalUV(cellCoord, f);
-    let behind = vec4f(resultColor, resultPresence);
+    // Bidirectional behind: use full scene preview when it has more info
+    let behind = vec4f(
+      select(resultColor, previewColor, previewPresence > resultPresence),
+      max(resultPresence, previewPresence)
+    );
     let visual = superVisual(localUV, sdf, f, frame.time, behind);
 
     if (visual.a > 0.01) {
