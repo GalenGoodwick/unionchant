@@ -63,6 +63,8 @@ export type EngineCommand =
   // Field links — visual energy beams between fields
   | { type: 'link_fields'; fromFieldId: string; toFieldId: string; color?: [number, number, number, number]; width?: number; style?: 'beam' | 'lightning' | 'pulse' | 'helix'; intensity?: number; bidirectional?: boolean; author?: string }
   | { type: 'unlink_fields'; linkId: string }
+  // Propagation types — how interaction effects spread beyond overlap
+  | { type: 'define_propagation'; name: string; wgsl: string; author?: string }
   // WGSL mods — reusable shader code registered by agents
   | { type: 'register_wgsl_mod'; id: string; author: string; description: string; code: string }
   | { type: 'remove_wgsl_mod'; id: string }
@@ -139,7 +141,9 @@ export async function GET(req: NextRequest) {
       // Send initial heartbeat
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`))
 
-      // Replay all commands since the last reset (survives browser reload)
+      // Replay commands since the last reset, capped at 200 to prevent
+      // reconnect storms that trigger mass shader recompilations on Safari
+      const MAX_REPLAY = 200
       let replayStart = 0
       for (let i = commandQueue.length - 1; i >= 0; i--) {
         if (commandQueue[i].command.type === 'reset') {
@@ -147,7 +151,8 @@ export async function GET(req: NextRequest) {
           break
         }
       }
-      for (let i = replayStart; i < commandQueue.length; i++) {
+      const effectiveStart = Math.max(replayStart, commandQueue.length - MAX_REPLAY)
+      for (let i = effectiveStart; i < commandQueue.length; i++) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(commandQueue[i])}\n\n`))
       }
 

@@ -34,7 +34,7 @@ export class FieldSimulation {
   /** Maps GPU super field array index → fieldId (set by render loop) */
   superFieldOrder: string[] = []
   /** Interaction pairs — maps field IDs to interaction type IDs */
-  interactionPairs: { name: string; fieldA: string; fieldB: string; interactionTypeId: number }[] = []
+  interactionPairs: { name: string; fieldA: string; fieldB: string; interactionTypeId: number; propagationTypeId?: number }[] = []
   /** GPU hit map reference — set by render loop from renderer.hitMap */
   superHitMap: Uint32Array | null = null
   superHitMapWidth: number = 0

@@ -856,6 +856,19 @@ export interface InteractionEntry {
   wgsl: string
 }
 
+/** Propagation type — defines how interaction effects spread beyond the overlap zone.
+ *  Function signature: fn propagation_NAME(srcColor: vec4f, offset: vec2f, dist: f32, time: f32) -> vec4f
+ *  - srcColor: interaction color at the source pixel (from ixBuf)
+ *  - offset: vector from source pixel to current pixel (positive y = upward on screen)
+ *  - dist: pixel distance from source to current pixel
+ *  - time: frame time in seconds
+ *  Returns: RGBA color contribution from this source sample */
+export interface PropagationEntry {
+  id: number
+  name: string
+  wgsl: string
+}
+
 // ─── Superimposed rendering compute shader ───
 
 /**
@@ -915,7 +928,7 @@ struct InteractionGPU {
   fieldIdxA: u32,
   fieldIdxB: u32,
   interactionType: u32,
-  _pad: u32,
+  propagationType: u32,
 };
 
 @group(1) @binding(0) var<storage, read> superFields: array<FieldGPU>;
@@ -923,6 +936,8 @@ struct InteractionGPU {
 @group(1) @binding(2) var<storage, read_write> hitIdBuf: array<u32>;
 @group(1) @binding(3) var<storage, read> interactions: array<InteractionGPU>;
 @group(1) @binding(4) var<storage, read_write> ixBuf: array<vec4f>;
+@group(1) @binding(5) var<storage, read_write> ixTypeBuf: array<u32>;
+@group(1) @binding(6) var<storage, read> prevAccumBuf: array<vec4f>;
 
 ${SHADER_UTILITIES}
 
@@ -1010,8 +1025,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let stride = u32(frame.resolution.x);
   let idx = gid.y * stride + gid.x;
 
-  // Clear interaction buffer for this pixel (before any early return)
+  // Clear interaction buffers for this pixel (before any early return)
   ixBuf[idx] = vec4f(0.0);
+  ixTypeBuf[idx] = 0xFFFFFFFFu;
 
   // Pixel → UV → grid coord (same transform as effect compute shader)
   let uv = vec2f((pixel.x + 0.5) / frame.resolution.x, 1.0 - (pixel.y + 0.5) / frame.resolution.y);
@@ -1057,27 +1073,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // without any explicit interaction shader. The fields affect each other
   // through shared compositing state, not through shared computation.
   //
-  // ─── Pass 1: Preview (full scene composite) ───
-  // Forward-composite all fields to build a complete scene preview.
-  // This is used in pass 2 so every field can see every other field.
-  var previewColor = vec3f(0.0);
-  var previewPresence: f32 = 0.0;
+  // Previous frame's composite at this pixel — used for temporal bidirectional behind.
+  // Fields with extraParams.y > 0.5 see the full scene from the previous frame (~16ms latency)
+  // instead of only forward-accumulated fields. Single pass, zero extra field evaluations.
+  let prevPixel = prevAccumBuf[idx];
 
-  for (var i = 0u; i < fieldCount; i++) {
-    let f = superFields[i];
-    let sdf = superSDF(cellCoord, f);
-    let localUV = superLocalUV(cellCoord, f);
-    let behind = vec4f(previewColor, previewPresence);
-    let visual = superVisual(localUV, sdf, f, frame.time, behind);
-    if (visual.a > 0.01) {
-      previewColor = visual.rgb;
-      previewPresence = max(previewPresence, visual.a);
-    }
-  }
-
-  // ─── Pass 2: Final (every field sees full scene via behind) ───
-  // Each field's behind merges forward-accumulated with the full scene preview.
-  // Field[0] can now see Field[N] because previewColor contains everything.
   var resultColor = vec3f(0.0);
   var resultPresence: f32 = 0.0;
 
@@ -1089,11 +1089,18 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let f = superFields[i];
     let sdf = superSDF(cellCoord, f);
     let localUV = superLocalUV(cellCoord, f);
-    // Bidirectional behind: use full scene preview when it has more info
-    let behind = vec4f(
-      select(resultColor, previewColor, previewPresence > resultPresence),
-      max(resultPresence, previewPresence)
-    );
+    // Per-field behind: temporal bidirectional (prev frame) or forward-only
+    var behind: vec4f;
+    if (f.extraParams.y > 0.5) {
+      // Bidirectional: use previous frame's full composite for behind
+      behind = vec4f(
+        select(resultColor, prevPixel.rgb, prevPixel.a > resultPresence),
+        max(resultPresence, prevPixel.a)
+      );
+    } else {
+      // Forward-only: each field sees only earlier fields in array order
+      behind = vec4f(resultColor, resultPresence);
+    }
     let visual = superVisual(localUV, sdf, f, frame.time, behind);
 
     if (visual.a > 0.01) {
@@ -1114,6 +1121,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   // ─── Interaction effects: a + b = c ───
   // When two fields overlap, check if an interaction is defined for that pair.
   // If so, the interaction visual replaces both fields at this pixel.
+  // Early-exit after first match per pair to avoid O(n³) worst case.
   let intCount = arrayLength(&interactions);
   if (overlapCount >= 2u && intCount > 0u) {
     for (var oi = 0u; oi < overlapCount; oi++) {
@@ -1134,7 +1142,9 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
               resultColor = ixResult.rgb;
               resultPresence = ixResult.a;
               ixBuf[idx] = ixResult;
+              ixTypeBuf[idx] = ix.propagationType;
             }
+            break; // Only one interaction per pair
           }
         }
       }
@@ -1156,20 +1166,71 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
 /**
  * Propagation compute shader — spreads interaction results beyond the overlap zone.
- * Reads ixBuf (raw interaction output from uber-shader), samples at offset positions
- * below the current pixel (so effects visually rise upward), and blends into accumBuf.
+ * Reads ixBuf (color) and ixTypeBuf (propagation type ID) from the uber-shader,
+ * samples radially around each pixel, and dispatches to the appropriate propagation
+ * function based on the source pixel's type.
+ *
+ * Default behavior (type 0xFFFFFFFF / no type): "rising steam" — samples below,
+ * spreads upward with turbulent wobble.
+ *
+ * Custom propagation types are registered at runtime via define_propagation.
+ * Each provides: fn propagation_NAME(srcColor: vec4f, offset: vec2f, dist: f32, time: f32) -> vec4f
  */
-export function buildPropagationComputeShader(): string {
+export function buildPropagationComputeShader(propagationTypes?: PropagationEntry[]): string {
+  const types = propagationTypes || []
+
+  // Deduplicate by name
+  const seenNames = new Set<string>()
+  const dedupedTypes = types.filter(t => {
+    if (seenNames.has(t.name)) return false
+    seenNames.add(t.name)
+    return true
+  })
+
+  // Generate propagation function definitions
+  const propagationFunctions = dedupedTypes.map(t => t.wgsl).join('\n\n')
+
+  // Generate switch cases for propagation dispatch
+  const switchCases = dedupedTypes.map(t =>
+    `    case ${t.id}u: { return propagation_${t.name}(srcColor, offset, dist, time); }`
+  ).join('\n')
+
   return /* wgsl */`
 ${FRAME_UNIFORM_STRUCT}
 
 @group(1) @binding(0) var<storage, read> ixBuf: array<vec4f>;
 @group(1) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
+@group(1) @binding(2) var<storage, read> ixTypeBuf: array<u32>;
+
+${SHADER_UTILITIES}
 
 fn propHash(p: vec2f) -> f32 {
   var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031);
   p3 += dot(p3, vec3f(p3.y, p3.z, p3.x) + 33.33);
   return fract((p3.x + p3.y) * p3.z);
+}
+
+// ─── Built-in "steam" propagation (default) ───
+fn propagation_steam(srcColor: vec4f, offset: vec2f, dist: f32, time: f32) -> vec4f {
+  // Only propagate upward (source is below → offset.y > 0)
+  if (offset.y < 0.0) { return vec4f(0.0); }
+  let t = dist / 200.0;
+  if (t > 1.0) { return vec4f(0.0); }
+  let falloff = 1.0 - t * t;
+  return vec4f(srcColor.rgb * falloff, srcColor.a * falloff);
+}
+
+// ─── Custom propagation functions (dynamically generated) ───
+${propagationFunctions}
+
+// ─── Propagation dispatch ───
+fn dispatchPropagation(ptype: u32, srcColor: vec4f, offset: vec2f, dist: f32, time: f32) -> vec4f {
+  switch (ptype) {
+${switchCases}
+    default: {
+      return propagation_steam(srcColor, offset, dist, time);
+    }
+  }
 }
 
 @compute @workgroup_size(16, 16)
@@ -1185,47 +1246,45 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   var spreadColor = vec3f(0.0);
   var spreadAlpha: f32 = 0.0;
+
+  // ─── Radial sampling: 4 directions × 8 steps = 32 samples ───
+  // Reduced from 8×16 (128) to stay Safari-friendly. Wobble provides coverage.
   let maxDist: f32 = 200.0;
-  let steps: i32 = 16;
+  let steps: i32 = 8;
   let stepSize: f32 = maxDist / f32(steps);
+  let numDirs: i32 = 4;
 
-  // Sample pixels BELOW this pixel (larger y = lower on screen)
-  // so the propagated effect appears ABOVE the source = rising steam
-  for (var s: i32 = 1; s <= steps; s++) {
-    let dist = f32(s) * stepSize;
-    let srcY = i32(py) + i32(dist);
-    if (srcY >= resY) { break; }
+  for (var d: i32 = 0; d < numDirs; d++) {
+    let angle = f32(d) * 6.28318 / f32(numDirs);
+    let dir = vec2f(cos(angle), sin(angle));
 
-    // Turbulent horizontal wobble — wider at greater distance
-    let seed1 = vec2f(px * 0.07 + frame.time * 1.3, f32(srcY) * 0.09 + f32(s) * 3.7);
-    let seed2 = vec2f(px * 0.13 - frame.time * 0.9, f32(srcY) * 0.05 + f32(s) * 7.1);
-    let wobble = (propHash(seed1) - 0.5) * 2.0 + (propHash(seed2) - 0.5);
-    let wobbleAmt = dist * 0.4;
-    let srcX = clamp(i32(px + wobble * wobbleAmt), 0, resX - 1);
+    for (var s: i32 = 1; s <= steps; s++) {
+      let dist = f32(s) * stepSize;
 
-    let srcIdx = u32(srcY) * stride + u32(srcX);
-    let samp = ixBuf[srcIdx];
+      // Turbulent wobble perpendicular to sample direction
+      let perpDir = vec2f(-dir.y, dir.x);
+      let seed1 = vec2f(px * 0.07 + frame.time * 1.3, py * 0.09 + f32(s) * 3.7 + f32(d) * 11.0);
+      let seed2 = vec2f(px * 0.13 - frame.time * 0.9, py * 0.05 + f32(s) * 7.1 + f32(d) * 5.0);
+      let wobble = (propHash(seed1) - 0.5) * 2.0 + (propHash(seed2) - 0.5);
+      let wobbleAmt = dist * 0.15;
 
-    if (samp.a > 0.01) {
-      let t = dist / maxDist;
-      let falloff = (1.0 - t * t);  // inverse-quadratic: stays strong near source
-      spreadColor = max(spreadColor, samp.rgb * falloff);
-      spreadAlpha = max(spreadAlpha, samp.a * falloff);
-    }
-  }
+      let srcPos = vec2f(px, py) + dir * dist + perpDir * wobble * wobbleAmt;
+      let srcXi = clamp(i32(srcPos.x), 0, resX - 1);
+      let srcYi = clamp(i32(srcPos.y), 0, resY - 1);
 
-  // Wider lateral spread — sample neighbors at multiple offsets
-  for (var dx: i32 = -3; dx <= 3; dx++) {
-    if (dx == 0) { continue; }
-    let lSrcX = i32(px) + dx * 4;
-    let lSrcY = i32(py) + 3;
-    if (lSrcX < 0 || lSrcX >= resX || lSrcY >= resY) { continue; }
-    let lIdx = u32(lSrcY) * stride + u32(lSrcX);
-    let lSamp = ixBuf[lIdx];
-    if (lSamp.a > 0.01) {
-      let lFalloff = 1.0 - f32(abs(dx)) * 0.2;
-      spreadColor = max(spreadColor, lSamp.rgb * lFalloff * 0.5);
-      spreadAlpha = max(spreadAlpha, lSamp.a * lFalloff * 0.5);
+      let srcIdx = u32(srcYi) * stride + u32(srcXi);
+      let samp = ixBuf[srcIdx];
+
+      if (samp.a > 0.01) {
+        let ptype = ixTypeBuf[srcIdx];
+        // offset = vector from source to current pixel (flip sign: source is at srcPos, we're at px,py)
+        let offset = vec2f(px - srcPos.x, srcPos.y - py); // positive y = source below = upward
+        let result = dispatchPropagation(ptype, samp, offset, dist, frame.time);
+        if (result.a > 0.005) {
+          spreadColor = max(spreadColor, result.rgb);
+          spreadAlpha = max(spreadAlpha, result.a);
+        }
+      }
     }
   }
 

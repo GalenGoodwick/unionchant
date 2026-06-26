@@ -643,8 +643,9 @@ export default function FieldEngine() {
           for (const def of data.interactionDefs) {
             if (def.name && def.wgsl && def.fieldA && def.fieldB) {
               const result = renderer.registerInteraction(def.name, def.wgsl)
+              const propagationTypeId = def.propagation ? renderer.resolvePropagation(def.propagation) : undefined
               sim.interactionPairs = sim.interactionPairs.filter((p: { name: string }) => p.name !== def.name)
-              sim.interactionPairs.push({ name: def.name, fieldA: def.fieldA, fieldB: def.fieldB, interactionTypeId: result.id })
+              sim.interactionPairs.push({ name: def.name, fieldA: def.fieldA, fieldB: def.fieldB, interactionTypeId: result.id, propagationTypeId })
               console.log(`[Restore] Interaction '${def.name}': ${def.fieldA} + ${def.fieldB} (type ${result.id})`)
             }
           }
@@ -991,7 +992,7 @@ export default function FieldEngine() {
           shapeDims: [shapeType, dim1, dim2, 0],
           color: field.color,
           visualAndParams: [field.visualType, vp[0], vp[1], vp[2]],
-          extraParams: [vp[3], 0, 0, 0],
+          extraParams: [vp[3], field.properties.get('bidirectionalBehind') ? 1 : 0, 0, 0],
         })
       }
 
@@ -1009,7 +1010,7 @@ export default function FieldEngine() {
       for (const field of sim.fields.values()) {
         nameToId.set(field.name, field.id)
       }
-      const activeInteractions: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[] = []
+      const activeInteractions: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[] = []
       if (sim.interactionPairs && sim.interactionPairs.length > 0) {
         for (const pair of sim.interactionPairs) {
           const idA = nameToId.get(pair.fieldA) || pair.fieldA
@@ -1017,7 +1018,7 @@ export default function FieldEngine() {
           const idxA = superFieldOrder.indexOf(idA)
           const idxB = superFieldOrder.indexOf(idB)
           if (idxA >= 0 && idxB >= 0) {
-            activeInteractions.push({ fieldIdxA: idxA, fieldIdxB: idxB, interactionType: pair.interactionTypeId })
+            activeInteractions.push({ fieldIdxA: idxA, fieldIdxB: idxB, interactionType: pair.interactionTypeId, propagationType: pair.propagationTypeId })
           }
         }
       }
@@ -1830,10 +1831,14 @@ export default function FieldEngine() {
                   break
                 }
                 const result = renderer.registerInteraction(name, wgsl)
+                // Resolve optional propagation type
+                const propagationName = cmd.propagation as string | undefined
+                const propagationTypeId = propagationName ? renderer.resolvePropagation(propagationName) : undefined
                 if (!sim.interactionPairs) sim.interactionPairs = []
                 sim.interactionPairs = sim.interactionPairs.filter((p: { name: string }) => p.name !== name)
-                sim.interactionPairs.push({ name, fieldA, fieldB, interactionTypeId: result.id })
-                pushTerminal('define_interaction', name, `${fieldA} + ${fieldB} = ${name} (type ${result.id})`, undefined, cmdAuthor)
+                sim.interactionPairs.push({ name, fieldA, fieldB, interactionTypeId: result.id, propagationTypeId })
+                const propLabel = propagationName ? ` propagation: ${propagationName}` : ''
+                pushTerminal('define_interaction', name, `${fieldA} + ${fieldB} = ${name} (type ${result.id})${propLabel}`, undefined, cmdAuthor)
                 break
               }
               // Legacy: interaction rule system
@@ -2358,6 +2363,21 @@ export default function FieldEngine() {
               }
               const result = renderer.registerVisualType(name, wgsl)
               pushTerminal('define_visual', name, `registered as type ${result.id}`, undefined, cmdAuthor)
+              break
+            }
+
+            case 'define_propagation': {
+              const name = cmd.name as string
+              const wgsl = cmd.wgsl as string
+              if (!name) { pushTerminal('define_propagation', '', 'ERROR: name required'); break }
+              if (!wgsl) { pushTerminal('define_propagation', name, 'ERROR: wgsl required'); break }
+              const expectedFn = `propagation_${name}`
+              if (!wgsl.includes(expectedFn)) {
+                pushTerminal('define_propagation', name, `ERROR: WGSL must define fn ${expectedFn}(srcColor: vec4f, offset: vec2f, dist: f32, time: f32) -> vec4f`)
+                break
+              }
+              const result = renderer.registerPropagation(name, wgsl)
+              pushTerminal('define_propagation', name, `registered as type ${result.id}`, undefined, cmdAuthor)
               break
             }
 

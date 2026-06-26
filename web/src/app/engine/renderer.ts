@@ -15,6 +15,7 @@ import {
   buildPropagationComputeShader,
   VisualTypeEntry,
   InteractionEntry,
+  PropagationEntry,
 } from './shaders'
 import type { SuperFieldGPU } from './types'
 
@@ -138,6 +139,7 @@ export class FieldRenderer {
   /** Whether compute effects are available and enabled */
   useComputeEffects: boolean = true
   private accumBuf: GPUBuffer | null = null
+  private prevAccumBuf: GPUBuffer | null = null
   private accumBufPixelCount: number = 0
   private accumBufStride: number = 0
   private clearComputePipeline: GPUComputePipeline | null = null
@@ -195,6 +197,22 @@ export class FieldRenderer {
   static readonly INTERACTION_STRIDE = 16 // 4 u32 per interaction
   private _ixLogDone = false
   private _propLogDone = false
+
+  // Propagation type registry (how interaction effects spread)
+  private propagationRegistry: Map<string, PropagationEntry> = new Map()
+  private nextPropagationId: number = 0
+  private propagationCompilationId: number = 0
+  private ixTypeBuf: GPUBuffer | null = null
+  private ixTypeBufPixelCount: number = 0
+
+  // ─── Cached per-frame bind groups (avoid GPU allocations in hot path) ───
+  private _cachedClearBG: GPUBindGroup | null = null
+  private _cachedDispatchBG: GPUBindGroup | null = null
+  private _cachedPropBG: GPUBindGroup | null = null
+  private _cachedBlitBG: GPUBindGroup | null = null
+  private _cachedSuperBG: GPUBindGroup | null = null
+  private _lastSuperFieldCount: number = -1
+  private _lastInteractionCount: number = -1
 
   constructor(gridSize: number = DEFAULT_GRID_SIZE) {
     this.gridSize = gridSize
@@ -397,12 +415,32 @@ export class FieldRenderer {
     if (this.accumBuf && this.accumBufPixelCount === pixelCount && this.accumBufStride === width) return
 
     this.accumBuf?.destroy()
+    this.prevAccumBuf?.destroy()
+    const bufSize = pixelCount * 16 // vec4f = 16 bytes per pixel
     this.accumBuf = device.createBuffer({
-      size: pixelCount * 16, // vec4f = 16 bytes per pixel
+      size: bufSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.prevAccumBuf = device.createBuffer({
+      size: bufSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     })
     this.accumBufPixelCount = pixelCount
     this.accumBufStride = width
+    this.invalidateBindGroupCaches()
+  }
+
+  /** Swap accumBuf and prevAccumBuf so the previous frame's result is readable */
+  private swapAccumBufs(): void {
+    const tmp = this.accumBuf
+    this.accumBuf = this.prevAccumBuf
+    this.prevAccumBuf = tmp
+    // Bind groups reference specific buffers, must be invalidated on swap
+    this._cachedClearBG = null
+    this._cachedDispatchBG = null
+    this._cachedPropBG = null
+    this._cachedBlitBG = null
+    this._cachedSuperBG = null
   }
 
   /** Ensure the interaction result buffer matches the current canvas pixel dimensions */
@@ -417,6 +455,22 @@ export class FieldRenderer {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     })
     this.ixBufPixelCount = pixelCount
+    this.invalidateBindGroupCaches()
+  }
+
+  /** Ensure the interaction type buffer matches the current canvas pixel dimensions */
+  private ensureIxTypeBuf(width: number, height: number): void {
+    const device = this.device!
+    const pixelCount = width * height
+    if (this.ixTypeBuf && this.ixTypeBufPixelCount === pixelCount) return
+
+    this.ixTypeBuf?.destroy()
+    this.ixTypeBuf = device.createBuffer({
+      size: pixelCount * 4, // u32 per pixel
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.ixTypeBufPixelCount = pixelCount
+    this.invalidateBindGroupCaches()
   }
 
   private createBindGroupLayouts(): void {
@@ -491,7 +545,7 @@ export class FieldRenderer {
     })
 
     // ─── Superimposed rendering bind group layout ───
-    // Group 1: fields (read) + accum (rw) + hitId (rw) + interactions (read) + ixBuf (rw)
+    // Group 1: fields (read) + accum (rw) + hitId (rw) + interactions (read) + ixBuf (rw) + ixTypeBuf (rw) + prevAccum (read)
     this.superBindGroupLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
@@ -499,16 +553,19 @@ export class FieldRenderer {
         { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     })
 
     this.superLayoutHasIxBuf = true
 
-    // Propagation pass: ixBuf (read) + accumBuf (rw)
+    // Propagation pass: ixBuf (read) + accumBuf (rw) + ixTypeBuf (read)
     this.propagationBindGroupLayout = device.createBindGroupLayout({
       entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     })
 
@@ -658,45 +715,79 @@ export class FieldRenderer {
     this.device!.queue.writeBuffer(this.effectUniformBuf!, 0, data)
   }
 
+  // ─── Cached bind groups (avoid per-frame GPU allocations) ───
+  private _cachedFrameBG: GPUBindGroup | null = null
+  private _cachedEffectUniformBG: GPUBindGroup | null = null
+  private _cachedBaseTexBG: GPUBindGroup | null = null
+  private _cachedEffectTexBGs: Map<string, GPUBindGroup> = new Map()
+
   private getFrameBindGroup(): GPUBindGroup {
-    return this.device!.createBindGroup({
-      layout: this.frameBindGroupLayout!,
-      entries: [{ binding: 0, resource: { buffer: this.frameUniformBuf! } }],
-    })
+    if (!this._cachedFrameBG) {
+      this._cachedFrameBG = this.device!.createBindGroup({
+        layout: this.frameBindGroupLayout!,
+        entries: [{ binding: 0, resource: { buffer: this.frameUniformBuf! } }],
+      })
+    }
+    return this._cachedFrameBG
   }
 
   private getBaseTextureBindGroup(): GPUBindGroup {
-    return this.device!.createBindGroup({
-      layout: this.baseTextureBindGroupLayout!,
-      entries: [
-        { binding: 0, resource: this.colorTex!.createView() },
-        { binding: 1, resource: this.getCurrentStateTex().createView() },
-        { binding: 2, resource: this.selectionTex!.createView() },
-        { binding: 3, resource: this.effectTex!.createView() },
-        { binding: 4, resource: this.sampler! },
-      ],
-    })
+    if (!this._cachedBaseTexBG) {
+      this._cachedBaseTexBG = this.device!.createBindGroup({
+        layout: this.baseTextureBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: this.colorTex!.createView() },
+          { binding: 1, resource: this.getCurrentStateTex().createView() },
+          { binding: 2, resource: this.selectionTex!.createView() },
+          { binding: 3, resource: this.effectTex!.createView() },
+          { binding: 4, resource: this.sampler! },
+        ],
+      })
+    }
+    return this._cachedBaseTexBG
   }
 
   private getEffectTextureBindGroup(fieldId: string, feedbackTex?: GPUTexture): GPUBindGroup {
-    const maskTex = this.fieldMaskTextures.get(fieldId) || this.createEmptyMaskTexture(fieldId)
-    return this.device!.createBindGroup({
-      layout: this.effectTextureBindGroupLayout!,
-      entries: [
-        { binding: 0, resource: this.colorTex!.createView() },
-        { binding: 1, resource: this.getCurrentStateTex().createView() },
-        { binding: 2, resource: maskTex.createView() },
-        { binding: 3, resource: (feedbackTex || this.colorTex!).createView() },
-        { binding: 4, resource: this.sampler! },
-      ],
-    })
+    const cacheKey = feedbackTex ? `${fieldId}_fb` : fieldId
+    let bg = this._cachedEffectTexBGs.get(cacheKey)
+    if (!bg) {
+      const maskTex = this.fieldMaskTextures.get(fieldId) || this.createEmptyMaskTexture(fieldId)
+      bg = this.device!.createBindGroup({
+        layout: this.effectTextureBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: this.colorTex!.createView() },
+          { binding: 1, resource: this.getCurrentStateTex().createView() },
+          { binding: 2, resource: maskTex.createView() },
+          { binding: 3, resource: (feedbackTex || this.colorTex!).createView() },
+          { binding: 4, resource: this.sampler! },
+        ],
+      })
+      this._cachedEffectTexBGs.set(cacheKey, bg)
+    }
+    return bg
   }
 
   private getEffectUniformBindGroup(): GPUBindGroup {
-    return this.device!.createBindGroup({
-      layout: this.effectUniformBindGroupLayout!,
-      entries: [{ binding: 0, resource: { buffer: this.effectUniformBuf! } }],
-    })
+    if (!this._cachedEffectUniformBG) {
+      this._cachedEffectUniformBG = this.device!.createBindGroup({
+        layout: this.effectUniformBindGroupLayout!,
+        entries: [{ binding: 0, resource: { buffer: this.effectUniformBuf! } }],
+      })
+    }
+    return this._cachedEffectUniformBG
+  }
+
+  /** Invalidate all cached bind groups (call when buffers/textures are reallocated) */
+  private invalidateBindGroupCaches(): void {
+    this._cachedFrameBG = null
+    this._cachedEffectUniformBG = null
+    this._cachedBaseTexBG = null
+    this._cachedEffectTexBGs.clear()
+    this._cachedClearBG = null
+    this._cachedDispatchBG = null
+    this._cachedPropBG = null
+    this._cachedBlitBG = null
+    this._cachedSuperBG = null
   }
 
   private createEmptyMaskTexture(fieldId: string): GPUTexture {
@@ -943,7 +1034,7 @@ export class FieldRenderer {
     time: number,
     fieldEffects?: FieldEffectData[],
     superFields?: SuperFieldGPU[],
-    activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[],
+    activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[],
   ): void {
     const device = this.device
     const ctx = this.context
@@ -1029,15 +1120,20 @@ export class FieldRenderer {
       if (needsAccum) {
         this.ensureAccumBuf(bufferW, bufferH)
 
+        // Swap accum buffers so prevAccumBuf holds last frame's composite
+        this.swapAccumBufs()
+
         // Clear accumulation buffer
         {
-          const clearBG = device.createBindGroup({
-            layout: this.clearComputeLayout!,
-            entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
-          })
+          if (!this._cachedClearBG) {
+            this._cachedClearBG = device.createBindGroup({
+              layout: this.clearComputeLayout!,
+              entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
+            })
+          }
           const pass = encoder.beginComputePass()
           pass.setPipeline(this.clearComputePipeline!)
-          pass.setBindGroup(0, clearBG)
+          pass.setBindGroup(0, this._cachedClearBG)
           pass.dispatchWorkgroups(Math.ceil(this.accumBufPixelCount / 256))
           pass.end()
         }
@@ -1066,20 +1162,22 @@ export class FieldRenderer {
             this.dispatchUniformBuf!, 0, FieldRenderer.DISPATCH_UNIFORM_SIZE,
           )
 
-          const dispatchBG = device.createBindGroup({
-            layout: this.computeDispatchLayout!,
-            entries: [
-              { binding: 0, resource: { buffer: this.dispatchUniformBuf! } },
-              { binding: 1, resource: { buffer: this.accumBuf! } },
-            ],
-          })
+          if (!this._cachedDispatchBG) {
+            this._cachedDispatchBG = device.createBindGroup({
+              layout: this.computeDispatchLayout!,
+              entries: [
+                { binding: 0, resource: { buffer: this.dispatchUniformBuf! } },
+                { binding: 1, resource: { buffer: this.accumBuf! } },
+              ],
+            })
+          }
 
           const pass = encoder.beginComputePass()
           pass.setPipeline(sharedCompute.pipeline)
           pass.setBindGroup(0, frameBG)
           pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
           pass.setBindGroup(2, effectUniformBG)
-          pass.setBindGroup(3, dispatchBG)
+          pass.setBindGroup(3, this._cachedDispatchBG)
           // Fullscreen dispatch — shader handles pixel-perfect shape via alpha
           pass.dispatchWorkgroups(
             Math.ceil(bufferW / 16),
@@ -1093,18 +1191,21 @@ export class FieldRenderer {
           console.log('[Propagation] Check:', { hasPipeline: !!this.propagationPipeline, hasIxBuf: !!this.ixBuf, ixBufPixels: this.ixBufPixelCount })
           this._propLogDone = true
         }
-        if (hasSuperFields && this.propagationPipeline && this.ixBuf) {
-          const propBG = device.createBindGroup({
-            layout: this.propagationBindGroupLayout!,
-            entries: [
-              { binding: 0, resource: { buffer: this.ixBuf } },
-              { binding: 1, resource: { buffer: this.accumBuf! } },
-            ],
-          })
+        if (hasSuperFields && this.propagationPipeline && this.ixBuf && this.ixTypeBuf) {
+          if (!this._cachedPropBG) {
+            this._cachedPropBG = device.createBindGroup({
+              layout: this.propagationBindGroupLayout!,
+              entries: [
+                { binding: 0, resource: { buffer: this.ixBuf } },
+                { binding: 1, resource: { buffer: this.accumBuf! } },
+                { binding: 2, resource: { buffer: this.ixTypeBuf } },
+              ],
+            })
+          }
           const propPass = encoder.beginComputePass()
           propPass.setPipeline(this.propagationPipeline)
           propPass.setBindGroup(0, frameBG)
-          propPass.setBindGroup(1, propBG)
+          propPass.setBindGroup(1, this._cachedPropBG)
           propPass.dispatchWorkgroups(
             Math.ceil(bufferW / 16),
             Math.ceil(bufferH / 16),
@@ -1114,10 +1215,12 @@ export class FieldRenderer {
 
         // Blit accumulation buffer to screen
         {
-          const blitBG = device.createBindGroup({
-            layout: this.blitStorageLayout!,
-            entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
-          })
+          if (!this._cachedBlitBG) {
+            this._cachedBlitBG = device.createBindGroup({
+              layout: this.blitStorageLayout!,
+              entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
+            })
+          }
           const pass = encoder.beginRenderPass({
             colorAttachments: [{
               view: textureView,
@@ -1127,7 +1230,7 @@ export class FieldRenderer {
           })
           pass.setPipeline(this.blitPipeline!)
           pass.setBindGroup(0, frameBG)
-          pass.setBindGroup(1, blitBG)
+          pass.setBindGroup(1, this._cachedBlitBG!)
           pass.draw(6)
           pass.end()
         }
@@ -1261,8 +1364,10 @@ export class FieldRenderer {
 
       if (computeEffects.length > 0) {
         this.ensureAccumBuf(bufferW, bufferH)
-        const clearBG = device.createBindGroup({ layout: this.clearComputeLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
-        { const pass = encoder.beginComputePass(); pass.setPipeline(this.clearComputePipeline!); pass.setBindGroup(0, clearBG); pass.dispatchWorkgroups(Math.ceil(this.accumBufPixelCount / 256)); pass.end() }
+        if (!this._cachedClearBG) {
+          this._cachedClearBG = device.createBindGroup({ layout: this.clearComputeLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
+        }
+        { const pass = encoder.beginComputePass(); pass.setPipeline(this.clearComputePipeline!); pass.setBindGroup(0, this._cachedClearBG); pass.dispatchWorkgroups(Math.ceil(this.accumBufPixelCount / 256)); pass.end() }
 
         const frameBG = this.getFrameBindGroup()
         const effectUniformBG = this.getEffectUniformBindGroup()
@@ -1275,22 +1380,26 @@ export class FieldRenderer {
           encoder.copyBufferToBuffer(this.effectUniformStagingBuf!, computeStageIndices[i] * FieldRenderer.EFFECT_UNIFORM_SIZE, this.effectUniformBuf!, 0, FieldRenderer.EFFECT_UNIFORM_SIZE)
           encoder.copyBufferToBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, this.dispatchUniformBuf!, 0, FieldRenderer.DISPATCH_UNIFORM_SIZE)
 
-          const dispatchBG = device.createBindGroup({ layout: this.computeDispatchLayout!, entries: [{ binding: 0, resource: { buffer: this.dispatchUniformBuf! } }, { binding: 1, resource: { buffer: this.accumBuf! } }] })
+          if (!this._cachedDispatchBG) {
+            this._cachedDispatchBG = device.createBindGroup({ layout: this.computeDispatchLayout!, entries: [{ binding: 0, resource: { buffer: this.dispatchUniformBuf! } }, { binding: 1, resource: { buffer: this.accumBuf! } }] })
+          }
           const pass = encoder.beginComputePass()
           pass.setPipeline(sc.pipeline)
           pass.setBindGroup(0, frameBG)
           pass.setBindGroup(1, this.getEffectTextureBindGroup(effect.fieldId))
           pass.setBindGroup(2, effectUniformBG)
-          pass.setBindGroup(3, dispatchBG)
+          pass.setBindGroup(3, this._cachedDispatchBG)
           pass.dispatchWorkgroups(Math.ceil(bufferW / 16), Math.ceil(bufferH / 16))
           pass.end()
         }
 
-        const blitBG = device.createBindGroup({ layout: this.blitStorageLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
+        if (!this._cachedBlitBG) {
+          this._cachedBlitBG = device.createBindGroup({ layout: this.blitStorageLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
+        }
         const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }] })
         blitPass.setPipeline(this.blitPipeline!)
         blitPass.setBindGroup(0, this.getFrameBindGroup())
-        blitPass.setBindGroup(1, blitBG)
+        blitPass.setBindGroup(1, this._cachedBlitBG)
         blitPass.draw(6)
         blitPass.end()
       }
@@ -1852,11 +1961,11 @@ export class FieldRenderer {
     fields: SuperFieldGPU[],
     bufferW: number,
     bufferH: number,
-    activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number }[],
+    activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[],
   ): void {
     if (fields.length === 0 || !this.superPipeline || !this.accumBuf) return
 
-    // Lazy upgrade: if renderer was initialized before ixBuf support, recreate layout
+    // Lazy upgrade: if renderer was initialized before ixTypeBuf support, recreate layout
     if (!this.superLayoutHasIxBuf && this.device) {
       this.superBindGroupLayout = this.device.createBindGroupLayout({
         entries: [
@@ -1865,34 +1974,23 @@ export class FieldRenderer {
           { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
           { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
           { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+          { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+          { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
       })
       this.superLayoutHasIxBuf = true
       this.superPipelineReady = false // force uber-shader recompilation with new layout
     }
 
-    // Lazy create propagation pipeline if missing
+    // Lazy create/recompile propagation pipeline if missing or invalidated
     if (!this.propagationPipeline && this.device) {
-      if (!this.propagationBindGroupLayout) {
-        this.propagationBindGroupLayout = this.device.createBindGroupLayout({
-          entries: [
-            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
-          ],
-        })
-      }
-      const propModule = this.device.createShaderModule({ code: buildPropagationComputeShader() })
-      this.propagationPipeline = this.device.createComputePipeline({
-        layout: this.device.createPipelineLayout({
-          bindGroupLayouts: [this.frameBindGroupLayout!, this.propagationBindGroupLayout!],
-        }),
-        compute: { module: propModule, entryPoint: 'main' },
-      })
+      this.recompilePropagationPipeline()
     }
 
     this.ensureSuperFieldBuffer(fields.length)
     this.ensureHitIdBuffer(bufferW * bufferH)
     this.ensureIxBuf(bufferW, bufferH)
+    this.ensureIxTypeBuf(bufferW, bufferH)
     this.hitMapWidth = bufferW
     this.hitMapHeight = bufferH
 
@@ -1936,7 +2034,7 @@ export class FieldRenderer {
       ixData[i * 4 + 0] = ixList[i].fieldIdxA
       ixData[i * 4 + 1] = ixList[i].fieldIdxB
       ixData[i * 4 + 2] = ixList[i].interactionType
-      ixData[i * 4 + 3] = 0
+      ixData[i * 4 + 3] = ixList[i].propagationType ?? 0xFFFFFFFF
     }
     // If no interactions, write a sentinel (0xFFFFFFFF indices won't match anything)
     if (ixList.length === 0) {
@@ -1947,22 +2045,28 @@ export class FieldRenderer {
     }
     this.device!.queue.writeBuffer(this.interactionBuffer!, 0, ixData)
 
-    // Create bind group
-    const superBG = this.device!.createBindGroup({
-      layout: this.superBindGroupLayout!,
-      entries: [
-        { binding: 0, resource: { buffer: this.superFieldBuffer!, size: fields.length * FieldRenderer.SUPER_FIELD_STRIDE } },
-        { binding: 1, resource: { buffer: this.accumBuf } },
-        { binding: 2, resource: { buffer: this.hitIdBuffer! } },
-        { binding: 3, resource: { buffer: this.interactionBuffer!, size: Math.max(1, ixList.length) * FieldRenderer.INTERACTION_STRIDE } },
-        { binding: 4, resource: { buffer: this.ixBuf! } },
-      ],
-    })
+    // Create bind group (cached — invalidated when buffers resize or swap)
+    if (!this._cachedSuperBG || fields.length !== this._lastSuperFieldCount || ixList.length !== this._lastInteractionCount) {
+      this._cachedSuperBG = this.device!.createBindGroup({
+        layout: this.superBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.superFieldBuffer!, size: fields.length * FieldRenderer.SUPER_FIELD_STRIDE } },
+          { binding: 1, resource: { buffer: this.accumBuf } },
+          { binding: 2, resource: { buffer: this.hitIdBuffer! } },
+          { binding: 3, resource: { buffer: this.interactionBuffer!, size: Math.max(1, ixList.length) * FieldRenderer.INTERACTION_STRIDE } },
+          { binding: 4, resource: { buffer: this.ixBuf! } },
+          { binding: 5, resource: { buffer: this.ixTypeBuf! } },
+          { binding: 6, resource: { buffer: this.prevAccumBuf! } },
+        ],
+      })
+      this._lastSuperFieldCount = fields.length
+      this._lastInteractionCount = ixList.length
+    }
 
     const pass = encoder.beginComputePass()
     pass.setPipeline(this.superPipeline)
     pass.setBindGroup(0, this.getFrameBindGroup())
-    pass.setBindGroup(1, superBG)
+    pass.setBindGroup(1, this._cachedSuperBG)
     pass.dispatchWorkgroups(
       Math.ceil(bufferW / 16),
       Math.ceil(bufferH / 16),
@@ -2063,16 +2167,76 @@ export class FieldRenderer {
     return entry?.id
   }
 
-  /** Clear all visual type and interaction registries. Called on reset. */
+  /** Register a propagation type. Triggers propagation pipeline recompilation. */
+  registerPropagation(name: string, wgsl: string): { id: number } {
+    const existing = this.propagationRegistry.get(name)
+    let id: number
+    if (existing) {
+      id = existing.id
+      existing.wgsl = wgsl
+    } else {
+      id = this.nextPropagationId++
+      this.propagationRegistry.set(name, { id, name, wgsl })
+    }
+    this.propagationCompilationId++
+    this.propagationPipeline = null // force recompilation
+    this._propLogDone = false
+    console.log(`[Propagation] Registered '${name}' as id ${id}, triggering recompilation`)
+    return { id }
+  }
+
+  /** Get all registered propagation types */
+  getAllPropagationTypes(): PropagationEntry[] {
+    return [...this.propagationRegistry.values()]
+  }
+
+  /** Resolve a propagation name to its ID */
+  resolvePropagation(name: string): number | undefined {
+    const entry = this.propagationRegistry.get(name)
+    return entry?.id
+  }
+
+  /** Recompile the propagation pipeline with current registry */
+  private recompilePropagationPipeline(): void {
+    const device = this.device
+    if (!device || !this.frameBindGroupLayout || !this.propagationBindGroupLayout) return
+
+    const allPropagations = this.getAllPropagationTypes()
+    const shaderSrc = buildPropagationComputeShader(allPropagations)
+    const propModule = device.createShaderModule({ code: shaderSrc })
+    // Check for compile errors
+    propModule.getCompilationInfo().then(info => {
+      const errors = info.messages.filter(m => m.type === 'error')
+      if (errors.length > 0) {
+        console.error('[Propagation] Shader compile errors:')
+        for (const e of errors) console.error(`  Line ${e.lineNum}:${e.linePos}: ${e.message}`)
+      }
+    })
+    this.propagationPipeline = device.createComputePipeline({
+      layout: device.createPipelineLayout({
+        bindGroupLayouts: [this.frameBindGroupLayout, this.propagationBindGroupLayout],
+      }),
+      compute: { module: propModule, entryPoint: 'main' },
+    })
+    console.log(`[Propagation] Pipeline compiled (${allPropagations.length} types)`)
+  }
+
+  /** Clear all visual type, interaction, and propagation registries. Called on reset. */
   clearRegistries(): void {
     this.visualTypeRegistry.clear()
     this.nextVisualTypeId = 0
     this.interactionRegistry.clear()
     this.nextInteractionId = 0
+    this.propagationRegistry.clear()
+    this.nextPropagationId = 0
     this.superPipelineReady = false
     this.superPipeline = null
     this.superCompilationId++
+    this.propagationCompilationId++
+    this.propagationPipeline = null
     this._ixLogDone = false
+    this._propLogDone = false
+    this.invalidateBindGroupCaches()
   }
 
   destroy(): void {
@@ -2106,7 +2270,9 @@ export class FieldRenderer {
     this.effectUniformStagingBuf?.destroy()
     this.dispatchStagingBuf?.destroy()
     this.accumBuf?.destroy()
+    this.prevAccumBuf?.destroy()
     this.ixBuf?.destroy()
+    this.ixTypeBuf?.destroy()
     this.superFieldBuffer?.destroy()
 
     this.device = null
@@ -2125,6 +2291,7 @@ export class FieldRenderer {
     this.effectUniformStagingBuf = null
     this.dispatchStagingBuf = null
     this.accumBuf = null
+    this.prevAccumBuf = null
     this.superFieldBuffer = null
     this.superPipeline = null
     this.superPipelineReady = false

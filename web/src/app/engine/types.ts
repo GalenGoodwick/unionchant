@@ -325,7 +325,7 @@ export interface SuperFieldGPU {
   color: [number, number, number, number]
   /** vec4f 3: visualType, param0, param1, param2 */
   visualAndParams: [number, number, number, number]
-  /** vec4f 4: param3, param4, param5, param6 */
+  /** vec4f 4: param3, bidirectionalBehind (1=temporal behind from prev frame), unused, unused */
   extraParams: [number, number, number, number]
 }
 
