@@ -4,7 +4,7 @@ import { useRef, useEffect, useState, useCallback, useImperativeHandle, forwardR
 import type { UserspaceNode } from './useUserspace'
 import { FieldRenderer } from '@/app/engine/renderer'
 import type { FieldEffectData } from '@/app/engine/renderer'
-import type { FieldSnapshot } from '@/app/engine/types'
+import type { FieldSnapshot, SuperFieldGPU } from '@/app/engine/types'
 
 // Spatial bounds — players can't go beyond this
 const BOUNDS = { minX: -600, maxX: 600, minY: -400, maxY: 400 }
@@ -134,6 +134,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
   const webglCanvasRef = useRef<HTMLCanvasElement>(null)
   const fieldRendererRef = useRef<FieldRenderer | null>(null)
   const compiledFieldsRef = useRef<Set<string>>(new Set())
+  const [rendererReady, setRendererReady] = useState(0) // bumped when init completes to kick render loop
   const [layoutNodes, setLayoutNodes] = useState<LayoutNode[]>([])
   const [camera, setCamera] = useState({ x: 0, y: 0 })
   const animRef = useRef<number | null>(null)
@@ -549,10 +550,9 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     })))
   }, [savedFields])
 
-  // WebGL backdrop: initialize renderer and compile saved field effects
+  // WebGL backdrop: initialize renderer, register visual types/modules, compile effects
   useEffect(() => {
     if (!visible || !savedFields || savedFields.length === 0) {
-      // Cleanup when not visible or no fields
       if (fieldRendererRef.current) {
         fieldRendererRef.current.destroy()
         fieldRendererRef.current = null
@@ -564,19 +564,43 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     const webglCanvas = webglCanvasRef.current
     if (!webglCanvas) return
 
-    // Init renderer if needed (async for WebGPU)
+    let cancelled = false
+
     ;(async () => {
+    // Init renderer if needed
     if (!fieldRendererRef.current) {
       const renderer = new FieldRenderer()
       const ok = await renderer.init(webglCanvas!)
-      if (!ok) return
+      if (!ok || cancelled) return
       fieldRendererRef.current = renderer
     }
 
     const renderer = fieldRendererRef.current
-    const newCompiled = new Set<string>()
 
-    // Compile effects for each saved field
+    // Fetch visual types and modules from engine state
+    try {
+      const resp = await fetch('/api/engine/state')
+      if (resp.ok && !cancelled) {
+        const data = await resp.json()
+        // Register visual types for uber-shader
+        if (data.visualTypes && Array.isArray(data.visualTypes)) {
+          for (const vt of data.visualTypes) {
+            renderer.registerVisualType(vt.name, vt.wgsl)
+          }
+        }
+        // Register shader modules
+        if (data.modules && Array.isArray(data.modules)) {
+          for (const mod of data.modules) {
+            renderer.registerModule(mod.name, mod.wgsl)
+          }
+        }
+      }
+    } catch { /* engine state fetch failed, continue without visual types */ }
+
+    if (cancelled) return
+
+    // Compile per-field WGSL effects (for fields that have them)
+    const newCompiled = new Set<string>()
     for (const field of savedFields) {
       for (const effect of field.effects) {
         const programKey = `${field.id}_${effect.id}`
@@ -595,10 +619,15 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     }
 
     compiledFieldsRef.current = newCompiled
+
+    // Signal render loop that renderer is ready
+    if (!cancelled) setRendererReady(r => r + 1)
     })()
+
+    return () => { cancelled = true }
   }, [visible, savedFields])
 
-  // WebGL backdrop: render field effects each frame with per-field parallax
+  // WebGL backdrop: render fields each frame (uber-shader + per-field effects)
   useEffect(() => {
     if (!visible || !fieldRendererRef.current || !savedFields || savedFields.length === 0) return
 
@@ -611,8 +640,10 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
       // Fixed camera at grid center (parallax applied per-field via position offsets)
       const webglCamera = { x: ENGINE_GRID_SIZE / 2, y: ENGINE_GRID_SIZE / 2 }
 
-      // Build effect data array from saved fields with per-field parallax
+      // Pack fields into SuperFieldGPU for uber-shader rendering
+      const superFields: SuperFieldGPU[] = []
       const fieldEffects: FieldEffectData[] = []
+
       for (const field of savedFields) {
         const meta = fieldLayout.find(m => m.fieldId === field.id)
         const gx = meta?.gridX ?? field.transform.x
@@ -625,6 +656,29 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
         const renderX = gx - camera.x * depth * PARALLAX_RATE
         const renderY = gy + camera.y * depth * PARALLAX_RATE
 
+        // Pack as SuperFieldGPU if field has a visualType (uber-shader)
+        if (field.visualType !== undefined) {
+          const shapeType = field.shapeType === 'rect' ? 1 : 0
+          const dim1 = shapeType === 1 ? (field.w || 20) : (field.radius || 10)
+          const dim2 = shapeType === 1 ? (field.h || 20) : 0
+          const vp = field.visualParams || [0, 0, 0, 0]
+          const props = field.properties || {}
+
+          superFields.push({
+            posScaleRot: [renderX, renderY, effectiveScale, field.transform.rotation],
+            shapeDims: [shapeType, dim1, dim2, -1], // -1 = render to screen
+            color: field.color,
+            visualAndParams: [field.visualType, vp[0], vp[1], vp[2]],
+            extraParams: [
+              vp[3] || 0,
+              props.bidirectionalBehind ? 1 : 0,
+              (props.lighting as number) ?? 0,
+              (props.specular as number) ?? 0,
+            ],
+          })
+        }
+
+        // Also build per-field effects for fields that have WGSL effects
         const bounds: [number, number, number, number] = [
           renderX - FIELD_RENDER_EXTENT * effectiveScale,
           renderY - FIELD_RENDER_EXTENT * effectiveScale,
@@ -644,13 +698,22 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
         }
       }
 
-      renderer.renderEffectsOnly(webglCamera, 1.0, time, fieldEffects)
+      // Use full render() with both superFields and fieldEffects
+      if (superFields.length > 0 && renderer.isSuperReady()) {
+        renderer.render(webglCamera, 1.0, time, fieldEffects, superFields)
+      } else if (fieldEffects.length > 0) {
+        renderer.renderEffectsOnly(webglCamera, 1.0, time, fieldEffects)
+      } else {
+        // Still call render to clear and show background
+        renderer.render(webglCamera, 1.0, time, [], [])
+      }
+
       rafId = requestAnimationFrame(renderFrame)
     }
 
     rafId = requestAnimationFrame(renderFrame)
     return () => { if (rafId) cancelAnimationFrame(rafId) }
-  }, [visible, savedFields, camera, fieldLayout])
+  }, [visible, savedFields, camera, fieldLayout, rendererReady])
 
   // Draw canvas
   useEffect(() => {

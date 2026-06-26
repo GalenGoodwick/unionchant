@@ -21,6 +21,7 @@ import {
   VisualTypeEntry,
   InteractionEntry,
   PropagationEntry,
+  ModuleEntry,
 } from './shaders'
 import type { SuperFieldGPU } from './types'
 
@@ -179,6 +180,7 @@ export class FieldRenderer {
   private superPipelineReady: boolean = false
   private superCompilationId: number = 0  // Bumped only by registerVisualType/registerInteraction
   private superCompiling: boolean = false  // Prevents re-entrant compilation
+  private superCompilationError: string | null = null  // Last uber-shader compile error
   static readonly SUPER_FIELD_STRIDE = 80 // 5 vec4f = 20 floats = 80 bytes per field
   static readonly SUPER_MAX_FIELDS = 128
 
@@ -232,6 +234,17 @@ export class FieldRenderer {
   // Visual type registry (dynamic visual types)
   private visualTypeRegistry: Map<string, VisualTypeEntry> = new Map()
   private nextVisualTypeId: number = 0  // All visual types are runtime-defined
+
+  // Shader module registry (reusable WGSL utility functions)
+  private moduleRegistry: Map<string, ModuleEntry> = new Map()
+
+  // Render target registry (named intermediate buffers for RTT)
+  private renderTargets: Map<string, { buffer: GPUBuffer; id: number }> = new Map()
+  private nextRenderTargetId: number = 0
+  static readonly MAX_RENDER_TARGETS = 6
+  private renderTargetBindGroupLayout: GPUBindGroupLayout | null = null
+  private _cachedRenderTargetBG: GPUBindGroup | null = null
+  private _renderTargetPixelCount: number = 0
 
   // Interaction registry (a + b = c effects at overlap pixels)
   private interactionRegistry: Map<string, InteractionEntry> = new Map()
@@ -1045,6 +1058,7 @@ export class FieldRenderer {
     this._cachedStateUpdateBG0 = null
     this._cachedStateUpdateBG1A = null
     this._cachedStateUpdateBG1B = null
+    this._cachedRenderTargetBG = null
   }
 
   private createEmptyMaskTexture(fieldId: string): GPUTexture {
@@ -2142,8 +2156,10 @@ export class FieldRenderer {
     try {
       const allVisuals = this.getAllVisualTypes()
       const allInteractions = this.getAllInteractionTypes()
-      console.log(`[Super] Compiling uber-shader with ${allVisuals.length} visuals, ${allInteractions.length} interactions`)
-      const shaderSrc = buildSuperimposedComputeShader(allVisuals, allInteractions)
+      const allModules = this.getAllModules()
+      const targetCount = this.renderTargets.size
+      console.log(`[Super] Compiling uber-shader with ${allVisuals.length} visuals, ${allInteractions.length} interactions, ${allModules.length} modules, ${targetCount} targets`)
+      const shaderSrc = buildSuperimposedComputeShader(allVisuals, allInteractions, allModules, targetCount)
       console.log('[Super] Generated WGSL length:', shaderSrc.length, 'chars')
       // Log interaction-related WGSL
       if (allInteractions.length > 0) {
@@ -2154,6 +2170,8 @@ export class FieldRenderer {
       const info = await module.getCompilationInfo()
       const errors = info.messages.filter(m => m.type === 'error')
       if (errors.length > 0) {
+        const errorMsg = errors.map(e => `Line ${e.lineNum}:${e.linePos}: ${e.message}`).join('\n')
+        this.superCompilationError = errorMsg
         console.error('[Super] Shader compile errors:')
         for (const e of errors) {
           console.error(`  Line ${e.lineNum}:${e.linePos}: ${e.message}`)
@@ -2173,9 +2191,15 @@ export class FieldRenderer {
         return false
       }
 
-      const pipelineLayout = device.createPipelineLayout({
-        bindGroupLayouts: [this.frameBindGroupLayout, this.superBindGroupLayout],
-      })
+      // Build pipeline layout — include render target bind group layout if targets exist
+      if (targetCount > 0) {
+        this.ensureRenderTargetBindGroupLayout()
+      }
+      const bindGroupLayouts: GPUBindGroupLayout[] = [this.frameBindGroupLayout, this.superBindGroupLayout]
+      if (targetCount > 0 && this.renderTargetBindGroupLayout) {
+        bindGroupLayouts.push(this.renderTargetBindGroupLayout)
+      }
+      const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts })
       this.superPipeline = await device.createComputePipelineAsync({
         layout: pipelineLayout,
         compute: { module, entryPoint: 'main' },
@@ -2187,9 +2211,11 @@ export class FieldRenderer {
       }
 
       this.superPipelineReady = true
-      console.log('[Super] Pipeline compiled (' + this.getAllVisualTypes().length + ' visuals, ' + this.getAllInteractionTypes().length + ' interactions)')
+      this.superCompilationError = null
+      console.log('[Super] Pipeline compiled (' + this.getAllVisualTypes().length + ' visuals, ' + this.getAllInteractionTypes().length + ' interactions, ' + allModules.length + ' modules, ' + targetCount + ' targets)')
       return true
     } catch (err) {
+      this.superCompilationError = err instanceof Error ? err.message : 'Pipeline creation failed'
       console.error('[Super] Pipeline creation failed:', err)
       return false
     } finally {
@@ -2248,7 +2274,9 @@ export class FieldRenderer {
   }
 
   /** Pack field data into the GPU storage buffer and dispatch the superimposed shader.
-   *  Call between accum clear and blit. */
+   *  Call between accum clear and blit.
+   *  When render targets are active, fields are sorted into dependency levels and
+   *  dispatched in order: fields writing to targets first, then fields sampling them. */
   renderSuperimposed(
     encoder: GPUCommandEncoder,
     fields: SuperFieldGPU[],
@@ -2280,10 +2308,12 @@ export class FieldRenderer {
       this.recompilePropagationPipeline()
     }
 
+    const pixelCount = bufferW * bufferH
     this.ensureSuperFieldBuffer(fields.length)
-    this.ensureHitIdBuffer(bufferW * bufferH)
+    this.ensureHitIdBuffer(pixelCount)
     this.ensureIxBuf(bufferW, bufferH)
     this.ensureIxTypeBuf(bufferW, bufferH)
+    this.ensureRenderTargets(pixelCount)
     this.hitMapWidth = bufferW
     this.hitMapHeight = bufferH
 
@@ -2364,10 +2394,26 @@ export class FieldRenderer {
       this._lastInteractionCount = ixList.length
     }
 
+    const frameBG = this.getFrameBindGroup()
+    const rtBG = this.getRenderTargetBindGroup()
+
+    // Clear render target buffers before dispatch
+    if (this.renderTargets.size > 0) {
+      const clearSize = pixelCount * 16
+      for (const entry of this.renderTargets.values()) {
+        // Zero out the buffer via writeBuffer (vec4f(0) for each pixel)
+        // Use a single clear compute pass instead for efficiency
+        encoder.clearBuffer(entry.buffer, 0, clearSize)
+      }
+    }
+
     const pass = encoder.beginComputePass()
     pass.setPipeline(this.superPipeline)
-    pass.setBindGroup(0, this.getFrameBindGroup())
+    pass.setBindGroup(0, frameBG)
     pass.setBindGroup(1, this._cachedSuperBG)
+    if (rtBG) {
+      pass.setBindGroup(2, rtBG)
+    }
     pass.dispatchWorkgroups(
       Math.ceil(bufferW / 16),
       Math.ceil(bufferH / 16),
@@ -2408,6 +2454,11 @@ export class FieldRenderer {
     return false
   }
 
+  /** Returns the last uber-shader compilation error, or null if no error. */
+  getSuperCompilationError(): string | null {
+    return this.superCompilationError
+  }
+
   /** Register a new visual type. Returns the assigned ID or updates existing.
    *  Triggers uber-shader recompilation. */
   registerVisualType(name: string, wgsl: string): { id: number; error?: string } {
@@ -2422,6 +2473,7 @@ export class FieldRenderer {
     }
     // Invalidate uber-shader — bump compilation ID so any in-flight compilation is discarded
     this.superCompilationId++
+    this.superCompilationError = null
     this.superPipelineReady = false
     this.superPipeline = null
     return { id }
@@ -2522,7 +2574,141 @@ export class FieldRenderer {
     console.log(`[Propagation] Pipeline compiled (${allPropagations.length} types)`)
   }
 
-  /** Clear all visual type, interaction, and propagation registries. Called on reset. */
+  // ─── Shader Modules ───
+
+  /** Register a shader module (reusable WGSL utility functions).
+   *  Module functions use the mod_NAME prefix and can be called by any visual type.
+   *  Triggers uber-shader recompilation (compile-time concatenation only, zero runtime cost). */
+  registerModule(name: string, wgsl: string): void {
+    this.moduleRegistry.set(name, { name, wgsl })
+    this.superCompilationId++
+    this.superPipelineReady = false
+    this.superPipeline = null
+    console.log(`[Module] Registered '${name}', triggering recompilation (compilationId=${this.superCompilationId})`)
+  }
+
+  /** Get all registered shader modules */
+  getAllModules(): ModuleEntry[] {
+    return [...this.moduleRegistry.values()]
+  }
+
+  // ─── Render Targets ───
+
+  /** Create a named render target buffer. Returns the assigned ID (0-5).
+   *  Targets auto-resize when canvas dimensions change. */
+  createRenderTarget(name: string): { id: number; error?: string } {
+    if (this.renderTargets.has(name)) {
+      return { id: this.renderTargets.get(name)!.id }
+    }
+    if (this.renderTargets.size >= FieldRenderer.MAX_RENDER_TARGETS) {
+      return { id: -1, error: `Maximum ${FieldRenderer.MAX_RENDER_TARGETS} render targets reached` }
+    }
+    const device = this.device
+    if (!device) return { id: -1, error: 'Device not initialized' }
+
+    const id = this.nextRenderTargetId++
+    // Create buffer sized to current accumBuf (will be resized in ensureRenderTargets)
+    const pixelCount = Math.max(this.accumBufPixelCount, 1)
+    const buffer = device.createBuffer({
+      size: pixelCount * 16, // vec4f = 16 bytes per pixel
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    this.renderTargets.set(name, { buffer, id })
+    this._renderTargetPixelCount = pixelCount
+    this._cachedRenderTargetBG = null
+    // Trigger recompilation — target count changed
+    this.superCompilationId++
+    this.superPipelineReady = false
+    this.superPipeline = null
+    console.log(`[RTT] Created render target '${name}' (id=${id})`)
+    return { id }
+  }
+
+  /** Destroy a named render target buffer */
+  destroyRenderTarget(name: string): void {
+    const entry = this.renderTargets.get(name)
+    if (!entry) return
+    entry.buffer.destroy()
+    this.renderTargets.delete(name)
+    this._cachedRenderTargetBG = null
+    // Trigger recompilation — target count changed
+    this.superCompilationId++
+    this.superPipelineReady = false
+    this.superPipeline = null
+    console.log(`[RTT] Destroyed render target '${name}'`)
+  }
+
+  /** Get the number of active render targets */
+  getRenderTargetCount(): number {
+    return this.renderTargets.size
+  }
+
+  /** Resolve a render target name to its ID. Returns -1 if not found. */
+  resolveRenderTarget(name: string): number {
+    const entry = this.renderTargets.get(name)
+    return entry ? entry.id : -1
+  }
+
+  /** Ensure all render target buffers match the current canvas pixel dimensions */
+  private ensureRenderTargets(pixelCount: number): void {
+    if (this.renderTargets.size === 0) return
+    if (this._renderTargetPixelCount === pixelCount) return
+
+    const device = this.device!
+    const bufSize = pixelCount * 16
+    for (const [name, entry] of this.renderTargets) {
+      entry.buffer.destroy()
+      entry.buffer = device.createBuffer({
+        size: bufSize,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+    }
+    this._renderTargetPixelCount = pixelCount
+    this._cachedRenderTargetBG = null
+  }
+
+  /** Create the render target bind group layout for group 2 */
+  private ensureRenderTargetBindGroupLayout(): void {
+    const device = this.device!
+    const count = this.renderTargets.size
+    if (count === 0) {
+      this.renderTargetBindGroupLayout = null
+      return
+    }
+    const entries: GPUBindGroupLayoutEntry[] = []
+    for (let i = 0; i < count; i++) {
+      entries.push({
+        binding: i,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'storage' as GPUBufferBindingType },
+      })
+    }
+    this.renderTargetBindGroupLayout = device.createBindGroupLayout({ entries })
+  }
+
+  /** Get render target bind group for group 2 */
+  private getRenderTargetBindGroup(): GPUBindGroup | null {
+    if (this.renderTargets.size === 0) return null
+    if (this._cachedRenderTargetBG) return this._cachedRenderTargetBG
+
+    const device = this.device!
+    if (!this.renderTargetBindGroupLayout) this.ensureRenderTargetBindGroupLayout()
+    if (!this.renderTargetBindGroupLayout) return null
+
+    // Sort targets by id to ensure consistent binding order
+    const sorted = [...this.renderTargets.values()].sort((a, b) => a.id - b.id)
+    const entries: GPUBindGroupEntry[] = sorted.map((entry, i) => ({
+      binding: i,
+      resource: { buffer: entry.buffer },
+    }))
+    this._cachedRenderTargetBG = device.createBindGroup({
+      layout: this.renderTargetBindGroupLayout,
+      entries,
+    })
+    return this._cachedRenderTargetBG
+  }
+
+  /** Clear all visual type, interaction, propagation, and module registries. Called on reset. */
   clearRegistries(): void {
     this.visualTypeRegistry.clear()
     this.nextVisualTypeId = 0
@@ -2530,6 +2716,15 @@ export class FieldRenderer {
     this.nextInteractionId = 0
     this.propagationRegistry.clear()
     this.nextPropagationId = 0
+    this.moduleRegistry.clear()
+    // Destroy render target buffers
+    for (const entry of this.renderTargets.values()) {
+      entry.buffer.destroy()
+    }
+    this.renderTargets.clear()
+    this.nextRenderTargetId = 0
+    this._cachedRenderTargetBG = null
+    this.renderTargetBindGroupLayout = null
     this.superPipelineReady = false
     this.superPipeline = null
     this.superCompilationId++
@@ -2577,6 +2772,10 @@ export class FieldRenderer {
     this.superFieldBuffer?.destroy()
     this.postProcessUniformBuf?.destroy()
     this.particleBuffer?.destroy()
+    for (const entry of this.renderTargets.values()) {
+      entry.buffer.destroy()
+    }
+    this.renderTargets.clear()
 
     this.device = null
     this.context = null

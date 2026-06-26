@@ -42,6 +42,19 @@ export interface GlslMod {
   timestamp: number
 }
 
+/** Registered shader module (WGSL utility functions for uber-shader) */
+export interface ModuleDef {
+  name: string
+  wgsl: string
+  timestamp: number
+}
+
+/** Named render target definition */
+export interface RenderTargetDef {
+  name: string
+  timestamp: number
+}
+
 /** Per-field rendered pixel sample (16x16 downsampled RGBA) */
 export interface RenderedSample {
   width: number
@@ -71,6 +84,10 @@ interface EngineStore {
   visualTypes: Map<string, VisualTypeDef>
   /** Registered uber-shader interaction definitions (persisted) */
   interactionDefs: Map<string, InteractionDef>
+  /** Registered shader modules (persisted) */
+  modules: Map<string, ModuleDef>
+  /** Named render targets (persisted) */
+  renderTargetDefs: Map<string, RenderTargetDef>
   /** Saved scenes — complete engine state snapshots */
   scenes: Map<string, SceneSnapshot>
 }
@@ -97,6 +114,8 @@ interface SerializedStore {
   glslMods?: Record<string, GlslMod>
   visualTypes?: Record<string, VisualTypeDef>
   interactionDefs?: Record<string, InteractionDef>
+  modules?: Record<string, ModuleDef>
+  renderTargetDefs?: Record<string, RenderTargetDef>
   scenes?: Record<string, SceneSnapshot>
   lastSyncTime: number
 }
@@ -141,7 +160,19 @@ function loadFromDisk(): Partial<EngineStore> | null {
         scenes.set(name, scene)
       }
     }
-    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${visualTypes.size} visual types, ${interactionDefs.size} interaction defs, ${scenes.size} scenes, ${Object.keys(data.worldData || {}).length} worldData keys`)
+    const modules = new Map<string, ModuleDef>()
+    if (data.modules) {
+      for (const [name, mod] of Object.entries(data.modules)) {
+        modules.set(name, mod)
+      }
+    }
+    const renderTargetDefs = new Map<string, RenderTargetDef>()
+    if (data.renderTargetDefs) {
+      for (const [name, rt] of Object.entries(data.renderTargetDefs)) {
+        renderTargetDefs.set(name, rt)
+      }
+    }
+    console.log(`[Engine Store] Restored from disk: ${fieldSnapshots.size} fields, ${data.interactionRules?.length || 0} rules, ${data.interactionEffects?.length || 0} ix effects, ${customCommands.size} commands, ${glslMods.size} mods, ${visualTypes.size} visual types, ${interactionDefs.size} interaction defs, ${modules.size} modules, ${renderTargetDefs.size} render targets, ${scenes.size} scenes, ${Object.keys(data.worldData || {}).length} worldData keys`)
     return {
       fieldSnapshots,
       lastSyncTime: data.lastSyncTime || 0,
@@ -155,6 +186,8 @@ function loadFromDisk(): Partial<EngineStore> | null {
       glslMods,
       visualTypes,
       interactionDefs,
+      modules,
+      renderTargetDefs,
       scenes,
     }
   } catch {
@@ -181,6 +214,8 @@ function schedulePersist(): void {
         glslMods: Object.fromEntries(store.glslMods),
         visualTypes: Object.fromEntries(store.visualTypes),
         interactionDefs: Object.fromEntries(store.interactionDefs),
+        modules: Object.fromEntries(store.modules),
+        renderTargetDefs: Object.fromEntries(store.renderTargetDefs),
         scenes: Object.fromEntries(store.scenes),
         lastSyncTime: store.lastSyncTime,
       }
@@ -212,6 +247,8 @@ if (!globalStore.__engineStore) {
       glslMods: new Map(),
       visualTypes: new Map(),
       interactionDefs: new Map(),
+      modules: new Map(),
+      renderTargetDefs: new Map(),
       scenes: new Map(),
     }
   }
@@ -250,6 +287,12 @@ if (!store.interactionDefs) {
 }
 if (!store.scenes) {
   store.scenes = new Map()
+}
+if (!store.modules) {
+  store.modules = new Map()
+}
+if (!store.renderTargetDefs) {
+  store.renderTargetDefs = new Map()
 }
 
 /** Full replace from client sync */
@@ -382,6 +425,42 @@ export function getAllInteractionDefs(): InteractionDef[] {
   return Array.from(store.interactionDefs.values())
 }
 
+/** Add/update a shader module (server-side persistence) */
+export function addModule(name: string, wgsl: string): void {
+  store.modules.set(name, { name, wgsl, timestamp: Date.now() })
+  schedulePersist()
+}
+
+/** Remove a shader module */
+export function removeModule(name: string): boolean {
+  const existed = store.modules.delete(name)
+  if (existed) schedulePersist()
+  return existed
+}
+
+/** Get all shader modules */
+export function getAllModules(): ModuleDef[] {
+  return Array.from(store.modules.values())
+}
+
+/** Add a render target definition (server-side persistence) */
+export function addRenderTargetDef(name: string): void {
+  store.renderTargetDefs.set(name, { name, timestamp: Date.now() })
+  schedulePersist()
+}
+
+/** Remove a render target definition */
+export function removeRenderTargetDef(name: string): boolean {
+  const existed = store.renderTargetDefs.delete(name)
+  if (existed) schedulePersist()
+  return existed
+}
+
+/** Get all render target definitions */
+export function getAllRenderTargetDefs(): RenderTargetDef[] {
+  return Array.from(store.renderTargetDefs.values())
+}
+
 export function getEngineState(): {
   fields: FieldSnapshot[]
   fieldCount: number
@@ -396,6 +475,8 @@ export function getEngineState(): {
   glslMods: GlslMod[]
   visualTypes: VisualTypeDef[]
   interactionDefs: InteractionDef[]
+  modules: ModuleDef[]
+  renderTargets: RenderTargetDef[]
 } {
   return {
     fields: getAllFieldSnapshots(),
@@ -411,6 +492,8 @@ export function getEngineState(): {
     glslMods: getAllGlslMods(),
     visualTypes: getAllVisualTypes(),
     interactionDefs: getAllInteractionDefs(),
+    modules: getAllModules(),
+    renderTargets: getAllRenderTargetDefs(),
   }
 }
 
@@ -477,6 +560,8 @@ export function resetStore(): void {
   store.glslMods.clear()
   store.visualTypes.clear()
   store.interactionDefs.clear()
+  store.modules.clear()
+  store.renderTargetDefs.clear()
   store.lastSyncTime = 0
   schedulePersist()
 }

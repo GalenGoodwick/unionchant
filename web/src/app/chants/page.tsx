@@ -224,17 +224,7 @@ function ChantsPageContent() {
   // Load saved backdrop + library when entering spatial mode
   useEffect(() => {
     if (viewMode !== 'spatial') return
-    // Load backdrop (active fields for this space)
-    try {
-      const stored = localStorage.getItem('spatialFields')
-      if (stored) {
-        const fields = JSON.parse(stored)
-        if (Array.isArray(fields) && fields.length > 0) {
-          setSavedFields(fields)
-        }
-      }
-    } catch { /* ignore */ }
-    // Load library (all saved fields)
+    // Load library from localStorage
     try {
       const stored = localStorage.getItem('fieldLibrary')
       if (stored) {
@@ -244,6 +234,38 @@ function ChantsPageContent() {
         }
       }
     } catch { /* ignore */ }
+    // Always fetch active scene from engine (live state takes priority)
+    fetch('/api/engine/state')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.fields && Array.isArray(data.fields) && data.fields.length > 0) {
+          setSavedFields(data.fields)
+          localStorage.setItem('spatialFields', JSON.stringify(data.fields))
+        } else {
+          // Fall back to localStorage if engine has no fields
+          try {
+            const stored = localStorage.getItem('spatialFields')
+            if (stored) {
+              const fields = JSON.parse(stored)
+              if (Array.isArray(fields) && fields.length > 0) {
+                setSavedFields(fields)
+              }
+            }
+          } catch { /* ignore */ }
+        }
+      })
+      .catch(() => {
+        // Fetch failed — fall back to localStorage
+        try {
+          const stored = localStorage.getItem('spatialFields')
+          if (stored) {
+            const fields = JSON.parse(stored)
+            if (Array.isArray(fields) && fields.length > 0) {
+              setSavedFields(fields)
+            }
+          }
+        } catch { /* ignore */ }
+      })
   }, [viewMode])
   const [followingIds, setFollowingIds] = useState<string[]>([])
 

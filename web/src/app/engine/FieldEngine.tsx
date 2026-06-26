@@ -7,7 +7,6 @@ import { FieldSimulation } from './simulation'
 import { FieldInput } from './input'
 import Toolbar from './Toolbar'
 import PromptPanel from './PromptPanel'
-import AgentDialogPanel from './AgentDialogPanel'
 import type { DialogEntry } from './AgentDialogPanel'
 import AgentTerminalPanel from './AgentTerminalPanel'
 import type { TerminalEntry } from './AgentTerminalPanel'
@@ -145,6 +144,12 @@ export default function FieldEngine() {
     selectionMask: new Uint8Array(DEFAULT_GRID_SIZE * DEFAULT_GRID_SIZE),
   })
 
+  // Designer sidebar state
+  const [terminalOpen, setTerminalOpen] = useState(false)
+
+  // Saved scenes list (server-side persistent)
+  const [savedScenes, setSavedScenes] = useState<string[]>([])
+
   // Generation state — UI-only loading tracker, WGSL lives on Field objects
   const [generation, setGeneration] = useState<GenerationState>({
     loading: false,
@@ -237,7 +242,149 @@ export default function FieldEngine() {
   // Select field (toolbar click)
   const handleSelectField = useCallback((id: string) => {
     setBrush(prev => ({ ...prev, activeFieldId: id }))
+    updateSelectionMask(id)
+  }, [updateSelectionMask])
+
+  // Save field + children to library (explicit action via button)
+  const handleSaveToLibrary = useCallback((fieldId: string) => {
+    const sim = simulationRef.current
+    if (!sim) return
+    const field = sim.fields.get(fieldId)
+    if (!field) return
+    const allSnaps = sim.generateSnapshots()
+    const snap = allSnaps.find(s => s.id === fieldId)
+    if (!snap) return
+    const groupIds = new Set<string>([fieldId])
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const s of allSnaps) {
+        if (s.parentFieldId && groupIds.has(s.parentFieldId) && !groupIds.has(s.id)) {
+          groupIds.add(s.id)
+          changed = true
+        }
+      }
+    }
+    const groupSnaps = allSnaps.filter(s => groupIds.has(s.id))
+    try {
+      const existing: unknown[] = JSON.parse(localStorage.getItem('fieldLibrary') || '[]')
+      const filtered = existing.filter((f: unknown) => !groupIds.has((f as { id: string }).id))
+      filtered.push(...groupSnaps)
+      localStorage.setItem('fieldLibrary', JSON.stringify(filtered))
+      const childCount = groupSnaps.length - 1
+      const label = childCount > 0 ? `"${field.name}" + ${childCount} children` : `"${field.name}"`
+      showToast(`Saved ${label} to library`, 'success')
+    } catch { /* ignore */ }
+  }, [showToast])
+
+  // Refresh saved scenes list from server
+  const refreshSceneList = useCallback(async () => {
+    try {
+      const resp = await fetch('/api/engine/scene?action=list')
+      const { scenes } = await resp.json()
+      setSavedScenes(Array.isArray(scenes) ? scenes : [])
+    } catch { /* ignore */ }
   }, [])
+
+  // Save entire scene (all fields, effects, rules, hooks, world params)
+  const handleSaveScene = useCallback(async () => {
+    const sim = simulationRef.current
+    if (!sim) return
+    const name = window.prompt('Scene name:')
+    if (!name?.trim()) return
+    const sceneName = name.trim()
+    const sceneData = {
+      name: sceneName,
+      fields: sim.generateSnapshots(),
+      worldParams: sim.getWorldParams(),
+      worldData: { ...sim.worldData },
+      stepHooks: sim.getStepHookSnapshots(),
+      interactionRules: [...sim.interactionRules],
+      interactionEffects: [...sim.interactionEffects],
+      timestamp: Date.now(),
+    }
+    try {
+      await fetch('/api/engine/scene', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', name: sceneName, scene: sceneData }),
+      })
+      showToast(`Scene "${sceneName}" saved (${sceneData.fields.length} fields)`, 'success')
+      refreshSceneList()
+    } catch {
+      showToast('Failed to save scene', 'error')
+    }
+  }, [showToast, refreshSceneList])
+
+  // Load a saved scene (replaces current state)
+  const handleLoadScene = useCallback(async (sceneName: string) => {
+    const sim = simulationRef.current
+    const renderer = rendererRef.current
+    if (!sim || !renderer) return
+    try {
+      const resp = await fetch(`/api/engine/scene?name=${encodeURIComponent(sceneName)}`)
+      const { scene } = await resp.json()
+      if (!scene) { showToast(`Scene "${sceneName}" not found`, 'error'); return }
+
+      // Clear current state
+      for (const field of sim.fields.values()) {
+        renderer.removeAllFieldEffects(field.id)
+      }
+      for (const key of Array.from(renderer.getFieldEffectKeys())) {
+        if (key.startsWith('ix_')) { renderer.removeFieldEffect(key); renderer.removeFieldMask(key) }
+      }
+      sim.clearAll()
+      sim.fields.clear()
+      sim.interactionRules = []
+      sim.interactionEffects = []
+      sim.stepHooks.clear()
+      sim.tweens.clear()
+      sim.timers.clear()
+      sim.collisionCallbacks.clear()
+      cachedOverlapMasksRef.current = new Map()
+
+      // Restore scene
+      sim.restoreFromSnapshots(scene.fields || [])
+      if (scene.worldParams) sim.setWorldParams(scene.worldParams)
+      if (scene.worldData) Object.assign(sim.worldData, scene.worldData)
+      if (scene.interactionRules) sim.interactionRules = scene.interactionRules
+      if (scene.interactionEffects) {
+        for (const ie of scene.interactionEffects) sim.addInteractionEffect(ie)
+      }
+      if (scene.stepHooks) {
+        for (const h of scene.stepHooks) sim.addStepHook(h.id, h.author, h.description, h.code)
+      }
+
+      // Recompile effects
+      for (const field of sim.fields.values()) {
+        for (const effect of field.effects) {
+          const programKey = `${field.id}_${effect.id}`
+          await renderer.compileFieldEffect(programKey, field.id, effect.wgsl, getModCode())
+        }
+      }
+
+      updateSelectionMask(null)
+      syncFields()
+      showToast(`Scene "${sceneName}" loaded (${scene.fields?.length || 0} fields)`, 'success')
+    } catch {
+      showToast(`Failed to load "${sceneName}"`, 'error')
+    }
+  }, [showToast, getModCode, syncFields, updateSelectionMask])
+
+  // Delete a saved scene
+  const handleDeleteScene = useCallback(async (sceneName: string) => {
+    try {
+      await fetch('/api/engine/scene', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: sceneName }),
+      })
+      showToast(`Scene "${sceneName}" deleted`, 'success')
+      refreshSceneList()
+    } catch {
+      showToast(`Failed to delete "${sceneName}"`, 'error')
+    }
+  }, [showToast, refreshSceneList])
 
   // Change field color — just update color, shader uses params
   const handleFieldColorChange = useCallback((id: string, color: [number, number, number, number]) => {
@@ -490,38 +637,12 @@ export default function FieldEngine() {
       const canvas = canvasRef.current
       if (canvas) canvas.style.cursor = 'grab'
 
-      // Click (not drag) — save field + children to library as a group
+      // Click (not drag) — select this field (highlight in list + inspector)
       if (dist < 5 && sim) {
         const field = sim.fields.get(fieldId)
         if (field) {
-          const allSnaps = sim.generateSnapshots()
-          const snap = allSnaps.find(s => s.id === fieldId)
-          if (snap) {
-            // Collect this field + all descendants
-            const groupIds = new Set<string>([fieldId])
-            // Walk children recursively
-            let changed = true
-            while (changed) {
-              changed = false
-              for (const s of allSnaps) {
-                if (s.parentFieldId && groupIds.has(s.parentFieldId) && !groupIds.has(s.id)) {
-                  groupIds.add(s.id)
-                  changed = true
-                }
-              }
-            }
-            const groupSnaps = allSnaps.filter(s => groupIds.has(s.id))
-            try {
-              const existing: unknown[] = JSON.parse(localStorage.getItem('fieldLibrary') || '[]')
-              // Remove any previous entries for these IDs
-              const filtered = existing.filter((f: unknown) => !groupIds.has((f as { id: string }).id))
-              filtered.push(...groupSnaps)
-              localStorage.setItem('fieldLibrary', JSON.stringify(filtered))
-              const childCount = groupSnaps.length - 1
-              const label = childCount > 0 ? `"${field.name}" + ${childCount} children` : `"${field.name}"`
-              showToast(`Saved ${label} to library`, 'success')
-            } catch { /* ignore */ }
-          }
+          setBrush(prev => ({ ...prev, activeFieldId: fieldId }))
+          updateSelectionMask(fieldId)
         }
       } else {
         syncFields()
@@ -529,11 +650,16 @@ export default function FieldEngine() {
       return
     }
 
+    // Click on empty canvas (not pan, not field drag) — deselect
+    if (!isPanning.current && pointerDown.current) {
+      setBrush(prev => ({ ...prev, activeFieldId: null }))
+      updateSelectionMask(null)
+    }
     isPanning.current = false
     pointerDown.current = false
     const canvas = canvasRef.current
     if (canvas) canvas.style.cursor = 'grab'
-  }, [syncFields, showToast])
+  }, [syncFields, updateSelectionMask])
 
   // Wheel zoom
   useEffect(() => {
@@ -653,6 +779,24 @@ export default function FieldEngine() {
               sim.interactionPairs = sim.interactionPairs.filter((p: { name: string }) => p.name !== def.name)
               sim.interactionPairs.push({ name: def.name, fieldA: def.fieldA, fieldB: def.fieldB, interactionTypeId: result.id, propagationTypeId })
               console.log(`[Restore] Interaction '${def.name}': ${def.fieldA} + ${def.fieldB} (type ${result.id})`)
+            }
+          }
+        }
+
+        // Restore shader modules
+        if (Array.isArray(data.modules)) {
+          for (const mod of data.modules) {
+            if (mod.name && mod.wgsl) {
+              renderer.registerModule(mod.name, mod.wgsl)
+            }
+          }
+        }
+
+        // Restore render targets
+        if (Array.isArray(data.renderTargets)) {
+          for (const rt of data.renderTargets) {
+            if (rt.name) {
+              renderer.createRenderTarget(rt.name)
             }
           }
         }
@@ -1011,8 +1155,11 @@ export default function FieldEngine() {
 
       const superFields: SuperFieldGPU[] = []
       const superFieldOrder: string[] = []  // Maps GPU array index → fieldId
-      for (const field of sim.fields.values()) {
-        if (field.visualType === undefined) continue
+      // Sort fields by renderOrder (lower = rendered first = behind)
+      const sortedFields = Array.from(sim.fields.values())
+        .filter(f => f.visualType !== undefined)
+        .sort((a, b) => (a.renderOrder || 0) - (b.renderOrder || 0))
+      for (const field of sortedFields) {
         const t = field.transform
         const shapeType = field.shapeType === 'rect' ? 1 : 0
         const dim1 = shapeType === 1 ? (field.w || 20) : (field.radius || 10)
@@ -1037,12 +1184,15 @@ export default function FieldEngine() {
         }
 
         const vp = field.visualParams || [0, 0, 0, 0]
+        // Resolve render target name → ID (-1 = screen, 0-5 = target index)
+        const rtName = field.properties.get('renderTarget') as string | undefined
+        const renderTargetId = rtName ? renderer.resolveRenderTarget(rtName) : -1
         superFieldOrder.push(field.id)
         superFields.push({
           posScaleRot: [t.x, t.y, t.scale, t.rotation],
-          shapeDims: [shapeType, dim1, dim2, 0],
+          shapeDims: [shapeType, dim1, dim2, renderTargetId],
           color: field.color,
-          visualAndParams: [field.visualType, vp[0], vp[1], vp[2]],
+          visualAndParams: [field.visualType!, vp[0], vp[1], vp[2]],
           extraParams: [
             vp[3],
             field.properties.get('bidirectionalBehind') ? 1 : 0,
@@ -1233,6 +1383,9 @@ export default function FieldEngine() {
       inputRef.current = null
     }
   }, [])
+
+  // Load saved scenes list on mount
+  useEffect(() => { refreshSceneList() }, [refreshSceneList])
 
   // Agent activity panels
   const [dialogLog, setDialogLog] = useState<DialogEntry[]>([])
@@ -1670,6 +1823,18 @@ export default function FieldEngine() {
                 if (cmd.visualParams) {
                   newField.visualParams = cmd.visualParams as [number, number, number, number]
                 }
+                // Render target assignment
+                if (cmd.renderTarget) {
+                  newField.properties.set('renderTarget', cmd.renderTarget as string)
+                }
+                // Sample targets — list of render target names this field reads from
+                if (cmd.sampleTargets) {
+                  newField.properties.set('sampleTargets', cmd.sampleTargets as string[])
+                }
+                // Render order for layer stacking
+                if (cmd.renderOrder !== undefined) {
+                  newField.renderOrder = typeof cmd.renderOrder === 'number' ? cmd.renderOrder : 0
+                }
               }
 
               setBrush(prev => ({ ...prev, activeFieldId: id }))
@@ -1780,6 +1945,15 @@ export default function FieldEngine() {
               field.transform.scale = (cmd.scale as number) || 1.0
               syncFields()
               pushTerminal('set_scale', cmd.fieldId, `scale=${field.transform.scale.toFixed(2)}`)
+              break
+            }
+
+            case 'set_order': {
+              const field = sim.fields.get(cmd.fieldId)
+              if (!field) break
+              field.renderOrder = typeof cmd.order === 'number' ? cmd.order : 0
+              syncFields()
+              pushTerminal('set_order', cmd.fieldId, `order=${field.renderOrder}`)
               break
             }
 
@@ -2420,8 +2594,25 @@ export default function FieldEngine() {
               if (cmd.visualParams !== undefined) {
                 field.visualParams = cmd.visualParams as [number, number, number, number]
               }
+              if (cmd.renderTarget !== undefined) {
+                if (cmd.renderTarget === null) {
+                  field.properties.delete('renderTarget')
+                } else {
+                  field.properties.set('renderTarget', cmd.renderTarget as string)
+                }
+              }
+              if (cmd.sampleTargets !== undefined) {
+                if (cmd.sampleTargets === null) {
+                  field.properties.delete('sampleTargets')
+                } else {
+                  field.properties.set('sampleTargets', cmd.sampleTargets as string[])
+                }
+              }
+              if (cmd.renderOrder !== undefined) {
+                field.renderOrder = typeof cmd.renderOrder === 'number' ? cmd.renderOrder : 0
+              }
               syncFields()
-              pushTerminal('set_visual', fieldId, `type=${field.visualType}`, undefined, cmdAuthor)
+              pushTerminal('set_visual', fieldId, `type=${field.visualType} order=${field.renderOrder ?? 0}`, undefined, cmdAuthor)
               break
             }
 
@@ -2438,6 +2629,26 @@ export default function FieldEngine() {
               }
               const result = renderer.registerVisualType(name, wgsl)
               pushTerminal('define_visual', name, `registered as type ${result.id}`, undefined, cmdAuthor)
+              // Check for uber-shader compile errors after async recompilation
+              setTimeout(() => {
+                const compileErr = renderer.getSuperCompilationError()
+                const sim = simulationRef.current
+                if (compileErr) {
+                  if (sim) {
+                    sim.worldData['last_compile_error'] = {
+                      type: 'uber_shader',
+                      visualName: name,
+                      error: compileErr,
+                      timestamp: Date.now(),
+                    }
+                  }
+                  pushTerminal('define_visual', name, `COMPILE ERROR: ${compileErr.substring(0, 200)}`)
+                  showToast(`Shader "${name}" failed to compile`, 'error')
+                } else if (sim && sim.worldData['last_compile_error']) {
+                  // Clear stale errors on successful compilation
+                  delete sim.worldData['last_compile_error']
+                }
+              }, 500)
               break
             }
 
@@ -2453,6 +2664,41 @@ export default function FieldEngine() {
               }
               const result = renderer.registerPropagation(name, wgsl)
               pushTerminal('define_propagation', name, `registered as type ${result.id}`, undefined, cmdAuthor)
+              break
+            }
+
+            case 'define_module': {
+              const name = cmd.name as string
+              const wgsl = cmd.wgsl as string
+              if (!name) { pushTerminal('define_module', '', 'ERROR: name required'); break }
+              if (!wgsl) { pushTerminal('define_module', name, 'ERROR: wgsl required'); break }
+              const expectedFn = `mod_${name}`
+              if (!wgsl.includes(expectedFn)) {
+                pushTerminal('define_module', name, `ERROR: WGSL must define fn ${expectedFn}(...)`)
+                break
+              }
+              renderer.registerModule(name, wgsl)
+              pushTerminal('define_module', name, 'registered', undefined, cmdAuthor)
+              break
+            }
+
+            case 'create_render_target': {
+              const name = cmd.name as string
+              if (!name) { pushTerminal('create_render_target', '', 'ERROR: name required'); break }
+              const result = renderer.createRenderTarget(name)
+              if (result.error) {
+                pushTerminal('create_render_target', name, `ERROR: ${result.error}`)
+              } else {
+                pushTerminal('create_render_target', name, `created (id=${result.id})`, undefined, cmdAuthor)
+              }
+              break
+            }
+
+            case 'destroy_render_target': {
+              const name = cmd.name as string
+              if (!name) { pushTerminal('destroy_render_target', '', 'ERROR: name required'); break }
+              renderer.destroyRenderTarget(name)
+              pushTerminal('destroy_render_target', name, 'destroyed', undefined, cmdAuthor)
               break
             }
 
@@ -2692,35 +2938,61 @@ export default function FieldEngine() {
             </button>
           </div>
 
-          {/* User prompt input */}
-          <div className="absolute bottom-3 right-3 z-10">
-            <input
-              type="text"
-              className="bg-black/80 border border-border text-white text-xs font-mono px-2 py-1 w-64 rounded"
-              placeholder="Type a prompt..."
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && e.currentTarget.value.trim()) {
-                  const sim = simulationRef.current
-                  if (sim) {
-                    sim.worldData['user_prompt'] = e.currentTarget.value
-                    sim.worldData['user_prompt_time'] = Date.now()
-                  }
-                  e.currentTarget.value = ''
-                }
-              }}
-            />
-          </div>
+          {/* (prompt input moved to sidebar) */}
         </div>
 
         {/* Field list panel — scrollable under the canvas */}
         <div className="h-40 flex-shrink-0 border-t border-border bg-background/95 overflow-y-auto">
           <div className="px-3 py-2">
-            <div className="text-[10px] text-muted font-mono mb-1">{fields.size} fields</div>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-muted font-mono">{fields.size} fields</span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleSaveScene}
+                  className="text-[10px] font-mono px-2 py-0.5 bg-success/20 text-success border border-success/30 rounded hover:bg-success/40 transition-colors"
+                >
+                  Save Scene
+                </button>
+                {brush.activeFieldId && fields.has(brush.activeFieldId) && (
+                  <button
+                    onClick={() => handleSaveToLibrary(brush.activeFieldId!)}
+                    className="text-[10px] font-mono px-2 py-0.5 bg-accent/20 text-accent border border-accent/30 rounded hover:bg-accent/40 transition-colors"
+                  >
+                    Save to Library
+                  </button>
+                )}
+              </div>
+            </div>
+            {savedScenes.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1">
+                {savedScenes.map(name => (
+                  <div key={name} className="flex items-center gap-0.5 px-1.5 py-0.5 bg-surface/50 border border-border rounded text-[10px] font-mono group">
+                    <button
+                      onClick={() => handleLoadScene(name)}
+                      className="text-foreground hover:text-accent transition-colors truncate max-w-[120px]"
+                      title={`Load scene "${name}"`}
+                    >
+                      {name}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteScene(name)}
+                      className="text-muted hover:text-error transition-colors opacity-0 group-hover:opacity-100"
+                      title={`Delete scene "${name}"`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
-              {Array.from(fields.values()).map(f => (
+              {Array.from(fields.values()).sort((a, b) => (a.renderOrder || 0) - (b.renderOrder || 0)).map(f => (
                 <div
                   key={f.id}
-                  onClick={() => setBrush(prev => ({ ...prev, activeFieldId: f.id }))}
+                  onClick={() => {
+                    setBrush(prev => ({ ...prev, activeFieldId: f.id }))
+                    updateSelectionMask(f.id)
+                  }}
                   className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono cursor-pointer transition-colors ${
                     brush.activeFieldId === f.id
                       ? 'bg-accent/20 border border-accent/40'
@@ -2748,11 +3020,240 @@ export default function FieldEngine() {
         </div>
       </div>
 
-      {/* Agent activity sidebar */}
-      <div className="w-96 flex-shrink-0 flex flex-col border-l border-border bg-background">
-        <AgentDialogPanel entries={dialogLog} />
-        <div className="border-t border-border" />
-        <AgentTerminalPanel entries={terminalLog} />
+      {/* Designer sidebar */}
+      <div className="w-96 flex-shrink-0 flex flex-col border-l border-border bg-background overflow-hidden">
+        {/* Inspector Panel */}
+        <div className="flex-shrink-0 overflow-y-auto" style={{ maxHeight: '50%' }}>
+          <div className="px-3 py-2 text-[10px] font-mono text-muted border-b border-border flex-shrink-0 flex items-center justify-between">
+            <span>Inspector</span>
+            {brush.activeFieldId && fields.has(brush.activeFieldId) && (
+              <span className="text-accent">{fields.get(brush.activeFieldId)!.name}</span>
+            )}
+          </div>
+          <div className="px-3 py-2">
+            {(() => {
+              const inspField = brush.activeFieldId ? fields.get(brush.activeFieldId) : null
+              if (!inspField) return <div className="text-[10px] text-muted font-mono py-4 text-center">Click a field to inspect</div>
+              const sim = simulationRef.current
+              return (
+                <div className="space-y-2 text-[10px] font-mono">
+                  {/* Name */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted w-12 flex-shrink-0">Name</span>
+                    <input
+                      type="text"
+                      value={inspField.name}
+                      onChange={(e) => {
+                        if (sim) {
+                          const f = sim.fields.get(inspField.id)
+                          if (f) { f.name = e.target.value; syncFields() }
+                        }
+                      }}
+                      className="flex-1 bg-surface/50 border border-border rounded px-1.5 py-0.5 text-foreground text-[10px] font-mono"
+                    />
+                  </div>
+                  {/* Color */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted w-12 flex-shrink-0">Color</span>
+                    <span className="inline-block w-4 h-4 rounded border border-border flex-shrink-0" style={{
+                      backgroundColor: `rgba(${Math.round(inspField.color[0]*255)},${Math.round(inspField.color[1]*255)},${Math.round(inspField.color[2]*255)},${inspField.color[3]})`
+                    }} />
+                    <span className="text-muted">
+                      ({Math.round(inspField.color[0]*255)}, {Math.round(inspField.color[1]*255)}, {Math.round(inspField.color[2]*255)}, {inspField.color[3].toFixed(2)})
+                    </span>
+                  </div>
+                  {/* Position */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted w-12 flex-shrink-0">Pos</span>
+                    <span className="text-foreground">({Math.round(inspField.transform.x)}, {Math.round(inspField.transform.y)})</span>
+                    <span className="text-muted ml-2">scale: {inspField.transform.scale.toFixed(2)}</span>
+                  </div>
+                  {/* Render Order */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted w-12 flex-shrink-0">Order</span>
+                    <button
+                      onClick={() => {
+                        if (sim) {
+                          const f = sim.fields.get(inspField.id)
+                          if (f) { f.renderOrder = (f.renderOrder || 0) - 1; syncFields() }
+                        }
+                      }}
+                      className="px-1 py-0.5 bg-surface/50 border border-border rounded hover:bg-surface text-foreground"
+                    >-</button>
+                    <span className="text-foreground w-6 text-center">{inspField.renderOrder || 0}</span>
+                    <button
+                      onClick={() => {
+                        if (sim) {
+                          const f = sim.fields.get(inspField.id)
+                          if (f) { f.renderOrder = (f.renderOrder || 0) + 1; syncFields() }
+                        }
+                      }}
+                      className="px-1 py-0.5 bg-surface/50 border border-border rounded hover:bg-surface text-foreground"
+                    >+</button>
+                    <span className="text-muted ml-1">(lower = behind)</span>
+                  </div>
+                  {/* Shape */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted w-12 flex-shrink-0">Shape</span>
+                    <span className="text-foreground">
+                      {inspField.shapeType === 'rect'
+                        ? `rect ${inspField.w || 0}x${inspField.h || 0}`
+                        : `circle r=${inspField.radius || 0}`
+                      }
+                    </span>
+                  </div>
+                  {/* Visual type */}
+                  {inspField.visualType !== undefined && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted w-12 flex-shrink-0">Visual</span>
+                      <span className="text-accent">{inspField.visualType}</span>
+                      {inspField.visualParams && (
+                        <span className="text-muted">params: [{inspField.visualParams.join(', ')}]</span>
+                      )}
+                    </div>
+                  )}
+                  {/* Tags */}
+                  {inspField.tags && inspField.tags.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted w-12 flex-shrink-0">Tags</span>
+                      <span className="text-foreground">{inspField.tags.join(', ')}</span>
+                    </div>
+                  )}
+                  {/* Effects */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-muted">Effects ({inspField.effects.length})</span>
+                      {inspField.effects.length > 0 && (
+                        <button
+                          onClick={() => handleClearEffect(inspField.id)}
+                          className="text-error/60 hover:text-error"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                    {inspField.effects.length === 0 && (
+                      <div className="text-muted/50 pl-2">No effects</div>
+                    )}
+                    {inspField.effects.map(fx => (
+                      <div key={fx.id} className="flex items-center gap-1 pl-2 py-0.5">
+                        <span className="text-foreground truncate flex-1">{fx.description || fx.id}</span>
+                        <span className="text-muted flex-shrink-0">{fx.blend}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+
+        {/* Interactions Panel */}
+        <div className="flex-shrink-0 border-t border-border overflow-y-auto" style={{ maxHeight: '25%' }}>
+          <div className="px-3 py-2 text-[10px] font-mono text-muted border-b border-border">
+            Interactions
+          </div>
+          <div className="px-3 py-2">
+            {(() => {
+              const sim = simulationRef.current
+              if (!sim) return null
+              const activeId = brush.activeFieldId
+              const rules = sim.interactionRules.filter(r =>
+                !activeId || r.fieldA === activeId || r.fieldB === activeId || !r.fieldA || !r.fieldB
+              )
+              const pairs = sim.interactionPairs.filter(p =>
+                !activeId || p.fieldA === activeId || p.fieldB === activeId
+              )
+              const effects = sim.interactionEffects.filter(e =>
+                !activeId || e.fieldA === activeId || e.fieldB === activeId || !e.fieldA || !e.fieldB
+              )
+              const total = rules.length + pairs.length + effects.length
+              if (total === 0) return (
+                <div className="text-[10px] text-muted font-mono py-2 text-center">No interactions</div>
+              )
+              return (
+                <div className="space-y-1 text-[10px] font-mono">
+                  {pairs.map((p, i) => {
+                    const nameA = sim.fields.get(p.fieldA)?.name || p.fieldA
+                    const nameB = sim.fields.get(p.fieldB)?.name || p.fieldB
+                    return (
+                      <div key={`pair-${i}`} className="flex items-center gap-1 text-foreground">
+                        <span className="text-accent">{nameA}</span>
+                        <span className="text-muted">↔</span>
+                        <span className="text-accent">{nameB}</span>
+                        <span className="text-muted ml-auto">{p.name}</span>
+                      </div>
+                    )
+                  })}
+                  {rules.map(r => (
+                    <div key={r.id} className="flex items-center gap-1 text-foreground">
+                      <span className="text-accent">{r.fieldA ? (sim.fields.get(r.fieldA)?.name || r.fieldA) : '*'}</span>
+                      <span className="text-muted">→</span>
+                      <span className="text-accent">{r.fieldB ? (sim.fields.get(r.fieldB)?.name || r.fieldB) : '*'}</span>
+                      <span className="text-muted ml-auto">{r.trigger}: {r.effect}</span>
+                    </div>
+                  ))}
+                  {effects.map(e => (
+                    <div key={e.id} className="flex items-center gap-1 text-foreground">
+                      <span className="text-accent">{e.fieldA ? (sim.fields.get(e.fieldA)?.name || e.fieldA) : '*'}</span>
+                      <span className="text-muted">↔</span>
+                      <span className="text-accent">{e.fieldB ? (sim.fields.get(e.fieldB)?.name || e.fieldB) : '*'}</span>
+                      <span className="text-muted ml-auto">{e.description || 'shader'}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+          </div>
+        </div>
+
+        {/* AI Prompt Panel — scoped to selected field */}
+        <div className="flex-shrink-0 border-t border-border">
+          <div className="px-3 py-2 text-[10px] font-mono text-muted border-b border-border">
+            {brush.activeFieldId && fields.has(brush.activeFieldId)
+              ? `AI Prompt — ${fields.get(brush.activeFieldId)!.name}`
+              : 'AI Prompt — global'
+            }
+          </div>
+          <div className="px-3 py-2">
+            <input
+              type="text"
+              className="w-full bg-surface/50 border border-border text-foreground text-[10px] font-mono px-2 py-1.5 rounded"
+              placeholder={brush.activeFieldId ? `Edit ${fields.get(brush.activeFieldId)?.name || 'field'}...` : 'Type a prompt...'}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.currentTarget.value.trim()) {
+                  const sim = simulationRef.current
+                  if (sim) {
+                    sim.worldData['user_prompt'] = e.currentTarget.value
+                    sim.worldData['user_prompt_time'] = Date.now()
+                    if (brush.activeFieldId) {
+                      sim.worldData['user_prompt_field'] = brush.activeFieldId
+                    } else {
+                      delete sim.worldData['user_prompt_field']
+                    }
+                  }
+                  e.currentTarget.value = ''
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Terminal (collapsible) */}
+        <div className="flex-1 border-t border-border flex flex-col min-h-0 overflow-hidden">
+          <button
+            onClick={() => setTerminalOpen(prev => !prev)}
+            className="px-3 py-2 text-[10px] font-mono text-muted border-b border-border flex-shrink-0 flex items-center justify-between hover:bg-surface/30 transition-colors cursor-pointer w-full text-left"
+          >
+            <span>Terminal <span className="text-accent">{terminalLog.length}</span></span>
+            <span>{terminalOpen ? '▼' : '▶'}</span>
+          </button>
+          {terminalOpen && (
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <AgentTerminalPanel entries={terminalLog} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

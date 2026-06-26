@@ -88,8 +88,34 @@ Send a single command or an array:
 | Command | Parameters | Description |
 |---------|-----------|-------------|
 | `define_visual` | `name, wgsl` | Register a visual type. Fields with `visualType` matching this name render using this shader. |
+| `define_module` | `name, wgsl` | Register a reusable WGSL module. Functions must use `mod_NAME` prefix. Modules are injected before visuals in the uber-shader and can be called by any visual. Zero runtime cost (compile-time concatenation). |
+| `create_render_target` | `name` | Create a named intermediate render buffer. Fields can write to it via `renderTarget` property, and other fields can sample from it via `sampleTarget()`. Max 6 targets. |
+| `destroy_render_target` | `name` | Destroy a named render target and free its GPU memory. |
 
 Fields with a `visualType` are rendered via the **uber-shader** — a single compute pass that evaluates all superimposed fields. This is the primary way to create complex 3D/2D visuals.
+
+#### Shader Modules
+
+Modules are reusable WGSL utility functions that any visual can call. Register with `define_module`, then call `mod_NAME(...)` from any visual shader.
+
+```json
+{"type": "define_module", "name": "sky", "wgsl": "fn mod_sky(uv: vec2f, t: f32) -> vec4f {\n  return vec4f(mix(vec3f(0.1,0.2,0.5), vec3f(0.5,0.7,1.0), uv.y*0.5+0.5), 1.0);\n}"}
+```
+
+Then use in a visual: `let sky = mod_sky(uv, time);`
+
+#### Render-to-Texture (RTT)
+
+Render targets let fields write to named intermediate buffers that other fields can sample from. This enables reflections, portals, blur/DOF, and multi-pass composition.
+
+1. Create a target: `{"type": "create_render_target", "name": "bg"}`
+2. Assign a field to write to it: `{"type": "create_field", ..., "renderTarget": "bg"}`
+3. Sample from it in another visual's WGSL: `let color = sampleTarget(0u, pixelCoord);`
+   - `sampleTarget(targetId: u32, pixelCoord: vec2f) -> vec4f` — sample by pixel coordinate
+   - `sampleTargetUV(targetId: u32, uv: vec2f) -> vec4f` — sample by UV (0..1)
+   - Target IDs are assigned in creation order (0, 1, 2, ...)
+
+Fields can also declare `sampleTargets: ["bg"]` to document which targets they read from (used for dependency ordering).
 
 ### Per-Field Effects (Shader Stack)
 
@@ -200,6 +226,8 @@ fn visual_NAME(uv: vec2f, sdf: f32, color: vec4f, time: f32, params: vec4f, behi
 
 **Return**: `vec4f` — RGBA color. Alpha=0 for transparent pixels.
 
+**UV Orientation**: `uv.y = -1.0` is the **top** of the field, `uv.y = 1.0` is the **bottom**. To use standard y-up coordinates, negate: `let p = vec2f(uv.x, -uv.y);`
+
 ### Example: Simple Pulsing Circle
 
 ```wgsl
@@ -238,21 +266,108 @@ fn visual_sphere(uv: vec2f, sdf: f32, color: vec4f, time: f32, params: vec4f, be
 
 ### Available WGSL Utility Functions
 
-These are automatically available in visual shaders:
+All functions below are automatically available in visual shaders. No imports needed.
 
-**Hash**: `hash11(f32)→f32`, `hash21(vec2f)→f32`, `hash22(vec2f)→vec2f`, `hash33(vec3f)→vec3f`, `hash31(vec3f)→f32`
+#### Hash (Deterministic Pseudo-Random)
 
-**Noise**: `vnoise(vec2f)→f32`, `gnoise(vec2f)→f32`, `vnoise3(vec3f)→f32`
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `hash11` | `(p: f32) -> f32` | Scalar hash, range [0,1] |
+| `hash21` | `(p: vec2f) -> f32` | 2D → scalar hash |
+| `hash22` | `(p: vec2f) -> vec2f` | 2D → 2D hash (for random offsets) |
+| `hash31` | `(p: vec3f) -> f32` | 3D → scalar hash |
+| `hash33` | `(p: vec3f) -> vec3f` | 3D → 3D hash |
 
-**FBM**: `fbm(vec2f)→f32`, `fbm3d(vec3f)→f32`, `fbm3..6(vec2f)→f32`, `fbm3v..6v(vec3f)→f32`
+#### Noise
 
-**SDF 2D**: `sdCircle(vec2f, f32)→f32`, `sdBox(vec2f, vec2f)→f32`, `sdRoundedBox(vec2f, vec2f, vec4f)→f32`, `sdSegment(vec2f, vec2f, vec2f)→f32`, `sdStar(vec2f, f32, i32, f32)→f32`
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `vnoise` | `(p: vec2f) -> f32` | 2D value noise, smooth random field |
+| `vnoise3` | `(p: vec3f) -> f32` | 3D value noise (use `.z` for time) |
+| `gnoise` | `(p: vec2f) -> f32` | 2D gradient noise (Perlin-like), range [-1,1] |
+| `simplex2d` | `(p: vec2f) -> f32` | 2D simplex noise |
+| `noise` | `(p: vec2f) -> f32` | Alias for `vnoise` |
+| `noisev` | `(p: vec3f) -> f32` | Alias for `vnoise3` |
 
-**SDF Ops**: `opUnion(f32, f32)→f32`, `opSubtract(f32, f32)→f32`, `opIntersect(f32, f32)→f32`, `opSmoothUnion(f32, f32, f32)→f32`, `opSmoothSubtract(f32, f32, f32)→f32`
+#### FBM (Fractal Brownian Motion)
 
-**Color**: `hsv2rgb(vec3f)→vec3f`, `palette(f32, vec3f, vec3f, vec3f, vec3f)→vec3f`
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `fbm` | `(p: vec2f, octaves: i32) -> f32` | Generic 2D FBM, 1-8 octaves |
+| `fbm3` | `(p: vec2f) -> f32` | 2D FBM, 3 octaves (fast) |
+| `fbm4` | `(p: vec2f) -> f32` | 2D FBM, 4 octaves |
+| `fbm5` | `(p: vec2f) -> f32` | 2D FBM, 5 octaves |
+| `fbm6` | `(p: vec2f) -> f32` | 2D FBM, 6 octaves (heavy) |
+| `fbm3d` | `(p: vec3f, octaves: i32) -> f32` | Generic 3D FBM |
+| `fbm3v` | `(p: vec3f) -> f32` | 3D FBM, 3 octaves |
+| `fbm4v` | `(p: vec3f) -> f32` | 3D FBM, 4 octaves |
+| `fbm5v` | `(p: vec3f) -> f32` | 3D FBM, 5 octaves |
+| `fbm6v` | `(p: vec3f) -> f32` | 3D FBM, 6 octaves (heavy) |
+| `warp` | `(p: vec2f, strength: f32, time: f32) -> vec2f` | Domain warping via FBM |
 
-**Math**: `rot2(f32)→mat2x2f`, `glsl_mod(f32, f32)→f32`
+#### Voronoi (Cellular Noise)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `voronoi` | `(p: vec2f) -> vec2f` | Returns `(minDist, secondMinDist)`. Use `.y - .x` for edges. Expensive (9-cell loop). |
+| `voronoiEdge` | `(p: vec2f, width: f32) -> f32` | Edge detection, returns 0-1 (1 = on edge). `width` controls thickness. |
+
+#### SDF 2D Primitives
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `sdCircle` | `(p: vec2f, r: f32) -> f32` | Circle SDF. `r` = radius. |
+| `sdBox` | `(p: vec2f, b: vec2f) -> f32` | Box SDF. `b` = half-extents. |
+| `sdRoundedBox` | `(p: vec2f, b: vec2f, r: f32) -> f32` | Rounded box. `r` = corner radius. |
+| `sdSegment` | `(p: vec2f, a: vec2f, b: vec2f) -> f32` | Line segment from `a` to `b`. |
+| `sdEquilateralTriangle` | `(p: vec2f, r: f32) -> f32` | Equilateral triangle. |
+| `sdStar` | `(p: vec2f, r: f32, n: i32, m: f32) -> f32` | Star shape. `n` = points, `m` = inner ratio. |
+
+#### SDF Operations
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `opUnion` | `(d1: f32, d2: f32) -> f32` | Union (min) |
+| `opSubtract` | `(d1: f32, d2: f32) -> f32` | Subtract d1 from d2 |
+| `opIntersect` | `(d1: f32, d2: f32) -> f32` | Intersection (max) |
+| `opSmoothUnion` | `(d1: f32, d2: f32, k: f32) -> f32` | Smooth union. `k` = blend radius. |
+| `opSmoothSubtract` | `(d1: f32, d2: f32, k: f32) -> f32` | Smooth subtraction. |
+
+#### Color
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `hsv2rgb` | `(c: vec3f) -> vec3f` | HSV to RGB. `c` = (hue 0-1, saturation, value). |
+| `palette` | `(t: f32, a: vec3f, b: vec3f, c: vec3f, d: vec3f) -> vec3f` | Cosine palette (Inigo Quilez). |
+| `colorRamp` | `(a: vec3f, b: vec3f, t: f32) -> vec3f` | Linear interpolation, clamped to [0,1]. |
+
+#### Math & Geometry
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rot2` | `(a: f32) -> mat2x2f` | 2D rotation matrix. |
+| `rotate` | `(p: vec2f, angle: f32) -> vec2f` | Rotate point by angle. Easier than `rot2() * p`. |
+| `polar` | `(uv: vec2f) -> vec2f` | Returns `(radius, angle)` from centered UV. |
+| `glsl_mod` | `(x: f32, y: f32) -> f32` | GLSL-style mod (always positive). |
+| `glsl_mod2` | `(x: vec2f, y: vec2f) -> vec2f` | Vec2 version. |
+
+#### Visual Effects
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `circleMask` | `(uv: vec2f, radius: f32) -> f32` | Smooth circle mask, 1 inside, 0 outside. |
+| `softGlow` | `(uv: vec2f, intensity: f32, radius: f32) -> f32` | Gaussian glow at origin. |
+| `ring` | `(uv: vec2f, radius: f32, width: f32) -> f32` | Ring shape intensity. |
+| `glow` | `(d: f32, col: vec3f, intensity: f32, radius: f32) -> vec3f` | Color glow from distance. |
+| `diffuseLight` | `(p: vec2f, lightPos: vec2f, falloff: f32) -> f32` | Point light falloff. |
+
+#### Region Helpers (for per-field effects)
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `regionUV` | `(cell: vec2f, min: vec2f, max: vec2f) -> vec2f` | Normalize to 0-1 range. |
+| `regionUVCentered` | `(cell: vec2f, min: vec2f, max: vec2f) -> vec2f` | Normalize to -1..1 range. |
+| `regionUVAspect` | `(cell: vec2f, min: vec2f, max: vec2f) -> vec2f` | Aspect-corrected centered UV. |
 
 ---
 
@@ -299,6 +414,99 @@ Rendered only at pixels where both fields overlap. Has access to both fields' co
 
 ---
 
+## WGSL Language Rules
+
+WGSL is not GLSL. Key differences that cause silent compilation failures:
+
+### Variables
+- `let` = immutable (like `const`). Cannot reassign.
+- `var` = mutable. Use when you need to modify a value.
+```wgsl
+let x = 5.0;    // immutable — cannot do x = 6.0
+var y = 5.0;    // mutable — y = 6.0 is fine
+```
+
+### Types
+- No implicit casts. `f32` and `i32` don't auto-convert.
+- Use `f32(intVal)` or `i32(floatVal)` explicitly.
+- Vector constructors: `vec2f(1.0, 2.0)`, `vec3f(0.0)`, `vec4f(rgb, 1.0)`
+- `u32` is unsigned — loop counters can be `i32` or `var i = 0`
+
+### Swizzles
+- Both `.xyzw` and `.rgba` work: `v.rgb`, `v.xy`, `v.a`
+
+### Loops
+- Loop bounds must be statically known or use `var` counter with constant limit.
+- Deeply nested loops multiply per-pixel cost. Budget: ~100 total inner iterations max for smooth 60fps.
+- Break/continue work normally.
+
+### Conditionals
+- `if (condition) { }` — condition must be `bool`, not numeric.
+- `if (x > 0.5)` is valid — comparison returns bool
+- `if (x)` is invalid — numeric value is not bool
+
+### Functions
+- Declared with `fn name(param: type) -> returnType { }`
+- No function overloading — each name is unique.
+
+### Common Pitfalls
+- `mod(x, y)` does not exist — use `glsl_mod(x, y)` (provided utility) or `x % y` for integers
+- `fract()`, `floor()`, `ceil()`, `clamp()`, `smoothstep()`, `mix()` all work like GLSL
+- `atan2(y, x)` not `atan(y, x)` — WGSL uses `atan2`
+- Matrix multiplication: `mat * vec` (not `vec * mat` for column-major)
+
+---
+
+## HDR & Post-Processing
+
+The engine applies post-processing after all shaders run. Shaders should output **linear HDR** values — the engine handles tone mapping and bloom.
+
+### What the engine does automatically
+1. **Bloom** — 13-tap cross kernel extracts bright pixels above threshold, blurs, and composites
+2. **ACES filmic tone mapping** — maps HDR to displayable range with natural rolloff
+3. **Vignette** — darkens edges
+4. **Exposure** — multiplies all colors before tone mapping
+
+### How to use HDR in your shaders
+- Output values **greater than 1.0** for bright/glowing elements (neon, fire, lava, bioluminescence)
+- The bloom pass catches anything above the threshold and makes it glow
+- Don't clamp output to [0,1] — let HDR values through
+- Don't apply your own tone mapping or gamma correction — the engine does this
+
+```wgsl
+// Good: output HDR values for bloom to catch
+col += vec3f(3.0, 0.5, 0.0) * fireIntensity;  // bright orange fire
+col += vec3f(0.0, 2.0, 3.0) * glowPulse;       // cyan bioluminescence
+
+// Bad: clamping kills HDR, bloom has nothing to catch
+col = clamp(col, vec3f(0.0), vec3f(1.0));  // don't do this
+col = col / (col + vec3f(1.0));             // don't do Reinhard in the shader
+```
+
+### Configuring post-processing
+
+```json
+{"type": "set_world_data", "data": {
+  "postProcess": {
+    "bloomIntensity": 0.4,
+    "bloomThreshold": 0.5,
+    "exposure": 1.0,
+    "vignetteStrength": 0.3,
+    "vignetteRadius": 0.7
+  }
+}}
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `bloomIntensity` | 0.3 | Strength of bloom glow (0 = off, 1 = heavy) |
+| `bloomThreshold` | 0.6 | Minimum brightness for bloom (lower = more glow) |
+| `exposure` | 1.0 | Pre-tonemap exposure multiplier |
+| `vignetteStrength` | 0.3 | Edge darkening amount (0 = off) |
+| `vignetteRadius` | 0.7 | How far vignette extends from center |
+
+---
+
 ## Performance Guidelines
 
 1. **Field size matters most** — pixel count is the primary cost driver. A 500x500 field = 250k pixels per frame. Use the smallest field that looks good.
@@ -329,6 +537,12 @@ Rendered only at pixels where both fields overlap. Has access to both fields' co
 10. **Safari vs Chrome** — Chrome's WebGPU (Dawn) handles complex compute shaders much better than Safari (Metal). Target Chrome for heavy shaders. Safari accumulates GPU state across shader recompilations.
 
 11. **Multiple fields** — each field with a `visualType` adds a compute dispatch. Keep the number of superimposed fields reasonable (2-4 for complex visuals).
+
+12. **Uber-shader compile budget** — all visual types compile into a single compute shader. Complex shaders across multiple fields compound. Keep total nested loop iterations under ~100 per visual. If 3 visuals each have 8x4 nested loops = 96 iterations each, the combined shader may exceed GPU compile limits or timeout.
+
+13. **Silent failures** — if a visual shader has a WGSL error, the uber-shader won't compile and ALL visuals stop rendering (not just the broken one). Check the terminal panel for `COMPILE ERROR` messages. Common causes: wrong function signatures, missing `var` on mutable variables, type mismatches.
+
+14. **Deploy incrementally** — when building multi-layer scenes, deploy and test one visual at a time. If all visuals are registered at once and one has an error, it's hard to tell which one broke.
 
 ---
 

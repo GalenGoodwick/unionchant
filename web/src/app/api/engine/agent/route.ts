@@ -13,7 +13,7 @@ export type EngineCommand =
   | { type: 'clear_effect'; fieldId?: string }
   | { type: 'clear_all' }
   // Shape-based field creation (no cells — shape IS the body)
-  | { type: 'create_field'; fieldId?: string; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number; parentFieldId?: string }
+  | { type: 'create_field'; fieldId?: string; name?: string; color?: [number, number, number, number]; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number; x?: number; y?: number; parentFieldId?: string; visualType?: string | number; visualParams?: [number, number, number, number]; renderTarget?: string; sampleTargets?: string[] }
   | { type: 'delete_field'; fieldId: string }
   | { type: 'set_parent'; fieldId: string; parentFieldId?: string }
   | { type: 'set_shape'; fieldId: string; shape?: 'circle' | 'rect'; shapeType?: 'circle' | 'rect'; radius?: number; w?: number; h?: number }
@@ -65,6 +65,11 @@ export type EngineCommand =
   | { type: 'unlink_fields'; linkId: string }
   // Propagation types — how interaction effects spread beyond overlap
   | { type: 'define_propagation'; name: string; wgsl: string; author?: string }
+  // Shader modules — reusable WGSL functions injected into uber-shader (mod_NAME prefix)
+  | { type: 'define_module'; name: string; wgsl: string }
+  // Render targets — named intermediate buffers for render-to-texture
+  | { type: 'create_render_target'; name: string }
+  | { type: 'destroy_render_target'; name: string }
   // WGSL mods — reusable shader code registered by agents
   | { type: 'register_wgsl_mod'; id: string; author: string; description: string; code: string }
   | { type: 'remove_wgsl_mod'; id: string }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, addInteractionDef } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, addInteractionDef, addModule, addRenderTargetDef, removeRenderTargetDef } from '../store'
 import type { GlslMod } from '../store'
 
 export const maxDuration = 30
@@ -237,6 +237,21 @@ export async function POST(req: NextRequest) {
       // define_visual: persist server-side AND forward to browser
       if (cmd.type === 'define_visual' && cmd.name && cmd.wgsl) {
         addVisualType(cmd.name as string, cmd.wgsl as string)
+      }
+
+      // define_module: persist server-side AND forward to browser
+      if (cmd.type === 'define_module' && cmd.name && cmd.wgsl) {
+        addModule(cmd.name as string, cmd.wgsl as string)
+      }
+
+      // create_render_target: persist server-side AND forward to browser
+      if (cmd.type === 'create_render_target' && cmd.name) {
+        addRenderTargetDef(cmd.name as string)
+      }
+
+      // destroy_render_target: remove server-side AND forward to browser
+      if (cmd.type === 'destroy_render_target' && cmd.name) {
+        removeRenderTargetDef(cmd.name as string)
       }
 
       // define_interaction (uber-shader): persist server-side AND forward to browser

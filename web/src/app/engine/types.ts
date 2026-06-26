@@ -90,6 +90,8 @@ export interface Field {
   visualType?: number
   /** Parameters for the visual type function [p0, p1, p2, p3] */
   visualParams?: [number, number, number, number]
+  /** Render order for layer stacking — lower values render first (behind). Default 0. */
+  renderOrder?: number
 }
 
 /** Drawing tool state */
@@ -319,7 +321,7 @@ export type VisualTypeName = keyof typeof VISUAL_TYPES
 export interface SuperFieldGPU {
   /** vec4f 0: x, y, scale, rotation */
   posScaleRot: [number, number, number, number]
-  /** vec4f 1: shapeType (0=circle, 1=rect), dim1, dim2, edgeSmooth */
+  /** vec4f 1: shapeType (0=circle, 1=rect), dim1, dim2, renderTargetId (-1=screen, 0-5=target index) */
   shapeDims: [number, number, number, number]
   /** vec4f 2: r, g, b, a */
   color: [number, number, number, number]

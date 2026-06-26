@@ -995,6 +995,14 @@ export interface PropagationEntry {
   wgsl: string
 }
 
+/** Shader module — reusable WGSL utility functions injected into the uber-shader.
+ *  Module functions use the mod_NAME prefix and can be called by any visual type.
+ *  Modules are concatenated before visual functions during shader assembly. */
+export interface ModuleEntry {
+  name: string
+  wgsl: string
+}
+
 // ─── Superimposed rendering compute shader ───
 
 /**
@@ -1008,9 +1016,13 @@ export interface PropagationEntry {
 export function buildSuperimposedComputeShader(
   visualTypes?: VisualTypeEntry[],
   interactionTypes?: InteractionEntry[],
+  modules?: ModuleEntry[],
+  targetCount?: number,
 ): string {
   const types = visualTypes || []
   const interactions = interactionTypes || []
+  const mods = modules || []
+  const numTargets = targetCount || 0
 
   // Generate visual function definitions from registry (deduplicate by name)
   const seenNames = new Set<string>()
@@ -1039,6 +1051,54 @@ export function buildSuperimposedComputeShader(
   ).join('\n')
   const hasInteractions = dedupedIx.length > 0
 
+  // Deduplicate module WGSL — strip functions already in SHADER_UTILITIES or earlier modules
+  const modSeen = new Set(BASE_FUNC_NAMES)
+  const moduleCode = mods.map(m => deduplicateModCode(m.wgsl, modSeen)).join('\n\n')
+
+  // Render target bindings (group 2) — read_write for both sampling and writing
+  const targetBindings: string[] = []
+  for (let i = 0; i < numTargets; i++) {
+    targetBindings.push(`@group(2) @binding(${i}) var<storage, read_write> renderTarget_${i}: array<vec4f>;`)
+  }
+  const targetBindingsStr = targetBindings.join('\n')
+
+  // sampleTarget() function — always injected so visuals can reference it even
+  // when no render targets exist yet (returns black). When targets exist, routes
+  // to the appropriate buffer via switch dispatch.
+  let sampleTargetFn: string
+  if (numTargets > 0) {
+    const targetCases: string[] = []
+    for (let i = 0; i < numTargets; i++) {
+      targetCases.push(`    case ${i}u: { return renderTarget_${i}[pixelIdx]; }`)
+    }
+    sampleTargetFn = `
+fn sampleTarget(targetId: u32, pixelCoord: vec2f) -> vec4f {
+  let px = vec2u(clamp(vec2i(pixelCoord), vec2i(0), vec2i(i32(frame.resolution.x) - 1, i32(frame.resolution.y) - 1)));
+  let pixelIdx = px.y * u32(frame.resolution.x) + px.x;
+  switch (targetId) {
+${targetCases.join('\n')}
+    default: { return vec4f(0.0); }
+  }
+}
+
+fn sampleTargetUV(targetId: u32, uv: vec2f) -> vec4f {
+  let px = vec2f(uv.x * frame.resolution.x, (1.0 - uv.y) * frame.resolution.y);
+  return sampleTarget(targetId, px);
+}
+`
+  } else {
+    // Stub — no render targets allocated, but visuals may still call sampleTarget
+    sampleTargetFn = `
+fn sampleTarget(targetId: u32, pixelCoord: vec2f) -> vec4f {
+  return vec4f(0.0);
+}
+
+fn sampleTargetUV(targetId: u32, uv: vec2f) -> vec4f {
+  return vec4f(0.0);
+}
+`
+  }
+
   return /* wgsl */`
 ${FRAME_UNIFORM_STRUCT}
 
@@ -1065,7 +1125,14 @@ struct InteractionGPU {
 @group(1) @binding(5) var<storage, read_write> ixTypeBuf: array<u32>;
 @group(1) @binding(6) var<storage, read> prevAccumBuf: array<vec4f>;
 
+${targetBindingsStr}
+
 ${SHADER_UTILITIES}
+
+// ─── Shader modules (reusable utility functions) ───
+${moduleCode}
+
+${sampleTargetFn}
 
 // ─── SDF for field shape ───
 fn superSDF(coord: vec2f, f: FieldGPU) -> f32 {
@@ -1280,8 +1347,13 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     if (visual.a > 0.01) {
-      resultColor = visual.rgb;
-      resultPresence = max(resultPresence, visual.a);
+      // Fields targeted to a render target (shapeDims.w >= 0) should NOT
+      // contribute to the screen buffer (accumBuf). They only render to
+      // their designated target via the RTT write section below.
+      if (i32(f.shapeDims.w) < 0) {
+        resultColor = visual.rgb;
+        resultPresence = max(resultPresence, visual.a);
+      }
       if (overlapCount < 8u) {
         overlapIndices[overlapCount] = i;
         overlapCount++;
@@ -1289,7 +1361,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 
-  if (resultPresence < 0.01) {
+  if (overlapCount == 0u) {
     hitIdBuf[idx] = 0xFFFFFFFFu;
     return;
   }
@@ -1327,8 +1399,17 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
 
-  // Write topmost field index for pixel-perfect hit testing
-  hitIdBuf[idx] = overlapIndices[overlapCount - 1u];
+  // Write topmost screen-visible field index for pixel-perfect hit testing
+  // Skip RTT-targeted fields (shapeDims.w >= 0) since they aren't visible on screen
+  var hitIdx = 0xFFFFFFFFu;
+  for (var hi = overlapCount; hi > 0u; hi--) {
+    let hfi = overlapIndices[hi - 1u];
+    if (i32(superFields[hfi].shapeDims.w) < 0) {
+      hitIdx = hfi;
+      break;
+    }
+  }
+  hitIdBuf[idx] = hitIdx;
 
   // Write to accumulation buffer (blend with existing for coexistence with per-field effects)
   let existing = accumBuf[idx];
@@ -1336,6 +1417,30 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     mix(existing.rgb, resultColor, resultPresence),
     existing.a + resultPresence * (1.0 - existing.a),
   );
+${numTargets > 0 ? `
+  // ─── Render target writes ───
+  // Fields with shapeDims.w >= 0 are excluded from accumBuf above — they ONLY
+  // write to their designated render target buffer. Re-scan visible fields here.
+  for (var ti = 0u; ti < overlapCount; ti++) {
+    let tfi = overlapIndices[ti];
+    let tf = superFields[tfi];
+    let targetId = i32(tf.shapeDims.w);
+    if (targetId < 0) { continue; }
+    let tuv = superLocalUV(cellCoord, tf);
+    let tsdf = superSDF(cellCoord, tf);
+    let tbehind = vec4f(resultColor, resultPresence);
+    let tvisual = superVisual(tuv, tsdf, tf, frame.time, tbehind);
+    if (tvisual.a > 0.01) {
+      switch (u32(targetId)) {
+${Array.from({length: numTargets}, (_, i) => `        case ${i}u: {
+          let rt_ex_${i} = renderTarget_${i}[idx];
+          renderTarget_${i}[idx] = vec4f(mix(rt_ex_${i}.rgb, tvisual.rgb, tvisual.a), rt_ex_${i}.a + tvisual.a * (1.0 - rt_ex_${i}.a));
+        }`).join('\n')}
+        default: {}
+      }
+    }
+  }
+` : ''}
 }
 `
 }
