@@ -40,7 +40,7 @@ const CSRF_EXEMPT_PATTERNS = [
   /^\/api\/deliberations\/[^/]+\/release-seats$/, // sendBeacon from page unload
 ]
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // ── Feature flag gates — return 404 for disabled subsystems ──
