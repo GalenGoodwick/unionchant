@@ -5,6 +5,65 @@ import { DEFAULT_GRID_SIZE, type FieldWorld, type Field, type FieldTransform, ty
 /** Default render extent from field center (pixels). Not a "size" — just the shader execution area. */
 const FIELD_RENDER_EXTENT = 32
 
+/**
+ * Spatial hash grid for broad-phase collision/overlap queries.
+ * Reduces O(n²) pair checks to ~O(n) for evenly distributed fields.
+ * Dimension-agnostic: currently hashes (x, y); adding z is a one-line change.
+ */
+class SpatialHash<T extends { id: string }> {
+  private cellSize: number
+  private cells: Map<string, T[]> = new Map()
+
+  constructor(cellSize: number) {
+    this.cellSize = cellSize
+  }
+
+  private key(cx: number, cy: number): string {
+    return `${cx},${cy}`
+    // Future 3D: return `${cx},${cy},${cz}`
+  }
+
+  clear(): void {
+    this.cells.clear()
+  }
+
+  /** Insert an item by its axis-aligned bounding box. Registers in all overlapping cells. */
+  insertAABB(item: T, minX: number, minY: number, maxX: number, maxY: number): void {
+    const cs = this.cellSize
+    const x0 = Math.floor(minX / cs)
+    const y0 = Math.floor(minY / cs)
+    const x1 = Math.floor(maxX / cs)
+    const y1 = Math.floor(maxY / cs)
+    for (let cx = x0; cx <= x1; cx++) {
+      for (let cy = y0; cy <= y1; cy++) {
+        const k = this.key(cx, cy)
+        let cell = this.cells.get(k)
+        if (!cell) { cell = []; this.cells.set(k, cell) }
+        cell.push(item)
+      }
+    }
+  }
+
+  /** Return all unique pairs of items that share at least one cell. */
+  getPotentialPairs(): Array<[T, T]> {
+    const seen = new Set<string>()
+    const pairs: Array<[T, T]> = []
+    for (const cell of this.cells.values()) {
+      for (let i = 0; i < cell.length; i++) {
+        for (let j = i + 1; j < cell.length; j++) {
+          const a = cell[i], b = cell[j]
+          // Canonical pair key — ensures each pair is yielded once
+          const pk = a.id < b.id ? `${a.id}\0${b.id}` : `${b.id}\0${a.id}`
+          if (seen.has(pk)) continue
+          seen.add(pk)
+          pairs.push([a, b])
+        }
+      }
+    }
+    return pairs
+  }
+}
+
 export class FieldSimulation {
   world: FieldWorld
   fields: Map<string, Field>
@@ -51,6 +110,16 @@ export class FieldSimulation {
 
   static readonly MAX_MEMORY = 100
   static readonly MAX_PROJECTILES = 200
+
+  /** Spatial hash for broad-phase pair queries — rebuilt each physics step */
+  private spatialHash: SpatialHash<Field> = new SpatialHash<Field>(64)
+  /** Cached bounds per field — recomputed once per step, shared across all queries */
+  private boundsCache: Map<string, { minX: number; minY: number; maxX: number; maxY: number }> = new Map()
+  /** Cached field array — rebuilt when field count changes (avoids per-frame Array.from) */
+  private _fieldListCache: Field[] = []
+  private _fieldListCacheSize: number = -1
+  /** Per-step timestamp — computed once, shared across all memory entries */
+  private _stepTimestamp: string = ''
 
   /** World-level physics parameters */
   worldParams: WorldParams = {
@@ -158,6 +227,7 @@ export class FieldSimulation {
       field.parentFieldId = parentFieldId
     }
     this.fields.set(id, field)
+    this.invalidateFieldListCache()
     this.addMemory(id, {
       timestamp: new Date().toISOString(),
       type: 'created',
@@ -184,6 +254,7 @@ export class FieldSimulation {
       }
     }
     this.fields.delete(id)
+    this.invalidateFieldListCache()
     this.clearMemory(id)
   }
 
@@ -263,9 +334,26 @@ export class FieldSimulation {
     }
   }
 
+  /** Get cached field list — rebuilt only when field count changes */
+  private getFieldList(): Field[] {
+    if (this.fields.size !== this._fieldListCacheSize) {
+      this._fieldListCache = Array.from(this.fields.values())
+      this._fieldListCacheSize = this.fields.size
+    }
+    return this._fieldListCache
+  }
+
+  /** Invalidate field list cache (call on field add/remove) */
+  private invalidateFieldListCache(): void {
+    this._fieldListCacheSize = -1
+  }
+
   /** The game loop step — called every frame when running */
   step(dt: number): void {
     if (!this.running) return
+
+    // Compute per-step timestamp once (shared across all memory entries this frame)
+    this._stepTimestamp = new Date().toISOString()
 
     // Check if current game state pauses physics
     const currentGameState = this.gameState ? this.gameStates.get(this.gameState) : null
@@ -274,6 +362,9 @@ export class FieldSimulation {
     const wp = this.worldParams
 
     if (physicsActive) {
+      // Rebuild spatial hash for broad-phase pair queries (O(n))
+      this.rebuildSpatialHash()
+
       // Apply gravity to all fields
       if (wp.gravity !== 0) {
         for (const field of this.fields.values()) {
@@ -356,7 +447,7 @@ export class FieldSimulation {
   /** Apply n-body gravitational attraction/repulsion between all field pairs */
   private stepGravitation(dt: number): void {
     const G = this.worldParams.gravitationalConstant
-    const fieldList = Array.from(this.fields.values())
+    const fieldList = this.getFieldList()
     const minDist = 10 // Prevent singularity at zero distance
 
     for (let i = 0; i < fieldList.length; i++) {
@@ -383,70 +474,93 @@ export class FieldSimulation {
     }
   }
 
-  /** Detect collisions between fields and fire events + apply forces */
-  private stepCollisions(dt: number): void {
-    const fieldList = Array.from(this.fields.values())
-    const wp = this.worldParams
+  /** Rebuild spatial hash from current field positions — call once per physics step.
+   *  @param inflate — dilate each AABB by this many pixels (for spread/proximity queries) */
+  private rebuildSpatialHash(inflate: number = 0): void {
+    this.spatialHash.clear()
+    this.boundsCache.clear()
+    for (const field of this.fields.values()) {
+      const bounds = this.getFieldBounds(field.id)
+      if (!bounds) continue
+      this.boundsCache.set(field.id, bounds)
+      this.spatialHash.insertAABB(
+        field,
+        bounds.minX - inflate, bounds.minY - inflate,
+        bounds.maxX + inflate, bounds.maxY + inflate,
+      )
+    }
+  }
 
+  /** Lazily yield all unique field pairs — O(n²) fallback for rules that need every pair */
+  private *allFieldPairs(): Generator<[Field, Field]> {
+    const fieldList = this.getFieldList()
     for (let i = 0; i < fieldList.length; i++) {
       for (let j = i + 1; j < fieldList.length; j++) {
-        const a = fieldList[i]
-        const b = fieldList[j]
-        const boundsA = this.getFieldBounds(a.id)
-        const boundsB = this.getFieldBounds(b.id)
-        if (!boundsA || !boundsB) continue
+        yield [fieldList[i], fieldList[j]]
+      }
+    }
+  }
 
-        const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
-        const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
-        const overlapping = overlapX > 0 && overlapY > 0
+  /** Detect collisions between fields and fire events + apply forces */
+  private stepCollisions(dt: number): void {
+    const wp = this.worldParams
+    const pairs = this.spatialHash.getPotentialPairs()
 
-        const wasColliding = this.collisionState.get(a.id)?.has(b.id) || false
+    for (const [a, b] of pairs) {
+      const boundsA = this.boundsCache.get(a.id) || this.getFieldBounds(a.id)
+      const boundsB = this.boundsCache.get(b.id) || this.getFieldBounds(b.id)
+      if (!boundsA || !boundsB) continue
 
-        if (overlapping && !wasColliding) {
-          if (!this.collisionState.has(a.id)) this.collisionState.set(a.id, new Set())
-          if (!this.collisionState.has(b.id)) this.collisionState.set(b.id, new Set())
-          this.collisionState.get(a.id)!.add(b.id)
-          this.collisionState.get(b.id)!.add(a.id)
+      const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
+      const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+      const overlapping = overlapX > 0 && overlapY > 0
 
-          this.addMemory(a.id, {
-            timestamp: new Date().toISOString(),
-            type: 'collision',
-            content: `Collision with ${b.name} (overlap: ${Math.min(overlapX, overlapY).toFixed(0)}px)`,
-            sourceFieldId: b.id,
-            data: { overlapX, overlapY, otherFieldId: b.id, otherFieldName: b.name },
-          })
-          this.addMemory(b.id, {
-            timestamp: new Date().toISOString(),
-            type: 'collision',
-            content: `Collision with ${a.name} (overlap: ${Math.min(overlapX, overlapY).toFixed(0)}px)`,
-            sourceFieldId: a.id,
-            data: { overlapX, overlapY, otherFieldId: a.id, otherFieldName: a.name },
-          })
-        } else if (!overlapping && wasColliding) {
-          this.collisionState.get(a.id)?.delete(b.id)
-          this.collisionState.get(b.id)?.delete(a.id)
-        }
+      const wasColliding = this.collisionState.get(a.id)?.has(b.id) || false
 
-        if (overlapping && wp.collisionForce !== 0) {
-          const aCenterX = (boundsA.minX + boundsA.maxX) / 2
-          const aCenterY = (boundsA.minY + boundsA.maxY) / 2
-          const bCenterX = (boundsB.minX + boundsB.maxX) / 2
-          const bCenterY = (boundsB.minY + boundsB.maxY) / 2
+      if (overlapping && !wasColliding) {
+        if (!this.collisionState.has(a.id)) this.collisionState.set(a.id, new Set())
+        if (!this.collisionState.has(b.id)) this.collisionState.set(b.id, new Set())
+        this.collisionState.get(a.id)!.add(b.id)
+        this.collisionState.get(b.id)!.add(a.id)
 
-          let dx = bCenterX - aCenterX
-          let dy = bCenterY - aCenterY
-          const len = Math.sqrt(dx * dx + dy * dy) || 1
-          dx /= len
-          dy /= len
+        this.addMemory(a.id, {
+          timestamp: this._stepTimestamp,
+          type: 'collision',
+          content: `Collision with ${b.name} (overlap: ${Math.min(overlapX, overlapY).toFixed(0)}px)`,
+          sourceFieldId: b.id,
+          data: { overlapX, overlapY, otherFieldId: b.id, otherFieldName: b.name },
+        })
+        this.addMemory(b.id, {
+          timestamp: this._stepTimestamp,
+          type: 'collision',
+          content: `Collision with ${a.name} (overlap: ${Math.min(overlapX, overlapY).toFixed(0)}px)`,
+          sourceFieldId: a.id,
+          data: { overlapX, overlapY, otherFieldId: a.id, otherFieldName: a.name },
+        })
+      } else if (!overlapping && wasColliding) {
+        this.collisionState.get(a.id)?.delete(b.id)
+        this.collisionState.get(b.id)?.delete(a.id)
+      }
 
-          const overlap = Math.min(overlapX, overlapY)
-          const forceMag = wp.collisionForce * overlap * dt
+      if (overlapping && wp.collisionForce !== 0) {
+        const aCenterX = (boundsA.minX + boundsA.maxX) / 2
+        const aCenterY = (boundsA.minY + boundsA.maxY) / 2
+        const bCenterX = (boundsB.minX + boundsB.maxX) / 2
+        const bCenterY = (boundsB.minY + boundsB.maxY) / 2
 
-          a.transform.vx -= dx * forceMag
-          a.transform.vy -= dy * forceMag
-          b.transform.vx += dx * forceMag
-          b.transform.vy += dy * forceMag
-        }
+        let dx = bCenterX - aCenterX
+        let dy = bCenterY - aCenterY
+        const len = Math.sqrt(dx * dx + dy * dy) || 1
+        dx /= len
+        dy /= len
+
+        const overlap = Math.min(overlapX, overlapY)
+        const forceMag = wp.collisionForce * overlap * dt
+
+        a.transform.vx -= dx * forceMag
+        a.transform.vy -= dy * forceMag
+        b.transform.vx += dx * forceMag
+        b.transform.vy += dy * forceMag
       }
     }
   }
@@ -455,84 +569,97 @@ export class FieldSimulation {
   private stepInteractionRules(dt: number): void {
     if (this.interactionRules.length === 0) return
 
-    const fieldList = Array.from(this.fields.values())
+    let hashPairs: Array<[Field, Field]> | null = null // lazy — only built when needed
 
     for (const rule of this.interactionRules) {
-      for (let i = 0; i < fieldList.length; i++) {
-        for (let j = i + 1; j < fieldList.length; j++) {
-          const a = fieldList[i]
-          const b = fieldList[j]
+      // Choose the optimal pair source for this rule
+      let pairs: Iterable<[Field, Field]>
 
-          const matchesAB = (!rule.fieldA || rule.fieldA === a.id) && (!rule.fieldB || rule.fieldB === b.id)
-          const matchesBA = (!rule.fieldA || rule.fieldA === b.id) && (!rule.fieldB || rule.fieldB === a.id)
-          if (!matchesAB && !matchesBA) continue
+      if (rule.fieldA && rule.fieldB) {
+        // Both fields specified — O(1) direct check
+        const a = this.fields.get(rule.fieldA)
+        const b = this.fields.get(rule.fieldB)
+        if (!a || !b) continue
+        pairs = [[a, b]]
+      } else if (rule.trigger === 'overlap') {
+        // Wildcard overlap — spatial hash broad-phase
+        if (!hashPairs) hashPairs = this.spatialHash.getPotentialPairs()
+        pairs = hashPairs
+      } else {
+        // Wildcard proximity/always — need all pairs (O(n²) fallback)
+        pairs = this.allFieldPairs()
+      }
 
-          const [fa, fb] = matchesAB ? [a, b] : [b, a]
+      for (const [a, b] of pairs) {
+        const matchesAB = (!rule.fieldA || rule.fieldA === a.id) && (!rule.fieldB || rule.fieldB === b.id)
+        const matchesBA = (!rule.fieldA || rule.fieldA === b.id) && (!rule.fieldB || rule.fieldB === a.id)
+        if (!matchesAB && !matchesBA) continue
 
-          const boundsA = this.getFieldBounds(fa.id)
-          const boundsB = this.getFieldBounds(fb.id)
-          if (!boundsA || !boundsB) continue
+        const [fa, fb] = matchesAB ? [a, b] : [b, a]
 
-          const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
-          const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
-          const overlapping = overlapX > 0 && overlapY > 0
+        const boundsA = this.boundsCache.get(fa.id) || this.getFieldBounds(fa.id)
+        const boundsB = this.boundsCache.get(fb.id) || this.getFieldBounds(fb.id)
+        if (!boundsA || !boundsB) continue
 
-          const aCx = (boundsA.minX + boundsA.maxX) / 2
-          const aCy = (boundsA.minY + boundsA.maxY) / 2
-          const bCx = (boundsB.minX + boundsB.maxX) / 2
-          const bCy = (boundsB.minY + boundsB.maxY) / 2
-          const dist = Math.sqrt((bCx - aCx) ** 2 + (bCy - aCy) ** 2)
+        const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX)
+        const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY)
+        const overlapping = overlapX > 0 && overlapY > 0
 
-          let triggered = false
-          if (rule.trigger === 'overlap' && overlapping) triggered = true
-          if (rule.trigger === 'proximity' && dist < (rule.triggerDistance || 100)) triggered = true
-          if (rule.trigger === 'always') triggered = true
+        const aCx = (boundsA.minX + boundsA.maxX) / 2
+        const aCy = (boundsA.minY + boundsA.maxY) / 2
+        const bCx = (boundsB.minX + boundsB.maxX) / 2
+        const bCy = (boundsB.minY + boundsB.maxY) / 2
+        const dist = Math.sqrt((bCx - aCx) ** 2 + (bCy - aCy) ** 2)
 
-          if (!triggered) continue
+        let triggered = false
+        if (rule.trigger === 'overlap' && overlapping) triggered = true
+        if (rule.trigger === 'proximity' && dist < (rule.triggerDistance || 100)) triggered = true
+        if (rule.trigger === 'always') triggered = true
 
-          const p = rule.effectParams
-          switch (rule.effect) {
-            case 'apply_force': {
-              if (p.impulse) {
-                const cooldown = (p.cooldown as number) || 0.5
-                const forceKey = `force_${rule.id}_${fa.id}_${fb.id}`
-                const now = Date.now()
-                const lastFired = this._ruleEventThrottle.get(forceKey) || 0
-                if (now - lastFired < cooldown * 1000) break
-                this._ruleEventThrottle.set(forceKey, now)
-                const fx = (p.fx as number || 0)
-                const fy = (p.fy as number || 0)
-                fa.transform.vx += fx
-                fa.transform.vy += fy
-                fb.transform.vx -= fx
-                fb.transform.vy -= fy
-              } else {
-                const fx = (p.fx as number || 0) * dt
-                const fy = (p.fy as number || 0) * dt
-                fa.transform.vx += fx
-                fa.transform.vy += fy
-                fb.transform.vx -= fx
-                fb.transform.vy -= fy
-              }
-              break
-            }
-            case 'send_event': {
-              const eventKey = `rule_${rule.id}_${fa.id}_${fb.id}`
+        if (!triggered) continue
+
+        const p = rule.effectParams
+        switch (rule.effect) {
+          case 'apply_force': {
+            if (p.impulse) {
+              const cooldown = (p.cooldown as number) || 0.5
+              const forceKey = `force_${rule.id}_${fa.id}_${fb.id}`
               const now = Date.now()
-              const lastFired = this._ruleEventThrottle.get(eventKey) || 0
-              if (now - lastFired > 1000) {
-                this._ruleEventThrottle.set(eventKey, now)
-                const content = p.message as string || `Interaction rule "${rule.description || rule.id}" triggered`
-                this.addMemory(fa.id, {
-                  timestamp: new Date().toISOString(),
-                  type: 'collision',
-                  content,
-                  sourceFieldId: fb.id,
-                  data: { ruleId: rule.id, effect: rule.effect },
-                })
-              }
-              break
+              const lastFired = this._ruleEventThrottle.get(forceKey) || 0
+              if (now - lastFired < cooldown * 1000) break
+              this._ruleEventThrottle.set(forceKey, now)
+              const fx = (p.fx as number || 0)
+              const fy = (p.fy as number || 0)
+              fa.transform.vx += fx
+              fa.transform.vy += fy
+              fb.transform.vx -= fx
+              fb.transform.vy -= fy
+            } else {
+              const fx = (p.fx as number || 0) * dt
+              const fy = (p.fy as number || 0) * dt
+              fa.transform.vx += fx
+              fa.transform.vy += fy
+              fb.transform.vx -= fx
+              fb.transform.vy -= fy
             }
+            break
+          }
+          case 'send_event': {
+            const eventKey = `rule_${rule.id}_${fa.id}_${fb.id}`
+            const now = Date.now()
+            const lastFired = this._ruleEventThrottle.get(eventKey) || 0
+            if (now - lastFired > 1000) {
+              this._ruleEventThrottle.set(eventKey, now)
+              const content = p.message as string || `Interaction rule "${rule.description || rule.id}" triggered`
+              this.addMemory(fa.id, {
+                timestamp: this._stepTimestamp,
+                type: 'collision',
+                content,
+                sourceFieldId: fb.id,
+                data: { ruleId: rule.id, effect: rule.effect },
+              })
+            }
+            break
           }
         }
       }
@@ -744,7 +871,7 @@ export class FieldSimulation {
     const idx = py * this.gridSize + px
 
     if (hasPresence && inBounds) {
-      const fields = Array.from(this.fields.values()).reverse()
+      const fields = this.getFieldList()
       for (const field of fields) {
         const presence = this.fieldPresence.get(field.id)
         if (presence && presence[idx] > 0) {
@@ -1399,20 +1526,26 @@ export class FieldSimulation {
    *  Returns list of { effect, fieldA, fieldB } for each matching pair with overlap. */
   getActiveInteractionPairs(): Array<{ effect: InteractionEffect; fieldA: Field; fieldB: Field }> {
     const result: Array<{ effect: InteractionEffect; fieldA: Field; fieldB: Field }> = []
-    const fieldList = Array.from(this.fields.values())
+
+    // Rebuild spatial hash with max spread inflation for correct broad-phase
+    const hasWildcards = this.interactionEffects.some(e => !e.fieldA || !e.fieldB)
+    if (hasWildcards) {
+      const maxSpread = this.interactionEffects.reduce((max, e) => Math.max(max, e.spread || 0), 0)
+      this.rebuildSpatialHash(maxSpread)
+    }
+
+    let hashPairs: Array<[Field, Field]> | null = null
 
     for (const effect of this.interactionEffects) {
       const spread = effect.spread || 0
 
       if (effect.fieldA && effect.fieldB) {
-        // Specific pair
+        // Specific pair — O(1) direct check
         const a = this.fields.get(effect.fieldA)
         const b = this.fields.get(effect.fieldB)
         if (a && b) {
-          // Bounds overlap check expanded by spread — each field's presence is dilated
-          // by spread in computePixelOverlapMask, so the gate must match.
-          const boundsA = this.getFieldBounds(a.id)
-          const boundsB = this.getFieldBounds(b.id)
+          const boundsA = this.boundsCache.get(a.id) || this.getFieldBounds(a.id)
+          const boundsB = this.boundsCache.get(b.id) || this.getFieldBounds(b.id)
           if (boundsA && boundsB) {
             const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX) + 2 * spread
             const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY) + 2 * spread
@@ -1422,23 +1555,20 @@ export class FieldSimulation {
           }
         }
       } else {
-        // Wildcard — check all field pairs
-        for (let i = 0; i < fieldList.length; i++) {
-          for (let j = i + 1; j < fieldList.length; j++) {
-            const a = fieldList[i]
-            const b = fieldList[j]
-            const matchA = !effect.fieldA || effect.fieldA === a.id || effect.fieldA === b.id
-            const matchB = !effect.fieldB || effect.fieldB === a.id || effect.fieldB === b.id
-            if (!matchA || !matchB) continue
+        // Wildcard — use spatial hash broad-phase
+        if (!hashPairs) hashPairs = this.spatialHash.getPotentialPairs()
+        for (const [a, b] of hashPairs) {
+          const matchA = !effect.fieldA || effect.fieldA === a.id || effect.fieldA === b.id
+          const matchB = !effect.fieldB || effect.fieldB === a.id || effect.fieldB === b.id
+          if (!matchA || !matchB) continue
 
-            const boundsA = this.getFieldBounds(a.id)
-            const boundsB = this.getFieldBounds(b.id)
-            if (boundsA && boundsB) {
-              const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX) + 2 * spread
-              const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY) + 2 * spread
-              if (overlapX > 0 && overlapY > 0) {
-                result.push({ effect, fieldA: a, fieldB: b })
-              }
+          const boundsA = this.boundsCache.get(a.id) || this.getFieldBounds(a.id)
+          const boundsB = this.boundsCache.get(b.id) || this.getFieldBounds(b.id)
+          if (boundsA && boundsB) {
+            const overlapX = Math.min(boundsA.maxX, boundsB.maxX) - Math.max(boundsA.minX, boundsB.minX) + 2 * spread
+            const overlapY = Math.min(boundsA.maxY, boundsB.maxY) - Math.max(boundsA.minY, boundsB.minY) + 2 * spread
+            if (overlapX > 0 && overlapY > 0) {
+              result.push({ effect, fieldA: a, fieldB: b })
             }
           }
         }

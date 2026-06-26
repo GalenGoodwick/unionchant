@@ -13,6 +13,11 @@ import {
   buildCompositeStateComputeShader,
   buildSuperimposedComputeShader,
   buildPropagationComputeShader,
+  buildPostProcessComputeShader,
+  buildParticleUpdateComputeShader,
+  buildParticleRenderComputeShader,
+  PARTICLE_STRIDE,
+  MAX_PARTICLES,
   VisualTypeEntry,
   InteractionEntry,
   PropagationEntry,
@@ -117,6 +122,13 @@ export class FieldRenderer {
   private effectUniformBuf: GPUBuffer | null = null
   private stateUniformBuf: GPUBuffer | null = null
 
+  // Pre-allocated typed arrays (reused every frame to avoid GC pressure)
+  private _frameUniformData = new Float32Array(8)
+  private _stateUniformData = new Float32Array(4)
+  private _effectUniformData = new Float32Array(28) // 4+4+4+4+4+4+4 = 28 floats
+  private _dispatchUniformData = new Float32Array(4)
+  private _expandedMaskBuf: Float32Array | null = null // reused for mask/selection uploads
+
   // Bind group layouts
   private frameBindGroupLayout: GPUBindGroupLayout | null = null
   private baseTextureBindGroupLayout: GPUBindGroupLayout | null = null
@@ -160,6 +172,8 @@ export class FieldRenderer {
   // ─── Superimposed rendering ───
   private superFieldBuffer: GPUBuffer | null = null
   private superFieldBufferCapacity: number = 0
+  private _superFieldDataCache: Float32Array<ArrayBuffer> | null = null
+  private _ixDataCache: Uint32Array<ArrayBuffer> | null = null
   private superPipeline: GPUComputePipeline | null = null
   private superBindGroupLayout: GPUBindGroupLayout | null = null
   private superPipelineReady: boolean = false
@@ -184,6 +198,36 @@ export class FieldRenderer {
   hitMap: Uint32Array | null = null
   hitMapWidth: number = 0
   hitMapHeight: number = 0
+
+  // ─── Post-processing ───
+  private postProcessPipeline: GPUComputePipeline | null = null
+  private postProcessBindGroupLayout: GPUBindGroupLayout | null = null
+  private postProcessUniformBuf: GPUBuffer | null = null
+  private postProcessUniformBindGroupLayout: GPUBindGroupLayout | null = null
+  private _cachedPostProcessBG: GPUBindGroup | null = null
+  private _postProcessUniformData = new Float32Array(12) // matches PostProcessUniforms struct with padding
+  /** Post-processing settings — set via setPostProcess() */
+  postProcessSettings = {
+    enabled: true,
+    bloomIntensity: 0.3,
+    bloomThreshold: 0.8,
+    vignetteStrength: 0.3,
+    vignetteRadius: 0.8,
+    exposure: 1.0,
+    lightDir: [0.5, 0.7] as [number, number],
+    lightIntensity: 0.0,
+  }
+
+  // ─── GPU Particle System ───
+  private particleBuffer: GPUBuffer | null = null
+  private particleUpdatePipeline: GPUComputePipeline | null = null
+  private particleRenderPipeline: GPUComputePipeline | null = null
+  private particleUpdateBindGroupLayout: GPUBindGroupLayout | null = null
+  private particleRenderBindGroupLayout: GPUBindGroupLayout | null = null
+  private _particleData: Float32Array<ArrayBuffer> = new Float32Array(MAX_PARTICLES * (PARTICLE_STRIDE / 4))
+  private _particleNextSlot: number = 0
+  private _particleDirty: boolean = false
+  private _particleCount: number = 0
 
   // Visual type registry (dynamic visual types)
   private visualTypeRegistry: Map<string, VisualTypeEntry> = new Map()
@@ -220,6 +264,103 @@ export class FieldRenderer {
 
   setRenderScale(scale: number): void {
     this.renderScale = Math.max(0.25, Math.min(2.0, scale))
+  }
+
+  /** Update post-processing settings. Partial updates supported. */
+  setPostProcess(settings: Partial<typeof FieldRenderer.prototype.postProcessSettings>): void {
+    Object.assign(this.postProcessSettings, settings)
+    this._cachedPostProcessBG = null
+  }
+
+  /** Emit particles at a position in grid space.
+   *  @param x Grid X position
+   *  @param y Grid Y position
+   *  @param count Number of particles to emit
+   *  @param options Optional overrides for color, velocity, size, lifetime */
+  emitParticles(x: number, y: number, count: number, options?: {
+    color?: [number, number, number]
+    velX?: number
+    velY?: number
+    spread?: number
+    size?: number
+    life?: number
+  }): void {
+    const opts = options || {}
+    const color = opts.color || [1, 0.8, 0.3]
+    const baseVelX = opts.velX ?? 0
+    const baseVelY = opts.velY ?? 30
+    const spread = opts.spread ?? 15
+    const size = opts.size ?? 2
+    const life = opts.life ?? 1.5
+    const floatsPerParticle = PARTICLE_STRIDE / 4 // 12
+
+    for (let i = 0; i < count; i++) {
+      const slot = this._particleNextSlot % MAX_PARTICLES
+      const offset = slot * floatsPerParticle
+      // Random spread
+      const angle = Math.random() * Math.PI * 2
+      const speed = Math.random() * spread
+      this._particleData[offset + 0] = x + (Math.random() - 0.5) * size  // posX
+      this._particleData[offset + 1] = y + (Math.random() - 0.5) * size  // posY
+      this._particleData[offset + 2] = baseVelX + Math.cos(angle) * speed // velX
+      this._particleData[offset + 3] = baseVelY + Math.sin(angle) * speed // velY
+      this._particleData[offset + 4] = color[0]  // R
+      this._particleData[offset + 5] = color[1]  // G
+      this._particleData[offset + 6] = color[2]  // B
+      this._particleData[offset + 7] = 1.0       // A
+      this._particleData[offset + 8] = life * (0.5 + Math.random() * 0.5)  // life
+      this._particleData[offset + 9] = life      // maxLife
+      this._particleData[offset + 10] = size * (0.5 + Math.random() * 0.5) // size
+      this._particleData[offset + 11] = 1.0      // flags (alive)
+      this._particleNextSlot++
+      this._particleCount = Math.min(this._particleCount + 1, MAX_PARTICLES)
+    }
+    this._particleDirty = true
+  }
+
+  /** Dispatch particle update and render compute passes */
+  private dispatchParticles(encoder: GPUCommandEncoder, device: GPUDevice, bufferW: number, bufferH: number): void {
+    if (!this.particleBuffer || !this.particleUpdatePipeline || !this.particleRenderPipeline || this._particleCount === 0) return
+    if (!this.accumBuf) return
+
+    // Upload new particle data if dirty
+    if (this._particleDirty) {
+      device.queue.writeBuffer(this.particleBuffer, 0, this._particleData)
+      this._particleDirty = false
+    }
+
+    const frameBG = this.getFrameBindGroup()
+
+    // Update pass — advance particle physics
+    {
+      const updateBG = device.createBindGroup({
+        layout: this.particleUpdateBindGroupLayout!,
+        entries: [{ binding: 0, resource: { buffer: this.particleBuffer } }],
+      })
+      const pass = encoder.beginComputePass()
+      pass.setPipeline(this.particleUpdatePipeline)
+      pass.setBindGroup(0, frameBG)
+      pass.setBindGroup(1, updateBG)
+      pass.dispatchWorkgroups(Math.ceil(MAX_PARTICLES / 256))
+      pass.end()
+    }
+
+    // Render pass — draw particles into accumBuf
+    {
+      const renderBG = device.createBindGroup({
+        layout: this.particleRenderBindGroupLayout!,
+        entries: [
+          { binding: 0, resource: { buffer: this.particleBuffer } },
+          { binding: 1, resource: { buffer: this.accumBuf } },
+        ],
+      })
+      const pass = encoder.beginComputePass()
+      pass.setPipeline(this.particleRenderPipeline)
+      pass.setBindGroup(0, frameBG)
+      pass.setBindGroup(1, renderBG)
+      pass.dispatchWorkgroups(Math.ceil(MAX_PARTICLES / 256))
+      pass.end()
+    }
   }
 
   /** Convert grid-space bounds to pixel-perfect screen-space scissor rect [x, y, w, h].
@@ -377,6 +518,45 @@ export class FieldRenderer {
           bindGroupLayouts: [this.frameBindGroupLayout!, this.propagationBindGroupLayout!],
         }),
         compute: { module: propModule, entryPoint: 'main' },
+      })
+    }
+
+    // Post-processing compute pipeline (bloom, tone mapping, vignette)
+    {
+      this.postProcessUniformBuf = device.createBuffer({
+        size: 48, // 12 floats matching PostProcessUniforms struct
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      })
+      const ppModule = device.createShaderModule({ code: buildPostProcessComputeShader() })
+      this.postProcessPipeline = await device.createComputePipelineAsync({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.postProcessUniformBindGroupLayout!, this.postProcessBindGroupLayout!],
+        }),
+        compute: { module: ppModule, entryPoint: 'main' },
+      })
+    }
+
+    // GPU Particle system pipelines
+    {
+      this.particleBuffer = device.createBuffer({
+        size: MAX_PARTICLES * PARTICLE_STRIDE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+
+      const updateModule = device.createShaderModule({ code: buildParticleUpdateComputeShader() })
+      this.particleUpdatePipeline = await device.createComputePipelineAsync({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.frameBindGroupLayout!, this.particleUpdateBindGroupLayout!],
+        }),
+        compute: { module: updateModule, entryPoint: 'main' },
+      })
+
+      const renderModule = device.createShaderModule({ code: buildParticleRenderComputeShader() })
+      this.particleRenderPipeline = await device.createComputePipelineAsync({
+        layout: device.createPipelineLayout({
+          bindGroupLayouts: [this.frameBindGroupLayout!, this.particleRenderBindGroupLayout!],
+        }),
+        compute: { module: renderModule, entryPoint: 'main' },
       })
     }
 
@@ -569,6 +749,36 @@ export class FieldRenderer {
       ],
     })
 
+    // Post-process group 0: frame uniforms + post-process uniforms
+    this.postProcessUniformBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+      ],
+    })
+
+    // Post-process group 1: accumBuf (read-write)
+    this.postProcessBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      ],
+    })
+
+    // Particle update group 1: particle buffer (read-write)
+    this.particleUpdateBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      ],
+    })
+
+    // Particle render group 1: particle buffer (read) + accumBuf (read-write)
+    this.particleRenderBindGroupLayout = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+      ],
+    })
+
     // Compute bind group layout 0: state uniforms
     this.computeBindGroupLayout0 = device.createBindGroupLayout({
       entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } }],
@@ -682,20 +892,60 @@ export class FieldRenderer {
     return (hash >>> 0).toString(36)
   }
 
+  /** Dispatch the post-processing compute pass if enabled */
+  private dispatchPostProcess(encoder: GPUCommandEncoder, device: GPUDevice, bufferW: number, bufferH: number): void {
+    if (!this.postProcessSettings.enabled || !this.postProcessPipeline || !this.postProcessUniformBuf || !this.accumBuf) return
+
+    const pp = this.postProcessSettings
+    const d = this._postProcessUniformData
+    d[0] = pp.bloomIntensity; d[1] = pp.bloomThreshold; d[2] = pp.vignetteStrength; d[3] = pp.vignetteRadius
+    d[4] = pp.exposure; d[5] = 0 // _pad
+    d[6] = pp.lightDir[0]; d[7] = pp.lightDir[1] // lightDir (vec2f at offset 24, aligned to 8)
+    d[8] = pp.lightIntensity; d[9] = 0; d[10] = 0; d[11] = 0 // lightIntensity + padding
+    device.queue.writeBuffer(this.postProcessUniformBuf, 0, d)
+
+    const ppUniformBG = device.createBindGroup({
+      layout: this.postProcessUniformBindGroupLayout!,
+      entries: [
+        { binding: 0, resource: { buffer: this.frameUniformBuf! } },
+        { binding: 1, resource: { buffer: this.postProcessUniformBuf } },
+      ],
+    })
+    const ppStorageBG = device.createBindGroup({
+      layout: this.postProcessBindGroupLayout!,
+      entries: [
+        { binding: 0, resource: { buffer: this.accumBuf } },
+      ],
+    })
+
+    const ppPass = encoder.beginComputePass()
+    ppPass.setPipeline(this.postProcessPipeline)
+    ppPass.setBindGroup(0, ppUniformBG)
+    ppPass.setBindGroup(1, ppStorageBG)
+    ppPass.dispatchWorkgroups(Math.ceil(bufferW / 16), Math.ceil(bufferH / 16))
+    ppPass.end()
+  }
+
   private writeFrameUniforms(camera: { x: number; y: number }, resolution: [number, number], zoom: number, time: number): void {
-    const data = new Float32Array([camera.x, camera.y, resolution[0], resolution[1], zoom, time, this.gridSize, 0])
-    this.device!.queue.writeBuffer(this.frameUniformBuf!, 0, data)
+    const d = this._frameUniformData
+    d[0] = camera.x; d[1] = camera.y; d[2] = resolution[0]; d[3] = resolution[1]
+    d[4] = zoom; d[5] = time; d[6] = this.gridSize; d[7] = 0
+    this.device!.queue.writeBuffer(this.frameUniformBuf!, 0, d)
   }
 
   /** Write effect uniforms to the staging buffer at the given slot index.
    *  Use encoder.copyBufferToBuffer before each pass to transfer to effectUniformBuf. */
   private stageEffectUniforms(index: number, effect: FieldEffectData): void {
-    const ac = effect.fieldAColor || [0, 0, 0, 0]
-    const bc = effect.fieldBColor || [0, 0, 0, 0]
-    const at = effect.fieldATransform || [0, 0, 0, 0]
-    const bt = effect.fieldBTransform || [0, 0, 0, 0]
-    const data = new Float32Array([...effect.bounds, ...effect.params, ...effect.transform, ...ac, ...bc, ...at, ...bt])
-    this.device!.queue.writeBuffer(this.effectUniformStagingBuf!, index * FieldRenderer.EFFECT_UNIFORM_SIZE, data)
+    const d = this._effectUniformData
+    const ac = effect.fieldAColor, bc = effect.fieldBColor, at = effect.fieldATransform, bt = effect.fieldBTransform
+    d[0] = effect.bounds[0]; d[1] = effect.bounds[1]; d[2] = effect.bounds[2]; d[3] = effect.bounds[3]
+    d[4] = effect.params[0]; d[5] = effect.params[1]; d[6] = effect.params[2]; d[7] = effect.params[3]
+    d[8] = effect.transform[0]; d[9] = effect.transform[1]; d[10] = effect.transform[2]; d[11] = effect.transform[3]
+    d[12] = ac?.[0] ?? 0; d[13] = ac?.[1] ?? 0; d[14] = ac?.[2] ?? 0; d[15] = ac?.[3] ?? 0
+    d[16] = bc?.[0] ?? 0; d[17] = bc?.[1] ?? 0; d[18] = bc?.[2] ?? 0; d[19] = bc?.[3] ?? 0
+    d[20] = at?.[0] ?? 0; d[21] = at?.[1] ?? 0; d[22] = at?.[2] ?? 0; d[23] = at?.[3] ?? 0
+    d[24] = bt?.[0] ?? 0; d[25] = bt?.[1] ?? 0; d[26] = bt?.[2] ?? 0; d[27] = bt?.[3] ?? 0
+    this.device!.queue.writeBuffer(this.effectUniformStagingBuf!, index * FieldRenderer.EFFECT_UNIFORM_SIZE, d)
   }
 
   private writeEffectUniforms(
@@ -707,12 +957,15 @@ export class FieldRenderer {
     fieldATransform?: [number, number, number, number],
     fieldBTransform?: [number, number, number, number],
   ): void {
-    const ac = fieldAColor || [0, 0, 0, 0]
-    const bc = fieldBColor || [0, 0, 0, 0]
-    const at = fieldATransform || [0, 0, 0, 0]
-    const bt = fieldBTransform || [0, 0, 0, 0]
-    const data = new Float32Array([...bounds, ...params, ...transform, ...ac, ...bc, ...at, ...bt])
-    this.device!.queue.writeBuffer(this.effectUniformBuf!, 0, data)
+    const d = this._effectUniformData
+    d[0] = bounds[0]; d[1] = bounds[1]; d[2] = bounds[2]; d[3] = bounds[3]
+    d[4] = params[0]; d[5] = params[1]; d[6] = params[2]; d[7] = params[3]
+    d[8] = transform[0]; d[9] = transform[1]; d[10] = transform[2]; d[11] = transform[3]
+    d[12] = fieldAColor?.[0] ?? 0; d[13] = fieldAColor?.[1] ?? 0; d[14] = fieldAColor?.[2] ?? 0; d[15] = fieldAColor?.[3] ?? 0
+    d[16] = fieldBColor?.[0] ?? 0; d[17] = fieldBColor?.[1] ?? 0; d[18] = fieldBColor?.[2] ?? 0; d[19] = fieldBColor?.[3] ?? 0
+    d[20] = fieldATransform?.[0] ?? 0; d[21] = fieldATransform?.[1] ?? 0; d[22] = fieldATransform?.[2] ?? 0; d[23] = fieldATransform?.[3] ?? 0
+    d[24] = fieldBTransform?.[0] ?? 0; d[25] = fieldBTransform?.[1] ?? 0; d[26] = fieldBTransform?.[2] ?? 0; d[27] = fieldBTransform?.[3] ?? 0
+    this.device!.queue.writeBuffer(this.effectUniformBuf!, 0, d)
   }
 
   // ─── Cached bind groups (avoid per-frame GPU allocations) ───
@@ -788,6 +1041,10 @@ export class FieldRenderer {
     this._cachedPropBG = null
     this._cachedBlitBG = null
     this._cachedSuperBG = null
+    this._cachedPostProcessBG = null
+    this._cachedStateUpdateBG0 = null
+    this._cachedStateUpdateBG1A = null
+    this._cachedStateUpdateBG1B = null
   }
 
   private createEmptyMaskTexture(fieldId: string): GPUTexture {
@@ -831,10 +1088,19 @@ export class FieldRenderer {
     )
   }
 
+  private getExpandedMaskBuf(): Float32Array {
+    const needed = this.gridSize * this.gridSize * 4
+    if (!this._expandedMaskBuf || this._expandedMaskBuf.length !== needed) {
+      this._expandedMaskBuf = new Float32Array(needed)
+    }
+    return this._expandedMaskBuf
+  }
+
   uploadSelectionData(data: Uint8Array): void {
     if (!this.device || !this.selectionTex) return
     // Selection data is single-channel uint8 — expand to rgba32float
-    const expanded = new Float32Array(this.gridSize * this.gridSize * 4)
+    const expanded = this.getExpandedMaskBuf()
+    expanded.fill(0)
     for (let i = 0; i < data.length; i++) {
       expanded[i * 4] = data[i] > 0 ? 1.0 : 0.0
     }
@@ -853,7 +1119,8 @@ export class FieldRenderer {
       maskTex = this.createEmptyMaskTexture(fieldId)
     }
     // Expand to rgba32float (mask in red channel)
-    const expanded = new Float32Array(this.gridSize * this.gridSize * 4)
+    const expanded = this.getExpandedMaskBuf()
+    expanded.fill(0)
     for (let i = 0; i < data.length; i++) {
       expanded[i * 4] = data[i] > 0 ? 1.0 : 0.0
     }
@@ -1112,7 +1379,8 @@ export class FieldRenderer {
 
       // Stage dispatch uniforms for compute effects
       for (let i = 0; i < computeEffects.length; i++) {
-        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([0, 0, bufferW, bufferH]))
+        this._dispatchUniformData[0] = 0; this._dispatchUniformData[1] = 0; this._dispatchUniformData[2] = bufferW; this._dispatchUniformData[3] = bufferH
+        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, this._dispatchUniformData)
       }
 
       // ─── Compute path: superimposed + per-field, blit once ───
@@ -1212,6 +1480,12 @@ export class FieldRenderer {
           )
           propPass.end()
         }
+
+        // ─── GPU Particles ───
+        this.dispatchParticles(encoder, device, bufferW, bufferH)
+
+        // ─── Post-processing pass (bloom, tone mapping, vignette) ───
+        this.dispatchPostProcess(encoder, device, bufferW, bufferH)
 
         // Blit accumulation buffer to screen
         {
@@ -1359,7 +1633,8 @@ export class FieldRenderer {
       for (const effect of renderEffects) { this.stageEffectUniforms(stageIdx, effect); renderStageIndices.push(stageIdx++) }
       // Fullscreen dispatch — no scissor clipping
       for (let i = 0; i < computeEffects.length; i++) {
-        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, new Float32Array([0, 0, bufferW, bufferH]))
+        this._dispatchUniformData[0] = 0; this._dispatchUniformData[1] = 0; this._dispatchUniformData[2] = bufferW; this._dispatchUniformData[3] = bufferH
+        device.queue.writeBuffer(this.dispatchStagingBuf!, i * FieldRenderer.DISPATCH_UNIFORM_SIZE, this._dispatchUniformData)
       }
 
       if (computeEffects.length > 0) {
@@ -1392,6 +1667,9 @@ export class FieldRenderer {
           pass.dispatchWorkgroups(Math.ceil(bufferW / 16), Math.ceil(bufferH / 16))
           pass.end()
         }
+
+        // Post-processing
+        this.dispatchPostProcess(encoder, device, bufferW, bufferH)
 
         if (!this._cachedBlitBG) {
           this._cachedBlitBG = device.createBindGroup({ layout: this.blitStorageLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
@@ -1552,34 +1830,49 @@ export class FieldRenderer {
     this.stateUpdateActive = false
   }
 
+  private _cachedStateUpdateBG0: GPUBindGroup | null = null
+  private _cachedStateUpdateBG1A: GPUBindGroup | null = null // tex 0→1
+  private _cachedStateUpdateBG1B: GPUBindGroup | null = null // tex 1→0
+
   runStateUpdate(time: number, dt: number): void {
     const device = this.device
     if (!device || !this.stateUpdateActive || !this.stateUpdatePipeline) return
 
-    const srcTex = this.stateTexCurrent === 0 ? this.stateTex! : this.stateTex2!
-    const dstTex = this.stateTexCurrent === 0 ? this.stateTex2! : this.stateTex!
+    const d = this._stateUniformData
+    d[0] = this.gridSize; d[1] = time; d[2] = dt; d[3] = 0
+    device.queue.writeBuffer(this.stateUniformBuf!, 0, d)
 
-    device.queue.writeBuffer(this.stateUniformBuf!, 0, new Float32Array([this.gridSize, time, dt, 0]))
+    if (!this._cachedStateUpdateBG0) {
+      this._cachedStateUpdateBG0 = device.createBindGroup({
+        layout: this.computeBindGroupLayout0!,
+        entries: [{ binding: 0, resource: { buffer: this.stateUniformBuf! } }],
+      })
+    }
 
-    const bindGroup0 = device.createBindGroup({
-      layout: this.computeBindGroupLayout0!,
-      entries: [{ binding: 0, resource: { buffer: this.stateUniformBuf! } }],
-    })
-
-    const bindGroup1 = device.createBindGroup({
-      layout: this.computeBindGroupLayout1!,
-      entries: [
-        { binding: 0, resource: srcTex.createView() },
-        { binding: 1, resource: this.colorTex!.createView() },
-        { binding: 2, resource: dstTex.createView() },
-      ],
-    })
+    // Two cached bind groups — one per texture direction
+    const bg1 = this.stateTexCurrent === 0
+      ? (this._cachedStateUpdateBG1A ??= device.createBindGroup({
+          layout: this.computeBindGroupLayout1!,
+          entries: [
+            { binding: 0, resource: this.stateTex!.createView() },
+            { binding: 1, resource: this.colorTex!.createView() },
+            { binding: 2, resource: this.stateTex2!.createView() },
+          ],
+        }))
+      : (this._cachedStateUpdateBG1B ??= device.createBindGroup({
+          layout: this.computeBindGroupLayout1!,
+          entries: [
+            { binding: 0, resource: this.stateTex2!.createView() },
+            { binding: 1, resource: this.colorTex!.createView() },
+            { binding: 2, resource: this.stateTex!.createView() },
+          ],
+        }))
 
     const encoder = device.createCommandEncoder()
     const pass = encoder.beginComputePass()
     pass.setPipeline(this.stateUpdatePipeline)
-    pass.setBindGroup(0, bindGroup0)
-    pass.setBindGroup(1, bindGroup1)
+    pass.setBindGroup(0, this._cachedStateUpdateBG0)
+    pass.setBindGroup(1, bg1)
     pass.dispatchWorkgroups(Math.ceil(this.gridSize / 16), Math.ceil(this.gridSize / 16))
     pass.end()
 
@@ -1994,8 +2287,12 @@ export class FieldRenderer {
     this.hitMapWidth = bufferW
     this.hitMapHeight = bufferH
 
-    // Pack all fields into a Float32Array (20 floats per field)
-    const data = new Float32Array(fields.length * 20)
+    // Pack all fields into a Float32Array (20 floats per field) — reuse if same field count
+    const neededLen = fields.length * 20
+    if (!this._superFieldDataCache || this._superFieldDataCache.length !== neededLen) {
+      this._superFieldDataCache = new Float32Array(neededLen)
+    }
+    const data = this._superFieldDataCache!
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i]
       const off = i * 20
@@ -2029,7 +2326,11 @@ export class FieldRenderer {
       this._ixLogDone = true
     }
     this.ensureInteractionBuffer(ixList.length)
-    const ixData = new Uint32Array(Math.max(1, ixList.length) * 4)
+    const ixNeeded = Math.max(1, ixList.length) * 4
+    if (!this._ixDataCache || this._ixDataCache.length !== ixNeeded) {
+      this._ixDataCache = new Uint32Array(ixNeeded)
+    }
+    const ixData = this._ixDataCache!
     for (let i = 0; i < ixList.length; i++) {
       ixData[i * 4 + 0] = ixList[i].fieldIdxA
       ixData[i * 4 + 1] = ixList[i].fieldIdxB
@@ -2274,6 +2575,8 @@ export class FieldRenderer {
     this.ixBuf?.destroy()
     this.ixTypeBuf?.destroy()
     this.superFieldBuffer?.destroy()
+    this.postProcessUniformBuf?.destroy()
+    this.particleBuffer?.destroy()
 
     this.device = null
     this.context = null
@@ -2282,6 +2585,10 @@ export class FieldRenderer {
     this.stateUpdatePipeline = null
     this.clearComputePipeline = null
     this.blitPipeline = null
+    this.postProcessPipeline = null
+    this.particleBuffer = null
+    this.particleUpdatePipeline = null
+    this.particleRenderPipeline = null
     this.colorTex = null
     this.stateTex = null
     this.stateTex2 = null

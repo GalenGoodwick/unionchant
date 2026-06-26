@@ -323,6 +323,132 @@ fn softGlow(uv: vec2f, intensity: f32, radius: f32) -> f32 { return intensity * 
 // Ring shape: returns intensity of a ring at given radius with given width
 fn ring(uv: vec2f, radius: f32, width: f32) -> f32 { return exp(-pow(length(uv) - radius, 2.0) / (width * width)); }
 
+// ─── Voronoi noise (cellular) ───
+// Returns vec2f(minDist, secondMinDist) — useful for cell edges, crystals, cracks
+fn voronoi(p: vec2f) -> vec2f {
+  let n = floor(p);
+  let f = fract(p);
+  var md = 8.0;
+  var md2 = 8.0;
+  for (var j: i32 = -1; j <= 1; j++) {
+    for (var i: i32 = -1; i <= 1; i++) {
+      let g = vec2f(f32(i), f32(j));
+      let o = hash22(n + g);
+      let r = g + o - f;
+      let d = dot(r, r);
+      if (d < md) { md2 = md; md = d; } else if (d < md2) { md2 = d; }
+    }
+  }
+  return vec2f(sqrt(md), sqrt(md2));
+}
+
+// Voronoi edge detection — returns 0..1 (1 = on edge)
+fn voronoiEdge(p: vec2f, width: f32) -> f32 {
+  let v = voronoi(p);
+  return 1.0 - smoothstep(0.0, width, v.y - v.x);
+}
+
+// ─── Simplex-like noise (2D) ───
+fn simplex2d(p: vec2f) -> f32 {
+  let K1 = 0.366025404;  // (sqrt(3)-1)/2
+  let K2 = 0.211324865;  // (3-sqrt(3))/6
+  let si = floor(p + (p.x + p.y) * K1);
+  let a = p - si + (si.x + si.y) * K2;
+  let of_ = select(vec2f(0.0, 1.0), vec2f(1.0, 0.0), a.x > a.y);
+  let b = a - of_ + vec2f(K2);
+  let c = a - vec2f(1.0) + vec2f(2.0 * K2);
+  let h = max(vec3f(0.5) - vec3f(dot(a, a), dot(b, b), dot(c, c)), vec3f(0.0));
+  let h4 = h * h * h * h;
+  let n = vec3f(dot(a, hash22(si) * 2.0 - 1.0),
+                dot(b, hash22(si + of_) * 2.0 - 1.0),
+                dot(c, hash22(si + vec2f(1.0)) * 2.0 - 1.0));
+  return dot(h4, n) * 70.0;
+}
+
+// ─── Pattern generators ───
+
+// Checkerboard: returns 0.0 or 1.0 in alternating squares of given size
+fn checkerboard(p: vec2f, size: f32) -> f32 {
+  let c = floor(p / size);
+  return glsl_mod(c.x + c.y, 2.0);
+}
+
+// Brick pattern: returns 0..1 (1 = mortar/gap)
+fn brick(p: vec2f, brickSize: vec2f, mortarWidth: f32) -> f32 {
+  var bp = p / brickSize;
+  let row = floor(bp.y);
+  bp.x += glsl_mod(row, 2.0) * 0.5; // offset every other row
+  let cell = fract(bp);
+  let hw = mortarWidth / brickSize.x * 0.5;
+  let hh = mortarWidth / brickSize.y * 0.5;
+  let mx = smoothstep(hw, hw + 0.02, cell.x) * smoothstep(hw, hw + 0.02, 1.0 - cell.x);
+  let my = smoothstep(hh, hh + 0.02, cell.y) * smoothstep(hh, hh + 0.02, 1.0 - cell.y);
+  return 1.0 - mx * my;
+}
+
+// Hexagonal grid: returns (dist_to_center, cell_id_hash)
+fn hexGrid(p: vec2f, scale: f32) -> vec2f {
+  let s = p * scale;
+  let r = vec2f(1.0, 1.732);
+  let h = r * 0.5;
+  let a = glsl_mod2(s, r) - h;
+  let b = glsl_mod2(s - h, r) - h;
+  let g = select(b, a, length(a) < length(b));
+  return vec2f(length(g), hash21(floor(s / r)));
+}
+
+// Wood grain — procedural concentric rings with noise distortion
+fn woodGrain(p: vec2f, rings: f32, distort: f32) -> f32 {
+  let d = length(p) * rings + vnoise(p * 8.0) * distort;
+  return 0.5 + 0.5 * sin(d * 6.28318);
+}
+
+// Marble — veined pattern using domain-warped FBM
+fn marble(p: vec2f, scale: f32, veinFreq: f32) -> f32 {
+  let warped = warp(p * scale, 0.4, 0.0);
+  return 0.5 + 0.5 * sin(warped.x * veinFreq + fbm(warped, 5) * 8.0);
+}
+
+// ─── SDF helpers ───
+
+// Outline/stroke from SDF — returns 1.0 on the edge, 0.0 away from it
+fn sdfOutline(sdf: f32, thickness: f32) -> f32 {
+  return 1.0 - smoothstep(0.0, thickness, abs(sdf));
+}
+
+// Filled SDF — smooth anti-aliased fill. Returns alpha 0..1
+fn sdfFill(sdf: f32, edge: f32) -> f32 {
+  return smoothstep(edge, -edge, sdf);
+}
+
+// SDF shadow — soft drop shadow from SDF offset
+fn sdfShadow(p: vec2f, sdf_fn_val: f32, offset: vec2f, blur: f32) -> f32 {
+  return smoothstep(blur, -blur, sdf_fn_val) * 0.5;
+}
+
+// ─── Lighting from SDF normals ───
+// Compute 2D surface normal from SDF value (requires two extra SDF samples)
+// normalFromSDF should be called with: normalFromSDF(sdf_center, sdf_right, sdf_up, epsilon)
+fn normalFromSDF(sdfCenter: f32, sdfRight: f32, sdfUp: f32, eps: f32) -> vec2f {
+  return normalize(vec2f(sdfRight - sdfCenter, sdfUp - sdfCenter));
+}
+
+// Directional light on a 2D surface given its normal
+fn directionalLight(normal: vec2f, lightDir: vec2f, ambient: f32) -> f32 {
+  return clamp(dot(normal, normalize(lightDir)), 0.0, 1.0) * (1.0 - ambient) + ambient;
+}
+
+// Specular highlight for 2D SDF surfaces
+fn specularLight(normal: vec2f, lightDir: vec2f, viewDir: vec2f, shininess: f32) -> f32 {
+  let h = normalize(normalize(lightDir) + normalize(viewDir));
+  return pow(max(dot(normal, h), 0.0), shininess);
+}
+
+// Ambient occlusion from SDF — darker in concave areas
+fn sdfAO(sdf: f32, scale: f32) -> f32 {
+  return clamp(sdf * scale + 1.0, 0.0, 1.0);
+}
+
 // --- End Utility Library ---
 `
 
@@ -1087,6 +1213,29 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   for (var i = 0u; i < fieldCount; i++) {
     let f = superFields[i];
+
+    // ─── AABB early reject — skip fields whose bounding box doesn't contain this pixel ───
+    // Accounts for rotation: a rotated rect's AABB expands. Circles are rotation-invariant.
+    let fpos = f.posScaleRot.xy;
+    let fscale = max(f.posScaleRot.z, 0.001);
+    let frot = f.posScaleRot.w;
+    let fst = u32(f.shapeDims.x);
+    var halfExtent: vec2f;
+    if (fst == 1u) { // rect — expand AABB for rotation
+      let hw = f.shapeDims.y * 0.5 * fscale;
+      let hh = f.shapeDims.z * 0.5 * fscale;
+      let ac = abs(cos(frot));
+      let as_ = abs(sin(frot));
+      halfExtent = vec2f(hw * ac + hh * as_, hw * as_ + hh * ac);
+    } else { // circle — rotation doesn't change bounds
+      halfExtent = vec2f(f.shapeDims.y * fscale);
+    }
+    halfExtent += vec2f(1.0); // 1px AA margin
+    if (cellCoord.x < fpos.x - halfExtent.x || cellCoord.x > fpos.x + halfExtent.x ||
+        cellCoord.y < fpos.y - halfExtent.y || cellCoord.y > fpos.y + halfExtent.y) {
+      continue;
+    }
+
     let sdf = superSDF(cellCoord, f);
     let localUV = superLocalUV(cellCoord, f);
     // Per-field behind: temporal bidirectional (prev frame) or forward-only
@@ -1101,7 +1250,34 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // Forward-only: each field sees only earlier fields in array order
       behind = vec4f(resultColor, resultPresence);
     }
-    let visual = superVisual(localUV, sdf, f, frame.time, behind);
+    var visual = superVisual(localUV, sdf, f, frame.time, behind);
+
+    // ─── Auto-computed SDF normals + lighting ───
+    // extraParams.z = lighting intensity (0 = no lighting, 1 = full)
+    // extraParams.w = specular shininess (0 = off, higher = sharper)
+    let lightAmt = f.extraParams.z;
+    if (visual.a > 0.01 && lightAmt > 0.01) {
+      let eps = max(fscale * 0.5, 0.5);
+      let sdfR = superSDF(cellCoord + vec2f(eps, 0.0), f);
+      let sdfU = superSDF(cellCoord + vec2f(0.0, eps), f);
+      let normal = normalize(vec2f(sdfR - sdf, sdfU - sdf));
+      // Global light direction from _pad field (we reuse frame uniforms)
+      let lightDir = normalize(vec2f(0.5, 0.7));
+      let diff = clamp(dot(normal, lightDir), 0.0, 1.0);
+      let ambient = 0.4;
+      let lighting = diff * (1.0 - ambient) + ambient;
+      // Specular
+      let shininess = f.extraParams.w;
+      var spec = 0.0;
+      if (shininess > 0.1) {
+        let viewDir = vec2f(0.0, 1.0);
+        let halfDir = normalize(lightDir + viewDir);
+        spec = pow(max(dot(normal, halfDir), 0.0), shininess) * 0.5;
+      }
+      // AO from SDF — concave areas are darker
+      let ao = clamp(sdf * 0.3 + 1.0, 0.3, 1.0);
+      visual = vec4f(visual.rgb * mix(1.0, lighting * ao, lightAmt) + vec3f(spec * lightAmt), visual.a);
+    }
 
     if (visual.a > 0.01) {
       resultColor = visual.rgb;
@@ -1294,6 +1470,245 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       existing.rgb + spreadColor * spreadAlpha,
       max(existing.a, spreadAlpha),
     );
+  }
+}
+`
+}
+
+// ─── Post-processing compute shader ───
+// Reads from accumBuf, applies bloom + ACES tone mapping + vignette, writes back.
+// Single-pass approximate bloom using 13-tap cross-shaped kernel.
+
+export function buildPostProcessComputeShader(): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+struct PostProcessUniforms {
+  bloomIntensity: f32,
+  bloomThreshold: f32,
+  vignetteStrength: f32,
+  vignetteRadius: f32,
+  exposure: f32,
+  _pad: f32,
+  lightDir: vec2f,
+  lightIntensity: f32,
+  _pad2: f32,
+  _pad3: f32,
+  _pad4: f32,
+};
+@group(0) @binding(1) var<uniform> pp: PostProcessUniforms;
+
+@group(1) @binding(0) var<storage, read_write> accumBuf: array<vec4f>;
+
+// ACES filmic tone mapping
+fn acesToneMap(x: vec3f) -> vec3f {
+  let a = vec3f(2.51);
+  let b = vec3f(0.03);
+  let c = vec3f(2.43);
+  let d = vec3f(0.59);
+  let e = vec3f(0.14);
+  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), vec3f(0.0), vec3f(1.0));
+}
+
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let px = f32(gid.x);
+  let py = f32(gid.y);
+  if (px >= frame.resolution.x || py >= frame.resolution.y) { return; }
+
+  let stride = u32(frame.resolution.x);
+  let resX = i32(frame.resolution.x);
+  let resY = i32(frame.resolution.y);
+  let idx = gid.y * stride + gid.x;
+
+  let center = accumBuf[idx];
+  if (center.a < 0.001 && pp.bloomIntensity < 0.001) { return; }
+
+  var color = center.rgb;
+
+  // ─── Bloom: 13-tap cross kernel sampling bright pixels ───
+  if (pp.bloomIntensity > 0.001) {
+    var bloomAccum = vec3f(0.0);
+    let offsets = array<i32, 6>(1, 2, 4, 8, 16, 32);
+    let weights = array<f32, 6>(0.25, 0.2, 0.15, 0.1, 0.06, 0.03);
+    let thresh = vec3f(pp.bloomThreshold);
+
+    for (var bi = 0; bi < 6; bi++) {
+      let off = offsets[bi];
+      let w = weights[bi];
+
+      // Horizontal samples
+      let lx = clamp(i32(gid.x) - off, 0, resX - 1);
+      let rx = clamp(i32(gid.x) + off, 0, resX - 1);
+      let sL = accumBuf[gid.y * stride + u32(lx)].rgb;
+      let sR = accumBuf[gid.y * stride + u32(rx)].rgb;
+
+      // Vertical samples
+      let uy = clamp(i32(gid.y) - off, 0, resY - 1);
+      let dy_ = clamp(i32(gid.y) + off, 0, resY - 1);
+      let sU = accumBuf[u32(uy) * stride + gid.x].rgb;
+      let sD = accumBuf[u32(dy_) * stride + gid.x].rgb;
+
+      // Threshold — only accumulate bright parts
+      bloomAccum += max(sL - thresh, vec3f(0.0)) * w;
+      bloomAccum += max(sR - thresh, vec3f(0.0)) * w;
+      bloomAccum += max(sU - thresh, vec3f(0.0)) * w;
+      bloomAccum += max(sD - thresh, vec3f(0.0)) * w;
+    }
+
+    color += bloomAccum * pp.bloomIntensity;
+  }
+
+  // ─── Exposure ───
+  color *= pp.exposure;
+
+  // ─── ACES tone mapping ───
+  color = acesToneMap(color);
+
+  // ─── Vignette ───
+  if (pp.vignetteStrength > 0.001) {
+    let uv = vec2f(px / frame.resolution.x, py / frame.resolution.y);
+    let centeredUV = uv - 0.5;
+    let dist = length(centeredUV) * 2.0;
+    let vig = 1.0 - smoothstep(pp.vignetteRadius, pp.vignetteRadius + 0.5, dist) * pp.vignetteStrength;
+    color *= vig;
+  }
+
+  accumBuf[idx] = vec4f(color, center.a);
+}
+`
+}
+
+// ─── GPU Particle System ───
+
+export const PARTICLE_STRIDE = 48 // 12 floats × 4 bytes = 48 bytes per particle
+export const MAX_PARTICLES = 4096
+
+/**
+ * Particle update compute shader — advances particle physics each frame.
+ * Reads/writes particle buffer: each particle = 12 floats:
+ *   [posX, posY, velX, velY, colorR, colorG, colorB, alpha, life, maxLife, size, flags]
+ * flags: bit 0 = alive
+ */
+export function buildParticleUpdateComputeShader(): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+struct Particle {
+  pos: vec2f,
+  vel: vec2f,
+  color: vec4f,
+  life: f32,
+  maxLife: f32,
+  size: f32,
+  flags: f32,
+};
+
+@group(1) @binding(0) var<storage, read_write> particles: array<Particle>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let i = gid.x;
+  if (i >= arrayLength(&particles)) { return; }
+
+  var p = particles[i];
+  if (p.flags < 0.5) { return; } // dead particle
+
+  let dt = 1.0 / 60.0; // fixed timestep
+
+  // Apply velocity
+  p.pos += p.vel * dt;
+
+  // Gravity (gentle downward pull)
+  p.vel.y -= 20.0 * dt;
+
+  // Drag
+  p.vel *= 0.99;
+
+  // Age
+  p.life -= dt;
+  if (p.life <= 0.0) {
+    p.flags = 0.0; // kill particle
+  }
+
+  // Fade alpha based on remaining life
+  let lifeRatio = clamp(p.life / max(p.maxLife, 0.001), 0.0, 1.0);
+  p.color.a = lifeRatio;
+
+  // Shrink near death
+  p.size = max(p.size * (0.5 + 0.5 * lifeRatio), 0.1);
+
+  particles[i] = p;
+}
+`
+}
+
+/**
+ * Particle render compute shader — draws particles into the accumulation buffer.
+ * Each particle renders as a soft circle at its grid-space position.
+ */
+export function buildParticleRenderComputeShader(): string {
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+
+struct ParticleR {
+  pos: vec2f,
+  vel: vec2f,
+  color: vec4f,
+  life: f32,
+  maxLife: f32,
+  size: f32,
+  flags: f32,
+};
+
+@group(1) @binding(0) var<storage, read> particles: array<ParticleR>;
+@group(1) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let pi = gid.x;
+  if (pi >= arrayLength(&particles)) { return; }
+
+  let p = particles[pi];
+  if (p.flags < 0.5 || p.color.a < 0.01) { return; }
+
+  // Convert particle grid position to pixel position
+  let aspect = frame.resolution.x / frame.resolution.y;
+  let gridRange = vec2f(frame.gridSize) / frame.zoom;
+
+  var pixelCenter: vec2f;
+  if (aspect > 1.0) {
+    pixelCenter.x = ((p.pos.x - frame.camera.x) / (gridRange.x * aspect) + 0.5) * frame.resolution.x;
+    pixelCenter.y = (0.5 - (p.pos.y - frame.camera.y) / gridRange.y) * frame.resolution.y;
+  } else {
+    pixelCenter.x = ((p.pos.x - frame.camera.x) / gridRange.x + 0.5) * frame.resolution.x;
+    pixelCenter.y = (0.5 - (p.pos.y - frame.camera.y) / (gridRange.y / aspect)) * frame.resolution.y;
+  }
+
+  // Pixel radius from grid-space size
+  let pixelSize = p.size * frame.resolution.x / (gridRange.x * select(1.0, aspect, aspect > 1.0));
+
+  let minX = max(i32(pixelCenter.x - pixelSize - 1.0), 0);
+  let maxX = min(i32(pixelCenter.x + pixelSize + 1.0), i32(frame.resolution.x) - 1);
+  let minY = max(i32(pixelCenter.y - pixelSize - 1.0), 0);
+  let maxY = min(i32(pixelCenter.y + pixelSize + 1.0), i32(frame.resolution.y) - 1);
+
+  let stride = u32(frame.resolution.x);
+
+  for (var py = minY; py <= maxY; py++) {
+    for (var px = minX; px <= maxX; px++) {
+      let d = length(vec2f(f32(px), f32(py)) - pixelCenter);
+      let alpha = smoothstep(pixelSize, pixelSize * 0.3, d) * p.color.a;
+      if (alpha < 0.01) { continue; }
+
+      let bufIdx = u32(py) * stride + u32(px);
+      let existing = accumBuf[bufIdx];
+      // Additive blend for glowing particles
+      accumBuf[bufIdx] = vec4f(
+        existing.rgb + p.color.rgb * alpha,
+        max(existing.a, alpha),
+      );
+    }
   }
 }
 `

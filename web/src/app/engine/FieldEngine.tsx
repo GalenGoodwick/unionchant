@@ -27,6 +27,9 @@ function genEffectId() {
   return `effect_${++effectCounter}_${Date.now()}`
 }
 
+// Reusable Set for per-frame interaction key cleanup (avoids allocation every frame)
+const _reusableKeySet = new Set<string>()
+
 /** Convert screen pixel coordinates to float grid coordinates (no flooring) */
 function screenToGrid(
   screenX: number, screenY: number,
@@ -116,6 +119,9 @@ export default function FieldEngine() {
 
   // HUD elements (driven by worldData['hud'])
   const hudContainerRef = useRef<HTMLDivElement>(null)
+  const hudElementCacheRef = useRef<Map<string, HTMLElement>>(new Map())
+  const nameToIdRef = useRef<Map<string, string>>(new Map())
+  const lastFieldCountRef = useRef<number>(0)
 
   // Camera
   const gridSize = DEFAULT_GRID_SIZE
@@ -720,24 +726,24 @@ export default function FieldEngine() {
         }
       }
 
-      // Update HUD overlay from worldData
+      // Update HUD overlay from worldData (cached element lookups, no per-frame DOM queries)
       const hudData = sim.worldData['hud'] as HudElement[] | undefined
       const hudContainer = hudContainerRef.current
       if (hudContainer) {
         if (hudData && Array.isArray(hudData)) {
-          // Build or update HUD elements via DOM
-          const existingIds = new Set<string>()
+          const cache = hudElementCacheRef.current
+          const seen = new Set<string>()
           for (const elem of hudData) {
             if (!elem.id || elem.visible === false) continue
-            existingIds.add(elem.id)
-            let el = hudContainer.querySelector(`[data-hud-id="${elem.id}"]`) as HTMLElement | null
-            if (!el) {
+            seen.add(elem.id)
+            let el = cache.get(elem.id)
+            if (!el || !el.isConnected) {
               el = document.createElement('div')
               el.setAttribute('data-hud-id', elem.id)
               el.style.position = 'absolute'
               hudContainer.appendChild(el)
+              cache.set(elem.id, el)
             }
-            // Position
             el.style.left = elem.x ?? ''
             el.style.top = elem.y ?? ''
             el.style.right = elem.right ?? ''
@@ -749,18 +755,22 @@ export default function FieldEngine() {
               el.textContent = elem.text ?? ''
             } else if (elem.type === 'bar') {
               const pct = elem.max ? Math.min(100, ((elem.value ?? 0) / elem.max) * 100) : 0
-              el.innerHTML = ''
-              el.style.width = elem.width ?? '100px'
-              el.style.height = '12px'
-              el.style.backgroundColor = 'rgba(255,255,255,0.2)'
-              el.style.borderRadius = '2px'
-              el.style.overflow = 'hidden'
-              const fill = document.createElement('div')
+              // Reuse fill child if it exists
+              let fill = el.firstChild as HTMLElement | null
+              if (!fill || !fill.style) {
+                el.innerHTML = ''
+                el.style.width = elem.width ?? '100px'
+                el.style.height = '12px'
+                el.style.backgroundColor = 'rgba(255,255,255,0.2)'
+                el.style.borderRadius = '2px'
+                el.style.overflow = 'hidden'
+                fill = document.createElement('div')
+                fill.style.height = '100%'
+                fill.style.backgroundColor = elem.barColor ?? elem.color ?? '#0f0'
+                fill.style.transition = 'width 0.15s'
+                el.appendChild(fill)
+              }
               fill.style.width = `${pct}%`
-              fill.style.height = '100%'
-              fill.style.backgroundColor = elem.barColor ?? elem.color ?? '#0f0'
-              fill.style.transition = 'width 0.15s'
-              el.appendChild(fill)
             } else if (elem.type === 'image') {
               if (el.tagName !== 'IMG') {
                 const img = document.createElement('img') as HTMLImageElement
@@ -768,6 +778,7 @@ export default function FieldEngine() {
                 img.style.position = 'absolute'
                 el.replaceWith(img)
                 el = img
+                cache.set(elem.id, el)
               }
               (el as HTMLImageElement).src = elem.src ?? ''
               el.style.width = elem.imgWidth ?? ''
@@ -778,14 +789,16 @@ export default function FieldEngine() {
               el.style.bottom = elem.bottom ?? ''
             }
           }
-          // Remove stale elements
-          for (const child of Array.from(hudContainer.children)) {
-            const id = child.getAttribute('data-hud-id')
-            if (id && !existingIds.has(id)) child.remove()
+          // Remove stale elements using cache (no DOM query)
+          for (const [id, el] of cache) {
+            if (!seen.has(id)) {
+              el.remove()
+              cache.delete(id)
+            }
           }
-        } else {
-          // No HUD data — clear all
+        } else if (hudElementCacheRef.current.size > 0) {
           hudContainer.innerHTML = ''
+          hudElementCacheRef.current.clear()
         }
       }
 
@@ -966,9 +979,13 @@ export default function FieldEngine() {
           }
         }
 
-        // Clean up stale interaction programs
-        const activePairKeys = new Set(activePairs.map(p => `ix_${p.effect.id}_${p.fieldA.id}_${p.fieldB.id}`))
-        for (const key of Array.from(renderer.getFieldEffectKeys())) {
+        // Clean up stale interaction programs (reuse Set to avoid per-frame allocation)
+        const activePairKeys = _reusableKeySet
+        activePairKeys.clear()
+        for (const p of activePairs) {
+          activePairKeys.add(`ix_${p.effect.id}_${p.fieldA.id}_${p.fieldB.id}`)
+        }
+        for (const key of renderer.getFieldEffectKeys()) {
           if (key.startsWith('ix_') && !activePairKeys.has(key)) {
             renderer.removeFieldEffect(key)
             renderer.removeFieldMask(key)
@@ -977,6 +994,21 @@ export default function FieldEngine() {
       }
 
       // ─── Superimposed fields — pack fields with visualType for uber-shader ───
+      // Compute camera viewport in grid coords for CPU-side frustum culling
+      const canvas = canvasRef.current
+      let vpMinX = -Infinity, vpMinY = -Infinity, vpMaxX = Infinity, vpMaxY = Infinity
+      if (canvas) {
+        const dpr = (window.devicePixelRatio || 1) * renderer.renderScale
+        const aspect = (canvas.clientWidth * dpr) / (canvas.clientHeight * dpr)
+        const gridRange = gridSize / camera.zoom
+        const halfW = gridRange * Math.max(aspect, 1.0) * 0.5
+        const halfH = gridRange * Math.max(1.0 / aspect, 1.0) * 0.5
+        vpMinX = camera.x - halfW
+        vpMaxX = camera.x + halfW
+        vpMinY = camera.y - halfH
+        vpMaxY = camera.y + halfH
+      }
+
       const superFields: SuperFieldGPU[] = []
       const superFieldOrder: string[] = []  // Maps GPU array index → fieldId
       for (const field of sim.fields.values()) {
@@ -985,6 +1017,25 @@ export default function FieldEngine() {
         const shapeType = field.shapeType === 'rect' ? 1 : 0
         const dim1 = shapeType === 1 ? (field.w || 20) : (field.radius || 10)
         const dim2 = shapeType === 1 ? (field.h || 20) : 0
+
+        // Viewport culling — skip fields entirely outside the camera view
+        const s = Math.max(t.scale, 0.001)
+        let hx: number, hy: number
+        if (shapeType === 1) {
+          // Rotated rect AABB
+          const ac = Math.abs(Math.cos(t.rotation))
+          const as_ = Math.abs(Math.sin(t.rotation))
+          hx = (dim1 * 0.5 * ac + dim2 * 0.5 * as_) * s
+          hy = (dim1 * 0.5 * as_ + dim2 * 0.5 * ac) * s
+        } else {
+          hx = dim1 * s
+          hy = dim1 * s
+        }
+        if (t.x + hx < vpMinX || t.x - hx > vpMaxX ||
+            t.y + hy < vpMinY || t.y - hy > vpMaxY) {
+          continue // entirely off-screen
+        }
+
         const vp = field.visualParams || [0, 0, 0, 0]
         superFieldOrder.push(field.id)
         superFields.push({
@@ -992,7 +1043,12 @@ export default function FieldEngine() {
           shapeDims: [shapeType, dim1, dim2, 0],
           color: field.color,
           visualAndParams: [field.visualType, vp[0], vp[1], vp[2]],
-          extraParams: [vp[3], field.properties.get('bidirectionalBehind') ? 1 : 0, 0, 0],
+          extraParams: [
+            vp[3],
+            field.properties.get('bidirectionalBehind') ? 1 : 0,
+            (field.properties.get('lighting') as number) ?? 0,
+            (field.properties.get('specular') as number) ?? 0,
+          ],
         })
       }
 
@@ -1005,11 +1061,17 @@ export default function FieldEngine() {
       sim.superFieldOrder = superFieldOrder
 
       // Map interaction pairs (field name → field name) to GPU indices (idx → idx)
-      // Build name→ID lookup since interactionPairs store field names, not IDs
-      const nameToId = new Map<string, string>()
-      for (const field of sim.fields.values()) {
-        nameToId.set(field.name, field.id)
+      // Rebuild name→ID lookup only when field count changes (avoids per-frame Map allocation)
+      const fieldCount = sim.fields.size
+      if (fieldCount !== lastFieldCountRef.current) {
+        lastFieldCountRef.current = fieldCount
+        const m = nameToIdRef.current
+        m.clear()
+        for (const field of sim.fields.values()) {
+          m.set(field.name, field.id)
+        }
       }
+      const nameToId = nameToIdRef.current
       const activeInteractions: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[] = []
       if (sim.interactionPairs && sim.interactionPairs.length > 0) {
         for (const pair of sim.interactionPairs) {
@@ -1021,6 +1083,19 @@ export default function FieldEngine() {
             activeInteractions.push({ fieldIdxA: idxA, fieldIdxB: idxB, interactionType: pair.interactionTypeId, propagationType: pair.propagationTypeId })
           }
         }
+      }
+
+      // Apply post-processing settings from worldData if set
+      const ppData = sim.worldData['postProcess'] as Partial<typeof renderer.postProcessSettings> | undefined
+      if (ppData) {
+        renderer.setPostProcess(ppData)
+      }
+
+      // Process particle emission requests from worldData
+      const emitParticle = sim.worldData['__emit_particles'] as { x: number; y: number; count: number; color?: [number, number, number]; velX?: number; velY?: number; spread?: number; size?: number; life?: number } | undefined
+      if (emitParticle) {
+        renderer.emitParticles(emitParticle.x, emitParticle.y, emitParticle.count, emitParticle)
+        delete sim.worldData['__emit_particles']
       }
 
       renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions)
