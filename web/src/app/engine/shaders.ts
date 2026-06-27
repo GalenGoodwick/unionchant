@@ -43,7 +43,11 @@ struct FrameUniforms {
   zoom: f32,
   time: f32,
   gridSize: f32,
-  _pad: f32,
+  renderMode: f32,    // 0.0 = 2D, 1.0 = 3D
+  cam3Dpos: vec3f,    // 3D camera position
+  cam3Dfov: f32,      // field of view (radians)
+  cam3Ddir: vec2f,    // pitch, yaw
+  _pad3D: vec2f,
 };
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 `
@@ -447,6 +451,88 @@ fn specularLight(normal: vec2f, lightDir: vec2f, viewDir: vec2f, shininess: f32)
 // Ambient occlusion from SDF — darker in concave areas
 fn sdfAO(sdf: f32, scale: f32) -> f32 {
   return clamp(sdf * scale + 1.0, 0.0, 1.0);
+}
+
+// ─── 3D Utilities ───
+
+// 3D SDF: Sphere
+fn sdSphere(p: vec3f, r: f32) -> f32 {
+  return length(p) - r;
+}
+
+// 3D SDF: Axis-aligned box
+fn sdBox3(p: vec3f, b: vec3f) -> f32 {
+  let d = abs(p) - b;
+  return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, vec3f(0.0)));
+}
+
+// 3D SDF: Rounded box
+fn sdRoundedBox3(p: vec3f, b: vec3f, r: f32) -> f32 {
+  let q = abs(p) - b + vec3f(r);
+  return length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
+}
+
+// Rotate around X axis
+fn rotateX3(p: vec3f, a: f32) -> vec3f {
+  let c = cos(a); let s = sin(a);
+  return vec3f(p.x, c * p.y - s * p.z, s * p.y + c * p.z);
+}
+
+// Rotate around Y axis
+fn rotateY3(p: vec3f, a: f32) -> vec3f {
+  let c = cos(a); let s = sin(a);
+  return vec3f(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
+}
+
+// Rotate around Z axis
+fn rotateZ3(p: vec3f, a: f32) -> vec3f {
+  let c = cos(a); let s = sin(a);
+  return vec3f(c * p.x - s * p.y, s * p.x + c * p.y, p.z);
+}
+
+// 3D SDF normal via central differences
+fn sdfNormal3(p: vec3f, sdfVal: f32, shapeType: u32, dims: vec2f) -> vec3f {
+  let e = 0.5;
+  var n: vec3f;
+  if (shapeType == 1u) {
+    // Box
+    let b = vec3f(dims.x * 0.5, dims.y * 0.5, min(dims.x, dims.y) * 0.25);
+    n = vec3f(
+      sdBox3(p + vec3f(e, 0.0, 0.0), b) - sdBox3(p - vec3f(e, 0.0, 0.0), b),
+      sdBox3(p + vec3f(0.0, e, 0.0), b) - sdBox3(p - vec3f(0.0, e, 0.0), b),
+      sdBox3(p + vec3f(0.0, 0.0, e), b) - sdBox3(p - vec3f(0.0, 0.0, e), b),
+    );
+  } else {
+    // Sphere — analytic normal
+    return normalize(p);
+  }
+  return normalize(n);
+}
+
+// Ray-sphere intersection: returns distance t or -1.0 if no hit
+fn raySphere(origin: vec3f, dir: vec3f, radius: f32) -> f32 {
+  let b = dot(origin, dir);
+  let c = dot(origin, origin) - radius * radius;
+  let disc = b * b - c;
+  if (disc < 0.0) { return -1.0; }
+  let sqrtDisc = sqrt(disc);
+  let t0 = -b - sqrtDisc;
+  let t1 = -b + sqrtDisc;
+  if (t0 > 0.001) { return t0; }
+  if (t1 > 0.001) { return t1; }
+  return -1.0;
+}
+
+// Ray-box intersection: returns distance t or -1.0 if no hit
+fn rayBox(origin: vec3f, dir: vec3f, halfSize: vec3f) -> f32 {
+  let invDir = 1.0 / dir;
+  let t1 = (-halfSize - origin) * invDir;
+  let t2 = (halfSize - origin) * invDir;
+  let tmin = max(max(min(t1.x, t2.x), min(t1.y, t2.y)), min(t1.z, t2.z));
+  let tmax = min(min(max(t1.x, t2.x), max(t1.y, t2.y)), max(t1.z, t2.z));
+  if (tmax < 0.0 || tmin > tmax) { return -1.0; }
+  if (tmin > 0.001) { return tmin; }
+  return tmax;
 }
 
 // --- End Utility Library ---
@@ -1003,6 +1089,315 @@ export interface ModuleEntry {
   wgsl: string
 }
 
+// ─── Built-in visual type library ───
+// These are always available without runtime registration.
+// Runtime types with the same name override built-ins.
+
+export const BUILTIN_VISUAL_WGSL: Array<{ id: number; name: string; wgsl: string }> = [
+  // 0: Solid — flat fill with SDF edge
+  { id: 0, name: 'solid', wgsl: `
+fn visual_solid(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  return vec4f(col.rgb, a * col.a);
+}` },
+
+  // 1: Circle — soft radial gradient, p.x = falloff (default 2.0)
+  { id: 1, name: 'circle', wgsl: `
+fn visual_circle(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let d = length(uv);
+  let falloff = max(p.x, 0.5);
+  let a = smoothstep(1.0, 0.0, pow(d, falloff));
+  if (a < 0.01) { return vec4f(0.0); }
+  return vec4f(col.rgb, a * col.a);
+}` },
+
+  // 2: Glow — exponential glow extending beyond SDF, HDR-capable
+  { id: 2, name: 'glow', wgsl: `
+fn visual_glow(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let d = length(uv);
+  let radius = max(p.x, 0.3);
+  let intensity = max(p.y, 1.5);
+  let g = intensity * exp(-d * d / (radius * radius));
+  if (g < 0.01) { return vec4f(0.0); }
+  return vec4f(col.rgb * g, min(g, 1.0) * col.a);
+}` },
+
+  // 3: Ring — ring shape, p.x = radius (0.6), p.y = width (0.1)
+  { id: 3, name: 'ring', wgsl: `
+fn visual_ring(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let d = length(uv);
+  let radius = select(0.6, p.x, p.x > 0.01);
+  let width = select(0.1, p.y, p.y > 0.01);
+  let r = exp(-pow(d - radius, 2.0) / (width * width));
+  if (r < 0.01) { return vec4f(0.0); }
+  return vec4f(col.rgb * (0.5 + r * 0.5), r * col.a);
+}` },
+
+  // 4: Eyes — two eye shapes, pupils track behind brightness
+  { id: 4, name: 'eyes', wgsl: `
+fn visual_eyes(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let sep = select(0.35, p.x, p.x > 0.01);
+  let eyeR = 0.22;
+  let pupilR = 0.08;
+  let blink = smoothstep(-0.98, -1.0, cos(time * 0.7));
+  let dL = length(uv - vec2f(-sep, 0.05));
+  let dR = length(uv - vec2f(sep, 0.05));
+  let whiteL = smoothstep(eyeR, eyeR - 0.04, dL) * (1.0 - blink);
+  let whiteR = smoothstep(eyeR, eyeR - 0.04, dR) * (1.0 - blink);
+  let look = behind.a * 0.06;
+  let pupilOff = vec2f(look * sin(time * 0.5), look * cos(time * 0.3));
+  let pL = smoothstep(pupilR, pupilR - 0.03, length(uv - vec2f(-sep, 0.05) + pupilOff));
+  let pR = smoothstep(pupilR, pupilR - 0.03, length(uv - vec2f(sep, 0.05) + pupilOff));
+  let eye = max(whiteL, whiteR);
+  let pupil = max(pL * whiteL, pR * whiteR);
+  let c = mix(col.rgb, vec3f(1.0), eye * 0.8);
+  let c2 = mix(c, vec3f(0.05), pupil);
+  let bodyA = smoothstep(0.5, -0.5, sdf) * col.a;
+  let finalA = max(bodyA * 0.5, eye);
+  return vec4f(c2, finalA);
+}` },
+
+  // 5: Coin — metallic disc with rim lighting
+  { id: 5, name: 'coin', wgsl: `
+fn visual_coin(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let d = length(uv);
+  let rim = smoothstep(0.85, 0.95, d) * 0.6;
+  let spec = pow(max(0.0, 1.0 - abs(uv.x * 0.7 + uv.y * 0.3 - 0.15)), 8.0) * 0.5;
+  let shade = 0.6 + 0.4 * (1.0 - d);
+  let c = col.rgb * shade + vec3f(rim + spec);
+  let inner = smoothstep(0.7, 0.65, d);
+  let innerRim = smoothstep(0.72, 0.68, d) - smoothstep(0.68, 0.64, d);
+  let c2 = c + col.rgb * innerRim * 0.3;
+  return vec4f(c2, a * col.a);
+}` },
+
+  // 6: Platform — flat top with bottom shadow/depth
+  { id: 6, name: 'platform', wgsl: `
+fn visual_platform(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let topLight = smoothstep(-0.3, -0.8, uv.y) * 0.3;
+  let bottomShadow = smoothstep(0.3, 0.8, uv.y) * 0.4;
+  let edgeHighlight = smoothstep(0.0, -0.2, sdf) - smoothstep(-0.2, -0.5, sdf);
+  let shade = 1.0 + topLight - bottomShadow;
+  let c = col.rgb * shade + vec3f(edgeHighlight * 0.15);
+  return vec4f(c, a * col.a);
+}` },
+
+  // 7: Stripe — animated diagonal stripes, p.x = count (6), p.y = speed (1)
+  { id: 7, name: 'stripe', wgsl: `
+fn visual_stripe(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let count = select(6.0, p.x, p.x > 0.5);
+  let speed = select(1.0, p.y, abs(p.y) > 0.01);
+  let stripe = 0.5 + 0.5 * sin((uv.x + uv.y) * count * 3.14159 + time * speed);
+  let c = col.rgb * (0.5 + stripe * 0.5);
+  return vec4f(c, a * col.a);
+}` },
+
+  // 8: Pulse — radial pulse wave expanding outward
+  { id: 8, name: 'pulse', wgsl: `
+fn visual_pulse(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let d = length(uv);
+  let speed = select(2.0, p.x, p.x > 0.1);
+  let wave = fract(d - time * speed * 0.3);
+  let ring_val = smoothstep(0.0, 0.1, wave) * smoothstep(0.3, 0.1, wave);
+  let core = exp(-d * 3.0) * (0.7 + 0.3 * sin(time * speed));
+  let c = col.rgb * (core + ring_val * 0.6);
+  let finalA = a * max(core, ring_val * 0.5 + 0.2) * col.a;
+  return vec4f(c, finalA);
+}` },
+
+  // 9: Gradient — linear gradient, p.x = angle in radians
+  { id: 9, name: 'gradient', wgsl: `
+fn visual_gradient(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let angle = p.x;
+  let dir = vec2f(cos(angle), sin(angle));
+  let t = dot(uv, dir) * 0.5 + 0.5;
+  let c = col.rgb * (0.3 + t * 0.7);
+  return vec4f(c, a * col.a);
+}` },
+
+  // 10: Lava — turbulent FBM flow, hot color ramp
+  { id: 10, name: 'lava', wgsl: `
+fn visual_lava(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let flow = fbm(vec2f(uv.x * 3.0, uv.y * 3.0 - time * 0.4), 5);
+  let heat = fbm(vec2f(uv.x * 5.0 + time * 0.2, uv.y * 5.0), 4);
+  let t = clamp(flow * 0.5 + 0.5 + heat * 0.3, 0.0, 1.0);
+  var c: vec3f;
+  if (t < 0.3) { c = mix(vec3f(0.05, 0.0, 0.0), vec3f(0.6, 0.05, 0.0), t / 0.3); }
+  else if (t < 0.7) { c = mix(vec3f(0.6, 0.05, 0.0), vec3f(1.0, 0.4, 0.0), (t - 0.3) / 0.4); }
+  else { c = mix(vec3f(1.0, 0.4, 0.0), vec3f(1.0, 0.9, 0.3), (t - 0.7) / 0.3); }
+  c *= col.rgb;
+  return vec4f(c * (1.0 + heat * 0.5), a * col.a);
+}` },
+
+  // 11: Crystal — voronoi cells with edge glow and shimmer
+  { id: 11, name: 'crystal', wgsl: `
+fn visual_crystal(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let scale = 4.0 + p.x * 4.0;
+  let v = voronoi(uv * scale);
+  let edge = voronoiEdge(uv * scale, 0.08);
+  let shimmer = 0.5 + 0.5 * sin(v.y * 20.0 + time * 2.0);
+  let facet = 0.3 + 0.7 * v.x;
+  let c = col.rgb * facet + vec3f(edge * 0.6 * shimmer);
+  return vec4f(c, a * col.a);
+}` },
+
+  // 12: Plasma — classic sine-sum plasma, rainbow cycling
+  { id: 12, name: 'plasma', wgsl: `
+fn visual_plasma(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let speed = select(1.0, p.x, p.x > 0.01);
+  let t = time * speed;
+  let v1 = sin(uv.x * 5.0 + t);
+  let v2 = sin(uv.y * 5.0 + t * 0.7);
+  let v3 = sin((uv.x + uv.y) * 5.0 + t * 0.5);
+  let v4 = sin(length(uv) * 7.0 - t);
+  let v = (v1 + v2 + v3 + v4) * 0.25;
+  let r = 0.5 + 0.5 * sin(v * 3.14159 * 2.0 + 0.0);
+  let g = 0.5 + 0.5 * sin(v * 3.14159 * 2.0 + 2.094);
+  let b = 0.5 + 0.5 * sin(v * 3.14159 * 2.0 + 4.189);
+  let c = vec3f(r, g, b) * col.rgb;
+  return vec4f(c, a * col.a);
+}` },
+
+  // 13: Nebula — layered FBM clouds with star points
+  { id: 13, name: 'nebula', wgsl: `
+fn visual_nebula(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let n1 = fbm(vec2f(uv.x * 2.0 + time * 0.08, uv.y * 2.0), 5);
+  let n2 = fbm(vec2f(uv.x * 3.0 - time * 0.12, uv.y * 3.0 + time * 0.06), 4);
+  let density = clamp(n1 * 0.6 + n2 * 0.4 + 0.2, 0.0, 1.0);
+  let starNoise = fbm(uv * 25.0, 2);
+  let star = smoothstep(0.9, 0.95, starNoise) * 2.0;
+  let c = col.rgb * density + vec3f(star);
+  return vec4f(c, a * density * col.a);
+}` },
+
+  // 14: Water — ripples + caustic pattern, shows behind through transparency
+  { id: 14, name: 'water', wgsl: `
+fn visual_water(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let d = length(uv);
+  let ripple1 = sin(d * 12.0 - time * 3.0) * 0.5 + 0.5;
+  let ripple2 = sin(length(uv - vec2f(0.3, -0.2)) * 10.0 - time * 2.5) * 0.5 + 0.5;
+  let caustic = voronoiEdge(uv * 6.0 + vec2f(time * 0.3, time * 0.2), 0.15) * 0.4;
+  let surface = ripple1 * 0.3 + ripple2 * 0.2 + caustic;
+  let waterCol = col.rgb * (0.6 + surface * 0.4);
+  let transparency = 0.5 + p.x * 0.3;
+  let c = mix(behind.rgb, waterCol, transparency) * select(1.0, 1.0, behind.a > 0.01);
+  let finalC = mix(waterCol, c, behind.a * 0.5);
+  return vec4f(finalC, a * col.a * transparency);
+}` },
+
+  // 15: Fire — upward FBM displacement with hot gradient
+  { id: 15, name: 'fire', wgsl: `
+fn visual_fire(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  var fuv = uv;
+  fuv.y += 0.3;
+  let distort = fbm(vec2f(fuv.x * 4.0, fuv.y * 2.0 - time * 2.0), 4) * 0.3;
+  fuv.x += distort;
+  let d = length(fuv);
+  let flame = 1.0 - smoothstep(0.0, 0.9, d);
+  let flicker = fbm(vec2f(fuv.x * 6.0, fuv.y * 3.0 - time * 3.0), 3);
+  flame *= (0.7 + flicker * 0.5);
+  if (flame < 0.01) { return vec4f(0.0); }
+  let t = clamp(flame, 0.0, 1.0);
+  var c: vec3f;
+  if (t < 0.4) { c = mix(vec3f(0.1, 0.0, 0.0), vec3f(0.8, 0.1, 0.0), t / 0.4); }
+  else if (t < 0.7) { c = mix(vec3f(0.8, 0.1, 0.0), vec3f(1.0, 0.6, 0.0), (t - 0.4) / 0.3); }
+  else { c = mix(vec3f(1.0, 0.6, 0.0), vec3f(1.0, 1.0, 0.7), (t - 0.7) / 0.3); }
+  c *= col.rgb;
+  return vec4f(c, flame * col.a);
+}` },
+
+  // 16: Electric — branching noise like lightning
+  { id: 16, name: 'electric', wgsl: `
+fn visual_electric(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let n1 = fbm(vec2f(uv.x * 8.0 + time * 2.0, uv.y * 2.0), 4);
+  let n2 = fbm(vec2f(uv.x * 2.0, uv.y * 8.0 - time * 1.5), 4);
+  let bolt1 = smoothstep(0.15, 0.0, abs(uv.y - n1 * 0.6));
+  let bolt2 = smoothstep(0.15, 0.0, abs(uv.x - n2 * 0.6));
+  let bolts = max(bolt1, bolt2);
+  let core = exp(-length(uv) * 2.0) * 0.3;
+  let intensity = bolts + core;
+  if (intensity < 0.01) { return vec4f(0.0); }
+  let c = col.rgb * 0.3 + vec3f(0.5, 0.8, 1.0) * bolts + col.rgb * core;
+  return vec4f(c, min(intensity, 1.0) * a * col.a);
+}` },
+
+  // 17: Terrain — heightmap with contour bands
+  { id: 17, name: 'terrain', wgsl: `
+fn visual_terrain(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let height = fbm(uv * 3.0, 5) * 0.5 + 0.5;
+  let bands = select(8.0, p.x, p.x > 0.5);
+  let contour = fract(height * bands);
+  let contourLine = smoothstep(0.02, 0.0, contour) + smoothstep(0.98, 1.0, contour);
+  var c: vec3f;
+  if (height < 0.3) { c = mix(vec3f(0.1, 0.3, 0.15), vec3f(0.2, 0.5, 0.2), height / 0.3); }
+  else if (height < 0.6) { c = mix(vec3f(0.2, 0.5, 0.2), vec3f(0.5, 0.4, 0.25), (height - 0.3) / 0.3); }
+  else { c = mix(vec3f(0.5, 0.4, 0.25), vec3f(0.9, 0.9, 0.95), (height - 0.6) / 0.4); }
+  c *= col.rgb;
+  let shade = 1.0 - contourLine * 0.4;
+  return vec4f(c * shade, a * col.a);
+}` },
+
+  // 18: Portal — swirling vortex with behind-warp
+  { id: 18, name: 'portal', wgsl: `
+fn visual_portal(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let pol = polar(uv);
+  let swirl = pol.y + pol.x * 3.0 - time * 2.0;
+  let spiralCount = 3.0 + p.x * 3.0;
+  let spiral = 0.5 + 0.5 * sin(swirl * spiralCount);
+  let tunnel = exp(-pol.x * 2.0);
+  let n = fbm(uv * 4.0 + time * 0.3, 3);
+  let rimVal = ring(uv, 0.7, 0.15);
+  let c = col.rgb * spiral * (0.5 + n * 0.5) + col.rgb * rimVal * 2.0;
+  let centerMask = tunnel * 0.6;
+  let finalC = mix(c, behind.rgb, centerMask * behind.a);
+  return vec4f(finalC, a * col.a);
+}` },
+
+  // 19: Organic — cellular/biological look, voronoi + membrane
+  { id: 19, name: 'organic', wgsl: `
+fn visual_organic(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let scale = 5.0 + p.x * 3.0;
+  let v = voronoi(uv * scale + vec2f(time * 0.1, 0.0));
+  let membrane = voronoiEdge(uv * scale + vec2f(time * 0.1, 0.0), 0.06);
+  let pulse_val = 0.7 + 0.3 * sin(v.x * 10.0 + time * 1.5);
+  let interior = v.x * pulse_val;
+  let nucl = smoothstep(0.15, 0.05, v.x) * 0.6;
+  let c = col.rgb * (0.3 + interior * 0.5) + col.rgb * membrane * 0.4 + vec3f(nucl * 0.3, nucl * 0.1, 0.0);
+  return vec4f(c, a * col.a);
+}` },
+]
+
 // ─── Superimposed rendering compute shader ───
 
 /**
@@ -1019,14 +1414,21 @@ export function buildSuperimposedComputeShader(
   modules?: ModuleEntry[],
   targetCount?: number,
 ): string {
-  const types = visualTypes || []
+  const runtimeTypes = visualTypes || []
   const interactions = interactionTypes || []
   const mods = modules || []
   const numTargets = targetCount || 0
 
-  // Generate visual function definitions from registry (deduplicate by name)
+  // Merge built-in + runtime visual types (runtime overrides built-in by name)
+  const runtimeNames = new Set(runtimeTypes.map(t => t.name))
+  const mergedTypes = [
+    ...BUILTIN_VISUAL_WGSL.filter(b => !runtimeNames.has(b.name)),
+    ...runtimeTypes,
+  ]
+
+  // Deduplicate by name (in case of duplicates within runtime list)
   const seenNames = new Set<string>()
-  const dedupedTypes = types.filter(t => {
+  const dedupedTypes = mergedTypes.filter(t => {
     if (seenNames.has(t.name)) return false
     seenNames.add(t.name)
     return true
@@ -1108,6 +1510,7 @@ struct FieldGPU {
   color: vec4f,
   visualAndParams: vec4f,
   extraParams: vec4f,
+  pos3D: vec4f,         // z, rotX, rotY, superimpose (0=OIT, 1=legacy overwrite)
 };
 
 struct InteractionGPU {
@@ -1273,6 +1676,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   var resultColor = vec3f(0.0);
   var resultPresence: f32 = 0.0;
+  // OIT accumulators — weighted blended order-independent transparency
+  var oitColorSum = vec3f(0.0);
+  var oitWeightSum: f32 = 0.0;
+  var oitTransmittance: f32 = 1.0;
 
   // Overlap tracking — store indices of all fields present at this pixel (max 8)
   var overlapIndices: array<u32, 8>;
@@ -1306,6 +1713,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let sdf = superSDF(cellCoord, f);
     let localUV = superLocalUV(cellCoord, f);
     // Per-field behind: temporal bidirectional (prev frame) or forward-only
+    // Include OIT accumulated color in behind estimate
     var behind: vec4f;
     if (f.extraParams.y > 0.5) {
       // Bidirectional: use previous frame's full composite for behind
@@ -1314,8 +1722,12 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         max(resultPresence, prevPixel.a)
       );
     } else {
-      // Forward-only: each field sees only earlier fields in array order
-      behind = vec4f(resultColor, resultPresence);
+      // Forward-only: merge OIT accumulated color with superimposed result
+      let oitSoFar = select(vec3f(0.0), oitColorSum / max(oitWeightSum, 0.001), oitWeightSum > 0.001);
+      let oitAlphaSoFar = 1.0 - oitTransmittance;
+      let behindColor = mix(oitSoFar, resultColor, resultPresence);
+      let behindAlpha = oitAlphaSoFar + resultPresence * oitTransmittance;
+      behind = vec4f(behindColor, behindAlpha);
     }
     var visual = superVisual(localUV, sdf, f, frame.time, behind);
 
@@ -1351,14 +1763,34 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // contribute to the screen buffer (accumBuf). They only render to
       // their designated target via the RTT write section below.
       if (i32(f.shapeDims.w) < 0) {
-        resultColor = visual.rgb;
-        resultPresence = max(resultPresence, visual.a);
+        let superimpose = f.pos3D.w; // 0.0 = OIT (correct transparency), 1.0 = legacy overwrite
+        if (superimpose > 0.5) {
+          // Legacy superimposition: last-write-wins overwrite
+          resultColor = visual.rgb;
+          resultPresence = max(resultPresence, visual.a);
+        } else {
+          // OIT: weighted blended accumulation — order-independent
+          let depth = f32(i) / max(f32(fieldCount), 1.0);
+          let w = visual.a * max(0.01, 1.0 - depth * 0.5);
+          oitColorSum += visual.rgb * w;
+          oitWeightSum += w;
+          oitTransmittance *= (1.0 - visual.a);
+        }
       }
       if (overlapCount < 8u) {
         overlapIndices[overlapCount] = i;
         overlapCount++;
       }
     }
+  }
+
+  // ─── Merge OIT result with any superimposed fields ───
+  if (oitWeightSum > 0.001) {
+    let oitColor = oitColorSum / oitWeightSum;
+    let oitAlpha = 1.0 - oitTransmittance;
+    // OIT forms the base, superimposed fields overwrite on top
+    resultColor = mix(oitColor, resultColor, resultPresence);
+    resultPresence = oitAlpha + resultPresence * oitTransmittance;
   }
 
   if (overlapCount == 0u) {
@@ -1441,6 +1873,365 @@ ${Array.from({length: numTargets}, (_, i) => `        case ${i}u: {
     }
   }
 ` : ''}
+}
+`
+}
+
+/**
+ * 3D superimposed compute shader — ray-based rendering with full superposition.
+ * For each pixel, casts a ray from the perspective camera, tests against all fields
+ * (circle→sphere, rect→box), and accumulates color/presence in array order
+ * (same superposition leak as 2D). Visual types receive UV from the 3D hit point
+ * projected onto the field's local XY plane, so all existing visuals work unchanged.
+ */
+export function buildSuperimposed3DComputeShader(
+  visualTypes?: VisualTypeEntry[],
+  interactionTypes?: InteractionEntry[],
+  modules?: ModuleEntry[],
+  targetCount?: number,
+): string {
+  const runtimeTypes = visualTypes || []
+  const interactions = interactionTypes || []
+  const mods = modules || []
+  const numTargets = targetCount || 0
+
+  // Merge built-in + runtime visual types (runtime overrides built-in by name)
+  const runtimeNames = new Set(runtimeTypes.map(t => t.name))
+  const mergedTypes = [
+    ...BUILTIN_VISUAL_WGSL.filter(b => !runtimeNames.has(b.name)),
+    ...runtimeTypes,
+  ]
+
+  const seenNames = new Set<string>()
+  const dedupedTypes = mergedTypes.filter(t => {
+    if (seenNames.has(t.name)) return false
+    seenNames.add(t.name)
+    return true
+  })
+  const visualFunctions = dedupedTypes.map(t => t.wgsl).join('\n\n')
+  const switchCases = dedupedTypes.map(t =>
+    `    case ${t.id}u: { return visual_${t.name}(uv, sdf, col, time, p, behind); }`
+  ).join('\n')
+
+  const seenIx = new Set<string>()
+  const dedupedIx = interactions.filter(ix => {
+    if (seenIx.has(ix.name)) return false
+    seenIx.add(ix.name)
+    return true
+  })
+  const interactionFunctions = dedupedIx.map(ix => ix.wgsl).join('\n\n')
+  const interactionSwitchCases = dedupedIx.map(ix =>
+    `    case ${ix.id}u: { return interaction_${ix.name}(uvA, uvB, colorA, colorB, time); }`
+  ).join('\n')
+
+  const modSeen = new Set(BASE_FUNC_NAMES)
+  const moduleCode = mods.map(m => deduplicateModCode(m.wgsl, modSeen)).join('\n\n')
+
+  const targetBindings: string[] = []
+  for (let i = 0; i < numTargets; i++) {
+    targetBindings.push(`@group(2) @binding(${i}) var<storage, read_write> renderTarget_${i}: array<vec4f>;`)
+  }
+  const targetBindingsStr = targetBindings.join('\n')
+
+  let sampleTargetFn: string
+  if (numTargets > 0) {
+    const targetCases: string[] = []
+    for (let i = 0; i < numTargets; i++) {
+      targetCases.push(`    case ${i}u: { return renderTarget_${i}[pixelIdx]; }`)
+    }
+    sampleTargetFn = `
+fn sampleTarget(targetId: u32, pixelCoord: vec2f) -> vec4f {
+  let pixelIdx = u32(pixelCoord.y) * u32(frame.resolution.x) + u32(pixelCoord.x);
+  switch (targetId) {
+${targetCases.join('\n')}
+    default: { return vec4f(0.0); }
+  }
+}`
+  } else {
+    sampleTargetFn = `
+fn sampleTarget(targetId: u32, pixelCoord: vec2f) -> vec4f {
+  return vec4f(0.0);
+}`
+  }
+
+  return /* wgsl */`
+${FRAME_UNIFORM_STRUCT}
+${SHADER_UTILITIES}
+
+${moduleCode}
+
+// ─── Bindings ───
+@group(1) @binding(0) var<storage, read> superFields: array<FieldGPU>;
+@group(1) @binding(1) var<storage, read_write> accumBuf: array<vec4f>;
+@group(1) @binding(2) var<storage, read_write> hitIdBuf: array<u32>;
+@group(1) @binding(3) var<storage, read> interactions: array<InteractionGPU>;
+@group(1) @binding(4) var<storage, read_write> ixBuf: array<vec4f>;
+@group(1) @binding(5) var<storage, read_write> ixTypeBuf: array<u32>;
+@group(1) @binding(6) var<storage, read> prevAccumBuf: array<vec4f>;
+${targetBindingsStr}
+
+struct FieldGPU {
+  posScaleRot: vec4f,
+  shapeDims: vec4f,
+  color: vec4f,
+  visualAndParams: vec4f,
+  extraParams: vec4f,
+  pos3D: vec4f,         // z, rotX, rotY, superimpose (0=OIT, 1=legacy overwrite)
+};
+
+struct InteractionGPU {
+  fieldIdxA: u32,
+  fieldIdxB: u32,
+  interactionType: u32,
+  propagationType: u32,
+};
+
+${sampleTargetFn}
+
+// ─── Ray-field intersection ───
+// Transforms ray into field's local 3D space and tests against sphere/box.
+// Returns hit distance t (>0 if hit, <0 if miss).
+fn rayFieldIntersect(origin: vec3f, dir: vec3f, f: FieldGPU) -> f32 {
+  let pos3 = vec3f(f.posScaleRot.xy, f.pos3D.x);
+  let scale = max(f.posScaleRot.z, 0.001);
+  let rotZ = f.posScaleRot.w;
+  let rotX = f.pos3D.y;
+  let rotY = f.pos3D.z;
+
+  // Transform ray into field's local space
+  var lo = origin - pos3;
+  var ld = dir;
+  // Apply inverse rotation: undo Y, then X, then Z
+  lo = rotateY3(lo, -rotY); ld = rotateY3(ld, -rotY);
+  lo = rotateX3(lo, -rotX); ld = rotateX3(ld, -rotX);
+  lo = rotateZ3(lo, -rotZ); ld = rotateZ3(ld, -rotZ);
+  lo /= scale;
+
+  let st = u32(f.shapeDims.x);
+  if (st == 1u) {
+    // Rect → Box (use half dim1 × half dim2 × min(dim1,dim2)/4 depth)
+    let hx = f.shapeDims.y * 0.5;
+    let hy = f.shapeDims.z * 0.5;
+    let hz = min(hx, hy) * 0.5;
+    return rayBox(lo, ld, vec3f(hx, hy, hz)) * scale;
+  }
+  // Circle → Sphere
+  return raySphere(lo, ld, f.shapeDims.y) * scale;
+}
+
+// ─── Compute local UV from 3D hit point (projected onto field's local XY plane) ───
+fn hitLocalUV(hitWorld: vec3f, f: FieldGPU) -> vec2f {
+  let pos3 = vec3f(f.posScaleRot.xy, f.pos3D.x);
+  let scale = max(f.posScaleRot.z, 0.001);
+  let rotZ = f.posScaleRot.w;
+  let rotX = f.pos3D.y;
+  let rotY = f.pos3D.z;
+
+  var local = hitWorld - pos3;
+  local = rotateY3(local, -rotY);
+  local = rotateX3(local, -rotX);
+  local = rotateZ3(local, -rotZ);
+  local /= scale;
+
+  let st = u32(f.shapeDims.x);
+  if (st == 1u) {
+    return vec2f(local.x / max(f.shapeDims.y * 0.5, 1.0), local.y / max(f.shapeDims.z * 0.5, 1.0));
+  }
+  return local.xy / max(f.shapeDims.y, 1.0);
+}
+
+// ─── Compute 2D SDF from 3D hit point (for visual type compatibility) ───
+fn hitSDF(hitWorld: vec3f, f: FieldGPU) -> f32 {
+  let pos3 = vec3f(f.posScaleRot.xy, f.pos3D.x);
+  let scale = max(f.posScaleRot.z, 0.001);
+  let rotZ = f.posScaleRot.w;
+  let rotX = f.pos3D.y;
+  let rotY = f.pos3D.z;
+
+  var local = hitWorld - pos3;
+  local = rotateY3(local, -rotY);
+  local = rotateX3(local, -rotX);
+  local = rotateZ3(local, -rotZ);
+  local /= scale;
+
+  let st = u32(f.shapeDims.x);
+  if (st == 1u) {
+    return sdBox(local.xy, vec2f(f.shapeDims.y * 0.5, f.shapeDims.z * 0.5));
+  }
+  return length(local.xy) - f.shapeDims.y;
+}
+
+// ─── Visual type functions ───
+${visualFunctions}
+
+fn superVisual3D(uv: vec2f, sdf: f32, f: FieldGPU, time: f32, behind: vec4f) -> vec4f {
+  let vtype = u32(f.visualAndParams.x);
+  let col = f.color;
+  let p = vec4f(f.visualAndParams.yzw, f.extraParams.x);
+
+  switch (vtype) {
+${switchCases}
+    default: {
+      let fa = smoothstep(0.5, -0.5, sdf);
+      if (fa < 0.01) { return vec4f(0.0); }
+      return vec4f(col.rgb, fa);
+    }
+  }
+}
+
+// ─── Interaction functions ───
+${interactionFunctions}
+
+fn dispatchInteraction3D(itype: u32, uvA: vec2f, uvB: vec2f, colorA: vec4f, colorB: vec4f, time: f32) -> vec4f {
+  switch (itype) {
+${interactionSwitchCases}
+    default: { return vec4f(0.0); }
+  }
+}
+
+// ─── Main 3D compute kernel ───
+@compute @workgroup_size(16, 16)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let pixel = gid.xy;
+  if (pixel.x >= u32(frame.resolution.x) || pixel.y >= u32(frame.resolution.y)) { return; }
+  let idx = pixel.y * u32(frame.resolution.x) + pixel.x;
+  hitIdBuf[idx] = 0xFFFFFFFFu;
+
+  let fieldCount = arrayLength(&superFields);
+
+  // ─── Generate perspective ray ───
+  let uv_screen = (vec2f(f32(pixel.x), f32(pixel.y)) + 0.5) / frame.resolution * 2.0 - 1.0;
+  let aspect = frame.resolution.x / frame.resolution.y;
+  let halfFov = frame.cam3Dfov * 0.5;
+  var dir = normalize(vec3f(
+    uv_screen.x * aspect * tan(halfFov),
+    -uv_screen.y * tan(halfFov),
+    -1.0
+  ));
+  // Rotate ray by camera pitch (X) and yaw (Y)
+  dir = rotateX3(dir, frame.cam3Ddir.x);
+  dir = rotateY3(dir, frame.cam3Ddir.y);
+  let origin = frame.cam3Dpos;
+
+  // ─── Superposition accumulation with OIT ───
+  var resultColor = vec3f(0.0);
+  var resultPresence: f32 = 0.0;
+  // OIT accumulators — weighted blended order-independent transparency
+  var oitColorSum = vec3f(0.0);
+  var oitWeightSum: f32 = 0.0;
+  var oitTransmittance: f32 = 1.0;
+  var overlapCount = 0u;
+  var overlapIndices: array<u32, 8>;
+  var hitIdx = 0xFFFFFFFFu;
+
+  for (var i = 0u; i < fieldCount; i++) {
+    let f = superFields[i];
+
+    // Bounding sphere cull: quick rejection
+    let pos3 = vec3f(f.posScaleRot.xy, f.pos3D.x);
+    let scale = max(f.posScaleRot.z, 0.001);
+    let st = u32(f.shapeDims.x);
+    var boundRadius: f32;
+    if (st == 1u) {
+      boundRadius = length(vec2f(f.shapeDims.y, f.shapeDims.z)) * 0.5 * scale * 1.2;
+    } else {
+      boundRadius = f.shapeDims.y * scale * 1.2;
+    }
+    let toField = pos3 - origin;
+    let proj = dot(toField, dir);
+    let perpDist = length(toField - dir * proj);
+    if (perpDist > boundRadius && proj > -boundRadius) {
+      if (perpDist > boundRadius * 2.0) { continue; }
+    }
+
+    // Ray-field intersection
+    let t = rayFieldIntersect(origin, dir, f);
+    if (t < 0.0) { continue; }
+
+    let hitWorld = origin + dir * t;
+    let uv = hitLocalUV(hitWorld, f);
+    let sdf = hitSDF(hitWorld, f);
+
+    // Behind: merge OIT accumulated color with superimposed result
+    let oitSoFar = select(vec3f(0.0), oitColorSum / max(oitWeightSum, 0.001), oitWeightSum > 0.001);
+    let oitAlphaSoFar = 1.0 - oitTransmittance;
+    let behindColor = mix(oitSoFar, resultColor, resultPresence);
+    let behindAlpha = oitAlphaSoFar + resultPresence * oitTransmittance;
+    let behind = vec4f(behindColor, behindAlpha);
+    let visual = superVisual3D(uv, sdf, f, frame.time, behind);
+
+    if (visual.a > 0.01) {
+      if (i32(f.shapeDims.w) < 0) {
+        let superimpose = f.pos3D.w; // 0.0 = OIT, 1.0 = legacy overwrite
+        if (superimpose > 0.5) {
+          // Legacy superimposition: last-write-wins overwrite
+          resultColor = visual.rgb;
+          resultPresence = max(resultPresence, visual.a);
+        } else {
+          // OIT: depth-weighted blended accumulation
+          let w = visual.a * max(0.01, min(1.0, 100.0 / (t * t + 1.0)));
+          oitColorSum += visual.rgb * w;
+          oitWeightSum += w;
+          oitTransmittance *= (1.0 - visual.a);
+        }
+      }
+      if (overlapCount < 8u) {
+        overlapIndices[overlapCount] = i;
+        overlapCount++;
+      }
+    }
+  }
+
+  // ─── Merge OIT result with any superimposed fields ───
+  if (oitWeightSum > 0.001) {
+    let oitColor = oitColorSum / oitWeightSum;
+    let oitAlpha = 1.0 - oitTransmittance;
+    resultColor = mix(oitColor, resultColor, resultPresence);
+    resultPresence = oitAlpha + resultPresence * oitTransmittance;
+  }
+
+  if (overlapCount == 0u) { return; }
+
+  // ─── Hit testing: topmost screen-visible field ───
+  for (var hi = overlapCount; hi > 0u; hi--) {
+    let hfi = overlapIndices[hi - 1u];
+    if (i32(superFields[hfi].shapeDims.w) < 0) {
+      hitIdx = hfi;
+      break;
+    }
+  }
+
+  // ─── 3D lighting from SDF normal ───
+  if (hitIdx != 0xFFFFFFFFu) {
+    let f = superFields[hitIdx];
+    let lighting = f.extraParams.z;
+    if (lighting > 0.0) {
+      let hitWorld = origin + dir * rayFieldIntersect(origin, dir, f);
+      let pos3 = vec3f(f.posScaleRot.xy, f.pos3D.x);
+      let scale = max(f.posScaleRot.z, 0.001);
+      var localHit = hitWorld - pos3;
+      localHit = rotateY3(localHit, -f.pos3D.z);
+      localHit = rotateX3(localHit, -f.pos3D.y);
+      localHit = rotateZ3(localHit, -f.posScaleRot.w);
+      localHit /= scale;
+      let normal = sdfNormal3(localHit, 0.0, u32(f.shapeDims.x), f.shapeDims.yz);
+      let lightDir = normalize(vec3f(0.3, 1.0, 0.5));
+      let diff = max(dot(normal, lightDir), 0.0);
+      let ambient = 0.3;
+      let lit = ambient + diff * (1.0 - ambient);
+      resultColor *= mix(1.0, lit, lighting);
+    }
+  }
+
+  // ─── Write hit ID for click detection ───
+  hitIdBuf[idx] = hitIdx;
+
+  // ─── Write to accumBuf with alpha blend ───
+  let existing = accumBuf[idx];
+  accumBuf[idx] = vec4f(
+    mix(existing.rgb, resultColor, resultPresence * (1.0 - existing.a)),
+    existing.a + resultPresence * (1.0 - existing.a),
+  );
 }
 `
 }

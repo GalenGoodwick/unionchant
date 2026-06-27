@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { appendMemory, getEngineState, setWorldData, setWorldParamsStore, resetStore } from '../store'
+import { appendMemory, getEngineState, setWorldData, setWorldParamsStore, resetStore, postCommandResult } from '../store'
 
 export const maxDuration = 120 // SSE can stay open
 export const dynamic = 'force-dynamic'
@@ -235,6 +235,15 @@ export async function POST(req: NextRequest) {
     let statusPayload: ReturnType<typeof getEngineState> | null = null
 
     for (const cmd of commands) {
+      // Command result from browser — resolve waiting bridge requests
+      if (cmd.type === 'command_result' as string) {
+        const crCmd = cmd as unknown as { commandId: string; result: unknown }
+        if (crCmd.commandId && crCmd.result !== undefined) {
+          postCommandResult(crCmd.commandId, crCmd.result)
+        }
+        results.push({ id: `cr_${Date.now()}`, type: 'command_result' })
+        continue
+      }
       // Assign a stable fieldId for create_field commands so browser and agents share the same ID
       if (cmd.type === 'create_field' && !cmd.fieldId) {
         cmd.fieldId = `field_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`

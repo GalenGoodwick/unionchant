@@ -549,6 +549,54 @@ export function getAllCustomCommands(): CustomCommand[] {
   return Array.from(store.customCommands.values())
 }
 
+// ─── Command Response Channel ───
+// Allows the browser (FieldEngine) to send results back to the bridge route
+// after processing a command (e.g., shader compile results).
+
+interface CommandWaiter {
+  resolve: (result: unknown) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+const globalResponses = globalThis as unknown as {
+  __commandResponses?: Map<string, unknown>
+  __commandWaiters?: Map<string, CommandWaiter>
+}
+const commandResponses: Map<string, unknown> = globalResponses.__commandResponses ??= new Map()
+const commandWaiters: Map<string, CommandWaiter> = globalResponses.__commandWaiters ??= new Map()
+
+/** Post a result for a command (called by FieldEngine via agent route) */
+export function postCommandResult(commandId: string, result: unknown): void {
+  commandResponses.set(commandId, result)
+  const waiter = commandWaiters.get(commandId)
+  if (waiter) {
+    clearTimeout(waiter.timer)
+    commandWaiters.delete(commandId)
+    waiter.resolve(result)
+  }
+  // Bounded cleanup
+  if (commandResponses.size > 500) {
+    const keys = [...commandResponses.keys()]
+    for (let i = 0; i < 250; i++) commandResponses.delete(keys[i])
+  }
+}
+
+/** Wait for a command result (called by bridge route after pushing define_visual) */
+export function waitForCommandResult(commandId: string, timeoutMs: number = 8000): Promise<unknown | null> {
+  const existing = commandResponses.get(commandId)
+  if (existing !== undefined) {
+    commandResponses.delete(commandId)
+    return Promise.resolve(existing)
+  }
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      commandWaiters.delete(commandId)
+      resolve(null) // Timeout — no response received
+    }, timeoutMs)
+    commandWaiters.set(commandId, { resolve, timer })
+  })
+}
+
 /** Reset entire store — nuclear option */
 export function resetStore(): void {
   store.fieldSnapshots.clear()

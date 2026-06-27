@@ -12,6 +12,7 @@ import {
   buildStateUpdateComputeShader,
   buildCompositeStateComputeShader,
   buildSuperimposedComputeShader,
+  buildSuperimposed3DComputeShader,
   buildPropagationComputeShader,
   buildPostProcessComputeShader,
   buildParticleUpdateComputeShader,
@@ -124,7 +125,7 @@ export class FieldRenderer {
   private stateUniformBuf: GPUBuffer | null = null
 
   // Pre-allocated typed arrays (reused every frame to avoid GC pressure)
-  private _frameUniformData = new Float32Array(8)
+  private _frameUniformData = new Float32Array(16)
   private _stateUniformData = new Float32Array(4)
   private _effectUniformData = new Float32Array(28) // 4+4+4+4+4+4+4 = 28 floats
   private _dispatchUniformData = new Float32Array(4)
@@ -176,12 +177,15 @@ export class FieldRenderer {
   private _superFieldDataCache: Float32Array<ArrayBuffer> | null = null
   private _ixDataCache: Uint32Array<ArrayBuffer> | null = null
   private superPipeline: GPUComputePipeline | null = null
+  private super3DPipeline: GPUComputePipeline | null = null
   private superBindGroupLayout: GPUBindGroupLayout | null = null
   private superPipelineReady: boolean = false
+  private super3DPipelineReady: boolean = false
   private superCompilationId: number = 0  // Bumped only by registerVisualType/registerInteraction
   private superCompiling: boolean = false  // Prevents re-entrant compilation
+  private super3DCompiling: boolean = false
   private superCompilationError: string | null = null  // Last uber-shader compile error
-  static readonly SUPER_FIELD_STRIDE = 80 // 5 vec4f = 20 floats = 80 bytes per field
+  static readonly SUPER_FIELD_STRIDE = 96 // 6 vec4f = 24 floats = 96 bytes per field
   static readonly SUPER_MAX_FIELDS = 128
 
   // ─── Interaction propagation ───
@@ -461,7 +465,7 @@ export class FieldRenderer {
     })
 
     this.frameUniformBuf = device.createBuffer({
-      size: 32, // 8 floats: camera(2) + resolution(2) + zoom(1) + time(1) + gridSize(1) + pad(1)
+      size: 64, // 16 floats: camera(2) + resolution(2) + zoom(1) + time(1) + gridSize(1) + renderMode(1) + cam3Dpos(3) + cam3Dfov(1) + cam3Ddir(2) + pad(2)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
 
@@ -939,10 +943,21 @@ export class FieldRenderer {
     ppPass.end()
   }
 
-  private writeFrameUniforms(camera: { x: number; y: number }, resolution: [number, number], zoom: number, time: number): void {
+  private writeFrameUniforms(
+    camera: { x: number; y: number },
+    resolution: [number, number],
+    zoom: number,
+    time: number,
+    mode3D?: { pos: [number, number, number]; pitch: number; yaw: number; fov: number },
+  ): void {
     const d = this._frameUniformData
     d[0] = camera.x; d[1] = camera.y; d[2] = resolution[0]; d[3] = resolution[1]
-    d[4] = zoom; d[5] = time; d[6] = this.gridSize; d[7] = 0
+    d[4] = zoom; d[5] = time; d[6] = this.gridSize; d[7] = mode3D ? 1.0 : 0.0
+    // 3D camera params (ignored in 2D mode)
+    d[8] = mode3D?.pos[0] ?? 0; d[9] = mode3D?.pos[1] ?? 0; d[10] = mode3D?.pos[2] ?? 0
+    d[11] = mode3D?.fov ?? 1.047 // default 60°
+    d[12] = mode3D?.pitch ?? 0; d[13] = mode3D?.yaw ?? 0
+    d[14] = 0; d[15] = 0 // padding
     this.device!.queue.writeBuffer(this.frameUniformBuf!, 0, d)
   }
 
@@ -1316,6 +1331,7 @@ export class FieldRenderer {
     fieldEffects?: FieldEffectData[],
     superFields?: SuperFieldGPU[],
     activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[],
+    mode3D?: { pos: [number, number, number]; pitch: number; yaw: number; fov: number },
   ): void {
     const device = this.device
     const ctx = this.context
@@ -1333,7 +1349,7 @@ export class FieldRenderer {
       canvas.height = bufferH
     }
 
-    this.writeFrameUniforms(camera, [bufferW, bufferH], zoom, time)
+    this.writeFrameUniforms(camera, [bufferW, bufferH], zoom, time, mode3D)
 
     const encoder = device.createCommandEncoder()
     const textureView = ctx.getCurrentTexture().createView()
@@ -1357,7 +1373,8 @@ export class FieldRenderer {
     }
 
     // --- Effects ---
-    const hasSuperFields = superFields && superFields.length > 0 && this.superPipelineReady
+    const is3D = !!mode3D
+    const hasSuperFields = superFields && superFields.length > 0 && (is3D ? this.super3DPipelineReady : this.superPipelineReady)
     if ((fieldEffects && fieldEffects.length > 0) || hasSuperFields) {
       // Separate effects into compute-eligible and render-fallback
       const computeEffects: FieldEffectData[] = []
@@ -1422,7 +1439,7 @@ export class FieldRenderer {
 
         // ─── Superimposed fields (single uber-shader dispatch) ───
         if (hasSuperFields) {
-          this.renderSuperimposed(encoder, superFields!, bufferW, bufferH, activeInteractions)
+          this.renderSuperimposed(encoder, superFields!, bufferW, bufferH, activeInteractions, is3D)
         }
 
         // ─── Per-field compute effects ───
@@ -2223,6 +2240,67 @@ export class FieldRenderer {
     }
   }
 
+  /** Lazy-compile the 3D uber-shader pipeline (mirrors ensureSuperPipeline). */
+  private async ensureSuper3DPipeline(): Promise<boolean> {
+    if (this.super3DPipelineReady) return true
+    if (this.super3DCompiling) return false
+    const device = this.device
+    if (!device || !this.superBindGroupLayout || !this.frameBindGroupLayout) return false
+
+    this.super3DCompiling = true
+    const myCompilationId = this.superCompilationId
+
+    try {
+      const allVisuals = this.getAllVisualTypes()
+      const allInteractions = this.getAllInteractionTypes()
+      const allModules = this.getAllModules()
+      const targetCount = this.renderTargets.size
+      console.log(`[Super3D] Compiling 3D uber-shader with ${allVisuals.length} visuals, ${allModules.length} modules`)
+      const shaderSrc = buildSuperimposed3DComputeShader(allVisuals, allInteractions, allModules, targetCount)
+      const module = device.createShaderModule({ code: shaderSrc })
+      const info = await module.getCompilationInfo()
+      const errors = info.messages.filter(m => m.type === 'error')
+      if (errors.length > 0) {
+        console.error('[Super3D] Shader compile errors:')
+        for (const e of errors) {
+          console.error(`  Line ${e.lineNum}:${e.linePos}: ${e.message}`)
+        }
+        console.error('[Super3D] Generated shader source:\n', shaderSrc)
+        return false
+      }
+
+      if (myCompilationId !== this.superCompilationId) {
+        console.log('[Super3D] Compilation superseded, will recompile next frame')
+        return false
+      }
+
+      if (targetCount > 0) this.ensureRenderTargetBindGroupLayout()
+      const bindGroupLayouts: GPUBindGroupLayout[] = [this.frameBindGroupLayout, this.superBindGroupLayout]
+      if (targetCount > 0 && this.renderTargetBindGroupLayout) {
+        bindGroupLayouts.push(this.renderTargetBindGroupLayout)
+      }
+      const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts })
+      this.super3DPipeline = await device.createComputePipelineAsync({
+        layout: pipelineLayout,
+        compute: { module, entryPoint: 'main' },
+      })
+
+      if (myCompilationId !== this.superCompilationId) {
+        console.log('[Super3D] Compilation superseded after pipeline creation')
+        return false
+      }
+
+      this.super3DPipelineReady = true
+      console.log('[Super3D] 3D pipeline compiled')
+      return true
+    } catch (err) {
+      console.error('[Super3D] Pipeline creation failed:', err)
+      return false
+    } finally {
+      this.super3DCompiling = false
+    }
+  }
+
   /** Ensure the field storage buffer can hold the given number of fields */
   private ensureSuperFieldBuffer(fieldCount: number): void {
     const device = this.device!
@@ -2283,8 +2361,10 @@ export class FieldRenderer {
     bufferW: number,
     bufferH: number,
     activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[],
+    use3D?: boolean,
   ): void {
-    if (fields.length === 0 || !this.superPipeline || !this.accumBuf) return
+    const pipeline = use3D ? this.super3DPipeline : this.superPipeline
+    if (fields.length === 0 || !pipeline || !this.accumBuf) return
 
     // Lazy upgrade: if renderer was initialized before ixTypeBuf support, recreate layout
     if (!this.superLayoutHasIxBuf && this.device) {
@@ -2301,6 +2381,7 @@ export class FieldRenderer {
       })
       this.superLayoutHasIxBuf = true
       this.superPipelineReady = false // force uber-shader recompilation with new layout
+      this.super3DPipelineReady = false
     }
 
     // Lazy create/recompile propagation pipeline if missing or invalidated
@@ -2317,15 +2398,15 @@ export class FieldRenderer {
     this.hitMapWidth = bufferW
     this.hitMapHeight = bufferH
 
-    // Pack all fields into a Float32Array (20 floats per field) — reuse if same field count
-    const neededLen = fields.length * 20
+    // Pack all fields into a Float32Array (24 floats per field) — reuse if same field count
+    const neededLen = fields.length * 24
     if (!this._superFieldDataCache || this._superFieldDataCache.length !== neededLen) {
       this._superFieldDataCache = new Float32Array(neededLen)
     }
     const data = this._superFieldDataCache!
     for (let i = 0; i < fields.length; i++) {
       const f = fields[i]
-      const off = i * 20
+      const off = i * 24
       data[off +  0] = f.posScaleRot[0]
       data[off +  1] = f.posScaleRot[1]
       data[off +  2] = f.posScaleRot[2]
@@ -2346,6 +2427,10 @@ export class FieldRenderer {
       data[off + 17] = f.extraParams[1]
       data[off + 18] = f.extraParams[2]
       data[off + 19] = f.extraParams[3]
+      data[off + 20] = f.pos3D?.[0] ?? 0  // z
+      data[off + 21] = f.pos3D?.[1] ?? 0  // rotX
+      data[off + 22] = f.pos3D?.[2] ?? 0  // rotY
+      data[off + 23] = f.pos3D?.[3] ?? 0  // reserved
     }
     this.device!.queue.writeBuffer(this.superFieldBuffer!, 0, data)
 
@@ -2408,7 +2493,7 @@ export class FieldRenderer {
     }
 
     const pass = encoder.beginComputePass()
-    pass.setPipeline(this.superPipeline)
+    pass.setPipeline(pipeline)
     pass.setBindGroup(0, frameBG)
     pass.setBindGroup(1, this._cachedSuperBG)
     if (rtBG) {
@@ -2454,6 +2539,21 @@ export class FieldRenderer {
     return false
   }
 
+  /** Check if the 3D pipeline is ready, and trigger compilation if not */
+  isSuper3DReady(): boolean {
+    if (this.super3DPipelineReady) return true
+    this.ensureSuper3DPipeline()
+    return false
+  }
+
+  /** Force-compile the uber-shader and return whether it succeeded.
+   *  Used by FieldEngine to get synchronous compile feedback for define_visual. */
+  async compileSuperPipeline(): Promise<{ ok: boolean; error: string | null }> {
+    this.superPipelineReady = false
+    const success = await this.ensureSuperPipeline()
+    return { ok: success, error: this.superCompilationError }
+  }
+
   /** Returns the last uber-shader compilation error, or null if no error. */
   getSuperCompilationError(): string | null {
     return this.superCompilationError
@@ -2476,6 +2576,8 @@ export class FieldRenderer {
     this.superCompilationError = null
     this.superPipelineReady = false
     this.superPipeline = null
+    this.super3DPipelineReady = false
+    this.super3DPipeline = null
     return { id }
   }
 
@@ -2504,6 +2606,8 @@ export class FieldRenderer {
     this.superCompilationId++
     this.superPipelineReady = false
     this.superPipeline = null
+    this.super3DPipelineReady = false
+    this.super3DPipeline = null
     this._ixLogDone = false
     console.log(`[Super] Registered interaction '${name}' as id ${id}, triggering recompilation (compilationId=${this.superCompilationId})`)
     return { id }
@@ -2584,6 +2688,8 @@ export class FieldRenderer {
     this.superCompilationId++
     this.superPipelineReady = false
     this.superPipeline = null
+    this.super3DPipelineReady = false
+    this.super3DPipeline = null
     console.log(`[Module] Registered '${name}', triggering recompilation (compilationId=${this.superCompilationId})`)
   }
 
@@ -2620,6 +2726,8 @@ export class FieldRenderer {
     this.superCompilationId++
     this.superPipelineReady = false
     this.superPipeline = null
+    this.super3DPipelineReady = false
+    this.super3DPipeline = null
     console.log(`[RTT] Created render target '${name}' (id=${id})`)
     return { id }
   }
@@ -2635,6 +2743,8 @@ export class FieldRenderer {
     this.superCompilationId++
     this.superPipelineReady = false
     this.superPipeline = null
+    this.super3DPipelineReady = false
+    this.super3DPipeline = null
     console.log(`[RTT] Destroyed render target '${name}'`)
   }
 
@@ -2727,6 +2837,8 @@ export class FieldRenderer {
     this.renderTargetBindGroupLayout = null
     this.superPipelineReady = false
     this.superPipeline = null
+    this.super3DPipelineReady = false
+    this.super3DPipeline = null
     this.superCompilationId++
     this.propagationCompilationId++
     this.propagationPipeline = null
@@ -2801,6 +2913,8 @@ export class FieldRenderer {
     this.superFieldBuffer = null
     this.superPipeline = null
     this.superPipelineReady = false
+    this.super3DPipeline = null
+    this.super3DPipelineReady = false
     this.visualTypeRegistry.clear()
     this.nextVisualTypeId = 0
     this.interactionRegistry.clear()

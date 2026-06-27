@@ -675,6 +675,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
               (props.lighting as number) ?? 0,
               (props.specular as number) ?? 0,
             ],
+            pos3D: [0, 0, 0, 0],
           })
         }
 

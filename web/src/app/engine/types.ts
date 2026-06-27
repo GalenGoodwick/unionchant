@@ -36,13 +36,21 @@ export interface FieldTransform {
   /** Position in grid coordinates */
   x: number
   y: number
-  /** Rotation in radians */
+  /** Z position for 3D mode (default 0) */
+  z?: number
+  /** Rotation around Z axis in radians */
   rotation: number
+  /** Rotation around X axis in radians (3D mode) */
+  rotX?: number
+  /** Rotation around Y axis in radians (3D mode) */
+  rotY?: number
   /** Scale factor (1.0 = original size) */
   scale: number
   /** Velocity for physics-driven movement (grid units/sec) */
   vx: number
   vy: number
+  /** Z velocity (3D mode) */
+  vz?: number
   /** Angular velocity (radians/sec) */
   vr: number
 }
@@ -313,13 +321,23 @@ export const VISUAL_TYPES = {
   stripe: 7,
   pulse: 8,
   gradient: 9,
+  lava: 10,
+  crystal: 11,
+  plasma: 12,
+  nebula: 13,
+  water: 14,
+  fire: 15,
+  electric: 16,
+  terrain: 17,
+  portal: 18,
+  organic: 19,
 } as const
 
 export type VisualTypeName = keyof typeof VISUAL_TYPES
 
-/** GPU-side field data for superimposed rendering (5 vec4f = 80 bytes) */
+/** GPU-side field data for superimposed rendering (6 vec4f = 96 bytes) */
 export interface SuperFieldGPU {
-  /** vec4f 0: x, y, scale, rotation */
+  /** vec4f 0: x, y, scale, rotation (Z-axis) */
   posScaleRot: [number, number, number, number]
   /** vec4f 1: shapeType (0=circle, 1=rect), dim1, dim2, renderTargetId (-1=screen, 0-5=target index) */
   shapeDims: [number, number, number, number]
@@ -327,8 +345,10 @@ export interface SuperFieldGPU {
   color: [number, number, number, number]
   /** vec4f 3: visualType, param0, param1, param2 */
   visualAndParams: [number, number, number, number]
-  /** vec4f 4: param3, bidirectionalBehind (1=temporal behind from prev frame), unused, unused */
+  /** vec4f 4: param3, bidirectionalBehind (1=temporal behind from prev frame), lighting, specular */
   extraParams: [number, number, number, number]
+  /** vec4f 5: z position, rotX, rotY, reserved (3D mode — all 0 in 2D) */
+  pos3D: [number, number, number, number]
 }
 
 // ─── Game Engine Types ───

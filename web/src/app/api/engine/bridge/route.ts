@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, addInteractionDef, addModule, addRenderTargetDef, removeRenderTargetDef } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, addInteractionDef, addModule, addRenderTargetDef, removeRenderTargetDef, waitForCommandResult } from '../store'
 import type { GlslMod } from '../store'
 
 export const maxDuration = 30
@@ -297,8 +297,22 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const result = await pushToAgent(cmd, req)
+      const result = await pushToAgent(cmd, req) as Record<string, unknown>
       results.push(result)
+
+      // For define_visual and define_module: wait for browser compile result
+      if ((cmd.type === 'define_visual' || cmd.type === 'define_module') && result.commands) {
+        const cmds = result.commands as Array<{ id: string; type: string }>
+        const cmdEntry = cmds.find(c => c.type === cmd.type)
+        if (cmdEntry?.id) {
+          const compileResult = await waitForCommandResult(cmdEntry.id, 8000)
+          if (compileResult) {
+            const cr = compileResult as Record<string, unknown>
+            // Attach compile result to the pushed result
+            ;(result as Record<string, unknown>).compileResult = cr
+          }
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, executed: results.length, results })

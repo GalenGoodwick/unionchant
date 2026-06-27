@@ -127,6 +127,13 @@ export default function FieldEngine() {
   const cameraRef = useRef<Camera>({ x: gridSize / 2, y: gridSize / 2, zoom: 1 })
   const [, forceUpdate] = useState(0)
 
+  // 2D/3D render mode
+  const [renderMode, setRenderMode] = useState<'2d' | '3d'>('2d')
+  const renderModeRef = useRef<'2d' | '3d'>('2d')
+  renderModeRef.current = renderMode
+  const camera3DRef = useRef({ pos: [gridSize / 2, gridSize / 2, 150] as [number, number, number], pitch: -0.6, yaw: 0, fov: 1.047 })
+  const isOrbiting = useRef(false)
+
   // Brush state
   const [brush, setBrush] = useState<BrushState>({
     tool: 'brush',
@@ -513,6 +520,13 @@ export default function FieldEngine() {
     pointerDown.current = true
     lastPointer.current = { x: e.clientX, y: e.clientY }
 
+    // 3D mode: right-click or alt+click = orbit camera
+    if (renderModeRef.current === '3d' && (e.button === 2 || e.altKey)) {
+      isOrbiting.current = true
+      canvas.style.cursor = 'grab'
+      return
+    }
+
     // Space + click = pan camera
     if (spaceHeld.current) {
       isPanning.current = true
@@ -613,7 +627,21 @@ export default function FieldEngine() {
       setPixelInfo(null)
     }
 
-    if (!pointerDown.current || !isPanning.current) return
+    if (!pointerDown.current) return
+
+    // 3D orbit
+    if (isOrbiting.current) {
+      const dx = e.clientX - lastPointer.current.x
+      const dy = e.clientY - lastPointer.current.y
+      const cam3D = camera3DRef.current
+      cam3D.yaw += dx * 0.005
+      cam3D.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, cam3D.pitch - dy * 0.005))
+      lastPointer.current = { x: e.clientX, y: e.clientY }
+      forceUpdate(n => n + 1)
+      return
+    }
+
+    if (!isPanning.current) return
 
     const dx = e.clientX - lastPointer.current.x
     const dy = e.clientY - lastPointer.current.y
@@ -656,6 +684,7 @@ export default function FieldEngine() {
       updateSelectionMask(null)
     }
     isPanning.current = false
+    isOrbiting.current = false
     pointerDown.current = false
     const canvas = canvasRef.current
     if (canvas) canvas.style.cursor = 'grab'
@@ -667,6 +696,20 @@ export default function FieldEngine() {
     if (!canvas) return
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      if (renderModeRef.current === '3d') {
+        // 3D mode: dolly camera along view direction
+        const cam3D = camera3DRef.current
+        const dollySpeed = 5
+        const delta = e.deltaY > 0 ? dollySpeed : -dollySpeed
+        // Move along view direction
+        const cp = Math.cos(cam3D.pitch), sp = Math.sin(cam3D.pitch)
+        const cy = Math.cos(cam3D.yaw), sy = Math.sin(cam3D.yaw)
+        cam3D.pos[0] += -sy * cp * delta
+        cam3D.pos[1] += sp * delta
+        cam3D.pos[2] += -cy * cp * delta
+        forceUpdate(n => n + 1)
+        return
+      }
       const camera = cameraRef.current
       const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
       camera.zoom = Math.max(0.5, Math.min(8, camera.zoom * zoomFactor))
@@ -1199,12 +1242,14 @@ export default function FieldEngine() {
             (field.properties.get('lighting') as number) ?? 0,
             (field.properties.get('specular') as number) ?? 0,
           ],
+          pos3D: [t.z || 0, t.rotX || 0, t.rotY || 0, field.properties.get('superimpose') ? 1 : 0],
         })
       }
 
-      // Trigger lazy compilation of superimposed pipeline
+      // Trigger lazy compilation of superimposed pipeline (2D and 3D)
       if (superFields.length > 0) {
         renderer.isSuperReady()
+        renderer.isSuper3DReady()
       }
 
       // Store field order for pixel-perfect hit testing
@@ -1248,7 +1293,8 @@ export default function FieldEngine() {
         delete sim.worldData['__emit_particles']
       }
 
-      renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions)
+      const mode3D = renderModeRef.current === '3d' ? camera3DRef.current : undefined
+      renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions, mode3D ? { pos: mode3D.pos, pitch: mode3D.pitch, yaw: mode3D.yaw, fov: mode3D.fov } : undefined)
 
       // Trigger async readback of hit ID map for pixel-perfect hit testing
       if (superFields.length > 0) {
@@ -1787,6 +1833,18 @@ export default function FieldEngine() {
               if (cmd.x !== undefined && cmd.y !== undefined) {
                 sim.setPosition(id, cmd.x as number, cmd.y as number)
               }
+              // 3D position
+              if (cmd.z !== undefined) {
+                const f = sim.fields.get(id)
+                if (f) f.transform.z = cmd.z as number
+              }
+              if (cmd.rotX !== undefined || cmd.rotY !== undefined) {
+                const f = sim.fields.get(id)
+                if (f) {
+                  if (cmd.rotX !== undefined) f.transform.rotX = cmd.rotX as number
+                  if (cmd.rotY !== undefined) f.transform.rotY = cmd.rotY as number
+                }
+              }
 
               // Store shape properties on the field
               const newField = sim.fields.get(id)
@@ -1923,8 +1981,11 @@ export default function FieldEngine() {
               const posField = sim.fields.get(cmd.fieldId)
               if (!posField) break
               sim.setPosition(cmd.fieldId, cmd.x, cmd.y)
+              if (cmd.z !== undefined) posField.transform.z = cmd.z as number
+              if (cmd.rotX !== undefined) posField.transform.rotX = cmd.rotX as number
+              if (cmd.rotY !== undefined) posField.transform.rotY = cmd.rotY as number
               syncFields()
-              pushTerminal('set_position', cmd.fieldId, `(${cmd.x}, ${cmd.y})`)
+              pushTerminal('set_position', cmd.fieldId, `(${cmd.x}, ${cmd.y}${cmd.z !== undefined ? `, z=${cmd.z}` : ''})`)
               break
             }
 
@@ -2629,13 +2690,15 @@ export default function FieldEngine() {
               }
               const result = renderer.registerVisualType(name, wgsl)
               pushTerminal('define_visual', name, `registered as type ${result.id}`, undefined, cmdAuthor)
-              // Check for uber-shader compile errors after async recompilation
-              setTimeout(() => {
-                const compileErr = renderer.getSuperCompilationError()
-                const sim = simulationRef.current
+              // Force-compile uber-shader and report result back to server
+              const dvCommandId = data.id as string | undefined
+              ;(async () => {
+                const compileStatus = await renderer.compileSuperPipeline()
+                const compileErr = compileStatus.error
+                const curSim = simulationRef.current
                 if (compileErr) {
-                  if (sim) {
-                    sim.worldData['last_compile_error'] = {
+                  if (curSim) {
+                    curSim.worldData['last_compile_error'] = {
                       type: 'uber_shader',
                       visualName: name,
                       error: compileErr,
@@ -2644,11 +2707,25 @@ export default function FieldEngine() {
                   }
                   pushTerminal('define_visual', name, `COMPILE ERROR: ${compileErr.substring(0, 200)}`)
                   showToast(`Shader "${name}" failed to compile`, 'error')
-                } else if (sim && sim.worldData['last_compile_error']) {
-                  // Clear stale errors on successful compilation
-                  delete sim.worldData['last_compile_error']
+                } else if (curSim && curSim.worldData['last_compile_error']) {
+                  delete curSim.worldData['last_compile_error']
                 }
-              }, 500)
+                // Send compile result back to server for bridge API response
+                if (dvCommandId) {
+                  try {
+                    await fetch('/api/engine/compile-result', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        commandId: dvCommandId,
+                        result: compileErr
+                          ? { ok: false, error: compileErr }
+                          : { ok: true, visualName: name, typeId: result.id },
+                      }),
+                    })
+                  } catch { /* best-effort */ }
+                }
+              })()
               break
             }
 
@@ -2838,6 +2915,32 @@ export default function FieldEngine() {
     return () => clearInterval(interval)
   }, [])
 
+  // Periodic auto-save — save scene every 60s (overwrites same slot)
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const sim = simulationRef.current
+      if (!sim || sim.fields.size === 0) return
+      try {
+        const sceneData = {
+          name: '_autosave',
+          fields: sim.generateSnapshots(),
+          worldParams: sim.getWorldParams(),
+          worldData: { ...sim.worldData },
+          stepHooks: sim.getStepHookSnapshots(),
+          interactionRules: [...sim.interactionRules],
+          interactionEffects: [...sim.interactionEffects],
+          timestamp: Date.now(),
+        }
+        await fetch('/api/engine/scene', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'save', name: '_autosave', scene: sceneData }),
+        })
+      } catch { /* best-effort */ }
+    }, 60000)
+    return () => clearInterval(interval)
+  }, [])
+
   // Periodic snapshot — export canvas as PNG, save to disk for Claude Code
   useEffect(() => {
     const SNAPSHOT_INTERVAL = 30000 // every 30 seconds
@@ -2906,16 +3009,50 @@ export default function FieldEngine() {
 
           {/* Info overlay */}
           <div className="absolute top-3 left-3 text-[10px] text-muted font-mono flex items-center gap-2">
+            <button
+              onClick={() => setRenderMode(m => m === '2d' ? '3d' : '2d')}
+              className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-colors ${
+                renderMode === '3d'
+                  ? 'bg-accent/30 text-accent border-accent/50 hover:bg-accent/50'
+                  : 'bg-white/10 text-muted border-white/20 hover:bg-white/20'
+              }`}
+            >
+              {renderMode.toUpperCase()}
+            </button>
             <span className="pointer-events-none">
               {gridSize}x{gridSize} | zoom: {cameraRef.current.zoom.toFixed(1)}x
               {selectedField && <span> | selected: {selectedField.name}</span>}
               {agentConnected && <span className="text-accent"> | agent live</span>}
+              {renderMode === '3d' && <span className="text-accent"> | right-drag: orbit, scroll: dolly</span>}
             </span>
             <button
-              onClick={() => {
+              onClick={async () => {
                 const sim = simulationRef.current
                 const renderer = rendererRef.current
                 if (!sim || !renderer) return
+
+                // Auto-save before reset if there are fields
+                if (sim.fields.size > 0) {
+                  const autoName = `_autosave_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`
+                  const sceneData = {
+                    name: autoName,
+                    fields: sim.generateSnapshots(),
+                    worldParams: sim.getWorldParams(),
+                    worldData: { ...sim.worldData },
+                    stepHooks: sim.getStepHookSnapshots(),
+                    interactionRules: [...sim.interactionRules],
+                    interactionEffects: [...sim.interactionEffects],
+                    timestamp: Date.now(),
+                  }
+                  await fetch('/api/engine/scene', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'save', name: autoName, scene: sceneData }),
+                  }).catch(() => {})
+                  showToast(`Auto-saved "${autoName}"`, 'info')
+                  refreshSceneList()
+                }
+
                 for (const field of sim.fields.values()) {
                   renderer.removeAllFieldEffects(field.id)
                 }
