@@ -82,33 +82,36 @@ export async function tryAdvanceContinuousFlowTier(
   // Take exactly cellSize ideas for the new cell
   const cellIdeas = advancingIdeas.slice(0, cellSize)
 
-  // Atomic guard: try to mark these ideas as IN_VOTING at next tier.
-  // If another concurrent call already grabbed them, some will fail to match.
-  const updated = await prisma.idea.updateMany({
-    where: {
-      id: { in: cellIdeas.map(i => i.id) },
-      status: 'ADVANCING', // only grab if still ADVANCING (not already claimed)
-    },
-    data: {
-      status: 'IN_VOTING',
-      tier: nextTier,
-    },
-  })
+  // Atomic guard: claim ideas via UPDATE ... RETURNING so we know exactly
+  // which rows WE claimed. A blind revert here could reset ideas that a
+  // concurrent call claimed and already placed in its new cell.
+  const cellIdeaIds = cellIdeas.map(i => i.id)
+  let claimedIds: string[] = []
+  try {
+    const claimed = await prisma.$queryRaw<{ id: string }[]>`
+      UPDATE "Idea"
+      SET status = 'IN_VOTING'::"IdeaStatus", tier = ${nextTier}
+      WHERE id = ANY(${cellIdeaIds}) AND status = 'ADVANCING'::"IdeaStatus"
+      RETURNING id
+    `
+    claimedIds = claimed.map(r => r.id)
+  } catch (err) {
+    console.error('continuousFlow: idea claim query failed:', err)
+    return false
+  }
 
-  // If we couldn't claim all ideas, another call beat us — revert the ones we claimed
-  if (updated.count < cellSize) {
-    await prisma.idea.updateMany({
-      where: {
-        id: { in: cellIdeas.map(i => i.id) },
-        status: 'IN_VOTING',
-        tier: nextTier,
-      },
-      data: {
-        status: 'ADVANCING',
-        tier: completedTier,
-      },
-    })
-    console.log(`continuousFlow: race condition — only claimed ${updated.count}/${cellSize} ideas for tier ${nextTier}, reverting`)
+  // If we couldn't claim all ideas, another call beat us — revert only our own claims
+  if (claimedIds.length < cellSize) {
+    if (claimedIds.length > 0) {
+      await prisma.idea.updateMany({
+        where: { id: { in: claimedIds } },
+        data: {
+          status: 'ADVANCING',
+          tier: completedTier,
+        },
+      })
+    }
+    console.log(`continuousFlow: race condition — only claimed ${claimedIds.length}/${cellSize} ideas for tier ${nextTier}, reverting own claims`)
     return false
   }
 
@@ -246,10 +249,11 @@ export async function handleContinuousFlowCellComplete(
         tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
       }
 
-      const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a)
+      // Sort by XP descending, break ties deterministically by idea ID
+      const sorted = Object.entries(tally).sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
       const winnerId = sorted.length > 0
         ? sorted[0][0]
-        : firstIdeaIds[Math.floor(Math.random() * firstIdeaIds.length)]
+        : firstIdeaIds[0] // deterministic fallback (firstIdeaIds is already sorted)
 
       if (winnerId) {
         // Mark losers

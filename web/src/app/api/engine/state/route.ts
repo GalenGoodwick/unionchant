@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { setFieldSnapshots, getFieldSnapshot, getEngineState } from '../store'
-import type { FieldSnapshot } from '@/app/engine/types'
+import { setFieldSnapshots, getFieldSnapshot, getEngineState, claimWriter } from '../store'
+import { setSpaceSnapshot } from '../space-store'
+import type { FieldSnapshot, SceneSnapshot } from '@/app/engine/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +25,7 @@ async function checkAuth(req: NextRequest): Promise<boolean> {
 /**
  * POST /api/engine/state
  * Client pushes field snapshots every 2s
- * Body: { fields: FieldSnapshot[] }
+ * Body: { fields: FieldSnapshot[], spaceId?: string }
  */
 export async function POST(req: NextRequest) {
   if (!(await checkAuth(req))) {
@@ -38,7 +39,39 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Expected { fields: FieldSnapshot[] }' }, { status: 400 })
     }
 
-    setFieldSnapshots(fields, body.worldParams, body.stepHooks, body.worldData, body.renderedSamples, body.interactionEffects)
+    // Writer lease on the global world — one session syncs, others get 409
+    // instead of silently clobbering each other every 2s. Space-scoped syncs
+    // are per-space rows and don't contend. clientId is REQUIRED: a stale tab
+    // running an old bundle must not keep writing around the lease.
+    if (!body.spaceId) {
+      if (typeof body.clientId !== 'string') {
+        return NextResponse.json({ error: 'clientId required — reload this tab to pick up the current bundle' }, { status: 400 })
+      }
+      if (!claimWriter(body.clientId, body.takeover === true)) {
+        return NextResponse.json({ error: 'world-locked' }, { status: 409 })
+      }
+    }
+
+    // Space-scoped: persist to database
+    if (body.spaceId) {
+      const snapshot: SceneSnapshot = {
+        name: body.spaceId,
+        fields,
+        worldParams: body.worldParams || {},
+        worldData: body.worldData || {},
+        stepHooks: body.stepHooks || [],
+        interactionRules: body.interactionRules || [],
+        interactionEffects: body.interactionEffects || [],
+        visualTypes: body.visualTypes || [],
+        modules: body.modules || [],
+        timestamp: Date.now(),
+      }
+      await setSpaceSnapshot(body.spaceId, snapshot)
+      return NextResponse.json({ ok: true, fieldCount: fields.length, spaceId: body.spaceId })
+    }
+
+    // Global: persist to in-memory store
+    setFieldSnapshots(fields, body.worldParams, body.stepHooks, body.worldData, body.renderedSamples, body.interactionEffects, body.visualTypes, body.modules)
     return NextResponse.json({ ok: true, fieldCount: fields.length })
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })

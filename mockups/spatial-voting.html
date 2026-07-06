@@ -272,16 +272,18 @@
   /* ── General chat — feed of all idea chatter ── */
   #general-chat {
     position: absolute;
-    top: 290px;
+    top: 310px;
     left: 0; right: 0;
-    bottom: 0;
+    bottom: 10px;
     z-index: 8;
     overflow-y: auto;
     padding: 8px 20px;
     scrollbar-width: none;
-    mask-image: linear-gradient(transparent, black 20px, black calc(100% - 80px), transparent);
-    -webkit-mask-image: linear-gradient(transparent, black 20px, black calc(100% - 80px), transparent);
+    pointer-events: none;
+    mask-image: linear-gradient(transparent, black 20px, black calc(100% - 30px), transparent);
+    -webkit-mask-image: linear-gradient(transparent, black 20px, black calc(100% - 30px), transparent);
   }
+  #general-chat .gc-msg { pointer-events: auto; }
   #general-chat::-webkit-scrollbar { display: none; }
 
   .gc-msg {
@@ -340,13 +342,13 @@
   #bottom-panel {
     position: absolute;
     bottom: 0; left: 0; right: 0;
+    top: 290px;
     z-index: 30;
     background: rgba(10,14,22,0.96);
     backdrop-filter: blur(24px);
     border-top: 1px solid var(--edge);
     transform: translateY(100%);
     transition: transform 0.45s cubic-bezier(0.22,1,0.36,1);
-    height: 75%;
     display: flex;
     flex-direction: column;
   }
@@ -389,9 +391,9 @@
     overflow-y: auto;
     flex: 1;
     min-height: 0;
-    scrollbar-width: thin;
-    scrollbar-color: var(--edge) transparent;
+    scrollbar-width: none;
   }
+  .panel-chat::-webkit-scrollbar { display: none; }
   .chat-msg { margin-bottom: 8px; }
   .chat-msg:last-child { margin-bottom: 0; }
   .chat-author {
@@ -544,7 +546,7 @@
     <div class="tb-title">Unity Chant</div>
     <div class="tb-round">Round 2 of 3</div>
     <div style="text-align:right">
-      <div class="tb-xp" id="xp-display">5</div>
+      <div class="tb-xp" id="xp-display">10</div>
       <div class="tb-xp-label">xp to spend</div>
     </div>
   </div>
@@ -663,7 +665,7 @@ const IDEAS = [
 
 // ── State ──
 let dockedId = 2;           // player starts docked
-let myXP = 5;               // total XP budget
+let myXP = 10;              // total XP budget
 let myAlloc = [0,0,0,0,0];  // votes allocated per idea
 let seen = new Set();        // ideas visited
 let gcMessages = [];         // general chat feed

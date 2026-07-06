@@ -1,0 +1,16 @@
+{
+  "name": "@unitychant/space",
+  "version": "0.1.0",
+  "description": "CLI to connect Claude Code to your Unity Chant engine space",
+  "bin": {
+    "uc-space": "./bin/cli.mjs"
+  },
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/galengoodwick/unionchant",
+    "directory": "packages/space"
+  },
+  "keywords": ["unity-chant", "claude-code", "webgpu", "engine", "spatial"]
+}

@@ -436,10 +436,25 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
     animRef.current = requestAnimationFrame(animate)
   }, [])
 
-  // Cleanup animation on unmount
+  // Cleanup animation + WebGL renderer on unmount (the init effect only
+  // destroys the renderer when the view is hidden or fields empty)
   useEffect(() => {
-    return () => { if (animRef.current) cancelAnimationFrame(animRef.current) }
+    return () => {
+      if (animRef.current) cancelAnimationFrame(animRef.current)
+      if (fieldRendererRef.current) {
+        fieldRendererRef.current.destroy()
+        fieldRendererRef.current = null
+      }
+    }
   }, [])
+
+  // Re-render on window resize so lobby frames stay centered
+  useEffect(() => {
+    if (!visible) return
+    const onResize = () => setRenderTick(t => t + 1)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [visible])
 
   // Interpolation loop for smooth remote player movement
   const interpRef = useRef<number | null>(null)
@@ -652,13 +667,17 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
         const depth = meta?.depth ?? 0
         const effectiveScale = field.transform.scale * scaleMul
 
-        // Per-field parallax offset
-        const renderX = gx - camera.x * depth * PARALLAX_RATE
-        const renderY = gy + camera.y * depth * PARALLAX_RATE
+        // Per-field parallax offset (read from ref so the rAF loop survives camera changes)
+        const renderX = gx - cameraRef.current.x * depth * PARALLAX_RATE
+        const renderY = gy + cameraRef.current.y * depth * PARALLAX_RATE
 
         // Pack as SuperFieldGPU if field has a visualType (uber-shader)
         if (field.visualType !== undefined) {
-          const shapeType = field.shapeType === 'rect' ? 1 : 0
+          // Resolve visual type by name to get this renderer's ID (IDs differ between renderer instances)
+          const resolvedVT = field.visualTypeName
+            ? (renderer.resolveVisualType(field.visualTypeName) ?? field.visualType)
+            : field.visualType
+          const shapeType = field.shapeType === 'rect' ? 1 : field.shapeType === 'screen' ? 2 : 0
           const dim1 = shapeType === 1 ? (field.w || 20) : (field.radius || 10)
           const dim2 = shapeType === 1 ? (field.h || 20) : 0
           const vp = field.visualParams || [0, 0, 0, 0]
@@ -668,7 +687,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
             posScaleRot: [renderX, renderY, effectiveScale, field.transform.rotation],
             shapeDims: [shapeType, dim1, dim2, -1], // -1 = render to screen
             color: field.color,
-            visualAndParams: [field.visualType, vp[0], vp[1], vp[2]],
+            visualAndParams: [resolvedVT, vp[0], vp[1], vp[2]],
             extraParams: [
               vp[3] || 0,
               props.bidirectionalBehind ? 1 : 0,
@@ -714,7 +733,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
 
     rafId = requestAnimationFrame(renderFrame)
     return () => { if (rafId) cancelAnimationFrame(rafId) }
-  }, [visible, savedFields, camera, fieldLayout, rendererReady])
+  }, [visible, savedFields, fieldLayout, rendererReady])
 
   // Draw canvas
   useEffect(() => {
@@ -726,9 +745,15 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
 
     const dpr = window.devicePixelRatio || 1
     const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * dpr
-    canvas.height = rect.height * dpr
-    ctx.scale(dpr, dpr)
+    // Only reallocate the backing buffer when size actually changes — this
+    // effect runs every camera frame and buffer realloc is expensive
+    const bufW = Math.round(rect.width * dpr)
+    const bufH = Math.round(rect.height * dpr)
+    if (canvas.width !== bufW || canvas.height !== bufH) {
+      canvas.width = bufW
+      canvas.height = bufH
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     const cx = rect.width / 2 + camera.x
     const cy = rect.height / 2 + camera.y
@@ -1977,7 +2002,7 @@ const SpatialCanvas = forwardRef<SpatialCanvasHandle, SpatialCanvasProps>(functi
                                 <p className="text-[10px] text-muted/60 mb-1.5 leading-snug">{effect.description}</p>
                               )}
                               <pre className="text-[9px] font-mono text-foreground/40 bg-background/50 rounded p-1.5 overflow-x-auto max-h-24 leading-tight">
-                                {effect.wgsl.slice(0, 300)}{effect.wgsl.length > 300 ? '...' : ''}
+                                {(effect.wgsl || '').slice(0, 300)}{(effect.wgsl || '').length > 300 ? '...' : ''}
                               </pre>
                             </div>
                           ))}

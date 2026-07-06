@@ -17,6 +17,7 @@ import {
   buildPostProcessComputeShader,
   buildParticleUpdateComputeShader,
   buildParticleRenderComputeShader,
+  buildStepHookComputeShader,
   PARTICLE_STRIDE,
   MAX_PARTICLES,
   VisualTypeEntry,
@@ -234,6 +235,21 @@ export class FieldRenderer {
   private _particleNextSlot: number = 0
   private _particleDirty: boolean = false
   private _particleCount: number = 0
+
+  // ─── GPU Step Hooks ───
+  private stepStateBuffer: GPUBuffer | null = null
+  private stepStateStagingBuffer: GPUBuffer | null = null
+  private stepStateCapacity: number = 0
+  private stepUniformBuffer: GPUBuffer | null = null
+  private stepHookPipeline: GPUComputePipeline | null = null
+  private stepHookBindGroupLayout: GPUBindGroupLayout | null = null
+  private stepStateReadbackPending: boolean = false
+  private superFieldStagingBuffer: GPUBuffer | null = null
+  private superFieldReadbackPending: boolean = false
+  private _stepHookCompilationId: number = 0
+  private _stepHookLastCompiledId: number = -1
+  private _stepHookCompiling: boolean = false
+  static readonly STEP_STATE_STRIDE = 64 // 4 vec4f = 16 floats = 64 bytes per field
 
   // Visual type registry (dynamic visual types)
   private visualTypeRegistry: Map<string, VisualTypeEntry> = new Map()
@@ -1332,6 +1348,7 @@ export class FieldRenderer {
     superFields?: SuperFieldGPU[],
     activeInteractions?: { fieldIdxA: number; fieldIdxB: number; interactionType: number; propagationType?: number }[],
     mode3D?: { pos: [number, number, number]; pitch: number; yaw: number; fov: number },
+    stepHookData?: { dt: number; worldData: Record<string, unknown> },
   ): void {
     const device = this.device
     const ctx = this.context
@@ -1435,6 +1452,11 @@ export class FieldRenderer {
           pass.setBindGroup(0, this._cachedClearBG)
           pass.dispatchWorkgroups(Math.ceil(this.accumBufPixelCount / 256))
           pass.end()
+        }
+
+        // ─── GPU step hooks (modifies superFieldBuffer before uber-shader reads it) ───
+        if (hasSuperFields && this.stepHookPipeline && stepHookData) {
+          this.dispatchStepHooks(encoder, superFields!.length, stepHookData.dt, time, stepHookData.worldData)
         }
 
         // ─── Superimposed fields (single uber-shader dispatch) ───
@@ -2171,7 +2193,7 @@ export class FieldRenderer {
     const myCompilationId = this.superCompilationId  // Snapshot — don't bump
 
     try {
-      const allVisuals = this.getAllVisualTypes()
+      const allVisuals = this.getAllVisualTypes().filter(v => !v.broken)
       const allInteractions = this.getAllInteractionTypes()
       const allModules = this.getAllModules()
       const targetCount = this.renderTargets.size
@@ -2187,6 +2209,17 @@ export class FieldRenderer {
       const info = await module.getCompilationInfo()
       const errors = info.messages.filter(m => m.type === 'error')
       if (errors.length > 0) {
+        // Fault isolation: find the offending visual(s) by compiling each one
+        // alone, quarantine them, and let the next frame recompile with the
+        // healthy set. One broken shader must not black out the whole world.
+        const quarantined = await this.quarantineBrokenVisuals(allVisuals, allModules, targetCount)
+        if (quarantined.length > 0) {
+          console.error(`[Super] QUARANTINED ${quarantined.length} broken visual(s): ${quarantined.join(', ')} — recompiling without them`)
+          this.superCompilationError = null
+          this.super3DPipelineReady = false
+          this.super3DPipeline = null
+          return false
+        }
         const errorMsg = errors.map(e => `Line ${e.lineNum}:${e.linePos}: ${e.message}`).join('\n')
         this.superCompilationError = errorMsg
         console.error('[Super] Shader compile errors:')
@@ -2229,7 +2262,7 @@ export class FieldRenderer {
 
       this.superPipelineReady = true
       this.superCompilationError = null
-      console.log('[Super] Pipeline compiled (' + this.getAllVisualTypes().length + ' visuals, ' + this.getAllInteractionTypes().length + ' interactions, ' + allModules.length + ' modules, ' + targetCount + ' targets)')
+      console.log('[Super] Pipeline compiled (' + allVisuals.length + ' visuals, ' + this.getAllInteractionTypes().length + ' interactions, ' + allModules.length + ' modules, ' + targetCount + ' targets)')
       return true
     } catch (err) {
       this.superCompilationError = err instanceof Error ? err.message : 'Pipeline creation failed'
@@ -2238,6 +2271,38 @@ export class FieldRenderer {
     } finally {
       this.superCompiling = false
     }
+  }
+
+  /** Compile each visual in isolation to find the ones that break the
+   *  uber-shader. Broken entries are flagged (entry.broken/entry.error) so
+   *  subsequent compiles exclude them. Returns the quarantined names. */
+  private async quarantineBrokenVisuals(
+    visuals: VisualTypeEntry[],
+    modules: { name: string; wgsl: string }[],
+    targetCount: number,
+  ): Promise<string[]> {
+    const device = this.device
+    if (!device) return []
+    const quarantined: string[] = []
+    for (const v of visuals) {
+      try {
+        const src = buildSuperimposedComputeShader([v], [], modules, targetCount)
+        const mod = device.createShaderModule({ code: src })
+        const info = await mod.getCompilationInfo()
+        const errs = info.messages.filter(m => m.type === 'error')
+        if (errs.length > 0) {
+          v.broken = true
+          v.error = errs.map(e => `Line ${e.lineNum}:${e.linePos}: ${e.message}`).join('\n')
+          quarantined.push(v.name)
+          console.error(`[Super] Visual '${v.name}' failed isolated compile:\n${v.error}`)
+        }
+      } catch (err) {
+        v.broken = true
+        v.error = err instanceof Error ? err.message : 'compile threw'
+        quarantined.push(v.name)
+      }
+    }
+    return quarantined
   }
 
   /** Lazy-compile the 3D uber-shader pipeline (mirrors ensureSuperPipeline). */
@@ -2251,7 +2316,7 @@ export class FieldRenderer {
     const myCompilationId = this.superCompilationId
 
     try {
-      const allVisuals = this.getAllVisualTypes()
+      const allVisuals = this.getAllVisualTypes().filter(v => !v.broken)
       const allInteractions = this.getAllInteractionTypes()
       const allModules = this.getAllModules()
       const targetCount = this.renderTargets.size
@@ -2308,10 +2373,15 @@ export class FieldRenderer {
     if (this.superFieldBuffer && this.superFieldBufferCapacity >= needed) return
 
     this.superFieldBuffer?.destroy()
+    this.superFieldStagingBuffer?.destroy()
     const capacity = Math.max(needed, FieldRenderer.SUPER_MAX_FIELDS * FieldRenderer.SUPER_FIELD_STRIDE)
     this.superFieldBuffer = device.createBuffer({
       size: capacity,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    })
+    this.superFieldStagingBuffer = device.createBuffer({
+      size: capacity,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     })
     this.superFieldBufferCapacity = capacity
   }
@@ -2546,6 +2616,219 @@ export class FieldRenderer {
     return false
   }
 
+  // ─── GPU Step Hooks ───
+
+  /** Check if GPU step hooks are active */
+  hasStepHooks(): boolean {
+    return this.stepHookPipeline !== null
+  }
+
+  /** Bump step hook compilation ID (call when hooks are added/removed) */
+  invalidateStepHooks(): void {
+    this._stepHookCompilationId++
+  }
+
+  /** Ensure the step state buffer can hold the given number of fields */
+  private ensureStepStateBuffer(fieldCount: number): void {
+    const device = this.device!
+    const needed = fieldCount * FieldRenderer.STEP_STATE_STRIDE
+    if (this.stepStateBuffer && this.stepStateCapacity >= needed) return
+
+    const oldBuffer = this.stepStateBuffer
+    const oldCapacity = this.stepStateCapacity
+
+    const capacity = Math.max(needed, FieldRenderer.SUPER_MAX_FIELDS * FieldRenderer.STEP_STATE_STRIDE)
+    this.stepStateBuffer = device.createBuffer({
+      size: capacity,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    })
+    this.stepStateStagingBuffer?.destroy()
+    this.stepStateStagingBuffer = device.createBuffer({
+      size: capacity,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    })
+
+    // Preserve existing state data when growing
+    if (oldBuffer && oldCapacity > 0) {
+      const encoder = device.createCommandEncoder()
+      encoder.copyBufferToBuffer(oldBuffer, 0, this.stepStateBuffer, 0, oldCapacity)
+      device.queue.submit([encoder.finish()])
+      oldBuffer.destroy()
+    }
+
+    this.stepStateCapacity = capacity
+  }
+
+  /** Compile the GPU step hook compute pipeline from user WGSL hooks */
+  async compileStepHookPipeline(hooks: Array<{ id: string; wgsl: string }>): Promise<{ ok: boolean; error: string | null }> {
+    if (this._stepHookCompiling) return { ok: false, error: 'Compilation already in progress' }
+    this._stepHookCompiling = true
+    const compilationId = this._stepHookCompilationId
+
+    try {
+      const device = this.device!
+      const wgsl = buildStepHookComputeShader(hooks)
+
+      if (!this.stepHookBindGroupLayout) {
+        this.stepHookBindGroupLayout = device.createBindGroupLayout({
+          entries: [
+            { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+            { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' } },
+          ],
+        })
+      }
+
+      if (!this.stepUniformBuffer) {
+        this.stepUniformBuffer = device.createBuffer({
+          size: 64, // 16 floats
+          usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        })
+      }
+
+      const module = device.createShaderModule({ code: wgsl })
+      const info = await module.getCompilationInfo()
+      const errors = info.messages.filter(m => m.type === 'error')
+      if (errors.length > 0) {
+        const errMsg = errors.map(m => `Line ${m.lineNum}: ${m.message}`).join('\n')
+        console.error('[StepHook] Compilation errors:', errMsg)
+        this._stepHookCompiling = false
+        return { ok: false, error: errMsg }
+      }
+
+      // Check if compilation was invalidated during async compile
+      if (compilationId !== this._stepHookCompilationId) {
+        this._stepHookCompiling = false
+        return { ok: false, error: 'Compilation invalidated' }
+      }
+
+      const layout = device.createPipelineLayout({
+        bindGroupLayouts: [this.stepHookBindGroupLayout],
+      })
+      this.stepHookPipeline = device.createComputePipeline({
+        layout,
+        compute: { module, entryPoint: 'main' },
+      })
+      this._stepHookLastCompiledId = compilationId
+      this._stepHookCompiling = false
+      console.log('[StepHook] Pipeline compiled successfully')
+      return { ok: true, error: null }
+    } catch (err) {
+      console.error('[StepHook] Pipeline creation failed:', err)
+      this._stepHookCompiling = false
+      return { ok: false, error: String(err) }
+    }
+  }
+
+  /** Remove the step hook pipeline (no GPU hooks active) */
+  clearStepHookPipeline(): void {
+    this.stepHookPipeline = null
+  }
+
+  /** Check if step hook pipeline needs recompilation */
+  stepHookNeedsRecompile(): boolean {
+    return this._stepHookLastCompiledId !== this._stepHookCompilationId && !this._stepHookCompiling
+  }
+
+  /** Dispatch GPU step hooks. Call BEFORE renderSuperimposed in the command encoder. */
+  dispatchStepHooks(
+    encoder: GPUCommandEncoder,
+    fieldCount: number,
+    dt: number,
+    time: number,
+    worldData: Record<string, unknown>,
+  ): void {
+    if (!this.stepHookPipeline || !this.device || fieldCount === 0) return
+    if (!this.superFieldBuffer || !this.stepUniformBuffer) return
+
+    this.ensureStepStateBuffer(fieldCount)
+
+    // Upload step uniforms (16 floats = 64 bytes)
+    const d = new Float32Array(16)
+    d[0] = dt
+    d[1] = time
+    d[2] = (worldData['mouse_x'] as number) ?? 0
+    d[3] = (worldData['mouse_y'] as number) ?? 0
+    d[4] = (worldData['mouse_down'] as number) ?? 0
+    d[5] = (worldData['key_up'] as number) ?? 0
+    d[6] = (worldData['key_down'] as number) ?? 0
+    d[7] = (worldData['key_left'] as number) ?? 0
+    d[8] = (worldData['key_right'] as number) ?? 0
+    d[9] = (worldData['key_space'] as number) ?? 0
+    d[10] = (worldData['key_shift'] as number) ?? 0
+    // fieldCount must be stored as u32 bits in a f32 slot
+    const fieldCountView = new DataView(d.buffer)
+    fieldCountView.setUint32(44, fieldCount, true) // offset 11*4=44
+    d[12] = this.gridSize
+    d[13] = (worldData['gpu_custom0'] as number) ?? 0
+    d[14] = (worldData['gpu_custom1'] as number) ?? 0
+    d[15] = (worldData['gpu_custom2'] as number) ?? 0
+    this.device.queue.writeBuffer(this.stepUniformBuffer, 0, d)
+
+    if (!this.stepStateBuffer || !this.stepHookBindGroupLayout) return
+
+    const bg = this.device.createBindGroup({
+      layout: this.stepHookBindGroupLayout,
+      entries: [
+        { binding: 0, resource: { buffer: this.superFieldBuffer, size: fieldCount * FieldRenderer.SUPER_FIELD_STRIDE } },
+        { binding: 1, resource: { buffer: this.stepStateBuffer, size: fieldCount * FieldRenderer.STEP_STATE_STRIDE } },
+        { binding: 2, resource: { buffer: this.stepUniformBuffer } },
+      ],
+    })
+
+    const pass = encoder.beginComputePass()
+    pass.setPipeline(this.stepHookPipeline)
+    pass.setBindGroup(0, bg)
+    pass.dispatchWorkgroups(Math.ceil(fieldCount / 64))
+    pass.end()
+  }
+
+  /** Request async readback of superFieldBuffer after step hooks modify it.
+   *  Call after queue.submit(). */
+  readbackSuperFields(fieldCount: number): void {
+    if (!this.superFieldStagingBuffer || this.superFieldReadbackPending || !this.superFieldBuffer) return
+    if (fieldCount === 0) return
+
+    this.superFieldReadbackPending = true
+    const staging = this.superFieldStagingBuffer
+    const byteSize = fieldCount * FieldRenderer.SUPER_FIELD_STRIDE
+
+    // Must use a separate command encoder for the copy since render already submitted
+    const encoder = this.device!.createCommandEncoder()
+    encoder.copyBufferToBuffer(this.superFieldBuffer, 0, staging, 0, byteSize)
+    this.device!.queue.submit([encoder.finish()])
+
+    staging.mapAsync(GPUMapMode.READ).then(() => {
+      const data = new Float32Array(staging.getMappedRange().slice(0))
+      staging.unmap()
+      this._lastSuperFieldReadback = data
+      this.superFieldReadbackPending = false
+    }).catch(() => {
+      this.superFieldReadbackPending = false
+    })
+  }
+
+  /** Latest readback data from GPU step hooks (null if no readback yet) */
+  private _lastSuperFieldReadback: Float32Array | null = null
+
+  /** Consume the latest superField readback data (returns null if not ready, clears after read) */
+  consumeSuperFieldReadback(): Float32Array | null {
+    const data = this._lastSuperFieldReadback
+    this._lastSuperFieldReadback = null
+    return data
+  }
+
+  /** Upload initial step state for a field (velocity + custom state + flags) */
+  uploadStepState(fieldIndex: number, velocity: [number, number, number, number], state0: [number, number, number, number], state1: [number, number, number, number], flags: [number, number, number, number]): void {
+    if (!this.stepStateBuffer || !this.device) return
+    const data = new Float32Array(16)
+    data.set(velocity, 0)
+    data.set(state0, 4)
+    data.set(state1, 8)
+    data.set(flags, 12)
+    this.device.queue.writeBuffer(this.stepStateBuffer, fieldIndex * FieldRenderer.STEP_STATE_STRIDE, data)
+  }
+
   /** Force-compile the uber-shader and return whether it succeeded.
    *  Used by FieldEngine to get synchronous compile feedback for define_visual. */
   async compileSuperPipeline(): Promise<{ ok: boolean; error: string | null }> {
@@ -2567,6 +2850,9 @@ export class FieldRenderer {
     if (existing) {
       id = existing.id
       existing.wgsl = wgsl
+      // New code gets a fresh chance — un-quarantine on update
+      existing.broken = undefined
+      existing.error = undefined
     } else {
       id = this.nextVisualTypeId++
       this.visualTypeRegistry.set(name, { id, name, wgsl })

@@ -645,7 +645,7 @@ ${COORD_MATH}
 
   // Grid lines
   let cellSize = frame.resolution.y * frame.zoom / frame.gridSize;
-  let gridAlpha = smoothstep(2.0, 6.0, cellSize) * 0.15;
+  let gridAlpha = 0.0;
   let cellFrac = fract(gridCoord);
   let lineWidth = 1.0 / max(cellSize, 1.0);
   let gridLine = 1.0 - step(lineWidth, cellFrac.x) * step(lineWidth, cellFrac.y)
@@ -1051,6 +1051,10 @@ export interface VisualTypeEntry {
   name: string
   /** Complete WGSL function definition */
   wgsl: string
+  /** Quarantined by the fault-isolating compile — excluded from the uber-shader */
+  broken?: boolean
+  /** Compile error that caused the quarantine */
+  error?: string
 }
 
 // No built-in visual types. All visual types are defined at runtime via define_visual.
@@ -1093,7 +1097,9 @@ export interface ModuleEntry {
 // These are always available without runtime registration.
 // Runtime types with the same name override built-ins.
 
-export const BUILTIN_VISUAL_WGSL: Array<{ id: number; name: string; wgsl: string }> = [
+export const BUILTIN_VISUAL_WGSL: Array<{ id: number; name: string; wgsl: string }> = []
+
+const _BUILTIN_VISUAL_WGSL_DISABLED: Array<{ id: number; name: string; wgsl: string }> = [
   // 0: Solid — flat fill with SDF edge
   { id: 0, name: 'solid', wgsl: `
 fn visual_solid(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
@@ -1316,7 +1322,7 @@ fn visual_fire(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec
   let distort = fbm(vec2f(fuv.x * 4.0, fuv.y * 2.0 - time * 2.0), 4) * 0.3;
   fuv.x += distort;
   let d = length(fuv);
-  let flame = 1.0 - smoothstep(0.0, 0.9, d);
+  var flame = 1.0 - smoothstep(0.0, 0.9, d);
   let flicker = fbm(vec2f(fuv.x * 6.0, fuv.y * 3.0 - time * 3.0), 3);
   flame *= (0.7 + flicker * 0.5);
   if (flame < 0.01) { return vec4f(0.0); }
@@ -1426,11 +1432,13 @@ export function buildSuperimposedComputeShader(
     ...runtimeTypes,
   ]
 
-  // Deduplicate by name (in case of duplicates within runtime list)
+  // Deduplicate by name AND by ID (runtime overrides built-in by name; first ID wins)
   const seenNames = new Set<string>()
+  const seenIds = new Set<number>()
   const dedupedTypes = mergedTypes.filter(t => {
-    if (seenNames.has(t.name)) return false
+    if (seenNames.has(t.name) || seenIds.has(t.id)) return false
     seenNames.add(t.name)
+    seenIds.add(t.id)
     return true
   })
   const visualFunctions = dedupedTypes.map(t => t.wgsl).join('\n\n')
@@ -1552,6 +1560,7 @@ fn superSDF(coord: vec2f, f: FieldGPU) -> f32 {
   local /= scale;
 
   let st = u32(f.shapeDims.x);
+  if (st == 2u) { return -1.0; } // screen/pixel-perfect — always inside, shader alpha defines shape
   if (st == 1u) { // rect
     return sdBox(local, vec2f(f.shapeDims.y * 0.5, f.shapeDims.z * 0.5));
   }
@@ -1574,7 +1583,7 @@ fn superLocalUV(coord: vec2f, f: FieldGPU) -> vec2f {
   local /= scale;
 
   let st = u32(f.shapeDims.x);
-  if (st == 1u) { // rect — normalize by half-extents
+  if (st == 1u || st == 2u) { // rect or screen — normalize by half-extents
     return vec2f(local.x / max(f.shapeDims.y * 0.5, 1.0), local.y / max(f.shapeDims.z * 0.5, 1.0));
   }
   // circle — normalize by radius
@@ -1638,7 +1647,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     gridCoord.y = frame.camera.y + (0.5 - uv.y) * gridRange.y / aspect;
   }
 
-  let cellCoord = floor(gridCoord) + 0.5;
+  // Use continuous gridCoord (not snapped cellCoord) for superimposed fields.
+  // Superimposed visuals are resolution-independent procedural shaders, not grid cells.
+  // Snapping to floor()+0.5 quantizes rendering to grid resolution, causing blocky
+  // visuals and pixel-dancing when the grid doesn't align 1:1 with screen pixels.
+  let cellCoord = gridCoord;
   let fieldCount = arrayLength(&superFields);
 
   // ─── Superimposed field evaluation ───
@@ -1695,7 +1708,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     let frot = f.posScaleRot.w;
     let fst = u32(f.shapeDims.x);
     var halfExtent: vec2f;
-    if (fst == 1u) { // rect — expand AABB for rotation
+    if (fst == 1u || fst == 2u) { // rect or screen — expand AABB for rotation
       let hw = f.shapeDims.y * 0.5 * fscale;
       let hh = f.shapeDims.z * 0.5 * fscale;
       let ac = abs(cos(frot));
@@ -1832,11 +1845,11 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   }
 
   // Write topmost screen-visible field index for pixel-perfect hit testing
-  // Skip RTT-targeted fields (shapeDims.w >= 0) since they aren't visible on screen
+  // Skip RTT-targeted fields (shapeDims.w >= 0) and noHit fields (shapeDims.w == -2)
   var hitIdx = 0xFFFFFFFFu;
   for (var hi = overlapCount; hi > 0u; hi--) {
     let hfi = overlapIndices[hi - 1u];
-    if (i32(superFields[hfi].shapeDims.w) < 0) {
+    if (i32(superFields[hfi].shapeDims.w) == -1) {
       hitIdx = hfi;
       break;
     }
@@ -2192,10 +2205,10 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
 
   if (overlapCount == 0u) { return; }
 
-  // ─── Hit testing: topmost screen-visible field ───
+  // ─── Hit testing: topmost screen-visible field (skip noHit = -2) ───
   for (var hi = overlapCount; hi > 0u; hi--) {
     let hfi = overlapIndices[hi - 1u];
-    if (i32(superFields[hfi].shapeDims.w) < 0) {
+    if (i32(superFields[hfi].shapeDims.w) == -1) {
       hitIdx = hfi;
       break;
     }
@@ -2605,6 +2618,185 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
         max(existing.a, alpha),
       );
     }
+  }
+}
+`
+}
+
+// ─── GPU Step Hook Compute Shader ───
+// Dispatches one thread per field. Each hook function can read all fields
+// and read/write its own field's state. World config lives on field 0.
+// Fully GPU-sandboxed — no JS, DOM, network, or filesystem access.
+
+export function buildStepHookComputeShader(hooks: Array<{ id: string; wgsl: string }>): string {
+  // Sort hooks and collect their function bodies
+  const hookFunctions = hooks.map(h => h.wgsl).join('\n\n')
+  const hookCalls = hooks.map(h => `  hook_${h.id}(idx);`).join('\n')
+
+  return /* wgsl */`
+// ─── Step Hook Compute Shader ───
+
+struct FieldGPU {
+  posScaleRot: vec4f,      // x, y, scale, rotation
+  shapeDims: vec4f,        // shapeType, dim1, dim2, renderTargetId
+  color: vec4f,            // r, g, b, a
+  visualAndParams: vec4f,  // visualType, param0, param1, param2
+  extraParams: vec4f,      // param3, bidirectionalBehind, lighting, specular
+  pos3D: vec4f,            // z, rotX, rotY, reserved
+};
+
+struct FieldStepState {
+  velocity: vec4f,         // vx, vy, vz, vr (angular velocity)
+  state0: vec4f,           // user-defined slots 0-3
+  state1: vec4f,           // user-defined slots 4-7
+  flags: vec4f,            // x=alive (0/1), y=age (seconds), z=tag0, w=tag1
+};
+
+struct StepUniforms {
+  dt: f32,
+  time: f32,
+  mouseX: f32,
+  mouseY: f32,
+  mouseDown: f32,
+  keyUp: f32,
+  keyDown: f32,
+  keyLeft: f32,
+  keyRight: f32,
+  keySpace: f32,
+  keyShift: f32,
+  fieldCount: u32,
+  gridSize: f32,
+  custom0: f32,
+  custom1: f32,
+  custom2: f32,
+};
+
+@group(0) @binding(0) var<storage, read_write> superFields: array<FieldGPU>;
+@group(0) @binding(1) var<storage, read_write> stepStates: array<FieldStepState>;
+@group(0) @binding(2) var<uniform> step: StepUniforms;
+
+// ─── Step Hook Helper Functions ───
+
+// Distance between two fields (center-to-center)
+fn fieldDist(a: u32, b: u32) -> f32 {
+  return distance(superFields[a].posScaleRot.xy, superFields[b].posScaleRot.xy);
+}
+
+// Direction from field a toward field b (normalized)
+fn fieldDir(a: u32, b: u32) -> vec2f {
+  let d = superFields[b].posScaleRot.xy - superFields[a].posScaleRot.xy;
+  let len = length(d);
+  if (len < 0.001) { return vec2f(0.0); }
+  return d / len;
+}
+
+// Check if a field is alive
+fn isAlive(i: u32) -> bool {
+  return stepStates[i].flags.x > 0.5;
+}
+
+// Kill a field (set alive=0, hide it)
+fn kill(i: u32) {
+  stepStates[i].flags.x = 0.0;
+  superFields[i].color.a = 0.0;
+}
+
+// Activate a dead field (find first dead field starting from startIdx)
+fn spawn(startIdx: u32) -> u32 {
+  for (var i = startIdx; i < step.fieldCount; i++) {
+    if (stepStates[i].flags.x < 0.5) {
+      stepStates[i].flags.x = 1.0;
+      stepStates[i].flags.y = 0.0;
+      stepStates[i].velocity = vec4f(0.0);
+      superFields[i].color.a = 1.0;
+      return i;
+    }
+  }
+  return 0xFFFFFFFFu;
+}
+
+// Get effective radius of a field (circle or rect approximation)
+fn fieldRadius(i: u32) -> f32 {
+  let f = superFields[i];
+  let s = max(f.posScaleRot.z, 0.001);
+  if (f.shapeDims.x < 0.5) { return f.shapeDims.y * s; }
+  return max(f.shapeDims.y, f.shapeDims.z) * 0.5 * s;
+}
+
+// Check if two fields overlap (bounding circle test)
+fn overlaps(a: u32, b: u32) -> bool {
+  return fieldDist(a, b) < fieldRadius(a) + fieldRadius(b);
+}
+
+// Clamp position to grid boundaries
+fn clampToGrid(pos: vec2f) -> vec2f {
+  return clamp(pos, vec2f(0.0), vec2f(step.gridSize));
+}
+
+// Wrap position around grid boundaries
+fn wrapGrid(pos: vec2f) -> vec2f {
+  let gs = step.gridSize;
+  return vec2f(
+    pos.x - gs * floor(pos.x / gs),
+    pos.y - gs * floor(pos.y / gs),
+  );
+}
+
+${SHADER_UTILITIES}
+
+// ─── User Hook Functions ───
+
+${hookFunctions}
+
+// ─── Main Entry Point ───
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3u) {
+  let idx = gid.x;
+
+  // Phase 1: ALL threads restore persistent positions before any hook reads other fields.
+  // This must happen before the barrier — no early returns allowed above it.
+  if (idx < step.fieldCount && stepStates[idx].flags.x > 0.5) {
+    let persistX = stepStates[idx].flags.z;
+    let persistY = stepStates[idx].flags.w;
+    if (persistX != 0.0 || persistY != 0.0) {
+      superFields[idx].posScaleRot.x = persistX;
+      superFields[idx].posScaleRot.y = persistY;
+    } else {
+      // First frame: seed persistent position from CPU
+      stepStates[idx].flags.z = superFields[idx].posScaleRot.x;
+      stepStates[idx].flags.w = superFields[idx].posScaleRot.y;
+    }
+  }
+
+  // Barrier: all positions are now restored — hooks can safely read any field's position.
+  storageBarrier();
+
+  // Phase 2: skip out-of-range and dead threads
+  if (idx >= step.fieldCount) { return; }
+  if (stepStates[idx].flags.x < 0.5) { return; }
+
+  // Increment age
+  stepStates[idx].flags.y += step.dt;
+
+  // Execute user hooks in order
+${hookCalls}
+
+  // Apply velocity → position integration (component-wise, no full-struct write-back).
+  // Writing only the fields that change avoids round-tripping the entire 24-float struct
+  // through a read-modify-write cycle, which prevents precision drift and unintended
+  // modification of fields like color/visual that should stay as the CPU uploaded them.
+  let vel = stepStates[idx].velocity;
+  let velMag = abs(vel.x) + abs(vel.y) + abs(vel.z) + abs(vel.w);
+  if (velMag > 0.0) {
+    superFields[idx].posScaleRot.x += vel.x * step.dt;
+    superFields[idx].posScaleRot.y += vel.y * step.dt;
+    superFields[idx].pos3D.x += vel.z * step.dt;
+    superFields[idx].posScaleRot.w += vel.w * step.dt;
+
+    // Persist final position for next frame
+    stepStates[idx].flags.z = superFields[idx].posScaleRot.x;
+    stepStates[idx].flags.w = superFields[idx].posScaleRot.y;
   }
 }
 `

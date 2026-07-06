@@ -132,6 +132,9 @@ model User {
   // API keys
   apiKeys               ApiKey[]
 
+  // Player engine spaces
+  ownedSpaces           PlayerSpace[] @relation("OwnedSpaces")
+
   // Webhook integrations
   integrations          Integration[]
 
@@ -1038,6 +1041,45 @@ model ChallengeLog {
 
   @@index([userId, createdAt])
   @@index([pathHash])
+}
+
+// ============ PLAYER SPACES ============
+
+model PlayerSpace {
+  id          String       @id @default(cuid())
+  slug        String       @unique                  // URL-friendly name, e.g. "galens-world"
+  name        String                                // Display name
+  ownerId     String
+  owner       User         @relation("OwnedSpaces", fields: [ownerId], references: [id], onDelete: Cascade)
+  snapshot    Json?                                  // SceneSnapshot as JSONB
+  description String?
+  isPublic    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  tokens      SpaceToken[]
+
+  // Nested space hierarchy
+  parentSpaceId String?
+  parentSpace   PlayerSpace?  @relation("SpaceChildren", fields: [parentSpaceId], references: [id], onDelete: SetNull)
+  childSpaces   PlayerSpace[] @relation("SpaceChildren")
+
+  @@index([ownerId])
+  @@index([parentSpaceId])
+}
+
+model SpaceToken {
+  id          String      @id @default(cuid())
+  name        String                                 // "Claude Code", "My Terminal", etc.
+  tokenHash   String      @unique                    // SHA-256 of raw token
+  tokenPrefix String                                 // First 12 chars for display
+  spaceId     String
+  space       PlayerSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?                              // null = never expires
+  revokedAt   DateTime?                              // soft-revoke
+  createdAt   DateTime    @default(now())
+
+  @@index([spaceId])
 }
 
 // ============ API KEYS ============

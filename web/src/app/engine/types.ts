@@ -84,8 +84,8 @@ export interface Field {
   properties: Map<string, unknown>
   /** Optional parent field ID — child fields move/rotate with their parent */
   parentFieldId?: string
-  /** Shape type — determines bounding region and visual form */
-  shapeType?: 'circle' | 'rect'
+  /** Shape type — determines bounding region and visual form. 'screen' = pixel-perfect (no SDF bounding, shader alpha defines shape) */
+  shapeType?: 'circle' | 'rect' | 'screen'
   /** Circle radius in grid pixels (used when shapeType === 'circle') */
   radius?: number
   /** Rect width in grid pixels (used when shapeType === 'rect') */
@@ -96,10 +96,14 @@ export interface Field {
   tags?: string[]
   /** Visual type ID for superimposed rendering (undefined = use per-field WGSL effects) */
   visualType?: number
+  /** Visual type name (used for cross-renderer ID resolution) */
+  visualTypeName?: string
   /** Parameters for the visual type function [p0, p1, p2, p3] */
   visualParams?: [number, number, number, number]
   /** Render order for layer stacking — lower values render first (behind). Default 0. */
   renderOrder?: number
+  /** If true, field renders but doesn't capture mouse clicks (click passes through to fields below) */
+  noHit?: boolean
 }
 
 /** Drawing tool state */
@@ -204,7 +208,7 @@ export interface FieldSnapshot {
   /** Parent field ID for hierarchy (child moves with parent) */
   parentFieldId?: string
   /** Shape type */
-  shapeType?: 'circle' | 'rect'
+  shapeType?: 'circle' | 'rect' | 'screen'
   /** Circle radius in grid pixels */
   radius?: number
   /** Rect width in grid pixels */
@@ -215,8 +219,12 @@ export interface FieldSnapshot {
   tags?: string[]
   /** Visual type for superimposed rendering */
   visualType?: number
+  /** Visual type name (for cross-renderer ID resolution) */
+  visualTypeName?: string
   /** Visual params for superimposed rendering */
   visualParams?: [number, number, number, number]
+  /** If true, field doesn't capture mouse clicks */
+  noHit?: boolean
 }
 
 /** Full world state snapshot (sent via bridge to agents) */
@@ -395,6 +403,8 @@ export interface SceneSnapshot {
   stepHooks: Array<{ id: string; author: string; description: string; code: string }>
   interactionRules: InteractionRule[]
   interactionEffects: InteractionEffect[]
+  visualTypes?: Array<{ name: string; wgsl: string }>
+  modules?: Array<{ name: string; wgsl: string }>
   timestamp: number
 }
 
@@ -446,5 +456,17 @@ export interface GameStateDef {
   onEnter?: string
   onExit?: string
   pausePhysics?: boolean
+}
+
+/** GPU compute step hook — WGSL function that runs per-field each frame on the GPU.
+ *  Fully sandboxed: no JS, DOM, network, or filesystem access. */
+export interface GpuStepHook {
+  id: string
+  author: string
+  description: string
+  /** WGSL function body — must define fn hook_<id>(idx: u32) { ... } */
+  wgsl: string
+  /** Execution order (lower = first) */
+  order: number
 }
 

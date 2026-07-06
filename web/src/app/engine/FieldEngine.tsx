@@ -13,6 +13,8 @@ import type { TerminalEntry } from './AgentTerminalPanel'
 import type { BrushState, Camera, Field, FieldEffect, SelectionState, GenerationState, InteractionEffect, CameraFollow, HudElement, SuperFieldGPU } from './types'
 import { DEFAULT_GRID_SIZE } from './types'
 import { GameAudio } from './audio'
+import SpaceManagementOverlay from './SpaceManagementOverlay'
+import SpaceBreadcrumb from './SpaceBreadcrumb'
 import { useToast } from '@/components/Toast'
 // DEFAULT_FIELD_EFFECT_GLSL removed — fields are invisible until agents give them a shader
 
@@ -93,7 +95,13 @@ fn fieldEffect(coord: vec2f, regionMin: vec2f, regionMax: vec2f, time: f32, para
 }`
 }
 
-export default function FieldEngine() {
+interface FieldEngineProps {
+  spaceId?: string
+  spaceSlug?: string
+  isOwner?: boolean
+}
+
+export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngineProps = {}) {
   const { showToast } = useToast()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<FieldRenderer | null>(null)
@@ -109,6 +117,10 @@ export default function FieldEngine() {
 
   // WGSL mods — reusable shader utilities registered by agents
   const wgslModsRef = useRef<Map<string, { id: string; code: string }>>(new Map())
+
+  // Track which fields have had their step state initialized on GPU (don't re-upload every frame)
+  const stepStateInitializedRef = useRef<Set<string>>(new Set())
+
 
   // Camera follow mode
   const cameraFollowRef = useRef<CameraFollow | null>(null)
@@ -156,6 +168,11 @@ export default function FieldEngine() {
 
   // Saved scenes list (server-side persistent)
   const [savedScenes, setSavedScenes] = useState<string[]>([])
+  // Writer lease: this tab's identity for global-world sync. When another
+  // session holds the lease, our syncs 409 and we go read-only (worldLocked).
+  const clientIdRef = useRef(`tab_${Math.random().toString(36).slice(2, 10)}`)
+  const takeoverRef = useRef(false)
+  const [worldLocked, setWorldLocked] = useState(false)
 
   // Generation state — UI-only loading tracker, WGSL lives on Field objects
   const [generation, setGeneration] = useState<GenerationState>({
@@ -289,13 +306,16 @@ export default function FieldEngine() {
     try {
       const resp = await fetch('/api/engine/scene?action=list')
       const { scenes } = await resp.json()
-      setSavedScenes(Array.isArray(scenes) ? scenes : [])
+      const next = Array.isArray(scenes) ? scenes : []
+      // Only touch state when the list actually changed — this refresh polls
+      setSavedScenes(prev => (prev.length === next.length && prev.every((n, i) => n === next[i])) ? prev : next)
     } catch { /* ignore */ }
   }, [])
 
   // Save entire scene (all fields, effects, rules, hooks, world params)
   const handleSaveScene = useCallback(async () => {
     const sim = simulationRef.current
+    const renderer = rendererRef.current
     if (!sim) return
     const name = window.prompt('Scene name:')
     if (!name?.trim()) return
@@ -308,6 +328,8 @@ export default function FieldEngine() {
       stepHooks: sim.getStepHookSnapshots(),
       interactionRules: [...sim.interactionRules],
       interactionEffects: [...sim.interactionEffects],
+      visualTypes: renderer ? renderer.getAllVisualTypes().map(vt => ({ name: vt.name, wgsl: vt.wgsl })) : [],
+      modules: renderer ? renderer.getAllModules().map(m => ({ name: m.name, wgsl: m.wgsl })) : [],
       timestamp: Date.now(),
     }
     try {
@@ -350,16 +372,50 @@ export default function FieldEngine() {
       sim.collisionCallbacks.clear()
       cachedOverlapMasksRef.current = new Map()
 
+      // A scene is a complete world — reset the shader registries so visuals
+      // from previously loaded scenes don't accumulate forever (every stale
+      // visual bloats the uber-shader and slows each recompile).
+      renderer.clearRegistries()
+
+      // Restore visual types and modules first (before fields that reference them)
+      if (scene.visualTypes) {
+        for (const vt of scene.visualTypes) {
+          renderer.registerVisualType(vt.name, vt.wgsl)
+        }
+      }
+      if (scene.modules) {
+        for (const m of scene.modules) {
+          renderer.registerModule(m.name, m.wgsl)
+        }
+      }
+
       // Restore scene
       sim.restoreFromSnapshots(scene.fields || [])
+      // Name is authoritative — resolve visual types against this session's
+      // registry (numeric IDs shift between sessions)
+      for (const field of sim.fields.values()) {
+        if (field.visualTypeName) {
+          const runtimeId = renderer.resolveVisualType(field.visualTypeName)
+          if (runtimeId !== undefined) field.visualType = runtimeId
+        }
+      }
       if (scene.worldParams) sim.setWorldParams(scene.worldParams)
       if (scene.worldData) Object.assign(sim.worldData, scene.worldData)
+      // Transient input state must never arrive via a scene
+      for (const k of Object.keys(sim.worldData)) {
+        if (k.startsWith('key_') || k.startsWith('mouse_')) delete sim.worldData[k]
+      }
       if (scene.interactionRules) sim.interactionRules = scene.interactionRules
       if (scene.interactionEffects) {
         for (const ie of scene.interactionEffects) sim.addInteractionEffect(ie)
       }
       if (scene.stepHooks) {
         for (const h of scene.stepHooks) sim.addStepHook(h.id, h.author, h.description, h.code)
+        // A scene with logic should boot running (game cartridges)
+        if (scene.stepHooks.length > 0 && !sim.running) {
+          sim.running = true
+          setRunning(true)
+        }
       }
 
       // Recompile effects
@@ -392,6 +448,84 @@ export default function FieldEngine() {
       showToast(`Failed to delete "${sceneName}"`, 'error')
     }
   }, [showToast, refreshSceneList])
+
+  // Load space snapshot on mount (for space mode)
+  const spaceLoadedRef = useRef(false)
+  useEffect(() => {
+    if (!spaceSlug || spaceLoadedRef.current) return
+    spaceLoadedRef.current = true
+
+    const loadSpaceSnapshot = async () => {
+      const sim = simulationRef.current
+      const renderer = rendererRef.current
+      if (!sim || !renderer) {
+        // Retry after renderer initializes
+        setTimeout(loadSpaceSnapshot, 500)
+        return
+      }
+
+      try {
+        const resp = await fetch(`/api/spaces/${encodeURIComponent(spaceSlug)}/snapshot`)
+        const { snapshot } = await resp.json()
+        if (!snapshot) return // Empty space — blank canvas
+
+        // Restore visual types and modules first
+        if (snapshot.visualTypes) {
+          for (const vt of snapshot.visualTypes) {
+            renderer.registerVisualType(vt.name, vt.wgsl)
+          }
+        }
+        if (snapshot.modules) {
+          for (const m of snapshot.modules) {
+            renderer.registerModule(m.name, m.wgsl)
+          }
+        }
+
+        // Restore fields and state
+        sim.restoreFromSnapshots(snapshot.fields || [])
+
+        // Resolve visualTypeName → numeric visualType from runtime registry.
+        // The name is authoritative: numeric IDs are assigned per renderer
+        // session, so a stored numeric can point at a different visual type
+        // after a reload. Always re-resolve when a name is present.
+        for (const field of sim.fields.values()) {
+          if (field.visualTypeName) {
+            const runtimeId = renderer.resolveVisualType(field.visualTypeName)
+            if (runtimeId !== undefined) field.visualType = runtimeId
+          }
+        }
+
+        if (snapshot.worldParams) sim.setWorldParams(snapshot.worldParams)
+        if (snapshot.worldData) Object.assign(sim.worldData, snapshot.worldData)
+        // Transient input state must never survive a restore (stuck ghost keys)
+        for (const k of Object.keys(sim.worldData)) {
+          if (k.startsWith('key_') || k.startsWith('mouse_')) delete sim.worldData[k]
+        }
+        if (snapshot.interactionRules) sim.interactionRules = snapshot.interactionRules
+        if (snapshot.interactionEffects) {
+          for (const ie of snapshot.interactionEffects) sim.addInteractionEffect(ie)
+        }
+        if (snapshot.stepHooks) {
+          for (const h of snapshot.stepHooks) sim.addStepHook(h.id, h.author, h.description, h.code)
+        }
+
+        // Recompile effects
+        for (const field of sim.fields.values()) {
+          for (const effect of field.effects) {
+            const programKey = `${field.id}_${effect.id}`
+            await renderer.compileFieldEffect(programKey, field.id, effect.wgsl, getModCode())
+          }
+        }
+
+        syncFields()
+      } catch (err) {
+        console.error('Failed to load space snapshot:', err)
+      }
+    }
+
+    loadSpaceSnapshot()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceSlug])
 
   // Change field color — just update color, shader uses params
   const handleFieldColorChange = useCallback((id: string, color: [number, number, number, number]) => {
@@ -669,6 +803,12 @@ export default function FieldEngine() {
       if (dist < 5 && sim) {
         const field = sim.fields.get(fieldId)
         if (field) {
+          // Portal navigation — click portal to enter target space
+          const portalTarget = field.properties.get('portalTarget') as string | undefined
+          if (portalTarget && field.properties.get('portalType') === 'space') {
+            window.location.href = `/space/${portalTarget}`
+            return
+          }
           setBrush(prev => ({ ...prev, activeFieldId: fieldId }))
           updateSelectionMask(fieldId)
         }
@@ -812,6 +952,16 @@ export default function FieldEngine() {
           }
         }
 
+        // Name is authoritative — numeric visualType IDs are per-session, so a
+        // reloaded page must re-resolve each field's visualTypeName against the
+        // registry we just rebuilt (same as handleLoadScene / space restore)
+        for (const field of sim.fields.values()) {
+          if (field.visualTypeName) {
+            const runtimeId = renderer.resolveVisualType(field.visualTypeName)
+            if (runtimeId !== undefined) field.visualType = runtimeId
+          }
+        }
+
         // Restore uber-shader interaction definitions
         if (Array.isArray(data.interactionDefs)) {
           if (!sim.interactionPairs) sim.interactionPairs = []
@@ -864,12 +1014,19 @@ export default function FieldEngine() {
 
         setBrush(prev => ({ ...prev, activeFieldId: firstId }))
       }
+
       // Restore step hooks
       if (Array.isArray(data.stepHooks)) {
         for (const hook of data.stepHooks) {
           if (hook.id && hook.code) {
             sim.addStepHook(hook.id, hook.author || 'unknown', hook.description || '', hook.code)
           }
+        }
+        // A restored world with logic should resume running, same as a
+        // freshly loaded scene cartridge — otherwise reload freezes the game
+        if (data.stepHooks.length > 0 && !sim.running) {
+          sim.running = true
+          setRunning(true)
         }
       }
       // Restore interaction effects
@@ -892,6 +1049,13 @@ export default function FieldEngine() {
     // Render loop
     function frame() {
       const now = performance.now()
+      // Cap at ~60fps: ProMotion displays otherwise drive the full compute
+      // pipeline at 120Hz — double the GPU load (and laptop heat) for no
+      // perceptible gain in a shader-driven scene.
+      if (now - lastFrameRef.current < 15) {
+        animFrameRef.current = requestAnimationFrame(frame)
+        return
+      }
       const dt = (now - lastFrameRef.current) / 1000
       lastFrameRef.current = now
 
@@ -1204,15 +1368,15 @@ export default function FieldEngine() {
         .sort((a, b) => (a.renderOrder || 0) - (b.renderOrder || 0))
       for (const field of sortedFields) {
         const t = field.transform
-        const shapeType = field.shapeType === 'rect' ? 1 : 0
-        const dim1 = shapeType === 1 ? (field.w || 20) : (field.radius || 10)
-        const dim2 = shapeType === 1 ? (field.h || 20) : 0
+        const shapeType = field.shapeType === 'rect' ? 1 : field.shapeType === 'screen' ? 2 : 0
+        const dim1 = shapeType === 2 ? (field.w || sim.gridSize) : shapeType === 1 ? (field.w || 20) : (field.radius || 10)
+        const dim2 = shapeType === 2 ? (field.h || sim.gridSize) : shapeType === 1 ? (field.h || 20) : 0
 
         // Viewport culling — skip fields entirely outside the camera view
         const s = Math.max(t.scale, 0.001)
         let hx: number, hy: number
-        if (shapeType === 1) {
-          // Rotated rect AABB
+        if (shapeType === 1 || shapeType === 2) {
+          // Rotated rect/screen AABB
           const ac = Math.abs(Math.cos(t.rotation))
           const as_ = Math.abs(Math.sin(t.rotation))
           hx = (dim1 * 0.5 * ac + dim2 * 0.5 * as_) * s
@@ -1221,17 +1385,24 @@ export default function FieldEngine() {
           hx = dim1 * s
           hy = dim1 * s
         }
-        if (t.x + hx < vpMinX || t.x - hx > vpMaxX ||
-            t.y + hy < vpMinY || t.y - hy > vpMaxY) {
-          continue // entirely off-screen
+        // Skip viewport culling when GPU step hooks are active — culling changes
+        // field indices which breaks the stepStateBuffer index mapping (velocity
+        // accumulated for field N would be read by field N-1 after a cull shift).
+        if (!renderer.hasStepHooks()) {
+          if (t.x + hx < vpMinX || t.x - hx > vpMaxX ||
+              t.y + hy < vpMinY || t.y - hy > vpMaxY) {
+            continue // entirely off-screen
+          }
         }
 
         const vp = field.visualParams || [0, 0, 0, 0]
         // Resolve render target name → ID (-1 = screen, 0-5 = target index)
         const rtName = field.properties.get('renderTarget') as string | undefined
-        const renderTargetId = rtName ? renderer.resolveRenderTarget(rtName) : -1
+        const renderTargetId = rtName ? renderer.resolveRenderTarget(rtName) : (field.noHit ? -2 : -1)
         superFieldOrder.push(field.id)
         superFields.push({
+          // When step hooks are active, the GPU shader ignores these x/y values and
+          // restores its own persistent position from stepStates.flags.zw instead.
           posScaleRot: [t.x, t.y, t.scale, t.rotation],
           shapeDims: [shapeType, dim1, dim2, renderTargetId],
           color: field.color,
@@ -1246,10 +1417,61 @@ export default function FieldEngine() {
         })
       }
 
-      // Trigger lazy compilation of superimposed pipeline (2D and 3D)
+      // Upload per-field step state ONLY for newly added fields — the GPU owns
+      // stepStateBuffer once initialized. Uploading every frame destroys the GPU's
+      // accumulated velocity (the orbit hook's mix() damping never builds up).
+      if (renderer.hasStepHooks() && superFields.length > 0) {
+        for (let i = 0; i < superFieldOrder.length; i++) {
+          const fieldId = superFieldOrder[i]
+          if (stepStateInitializedRef.current.has(fieldId)) continue
+          const field = sim.fields.get(fieldId)
+          if (!field) continue
+          const t = field.transform
+          renderer.uploadStepState(
+            i,
+            [t.vx, t.vy, t.vz || 0, t.vr],
+            [
+              (field.properties.get('state0') as number) ?? 0,
+              (field.properties.get('state1') as number) ?? 0,
+              (field.properties.get('state2') as number) ?? 0,
+              (field.properties.get('state3') as number) ?? 0,
+            ],
+            [
+              (field.properties.get('state4') as number) ?? 0,
+              (field.properties.get('state5') as number) ?? 0,
+              (field.properties.get('state6') as number) ?? 0,
+              (field.properties.get('state7') as number) ?? 0,
+            ],
+            [field.color[3] > 0 ? 1 : 0, 0, 0, 0],  // alive, age (GPU tracks), tag0, tag1
+          )
+          stepStateInitializedRef.current.add(fieldId)
+        }
+      }
+
+      // Trigger lazy compilation of superimposed pipeline. The 3D pipeline
+      // only compiles when actually in 3D mode — eagerly compiling it in 2D
+      // doubles every scene switch's compile cost and, if a visual is broken,
+      // spams a failing recompile every frame.
       if (superFields.length > 0) {
         renderer.isSuperReady()
-        renderer.isSuper3DReady()
+        if (renderModeRef.current === '3d') renderer.isSuper3DReady()
+      }
+
+      // Compile GPU step hooks when dirty
+      if (sim.gpuStepHooksDirty) {
+        sim.gpuStepHooksDirty = false
+        renderer.invalidateStepHooks()
+        // Reset step state initialization so new hooks get fresh state
+        stepStateInitializedRef.current.clear()
+        if (sim.gpuStepHooks.size > 0) {
+          renderer.compileStepHookPipeline(sim.getSortedGpuStepHooks()).then(result => {
+            if (!result.ok) {
+              console.warn('[GPU StepHook] Compilation failed:', result.error)
+            }
+          })
+        } else {
+          renderer.clearStepHookPipeline()
+        }
       }
 
       // Store field order for pixel-perfect hit testing
@@ -1294,7 +1516,8 @@ export default function FieldEngine() {
       }
 
       const mode3D = renderModeRef.current === '3d' ? camera3DRef.current : undefined
-      renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions, mode3D ? { pos: mode3D.pos, pitch: mode3D.pitch, yaw: mode3D.yaw, fov: mode3D.fov } : undefined)
+      const stepHookData = renderer.hasStepHooks() ? { dt, worldData: sim.worldData } : undefined
+      renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions, mode3D ? { pos: mode3D.pos, pitch: mode3D.pitch, yaw: mode3D.yaw, fov: mode3D.fov } : undefined, stepHookData)
 
       // Trigger async readback of hit ID map for pixel-perfect hit testing
       if (superFields.length > 0) {
@@ -1329,6 +1552,23 @@ export default function FieldEngine() {
           } else {
             sim._gridToPixelX = (gx: number) => ((gx - camera.x) / gridRange + 0.5) * bw
             sim._gridToPixelY = (gy: number) => ((gy - camera.y) / (gridRange / aspect) + 0.5) * bh
+          }
+        }
+      }
+
+      // GPU step hook readback — sync GPU positions to CPU for hit testing only.
+      // The GPU shader persists positions in stepStates.flags.zw and ignores CPU-packed
+      // positions, so this readback doesn't affect rendering — only CPU hit detection.
+      if (renderer.hasStepHooks() && superFields.length > 0) {
+        renderer.readbackSuperFields(superFields.length)
+        const readback = renderer.consumeSuperFieldReadback()
+        if (readback) {
+          for (let i = 0; i < superFieldOrder.length; i++) {
+            const field = sim.fields.get(superFieldOrder[i])
+            if (!field) continue
+            const off = i * 24
+            field.transform.x = readback[off + 0]
+            field.transform.y = readback[off + 1]
           }
         }
       }
@@ -1431,7 +1671,18 @@ export default function FieldEngine() {
   }, [])
 
   // Load saved scenes list on mount
-  useEffect(() => { refreshSceneList() }, [refreshSceneList])
+  // Scene tabs appear as soon as a scene is saved — from this tab, another
+  // tab, or a CLI/agent POST — without a browser reload: poll the (cheap)
+  // list endpoint and also refresh on window focus.
+  useEffect(() => {
+    refreshSceneList()
+    const interval = setInterval(refreshSceneList, 4000)
+    window.addEventListener('focus', refreshSceneList)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', refreshSceneList)
+    }
+  }, [refreshSceneList])
 
   // Agent activity panels
   const [dialogLog, setDialogLog] = useState<DialogEntry[]>([])
@@ -1444,7 +1695,10 @@ export default function FieldEngine() {
     let retryTimeout: ReturnType<typeof setTimeout>
 
     function connect() {
-      es = new EventSource('/api/engine/agent')
+      const sseUrl = spaceId
+        ? `/api/engine/agent?spaceId=${encodeURIComponent(spaceId)}`
+        : '/api/engine/agent'
+      es = new EventSource(sseUrl)
 
       es.onmessage = async (event) => {
         try {
@@ -1734,21 +1988,8 @@ export default function FieldEngine() {
             }
 
             case 'update_step_hook': {
-              // Atomic swap: recompile step hook in place (same hookId)
-              if (!cmd.hookId || !cmd.code) {
-                pushTerminal('update_step_hook', cmd.author, 'ERROR: hookId and code required', undefined, cmdAuthor)
-                break
-              }
-              // addStepHook already does Map.set() which overwrites — atomic by nature
-              const hookErr = sim.addStepHook(cmd.hookId, cmd.author || 'unknown', cmd.description || '', cmd.code)
-              if (!hookErr) {
-                pushTerminal('update_step_hook', cmd.author, `updated "${cmd.hookId}": ${cmd.description || 'step hook updated'}`, cmd.code, cmdAuthor)
-              } else {
-                // Compile failed — old hook stays in place
-                sim.worldData['last_compile_error'] = { hookId: cmd.hookId, error: hookErr, timestamp: Date.now() }
-                pushTerminal('update_step_hook', cmd.author, `COMPILE ERROR (kept old "${cmd.hookId}"): ${hookErr}`, cmd.code, cmdAuthor)
-              }
-              syncFields()
+              // JS step hooks blocked from bridge API — use GPU step hooks instead
+              pushTerminal('update_step_hook', cmd.author, 'ERROR: JS step hooks are admin-only. Use add_gpu_step_hook for sandboxed GPU hooks.', undefined, cmdAuthor)
               break
             }
 
@@ -1852,10 +2093,10 @@ export default function FieldEngine() {
                 // Accept shape as string ('rect'/'circle') or object ({type:'rect', width, height})
                 const shapeRaw = cmd.shape || cmd.shapeType
                 if (typeof shapeRaw === 'string') {
-                  newField.shapeType = shapeRaw as 'circle' | 'rect'
+                  newField.shapeType = shapeRaw as 'circle' | 'rect' | 'screen'
                 } else if (shapeRaw && typeof shapeRaw === 'object') {
                   const so = shapeRaw as Record<string, unknown>
-                  if (so.type) newField.shapeType = so.type as 'circle' | 'rect'
+                  if (so.type) newField.shapeType = so.type as 'circle' | 'rect' | 'screen'
                   if (so.width !== undefined) newField.w = so.width as number
                   if (so.height !== undefined) newField.h = so.height as number
                   if (so.radius !== undefined) newField.radius = so.radius as number
@@ -1873,6 +2114,8 @@ export default function FieldEngine() {
                     const resolved = renderer.resolveVisualType(vt)
                     if (resolved !== undefined) {
                       newField.visualType = resolved
+                      // Persist the name — numeric IDs shift between sessions
+                      newField.visualTypeName = vt
                     }
                   } else if (typeof vt === 'number') {
                     newField.visualType = vt
@@ -1892,6 +2135,10 @@ export default function FieldEngine() {
                 // Render order for layer stacking
                 if (cmd.renderOrder !== undefined) {
                   newField.renderOrder = typeof cmd.renderOrder === 'number' ? cmd.renderOrder : 0
+                }
+                // NoHit — field renders but doesn't capture mouse clicks
+                if (cmd.noHit) {
+                  newField.noHit = true
                 }
               }
 
@@ -2021,13 +2268,13 @@ export default function FieldEngine() {
             case 'set_shape': {
               const field = sim.fields.get(cmd.fieldId)
               if (!field) break
-              const shapeVal = ((cmd as Record<string, unknown>).shape || (cmd as Record<string, unknown>).shapeType) as 'circle' | 'rect' | undefined
+              const shapeVal = ((cmd as Record<string, unknown>).shape || (cmd as Record<string, unknown>).shapeType) as 'circle' | 'rect' | 'screen' | undefined
               if (shapeVal) field.shapeType = shapeVal
               if ((cmd as Record<string, unknown>).radius !== undefined) field.radius = (cmd as Record<string, unknown>).radius as number
               if ((cmd as Record<string, unknown>).w !== undefined) field.w = (cmd as Record<string, unknown>).w as number
               if ((cmd as Record<string, unknown>).h !== undefined) field.h = (cmd as Record<string, unknown>).h as number
               syncFields()
-              const shapeDesc = field.shapeType === 'circle' ? `circle r=${field.radius}` : `rect ${field.w}x${field.h}`
+              const shapeDesc = field.shapeType === 'circle' ? `circle r=${field.radius}` : field.shapeType === 'screen' ? `screen ${field.w}x${field.h}` : `rect ${field.w}x${field.h}`
               pushTerminal('set_shape', cmd.fieldId, shapeDesc)
               break
             }
@@ -2216,7 +2463,8 @@ export default function FieldEngine() {
                 spread: (cmd as Record<string, unknown>).spread as number || 0,
                 order: (cmd as Record<string, unknown>).order as number || 0,
                 precedence: !!(cmd as Record<string, unknown>).precedence,
-                hooks: (cmd as Record<string, unknown>).hooks as InteractionEffect['hooks'] || undefined,
+                hooks: ((cmd as Record<string, unknown>).hooks as InteractionEffect['hooks'] || [])
+                  ?.filter(h => h.type !== 'webhook') || undefined,
               })
               const fieldALabel = (cmd as Record<string, unknown>).fieldA as string || 'any'
               const fieldBLabel = (cmd as Record<string, unknown>).fieldB as string || 'any'
@@ -2266,34 +2514,35 @@ export default function FieldEngine() {
               break
             }
 
-            case 'add_step_hook': {
-              // Accept 'name' as alias for 'hookId'
+            case 'add_step_hook':
+            case 'remove_step_hook': {
+              // JS step hooks blocked from bridge API — use GPU step hooks instead
+              pushTerminal(cmd.type, cmd.author, 'ERROR: JS step hooks are admin-only. Use add_gpu_step_hook for sandboxed GPU hooks.', undefined, cmdAuthor)
+              break
+            }
+
+            case 'add_gpu_step_hook': {
               if (!cmd.hookId && cmd.name) cmd.hookId = cmd.name
-              if (!cmd.hookId || !cmd.code) {
-                pushTerminal('add_step_hook', cmd.author, 'ERROR: hookId and code required', undefined, cmdAuthor)
+              const wgsl = cmd.wgsl as string
+              if (!cmd.hookId || !wgsl) {
+                pushTerminal('add_gpu_step_hook', cmd.author, 'ERROR: hookId and wgsl required', undefined, cmdAuthor)
                 break
               }
-              const hookErr = sim.addStepHook(cmd.hookId, cmd.author || 'unknown', cmd.description || '', cmd.code)
-              if (!hookErr) {
+              const gpuErr = sim.addGpuStepHook(cmd.hookId, cmd.author || 'unknown', cmd.description || '', wgsl, cmd.order as number | undefined)
+              if (!gpuErr) {
                 if (!sim.running) { sim.running = true; setRunning(true) }
-                pushTerminal('add_step_hook', cmd.author, `"${cmd.hookId}": ${cmd.description || 'step hook added'}`, cmd.code, cmdAuthor)
+                pushTerminal('add_gpu_step_hook', cmd.author, `"${cmd.hookId}": ${cmd.description || 'GPU step hook added'}`, wgsl, cmdAuthor)
               } else {
-                // Write compile error to worldData so agents can see it
-                sim.worldData['last_compile_error'] = {
-                  hookId: cmd.hookId,
-                  error: hookErr,
-                  timestamp: Date.now(),
-                }
-                pushTerminal('add_step_hook', cmd.author, `COMPILE ERROR for "${cmd.hookId}": ${hookErr}`, cmd.code, cmdAuthor)
+                pushTerminal('add_gpu_step_hook', cmd.author, `ERROR for "${cmd.hookId}": ${gpuErr}`, wgsl, cmdAuthor)
               }
               syncFields()
               break
             }
 
-            case 'remove_step_hook': {
+            case 'remove_gpu_step_hook': {
               if (cmd.hookId) {
-                sim.removeStepHook(cmd.hookId)
-                pushTerminal('remove_step_hook', undefined, `removed ${cmd.hookId}`)
+                sim.removeGpuStepHook(cmd.hookId)
+                pushTerminal('remove_gpu_step_hook', undefined, `removed GPU hook ${cmd.hookId}`)
               }
               break
             }
@@ -2478,6 +2727,11 @@ export default function FieldEngine() {
                 stepHooks: sim.getStepHookSnapshots(),
                 interactionRules: [...sim.interactionRules],
                 interactionEffects: [...sim.interactionEffects],
+                // Quarantined visuals are not persisted — a broken shader must not
+            // circulate through the store forever, costing every fresh session
+            // an isolation sweep. A fixed re-register clears the flag.
+            visualTypes: renderer ? renderer.getAllVisualTypes().filter(vt => !vt.broken).map(vt => ({ name: vt.name, wgsl: vt.wgsl })) : [],
+                modules: renderer ? renderer.getAllModules().map(m => ({ name: m.name, wgsl: m.wgsl })) : [],
                 timestamp: Date.now(),
               }
               try {
@@ -2516,16 +2770,45 @@ export default function FieldEngine() {
                 sim.collisionCallbacks.clear()
                 cachedOverlapMasksRef.current = new Map()
 
+                // Restore visual types and modules first
+                if (scene.visualTypes) {
+                  for (const vt of scene.visualTypes) {
+                    renderer.registerVisualType(vt.name, vt.wgsl)
+                  }
+                }
+                if (scene.modules) {
+                  for (const m of scene.modules) {
+                    renderer.registerModule(m.name, m.wgsl)
+                  }
+                }
+
                 // Restore scene
                 sim.restoreFromSnapshots(scene.fields || [])
+                // Name is authoritative — resolve visual types against this
+                // session's registry (numeric IDs shift between sessions)
+                for (const field of sim.fields.values()) {
+                  if (field.visualTypeName) {
+                    const runtimeId = renderer.resolveVisualType(field.visualTypeName)
+                    if (runtimeId !== undefined) field.visualType = runtimeId
+                  }
+                }
                 if (scene.worldParams) sim.setWorldParams(scene.worldParams)
                 if (scene.worldData) Object.assign(sim.worldData, scene.worldData)
+                // Transient input state must never arrive via a scene
+                for (const k of Object.keys(sim.worldData)) {
+                  if (k.startsWith('key_') || k.startsWith('mouse_')) delete sim.worldData[k]
+                }
                 if (scene.interactionRules) sim.interactionRules = scene.interactionRules
                 if (scene.interactionEffects) {
                   for (const ie of scene.interactionEffects) sim.addInteractionEffect(ie)
                 }
                 if (scene.stepHooks) {
                   for (const h of scene.stepHooks) sim.addStepHook(h.id, h.author, h.description, h.code)
+                  // A scene with logic should boot running (game cartridges)
+                  if (scene.stepHooks.length > 0 && !sim.running) {
+                    sim.running = true
+                    setRunning(true)
+                  }
                 }
 
                 // Recompile effects
@@ -2645,11 +2928,13 @@ export default function FieldEngine() {
                   const resolved = renderer.resolveVisualType(vt)
                   if (resolved !== undefined) {
                     field.visualType = resolved
+                    field.visualTypeName = vt
                   }
                 } else if (typeof vt === 'number') {
                   field.visualType = vt
                 } else if (vt === null) {
                   field.visualType = undefined
+                  field.visualTypeName = undefined
                 }
               }
               if (cmd.visualParams !== undefined) {
@@ -2726,6 +3011,15 @@ export default function FieldEngine() {
                   } catch { /* best-effort */ }
                 }
               })()
+              break
+            }
+
+            case 'undo_visual': {
+              const name = cmd.name as string
+              if (!name) { pushTerminal('undo_visual', '', 'ERROR: name required'); break }
+              // undo_visual arrives as define_visual from bridge (with restored WGSL)
+              // This case handles direct SSE delivery if ever sent raw
+              pushTerminal('undo_visual', name, 'no WGSL — use define_visual path')
               break
             }
 
@@ -2882,7 +3176,11 @@ export default function FieldEngine() {
   }, []) // Intentionally empty — refs handle the mutable state
 
   // Periodic state sync — push field snapshots to server every 2s
+  // For space mode: only the owner syncs state back to the DB
   useEffect(() => {
+    // Visitors in a space don't sync state back
+    if (spaceId && !isOwner) return
+
     const interval = setInterval(async () => {
       const sim = simulationRef.current
       if (!sim || sim.fields.size === 0) return
@@ -2898,46 +3196,83 @@ export default function FieldEngine() {
           ),
         }
 
-        await fetch('/api/engine/state', {
+        const renderer = rendererRef.current
+        // Transient input state (keys, mouse) must never persist — a synced
+        // held-down key becomes a stuck ghost key in every restored session
+        const syncWorldData = Object.fromEntries(
+          Object.entries(sim.worldData).filter(([k]) => !k.startsWith('key_') && !k.startsWith('mouse_'))
+        )
+        const syncRes = await fetch('/api/engine/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            clientId: clientIdRef.current,
+            takeover: takeoverRef.current,
             fields: sim.generateSnapshots(),
             worldParams: sim.getWorldParams(),
             stepHooks: sim.getStepHookSnapshots(),
-            worldData: sim.worldData,
+            worldData: syncWorldData,
             renderedSamples: Object.fromEntries(renderedSamplesRef.current),
             interactionEffects: sim.interactionEffects,
+            // Quarantined visuals are not persisted — a broken shader must not
+            // circulate through the store forever, costing every fresh session
+            // an isolation sweep. A fixed re-register clears the flag.
+            visualTypes: renderer ? renderer.getAllVisualTypes().filter(vt => !vt.broken).map(vt => ({ name: vt.name, wgsl: vt.wgsl })) : [],
+            modules: renderer ? renderer.getAllModules().map(m => ({ name: m.name, wgsl: m.wgsl })) : [],
+            // Space-scoped sync
+            ...(spaceId ? { spaceId } : {}),
           }),
         })
+        if (syncRes.status === 409) {
+          setWorldLocked(true)
+        } else if (syncRes.ok) {
+          takeoverRef.current = false
+          setWorldLocked(false)
+        }
       } catch { /* best-effort */ }
     }, 2000)
     return () => clearInterval(interval)
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spaceId, isOwner])
 
-  // Periodic auto-save — save scene every 60s (overwrites same slot)
+  // Auto-save removed — scenes are saved manually via Save button
+
+  // Cradle bridge — when worldData.cradleBridge is truthy, poll the Mirror
+  // cradle viewer (localhost:3334) and drive any field named "Cradle*":
+  // visualParams = [vocabulary, thread activity, champion pulse, dream mode],
+  // field name = the Cradle's latest utterance. Data-plane only.
   useEffect(() => {
+    let prevStats: { threadConnections?: number; lifetimeChampions?: number } | null = null
     const interval = setInterval(async () => {
       const sim = simulationRef.current
-      if (!sim || sim.fields.size === 0) return
+      if (!sim || !sim.worldData['cradleBridge']) return
+      const fields = Array.from(sim.fields.values()).filter(f => f.name?.startsWith('Cradle'))
+      if (fields.length === 0) return
+      // Champion pulse decays between polls
+      const vp = fields[0].visualParams || [0.6, 0.6, 0, 0]
+      const next: [number, number, number, number] = [vp[0] || 0.6, vp[1] || 0.6, Math.max(0, (vp[2] || 0) - 0.35), vp[3] || 0]
+      let utterance: string | null = null
       try {
-        const sceneData = {
-          name: '_autosave',
-          fields: sim.generateSnapshots(),
-          worldParams: sim.getWorldParams(),
-          worldData: { ...sim.worldData },
-          stepHooks: sim.getStepHookSnapshots(),
-          interactionRules: [...sim.interactionRules],
-          interactionEffects: [...sim.interactionEffects],
-          timestamp: Date.now(),
+        const stats = await fetch('http://localhost:3334/api/stats').then(r => r.json())
+        next[0] = Math.min(1, (stats.vocabulary || 0) / 24000)
+        next[1] = prevStats
+          ? Math.min(1.5, 0.35 + Math.max(0, stats.threadConnections - (prevStats.threadConnections || 0)) / 60)
+          : 0.6
+        if (prevStats && stats.lifetimeChampions > (prevStats.lifetimeChampions || 0)) next[2] = 1.0
+        prevStats = stats
+        const speaks = await fetch('http://localhost:3334/api/speaks?n=1').then(r => r.json())
+        const sp = speaks.speaks?.[speaks.speaks.length - 1]
+        if (sp?.text) {
+          utterance = sp.text.slice(0, 40)
+          next[3] = (sp.mode === 'dream' || sp.mode === 'meaning') ? 1.0 : 0.0
         }
-        await fetch('/api/engine/scene', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'save', name: '_autosave', scene: sceneData }),
-        })
-      } catch { /* best-effort */ }
-    }, 60000)
+      } catch { /* cradle offline — the body keeps its last weather */ }
+      for (const f of fields) {
+        f.visualParams = [...next] as [number, number, number, number]
+        // The window's label speaks; the body keeps its own name
+        if (utterance && !f.name?.startsWith('Cradle Body')) f.name = 'Cradle: ' + utterance
+      }
+    }, 6000)
     return () => clearInterval(interval)
   }, [])
 
@@ -2961,6 +3296,53 @@ export default function FieldEngine() {
   }, [])
 
   const selectedField = selection.selectedFieldId ? fields.get(selection.selectedFieldId) : null
+
+  // Portal visual WGSL (swirling vortex shader)
+  const PORTAL_WGSL = `fn visual_portal(uv: vec2f, sdf: f32, col: vec4f, time: f32, p: vec4f, behind: vec4f) -> vec4f {
+  let a = smoothstep(0.5, -0.5, sdf);
+  if (a < 0.01) { return vec4f(0.0); }
+  let pol = polar(uv);
+  let swirl = pol.y + pol.x * 3.0 - time * 2.0;
+  let spiralCount = 3.0 + p.x * 3.0;
+  let spiral = 0.5 + 0.5 * sin(swirl * spiralCount);
+  let tunnel = exp(-pol.x * 2.0);
+  let n = fbm(uv * 4.0 + time * 0.3, 3);
+  let rimVal = ring(uv, 0.7, 0.15);
+  let c = col.rgb * spiral * (0.5 + n * 0.5) + col.rgb * rimVal * 2.0;
+  let centerMask = tunnel * 0.6;
+  let finalC = mix(c, behind.rgb, centerMask * behind.a);
+  return vec4f(finalC, a * col.a);
+}`
+
+  // Create a portal field linking to a child space
+  const handleCreatePortal = useCallback((childSlug: string, childName: string) => {
+    const sim = simulationRef.current
+    const renderer = rendererRef.current
+    if (!sim || !renderer) return
+
+    // Register portal visual type (idempotent — reuses existing ID if already registered)
+    const { id: portalVtId } = renderer.registerVisualType('portal', PORTAL_WGSL)
+
+    const id = genFieldId()
+    const portalColor: [number, number, number, number] = [0.133, 0.827, 0.933, 1.0]
+    sim.createField(id, `Portal to ${childName}`, portalColor)
+
+    const camera = cameraRef.current
+    sim.setPosition(id, Math.round(camera.x), Math.round(camera.y))
+
+    const field = sim.fields.get(id)
+    if (field) {
+      field.shapeType = 'circle'
+      field.radius = 30
+      field.visualType = portalVtId
+      field.visualTypeName = 'portal'
+      field.visualParams = [0.5, 0, 0, 0]
+      field.properties.set('portalTarget', childSlug)
+      field.properties.set('portalType', 'space')
+    }
+
+    syncFields()
+  }, [syncFields])
 
   return (
     <div className="fixed inset-0 bg-background overflow-hidden flex">
@@ -2986,6 +3368,18 @@ export default function FieldEngine() {
             className="absolute inset-0 pointer-events-none z-10 font-mono"
             style={{ fontFamily: 'monospace' }}
           />
+
+          {/* Space breadcrumb — shown when in a child space */}
+          {spaceSlug && <SpaceBreadcrumb spaceSlug={spaceSlug} />}
+
+          {/* Space management overlay — owner only */}
+          {isOwner && spaceSlug && spaceId && (
+            <SpaceManagementOverlay
+              spaceSlug={spaceSlug}
+              spaceId={spaceId}
+              onCreatePortal={handleCreatePortal}
+            />
+          )}
 
           {/* Pixel hover tooltip */}
           {pixelInfo && (
@@ -3025,33 +3419,23 @@ export default function FieldEngine() {
               {agentConnected && <span className="text-accent"> | agent live</span>}
               {renderMode === '3d' && <span className="text-accent"> | right-drag: orbit, scroll: dolly</span>}
             </span>
+            {worldLocked && (
+              <span className="flex items-center gap-2 px-2 py-0.5 rounded bg-error/20 border border-error/40 text-error text-[10px] font-bold">
+                READ-ONLY — another session is writing this world
+                <button
+                  onClick={() => { takeoverRef.current = true }}
+                  className="underline hover:text-foreground"
+                  title="Claim the writer lease for this tab"
+                >
+                  take over
+                </button>
+              </span>
+            )}
             <button
               onClick={async () => {
                 const sim = simulationRef.current
                 const renderer = rendererRef.current
                 if (!sim || !renderer) return
-
-                // Auto-save before reset if there are fields
-                if (sim.fields.size > 0) {
-                  const autoName = `_autosave_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`
-                  const sceneData = {
-                    name: autoName,
-                    fields: sim.generateSnapshots(),
-                    worldParams: sim.getWorldParams(),
-                    worldData: { ...sim.worldData },
-                    stepHooks: sim.getStepHookSnapshots(),
-                    interactionRules: [...sim.interactionRules],
-                    interactionEffects: [...sim.interactionEffects],
-                    timestamp: Date.now(),
-                  }
-                  await fetch('/api/engine/scene', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'save', name: autoName, scene: sceneData }),
-                  }).catch(() => {})
-                  showToast(`Auto-saved "${autoName}"`, 'info')
-                  refreshSceneList()
-                }
 
                 for (const field of sim.fields.values()) {
                   renderer.removeAllFieldEffects(field.id)
@@ -3140,6 +3524,9 @@ export default function FieldEngine() {
                     backgroundColor: `rgba(${Math.round(f.color[0]*255)},${Math.round(f.color[1]*255)},${Math.round(f.color[2]*255)},${f.color[3]})`
                   }} />
                   <span className="text-foreground truncate">{f.name}</span>
+                  {f.properties.get('portalType') === 'space' && (
+                    <span className="text-purple flex-shrink-0" title={`Portal to ${f.properties.get('portalTarget')}`}>P</span>
+                  )}
                   <span className="text-muted ml-auto flex-shrink-0">
                     {f.effects.length > 0 ? `${f.effects.length}fx` : '—'}
                   </span>
@@ -3235,6 +3622,8 @@ export default function FieldEngine() {
                     <span className="text-foreground">
                       {inspField.shapeType === 'rect'
                         ? `rect ${inspField.w || 0}x${inspField.h || 0}`
+                        : inspField.shapeType === 'screen'
+                        ? `screen ${inspField.w || 0}x${inspField.h || 0}`
                         : `circle r=${inspField.radius || 0}`
                       }
                     </span>

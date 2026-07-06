@@ -60,6 +60,9 @@ export type EngineCommand =
   // Step hooks — JavaScript that runs every simulation tick
   | { type: 'add_step_hook'; hookId: string; author: string; description: string; code: string }
   | { type: 'remove_step_hook'; hookId: string }
+  // GPU step hooks — WGSL compute shaders that run per-field on the GPU (sandboxed)
+  | { type: 'add_gpu_step_hook'; hookId: string; author: string; description: string; wgsl: string; order?: number }
+  | { type: 'remove_gpu_step_hook'; hookId: string }
   // Field links — visual energy beams between fields
   | { type: 'link_fields'; fromFieldId: string; toFieldId: string; color?: [number, number, number, number]; width?: number; style?: 'beam' | 'lightning' | 'pulse' | 'helix'; intensity?: number; bidirectional?: boolean; author?: string }
   | { type: 'unlink_fields'; linkId: string }
@@ -78,6 +81,8 @@ export type EngineCommand =
   | { type: 'list_fields' }
   | { type: 'status' }
   | { type: 'reset' }
+  // Visual type undo — restore previous shader version
+  | { type: 'undo_visual'; name: string }
 
 type QueueEntry = { id: string; command: EngineCommand; timestamp: number }
 
@@ -86,24 +91,90 @@ const g = globalThis as unknown as {
   __engineCommandQueue?: QueueEntry[]
   __engineSSEListeners?: Set<(entry: QueueEntry) => void>
   __engineCommandCounter?: number
+  __spaceCommandQueues?: Map<string, QueueEntry[]>
+  __spaceSSEListeners?: Map<string, Set<(entry: QueueEntry) => void>>
 }
 const commandQueue: QueueEntry[] = g.__engineCommandQueue ??= []
 const listeners: Set<(entry: QueueEntry) => void> = g.__engineSSEListeners ??= new Set()
 let commandCounter = g.__engineCommandCounter ?? 0
 
-function pushCommand(command: EngineCommand): QueueEntry {
+// Per-space command queues and listeners
+const spaceQueues: Map<string, QueueEntry[]> = g.__spaceCommandQueues ??= new Map()
+const spaceListeners: Map<string, Set<(entry: QueueEntry) => void>> = g.__spaceSSEListeners ??= new Map()
+
+function getSpaceQueue(spaceId: string): QueueEntry[] {
+  let queue = spaceQueues.get(spaceId)
+  if (!queue) {
+    queue = []
+    spaceQueues.set(spaceId, queue)
+  }
+  return queue
+}
+
+function getSpaceListenerSet(spaceId: string): Set<(entry: QueueEntry) => void> {
+  let set = spaceListeners.get(spaceId)
+  if (!set) {
+    set = new Set()
+    spaceListeners.set(spaceId, set)
+  }
+  return set
+}
+
+// Deduplicate define_visual/define_module in a queue: keep only the latest per name.
+// This prevents OOM on replay (no duplicate shader source strings) while preserving
+// full WGSL so reconnecting browsers can restore visual types from the queue.
+function deduplicateQueue(queue: QueueEntry[], entry: QueueEntry): void {
+  const cmd = entry.command as Record<string, unknown>
+  const cmdType = cmd.type
+  if ((cmdType === 'define_visual' || cmdType === 'define_module') && cmd.name) {
+    const name = cmd.name as string
+    for (let i = queue.length - 1; i >= 0; i--) {
+      const qc = queue[i].command as Record<string, unknown>
+      if (qc.type === cmdType && qc.name === name) {
+        queue.splice(i, 1)
+      }
+    }
+  }
+}
+
+// Commands that must execute exactly once, live — replaying them against a
+// freshly-restored session re-runs destructive state transitions (e.g. a
+// replayed save_scene overwrites the saved scene with whatever world the new
+// session happens to hold). Broadcast to live listeners, never queue.
+const NO_REPLAY = new Set(['save_scene', 'load_scene', 'delete_scene', 'reset'])
+
+function pushCommand(command: EngineCommand, spaceId?: string | null): QueueEntry {
   const entry: QueueEntry = {
     id: `cmd_${(g.__engineCommandCounter = ++commandCounter)}_${Date.now()}`,
     command,
     timestamp: Date.now(),
   }
-  commandQueue.push(entry)
-  // Keep queue bounded
-  if (commandQueue.length > 1000) commandQueue.splice(0, commandQueue.length - 1000)
-  // Notify all SSE listeners
-  for (const listener of listeners) {
-    listener(entry)
+  const skipReplay = NO_REPLAY.has((command as Record<string, unknown>).type as string)
+
+  if (spaceId) {
+    const queue = getSpaceQueue(spaceId)
+    const sListeners = spaceListeners.get(spaceId)
+    if (sListeners) {
+      for (const listener of sListeners) {
+        listener(entry)
+      }
+    }
+    if (!skipReplay) {
+      deduplicateQueue(queue, entry)
+      queue.push(entry)
+      if (queue.length > 1000) queue.splice(0, queue.length - 1000)
+    }
+  } else {
+    for (const listener of listeners) {
+      listener(entry)
+    }
+    if (!skipReplay) {
+      deduplicateQueue(commandQueue, entry)
+      commandQueue.push(entry)
+      if (commandQueue.length > 1000) commandQueue.splice(0, commandQueue.length - 1000)
+    }
   }
+
   return entry
 }
 
@@ -140,53 +211,98 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Sign in required' }, { status: 401 })
   }
 
+  const spaceId = req.nextUrl.searchParams.get('spaceId')
+
   const encoder = new TextEncoder()
   const stream = new ReadableStream({
     start(controller) {
       // Send initial heartbeat
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`))
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', spaceId: spaceId || undefined })}\n\n`))
 
-      // Replay commands since the last reset, capped at 200 to prevent
-      // reconnect storms that trigger mass shader recompilations on Safari
-      const MAX_REPLAY = 200
-      let replayStart = 0
-      for (let i = commandQueue.length - 1; i >= 0; i--) {
-        if (commandQueue[i].command.type === 'reset') {
-          replayStart = i
-          break
+      if (spaceId) {
+        // Space-scoped: replay from space queue
+        const queue = getSpaceQueue(spaceId)
+        const MAX_REPLAY = 200
+        let replayStart = 0
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (queue[i].command.type === 'reset') {
+            replayStart = i
+            break
+          }
         }
-      }
-      const effectiveStart = Math.max(replayStart, commandQueue.length - MAX_REPLAY)
-      for (let i = effectiveStart; i < commandQueue.length; i++) {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(commandQueue[i])}\n\n`))
-      }
-
-      // Listen for new commands
-      const listener = (entry: QueueEntry) => {
-        try {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`))
-        } catch {
-          listeners.delete(listener)
+        const effectiveStart = Math.max(replayStart, queue.length - MAX_REPLAY)
+        for (let i = effectiveStart; i < queue.length; i++) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(queue[i])}\n\n`))
         }
-      }
-      listeners.add(listener)
 
-      // Heartbeat every 15s to keep connection alive
-      const heartbeat = setInterval(() => {
-        try {
-          controller.enqueue(encoder.encode(`: heartbeat\n\n`))
-        } catch {
+        // Listen for space-specific commands
+        const sListeners = getSpaceListenerSet(spaceId)
+        const listener = (entry: QueueEntry) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`))
+          } catch {
+            sListeners.delete(listener)
+          }
+        }
+        sListeners.add(listener)
+
+        // Heartbeat
+        const heartbeat = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(`: heartbeat\n\n`))
+          } catch {
+            clearInterval(heartbeat)
+            sListeners.delete(listener)
+          }
+        }, 15000)
+
+        req.signal.addEventListener('abort', () => {
+          clearInterval(heartbeat)
+          sListeners.delete(listener)
+          try { controller.close() } catch { /* already closed */ }
+        })
+      } else {
+        // Global: replay from global queue
+        const MAX_REPLAY = 200
+        let replayStart = 0
+        for (let i = commandQueue.length - 1; i >= 0; i--) {
+          if (commandQueue[i].command.type === 'reset') {
+            replayStart = i
+            break
+          }
+        }
+        const effectiveStart = Math.max(replayStart, commandQueue.length - MAX_REPLAY)
+        for (let i = effectiveStart; i < commandQueue.length; i++) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(commandQueue[i])}\n\n`))
+        }
+
+        // Listen for new commands
+        const listener = (entry: QueueEntry) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(entry)}\n\n`))
+          } catch {
+            listeners.delete(listener)
+          }
+        }
+        listeners.add(listener)
+
+        // Heartbeat every 15s to keep connection alive
+        const heartbeat = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(`: heartbeat\n\n`))
+          } catch {
+            clearInterval(heartbeat)
+            listeners.delete(listener)
+          }
+        }, 15000)
+
+        // Cleanup on abort
+        req.signal.addEventListener('abort', () => {
           clearInterval(heartbeat)
           listeners.delete(listener)
-        }
-      }, 15000)
-
-      // Cleanup on abort
-      req.signal.addEventListener('abort', () => {
-        clearInterval(heartbeat)
-        listeners.delete(listener)
-        try { controller.close() } catch { /* already closed */ }
-      })
+          try { controller.close() } catch { /* already closed */ }
+        })
+      }
     },
   })
 
@@ -217,11 +333,29 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
 
     // Accept single command or array
-    const commands: EngineCommand[] = Array.isArray(body.commands)
+    const rawCommands = Array.isArray(body.commands)
       ? body.commands
       : body.type
         ? [body as EngineCommand]
         : []
+
+    // Parse string shorthand commands into objects
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const commands: EngineCommand[] = rawCommands.map((cmd: any) => {
+      if (typeof cmd === 'string') {
+        const parts = cmd.trim().split(/\s+/)
+        const type = parts[0]
+        if (type === 'set_visual' && parts.length >= 3) {
+          return { type: 'set_visual', fieldId: parts[1], visualType: parts[2] }
+        }
+        if (type === 'reset') {
+          return { type: 'reset' }
+        }
+        // Fallback: treat first word as type, second as fieldId
+        return { type, fieldId: parts[1] }
+      }
+      return cmd
+    })
 
     if (commands.length === 0) {
       return NextResponse.json({ error: 'No commands provided' }, { status: 400 })
@@ -249,50 +383,57 @@ export async function POST(req: NextRequest) {
         cmd.fieldId = `field_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       }
 
-      const entry = pushCommand(cmd)
+      // Extract and strip space routing metadata
+      const cmdSpaceId = (cmd as Record<string, unknown>).__spaceId as string | undefined
+      if (cmdSpaceId) delete (cmd as Record<string, unknown>).__spaceId
+
+      const entry = pushCommand(cmd, cmdSpaceId)
       const result: { id: string; type: string; fieldId?: string } = { id: entry.id, type: cmd.type }
       if (cmd.type === 'create_field' && cmd.fieldId) {
         result.fieldId = cmd.fieldId
       }
       results.push(result)
 
-      // Server-side memory injection for field messages (immediate visibility before client sync)
-      if (cmd.type === 'field_message') {
-        const now = new Date().toISOString()
-        appendMemory(cmd.fromFieldId, {
-          timestamp: now,
-          type: 'message_sent',
-          content: `Sent to ${cmd.toFieldId}: "${cmd.content}"`,
-          sourceFieldId: cmd.toFieldId,
-          data: cmd.data,
-        })
-        appendMemory(cmd.toFieldId, {
-          timestamp: now,
-          type: 'message_received',
-          content: `From ${cmd.fromFieldId}: "${cmd.content}"`,
-          sourceFieldId: cmd.fromFieldId,
-          data: cmd.data,
-        })
-      }
+      // Server-side store operations only for global mode (space state is browser-synced to DB)
+      if (!cmdSpaceId) {
+        // Server-side memory injection for field messages (immediate visibility before client sync)
+        if (cmd.type === 'field_message') {
+          const now = new Date().toISOString()
+          appendMemory(cmd.fromFieldId, {
+            timestamp: now,
+            type: 'message_sent',
+            content: `Sent to ${cmd.toFieldId}: "${cmd.content}"`,
+            sourceFieldId: cmd.toFieldId,
+            data: cmd.data,
+          })
+          appendMemory(cmd.toFieldId, {
+            timestamp: now,
+            type: 'message_received',
+            content: `From ${cmd.fromFieldId}: "${cmd.content}"`,
+            sourceFieldId: cmd.fromFieldId,
+            data: cmd.data,
+          })
+        }
 
-      // Server-side world data writes (immediate visibility before client sync)
-      if (cmd.type === 'set_world_data') {
-        setWorldData(cmd.data)
-      }
+        // Server-side world data writes (immediate visibility before client sync)
+        if (cmd.type === 'set_world_data') {
+          setWorldData(cmd.data)
+        }
 
-      // Server-side world params writes (immediate visibility)
-      if (cmd.type === 'set_world_params') {
-        setWorldParamsStore(cmd.params)
-      }
+        // Server-side world params writes (immediate visibility)
+        if (cmd.type === 'set_world_params') {
+          setWorldParamsStore(cmd.params)
+        }
 
-      // Reset entire server store
-      if (cmd.type === 'reset') {
-        resetStore()
-      }
+        // Reset entire server store
+        if (cmd.type === 'reset') {
+          resetStore()
+        }
 
-      // Include engine state in status response
-      if (cmd.type === 'status') {
-        statusPayload = getEngineState()
+        // Include engine state in status response
+        if (cmd.type === 'status') {
+          statusPayload = getEngineState()
+        }
       }
     }
 

@@ -107,6 +107,10 @@ export class FieldSimulation {
   /** Game state machine */
   gameState: string = ''
   gameStates: Map<string, GameStateDef> = new Map()
+  /** GPU compute step hooks — WGSL functions that run per-field on the GPU (sandboxed) */
+  gpuStepHooks: Map<string, { id: string; author: string; description: string; wgsl: string; order: number }> = new Map()
+  /** Dirty flag — set when GPU step hooks are added/removed */
+  gpuStepHooksDirty: boolean = false
 
   static readonly MAX_MEMORY = 100
   static readonly MAX_PROJECTILES = 200
@@ -179,6 +183,9 @@ export class FieldSimulation {
       // Restore visual type for superimposed rendering
       if ((snap as FieldSnapshot & { visualType?: number }).visualType !== undefined) {
         field.visualType = (snap as FieldSnapshot & { visualType?: number }).visualType
+      }
+      if ((snap as FieldSnapshot & { visualTypeName?: string }).visualTypeName) {
+        field.visualTypeName = (snap as FieldSnapshot & { visualTypeName?: string }).visualTypeName
       }
       if ((snap as FieldSnapshot & { visualParams?: [number, number, number, number] }).visualParams) {
         field.visualParams = [...(snap as FieldSnapshot & { visualParams?: [number, number, number, number] }).visualParams!] as [number, number, number, number]
@@ -783,6 +790,33 @@ export class FieldSimulation {
     return result
   }
 
+  // ─── GPU Step Hooks (WGSL — sandboxed) ───
+
+  /** Add a GPU step hook (WGSL compute shader, runs per-field on GPU) */
+  addGpuStepHook(id: string, author: string, description: string, wgsl: string, order?: number): string | null {
+    this.gpuStepHooks.set(id, { id, author, description, wgsl, order: order ?? this.gpuStepHooks.size })
+    this.gpuStepHooksDirty = true
+    return null
+  }
+
+  /** Remove a GPU step hook */
+  removeGpuStepHook(id: string): void {
+    this.gpuStepHooks.delete(id)
+    this.gpuStepHooksDirty = true
+  }
+
+  /** Serialize GPU step hooks for state sync */
+  getGpuStepHookSnapshots(): Array<{ id: string; author: string; description: string; wgsl: string; order: number }> {
+    return Array.from(this.gpuStepHooks.values())
+  }
+
+  /** Get sorted GPU step hooks for shader compilation */
+  getSortedGpuStepHooks(): Array<{ id: string; wgsl: string }> {
+    return Array.from(this.gpuStepHooks.values())
+      .sort((a, b) => a.order - b.order)
+      .map(h => ({ id: h.id, wgsl: h.wgsl }))
+  }
+
 
   /** Find a field by name (convenience for step hooks: sim.getFieldByName('Alpha')) */
   getFieldByName(name: string): Field | null {
@@ -873,6 +907,7 @@ export class FieldSimulation {
     if (hasPresence && inBounds) {
       const fields = this.getFieldList()
       for (const field of fields) {
+        if (field.noHit) continue
         const presence = this.fieldPresence.get(field.id)
         if (presence && presence[idx] > 0) {
           return field
@@ -1024,7 +1059,7 @@ export class FieldSimulation {
     if (field.shapeType === 'circle' && field.radius) {
       const r = field.radius * s
       return { minX: t.x - r, minY: t.y - r, maxX: t.x + r, maxY: t.y + r }
-    } else if (field.shapeType === 'rect' && field.w && field.h) {
+    } else if ((field.shapeType === 'rect' || field.shapeType === 'screen') && field.w && field.h) {
       const hw = (field.w / 2) * s
       const hh = (field.h / 2) * s
       return { minX: t.x - hw, minY: t.y - hh, maxX: t.x + hw, maxY: t.y + hh }
@@ -1246,6 +1281,7 @@ export class FieldSimulation {
         ...(field.h !== undefined ? { h: field.h } : {}),
         ...(field.tags?.length ? { tags: [...field.tags] } : {}),
         ...(field.visualType !== undefined ? { visualType: field.visualType } : {}),
+        ...(field.visualTypeName ? { visualTypeName: field.visualTypeName } : {}),
         ...(field.visualParams ? { visualParams: [...field.visualParams] as [number, number, number, number] } : {}),
       } as FieldSnapshot)
     }

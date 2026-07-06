@@ -1,22 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, addInteractionDef, addModule, addRenderTargetDef, removeRenderTargetDef, waitForCommandResult } from '../store'
+import { getFieldSnapshot, getAllFieldSnapshots, getEngineState, addInteractionRuleStore, removeInteractionRuleStore, addCustomCommandStore, getCustomCommandStore, getRenderedSamples, getRenderedSample, addGlslMod, removeGlslMod, addVisualType, undoVisualType, removeVisualType, addInteractionDef, addModule, addRenderTargetDef, removeRenderTargetDef, waitForCommandResult, resetStore } from '../store'
 import type { GlslMod } from '../store'
+import { validateSpaceToken, getSpaceSnapshot, applyCommandToSnapshot } from '../space-store'
 
 export const maxDuration = 30
 
-// Auth: ENGINE_AGENT_TOKEN
-function authorize(req: NextRequest): boolean {
+interface BridgeAuth {
+  authorized: boolean
+  spaceId: string | null    // null = legacy global mode
+  ownerId: string | null
+}
+
+// Auth: ENGINE_AGENT_TOKEN or uc_st_ space token
+async function authorize(req: NextRequest): Promise<BridgeAuth> {
   const authHeader = req.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) return false
+  if (!authHeader?.startsWith('Bearer ')) {
+    return { authorized: false, spaceId: null, ownerId: null }
+  }
+
   const token = authHeader.slice(7)
+
+  // Space token path
+  if (token.startsWith('uc_st_')) {
+    const result = await validateSpaceToken(token)
+    if (!result) return { authorized: false, spaceId: null, ownerId: null }
+    return { authorized: true, spaceId: result.spaceId, ownerId: result.ownerId }
+  }
+
+  // Legacy global token path (admin)
   const envToken = process.env.ENGINE_AGENT_TOKEN || process.env.ANTHROPIC_API_KEY
-  return !!envToken && token === envToken
+  if (envToken && token === envToken) {
+    return { authorized: true, spaceId: null, ownerId: null }
+  }
+
+  return { authorized: false, spaceId: null, ownerId: null }
 }
 
 // Relay commands to the agent SSE queue
-async function pushToAgent(command: Record<string, unknown>, req: NextRequest): Promise<unknown> {
+async function pushToAgent(command: Record<string, unknown>, req: NextRequest, spaceId?: string | null): Promise<unknown> {
   const baseUrl = req.nextUrl.origin
   const token = process.env.ENGINE_AGENT_TOKEN || process.env.ANTHROPIC_API_KEY || ''
+
+  // Tag command with spaceId so the SSE queue routes it correctly
+  const payload = spaceId ? { ...command, __spaceId: spaceId } : command
 
   const res = await fetch(`${baseUrl}/api/engine/agent`, {
     method: 'POST',
@@ -24,7 +50,7 @@ async function pushToAgent(command: Record<string, unknown>, req: NextRequest): 
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
     },
-    body: JSON.stringify(command),
+    body: JSON.stringify(payload),
   })
 
   return res.json()
@@ -72,8 +98,26 @@ async function fetchShellIdentity(shellName: string, req: NextRequest): Promise<
  * Optional ?fieldId=xxx for a single field.
  */
 export async function GET(req: NextRequest) {
-  if (!authorize(req)) {
+  const auth = await authorize(req)
+  if (!auth.authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Space-scoped: return snapshot from DB
+  if (auth.spaceId) {
+    const snapshot = await getSpaceSnapshot(auth.spaceId)
+    return NextResponse.json({
+      spaceId: auth.spaceId,
+      fields: snapshot?.fields ?? [],
+      fieldCount: snapshot?.fields?.length ?? 0,
+      worldParams: snapshot?.worldParams ?? {},
+      worldData: snapshot?.worldData ?? {},
+      interactionRules: snapshot?.interactionRules ?? [],
+      interactionEffects: snapshot?.interactionEffects ?? [],
+      visualTypes: snapshot?.visualTypes ?? [],
+      modules: snapshot?.modules ?? [],
+      stepHooks: snapshot?.stepHooks ?? [],
+    })
   }
 
   // Trim memory for efficiency in bridge responses
@@ -165,7 +209,8 @@ export async function GET(req: NextRequest) {
  * Commands: create_field, paint, add_effect, inject_glsl, emit_data, set_position, etc.
  */
 export async function POST(req: NextRequest) {
-  if (!authorize(req)) {
+  const auth = await authorize(req)
+  if (!auth.authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -184,10 +229,17 @@ export async function POST(req: NextRequest) {
     }
 
     const results: unknown[] = []
+    const isSpaceScoped = !!auth.spaceId
+
     for (const cmd of commands) {
       // Add delay between commands so the engine page can process each one
       if (results.length > 0) {
         await new Promise(r => setTimeout(r, 100))
+      }
+
+      // reset: clear server-side store alongside browser reset
+      if (cmd.type === 'reset') {
+        resetStore()
       }
 
       // save_experience goes directly to Shell DB, not through SSE
@@ -197,83 +249,87 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // define_interaction: store server-side AND forward to browser
-      if (cmd.type === 'define_interaction' && cmd.rule) {
-        const rule = cmd.rule as Record<string, unknown>
-        const ruleId = addInteractionRuleStore({
-          id: '',
-          definedBy: (rule.definedBy as string) || 'unknown',
-          trigger: rule.trigger as 'overlap' | 'proximity' | 'always',
-          triggerDistance: rule.triggerDistance as number | undefined,
-          fieldA: rule.fieldA as string | undefined,
-          fieldB: rule.fieldB as string | undefined,
-          effect: rule.effect as 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_wgsl' | 'send_event',
-          effectParams: (rule.effectParams as Record<string, unknown>) || {},
-          description: rule.description as string | undefined,
-        })
-        if (ruleId) {
-          // Forward to browser with the generated ruleId
-          ;(cmd.rule as Record<string, unknown>).id = ruleId
+      // Server-side store operations only for global mode (space state is persisted via browser state sync)
+      if (!isSpaceScoped) {
+        // define_interaction: store server-side AND forward to browser
+        if (cmd.type === 'define_interaction' && cmd.rule) {
+          const rule = cmd.rule as Record<string, unknown>
+          const ruleId = addInteractionRuleStore({
+            id: '',
+            definedBy: (rule.definedBy as string) || 'unknown',
+            trigger: rule.trigger as 'overlap' | 'proximity' | 'always',
+            triggerDistance: rule.triggerDistance as number | undefined,
+            fieldA: rule.fieldA as string | undefined,
+            fieldB: rule.fieldB as string | undefined,
+            effect: rule.effect as 'transfer_property' | 'apply_force' | 'modify_property' | 'exchange_wgsl' | 'send_event',
+            effectParams: (rule.effectParams as Record<string, unknown>) || {},
+            description: rule.description as string | undefined,
+          })
+          if (ruleId) {
+            ;(cmd.rule as Record<string, unknown>).id = ruleId
+          }
         }
-      }
 
-      // remove_interaction: remove server-side AND forward to browser
-      if (cmd.type === 'remove_interaction' && cmd.ruleId) {
-        removeInteractionRuleStore(cmd.ruleId as string)
-      }
-
-      // define_command: store server-side AND forward to browser
-      if (cmd.type === 'define_command' && cmd.command) {
-        const cmdDef = cmd.command as Record<string, unknown>
-        addCustomCommandStore({
-          name: cmdDef.name as string,
-          definedBy: (cmdDef.definedBy as string) || 'unknown',
-          description: (cmdDef.description as string) || '',
-          macro: (cmdDef.macro as Array<Record<string, unknown>>) || [],
-        })
-      }
-
-
-      // define_visual: persist server-side AND forward to browser
-      if (cmd.type === 'define_visual' && cmd.name && cmd.wgsl) {
-        addVisualType(cmd.name as string, cmd.wgsl as string)
-      }
-
-      // define_module: persist server-side AND forward to browser
-      if (cmd.type === 'define_module' && cmd.name && cmd.wgsl) {
-        addModule(cmd.name as string, cmd.wgsl as string)
-      }
-
-      // create_render_target: persist server-side AND forward to browser
-      if (cmd.type === 'create_render_target' && cmd.name) {
-        addRenderTargetDef(cmd.name as string)
-      }
-
-      // destroy_render_target: remove server-side AND forward to browser
-      if (cmd.type === 'destroy_render_target' && cmd.name) {
-        removeRenderTargetDef(cmd.name as string)
-      }
-
-      // define_interaction (uber-shader): persist server-side AND forward to browser
-      if (cmd.type === 'define_interaction' && cmd.wgsl && cmd.name && cmd.fieldA && cmd.fieldB) {
-        addInteractionDef(cmd.name as string, cmd.wgsl as string, cmd.fieldA as string, cmd.fieldB as string)
-      }
-
-      // register_glsl_mod: store server-side AND forward to browser
-      if (cmd.type === 'register_glsl_mod') {
-        const mod: GlslMod = {
-          id: cmd.id as string,
-          author: (cmd.author as string) || 'unknown',
-          description: (cmd.description as string) || '',
-          code: cmd.code as string,
-          timestamp: Date.now(),
+        if (cmd.type === 'remove_interaction' && cmd.ruleId) {
+          removeInteractionRuleStore(cmd.ruleId as string)
         }
-        addGlslMod(mod)
-      }
 
-      // remove_glsl_mod: remove server-side AND forward to browser
-      if (cmd.type === 'remove_glsl_mod' && cmd.id) {
-        removeGlslMod(cmd.id as string)
+        if (cmd.type === 'define_command' && cmd.command) {
+          const cmdDef = cmd.command as Record<string, unknown>
+          addCustomCommandStore({
+            name: cmdDef.name as string,
+            definedBy: (cmdDef.definedBy as string) || 'unknown',
+            description: (cmdDef.description as string) || '',
+            macro: (cmdDef.macro as Array<Record<string, unknown>>) || [],
+          })
+        }
+
+        if (cmd.type === 'define_visual' && cmd.name && cmd.wgsl) {
+          addVisualType(cmd.name as string, cmd.wgsl as string)
+        }
+
+        if (cmd.type === 'define_module' && cmd.name && cmd.wgsl) {
+          addModule(cmd.name as string, cmd.wgsl as string)
+        }
+
+        if (cmd.type === 'create_render_target' && cmd.name) {
+          addRenderTargetDef(cmd.name as string)
+        }
+
+        if (cmd.type === 'destroy_render_target' && cmd.name) {
+          removeRenderTargetDef(cmd.name as string)
+        }
+
+        if (cmd.type === 'define_interaction' && cmd.wgsl && cmd.name && cmd.fieldA && cmd.fieldB) {
+          addInteractionDef(cmd.name as string, cmd.wgsl as string, cmd.fieldA as string, cmd.fieldB as string)
+        }
+
+        if (cmd.type === 'register_glsl_mod') {
+          const mod: GlslMod = {
+            id: cmd.id as string,
+            author: (cmd.author as string) || 'unknown',
+            description: (cmd.description as string) || '',
+            code: cmd.code as string,
+            timestamp: Date.now(),
+          }
+          addGlslMod(mod)
+        }
+
+        if (cmd.type === 'remove_glsl_mod' && cmd.id) {
+          removeGlslMod(cmd.id as string)
+        }
+
+        // undo_visual: restore previous shader version from history
+        if (cmd.type === 'undo_visual' && cmd.name) {
+          const restored = undoVisualType(cmd.name as string)
+          if (!restored) {
+            results.push({ error: `No history for visual type "${cmd.name}"` })
+            continue
+          }
+          // Forward as define_visual with the restored WGSL so the browser recompiles
+          cmd.type = 'define_visual'
+          cmd.wgsl = restored.wgsl
+        }
       }
 
       // execute_command: expand macro server-side, push each step
@@ -290,14 +346,28 @@ export async function POST(req: NextRequest) {
             ? JSON.parse(JSON.stringify(step).replace(/\{\{(\w+)\}\}/g, (_, k) =>
                 String(args[k] ?? `{{${k}}}`)))
             : step
-          const stepResult = await pushToAgent(resolved, req)
+          const stepResult = await pushToAgent(resolved, req, auth.spaceId)
           results.push(stepResult)
           await new Promise(r => setTimeout(r, 100))
         }
         continue
       }
 
-      const result = await pushToAgent(cmd, req) as Record<string, unknown>
+      // Space-scoped: apply command to snapshot server-side (works without browser)
+      let spaceResult: Record<string, unknown> | null = null
+      if (isSpaceScoped) {
+        spaceResult = await applyCommandToSnapshot(auth.spaceId!, cmd)
+        // Merge server-generated IDs into the command so SSE relays the correct fieldId
+        if (spaceResult.fieldId) {
+          cmd.fieldId = spaceResult.fieldId
+        }
+      }
+
+      const result = await pushToAgent(cmd, req, auth.spaceId) as Record<string, unknown>
+      // Merge space result metadata into the response
+      if (spaceResult) {
+        Object.assign(result, spaceResult)
+      }
       results.push(result)
 
       // For define_visual and define_module: wait for browser compile result
@@ -308,7 +378,6 @@ export async function POST(req: NextRequest) {
           const compileResult = await waitForCommandResult(cmdEntry.id, 8000)
           if (compileResult) {
             const cr = compileResult as Record<string, unknown>
-            // Attach compile result to the pushed result
             ;(result as Record<string, unknown>).compileResult = cr
           }
         }

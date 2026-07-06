@@ -82,6 +82,8 @@ interface EngineStore {
   glslMods: Map<string, GlslMod>
   /** Registered visual types for superimposed uber-shader (persisted) */
   visualTypes: Map<string, VisualTypeDef>
+  /** Version history per visual type — previous versions for undo (persisted, max 5 per name) */
+  visualTypeHistory: Map<string, VisualTypeDef[]>
   /** Registered uber-shader interaction definitions (persisted) */
   interactionDefs: Map<string, InteractionDef>
   /** Registered shader modules (persisted) */
@@ -90,6 +92,10 @@ interface EngineStore {
   renderTargetDefs: Map<string, RenderTargetDef>
   /** Saved scenes — complete engine state snapshots */
   scenes: Map<string, SceneSnapshot>
+  /** Writer lease — which client session may sync the global world (in-memory) */
+  writerId?: string | null
+  /** Last heartbeat from the lease holder (ms epoch) */
+  writerSeen?: number
 }
 
 const DEFAULT_WORLD_PARAMS: WorldParams = {
@@ -113,6 +119,7 @@ interface SerializedStore {
   stepHooks?: StepHookSnapshot[]
   glslMods?: Record<string, GlslMod>
   visualTypes?: Record<string, VisualTypeDef>
+  visualTypeHistory?: Record<string, VisualTypeDef[]>
   interactionDefs?: Record<string, InteractionDef>
   modules?: Record<string, ModuleDef>
   renderTargetDefs?: Record<string, RenderTargetDef>
@@ -146,6 +153,12 @@ function loadFromDisk(): Partial<EngineStore> | null {
     if (data.visualTypes) {
       for (const [name, vt] of Object.entries(data.visualTypes)) {
         visualTypes.set(name, vt)
+      }
+    }
+    const visualTypeHistory = new Map<string, VisualTypeDef[]>()
+    if (data.visualTypeHistory) {
+      for (const [name, history] of Object.entries(data.visualTypeHistory)) {
+        visualTypeHistory.set(name, history)
       }
     }
     const interactionDefs = new Map<string, InteractionDef>()
@@ -185,6 +198,7 @@ function loadFromDisk(): Partial<EngineStore> | null {
       renderedSamples: {},
       glslMods,
       visualTypes,
+      visualTypeHistory,
       interactionDefs,
       modules,
       renderTargetDefs,
@@ -213,6 +227,7 @@ function schedulePersist(): void {
         stepHooks: store.stepHooks,
         glslMods: Object.fromEntries(store.glslMods),
         visualTypes: Object.fromEntries(store.visualTypes),
+        visualTypeHistory: Object.fromEntries(store.visualTypeHistory),
         interactionDefs: Object.fromEntries(store.interactionDefs),
         modules: Object.fromEntries(store.modules),
         renderTargetDefs: Object.fromEntries(store.renderTargetDefs),
@@ -246,6 +261,7 @@ if (!globalStore.__engineStore) {
       renderedSamples: {},
       glslMods: new Map(),
       visualTypes: new Map(),
+      visualTypeHistory: new Map(),
       interactionDefs: new Map(),
       modules: new Map(),
       renderTargetDefs: new Map(),
@@ -282,6 +298,9 @@ if (!store.glslMods) {
 if (!store.visualTypes) {
   store.visualTypes = new Map()
 }
+if (!store.visualTypeHistory) {
+  store.visualTypeHistory = new Map()
+}
 if (!store.interactionDefs) {
   store.interactionDefs = new Map()
 }
@@ -296,7 +315,7 @@ if (!store.renderTargetDefs) {
 }
 
 /** Full replace from client sync */
-export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>, renderedSamples?: Record<string, RenderedSample>, interactionEffects?: InteractionEffect[]): void {
+export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: WorldParams, stepHooks?: StepHookSnapshot[], worldData?: Record<string, unknown>, renderedSamples?: Record<string, RenderedSample>, interactionEffects?: InteractionEffect[], visualTypes?: Array<{ name: string; wgsl: string }>, modules?: Array<{ name: string; wgsl: string }>): void {
   store.fieldSnapshots.clear()
   for (const snap of snapshots) {
     store.fieldSnapshots.set(snap.id, snap)
@@ -322,6 +341,16 @@ export function setFieldSnapshots(snapshots: FieldSnapshot[], worldParams?: Worl
   }
   if (interactionEffects) {
     store.interactionEffects = interactionEffects
+  }
+  if (visualTypes && visualTypes.length > 0) {
+    for (const vt of visualTypes) {
+      store.visualTypes.set(vt.name, { name: vt.name, wgsl: vt.wgsl, timestamp: Date.now() })
+    }
+  }
+  if (modules && modules.length > 0) {
+    for (const m of modules) {
+      store.modules.set(m.name, { name: m.name, wgsl: m.wgsl, timestamp: Date.now() })
+    }
   }
   store.lastSyncTime = Date.now()
   schedulePersist()
@@ -389,15 +418,42 @@ export function getAllGlslMods(): GlslMod[] {
   return Array.from(store.glslMods.values())
 }
 
-/** Add/update a visual type (server-side persistence) */
+/** Add/update a visual type (server-side persistence) — saves previous version to history */
 export function addVisualType(name: string, wgsl: string): void {
+  const existing = store.visualTypes.get(name)
+  if (existing) {
+    // Push current version to history before overwriting
+    const history = store.visualTypeHistory.get(name) || []
+    history.unshift(existing) // newest first
+    if (history.length > 5) history.length = 5 // cap at 5 versions
+    store.visualTypeHistory.set(name, history)
+  }
   store.visualTypes.set(name, { name, wgsl, timestamp: Date.now() })
   schedulePersist()
+}
+
+/** Undo visual type — restore previous version from history. Returns restored WGSL or null. */
+export function undoVisualType(name: string): VisualTypeDef | null {
+  const history = store.visualTypeHistory.get(name)
+  if (!history || history.length === 0) return null
+  const previous = history.shift()! // pop newest from history
+  store.visualTypes.set(name, previous)
+  if (history.length === 0) {
+    store.visualTypeHistory.delete(name)
+  }
+  schedulePersist()
+  return previous
+}
+
+/** Get version history for a visual type */
+export function getVisualTypeHistory(name: string): VisualTypeDef[] {
+  return store.visualTypeHistory.get(name) || []
 }
 
 /** Remove a visual type */
 export function removeVisualType(name: string): boolean {
   const existed = store.visualTypes.delete(name)
+  store.visualTypeHistory.delete(name)
   if (existed) schedulePersist()
   return existed
 }
@@ -495,6 +551,26 @@ export function getEngineState(): {
     modules: getAllModules(),
     renderTargets: getAllRenderTargetDefs(),
   }
+}
+
+/** Writer lease for the global world. One client session holds the lease and
+ *  heartbeats it via its 2s state sync; anyone else gets refused (409) so two
+ *  tabs can't fight last-write-wins over the same world. The lease expires
+ *  after 8s of silence, and `takeover` claims it explicitly. */
+const WRITER_LEASE_MS = 8000
+export function claimWriter(clientId: string, takeover = false): boolean {
+  const now = Date.now()
+  if (
+    !store.writerId ||
+    store.writerId === clientId ||
+    takeover ||
+    now - (store.writerSeen || 0) > WRITER_LEASE_MS
+  ) {
+    store.writerId = clientId
+    store.writerSeen = now
+    return true
+  }
+  return false
 }
 
 /** Get shared world data */
@@ -607,6 +683,7 @@ export function resetStore(): void {
   store.stepHooks = []
   store.glslMods.clear()
   store.visualTypes.clear()
+  store.visualTypeHistory.clear()
   store.interactionDefs.clear()
   store.modules.clear()
   store.renderTargetDefs.clear()

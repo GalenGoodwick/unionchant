@@ -507,6 +507,42 @@ col = col / (col + vec3f(1.0));             // don't do Reinhard in the shader
 
 ---
 
+## Procedural Creatures (rig / skin / gait)
+
+Proven patterns from the MARIONETTES ladder (see `scenes/skel-lib.wgsl` for
+the canonical module and `scenes/README.md` for six working scenes).
+
+**Rig/skin separation.** Define a creature as FK joints (vec2 positions
+computed from a phase, all in a ~44-unit body space) and keep the draw layer
+separate. The same rig renders as wireframe bones, dithered pixel art, smooth
+capsule flesh (`opSmoothUnion` of `mod_cap`), or a raymarched 3D volume —
+without touching joints or behavior.
+
+**Params contract.** `visualParams = [heading, gaitPhaseCycles,
+reachAngleWorld, reach01]`. Fields never rotate; rotate joints in-shader by
+heading BEFORE any pixel quantization so texels stay screen-aligned.
+
+**Planted gait (no foot-skating).** Advance gait phase by DISTANCE in the
+step hook, not time: `S.ph += (speed / stridePx) * dt` with
+`stridePx = 2 * strideLen * pxPerBodyUnit / duty`. In-shader, `mod_gait`
+drives each foot linearly backward during stance — world velocity zero, so
+feet visibly plant instead of gliding. Leg offsets: biped 0/0.5, quadruped
+walk 0/0.5/0.25/0.75, hexapod tripod groups 0/0.5.
+
+**2D → 3D lift.** Keep the 2D SDF for silhouette AA, contact shadows, and
+body-parameter patterns; add a 3D SDF mechanically (`mod_cap(q,` →
+`mod_cap3(p,`, `length(q - X) - r` → `mod_sph3(p, X, r)`), then
+orthographically raymarch (camera z = -9, ray +z, ~40 steps, early-out when
+the 2D distance > 3). Real normals, 7-tap marched self-shadow toward the
+light, 3-tap normal-space AO, fresnel rim. Measured 120fps with four
+~25-capsule creatures at radius-100 fields.
+
+**Lighting tiers** (pick by budget): bevel normal from 2 forward-diff SDF
+taps → dithered bands (`mod_band`) for pixel skins; + soft self-shadow
+(6 taps along the light dir), crease AO (gradient-length shrink at
+smooth-union seams), subsurface `exp(d) * facing` at thin edges; → full
+raymarched 3D above.
+
 ## Performance Guidelines
 
 1. **Field size matters most** — pixel count is the primary cost driver. A 500x500 field = 250k pixels per frame. Use the smallest field that looks good.
@@ -540,7 +576,7 @@ col = col / (col + vec3f(1.0));             // don't do Reinhard in the shader
 
 12. **Uber-shader compile budget** — all visual types compile into a single compute shader. Complex shaders across multiple fields compound. Keep total nested loop iterations under ~100 per visual. If 3 visuals each have 8x4 nested loops = 96 iterations each, the combined shader may exceed GPU compile limits or timeout.
 
-13. **Silent failures** — if a visual shader has a WGSL error, the uber-shader won't compile and ALL visuals stop rendering (not just the broken one). Check the terminal panel for `COMPILE ERROR` messages. Common causes: wrong function signatures, missing `var` on mutable variables, type mismatches.
+13. **Broken shaders are quarantined** — if a visual shader has a WGSL error, the engine test-compiles each visual in isolation, excludes the broken one(s), and recompiles the rest. Fields using a quarantined visual render as a solid fill. Check the browser console for `[Super] QUARANTINED ... <name>` and the per-visual error; re-sending `define_visual` with fixed WGSL clears the quarantine. Common causes: wrong function signatures, missing `var` on mutable variables, type mismatches.
 
 14. **Deploy incrementally** — when building multi-layer scenes, deploy and test one visual at a time. If all visuals are registered at once and one has an error, it's hard to tell which one broke.
 
