@@ -11,8 +11,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 type Vote = string
 type Unit = { id: string; sessions: number; champion: string | null; margin: number; citizens: number }
 type Collective = { champion?: string; from?: string; score?: number; raw?: number; armyDiscount?: number; votes?: Vote[]; units?: Unit[]; at?: string }
-type ChamberData = { collective?: Collective; history?: { champion: string; from: string; at: string }[]; flow?: string[]; eyes?: { name: string; lines: string[] }[]; updatedAt?: string; offline?: boolean }
+type ChamberData = { collective?: Collective; history?: { champion: string; from: string; at: string }[]; flow?: string[]; eyes?: { name: string; lines: string[]; champion?: string | null }[]; updatedAt?: string; offline?: boolean }
 type Entry = { eye: string; words: string; mine?: boolean; key: string; id?: string; reply?: string }
+type Chant = { eye: string; last: string; response: string | null; mine?: boolean }
 
 export default function ChamberPage() {
   const [data, setData] = useState<ChamberData | null>(null)
@@ -20,6 +21,7 @@ export default function ChamberPage() {
   const [txt, setTxt] = useState('')
   const [status, setStatus] = useState('')
   const [mine, setMine] = useState<Entry[]>([])   // optimistic entries — this visitor's own, highlighted on top
+  const [expanded, setExpanded] = useState(false)
   const seq = useRef(0)
 
   const load = useCallback(async () => {
@@ -68,9 +70,13 @@ export default function ChamberPage() {
   const c = data?.collective
   const stale = data?.updatedAt ? Date.now() - new Date(data.updatedAt).getTime() > 120_000 : true
 
-  // the chat list: the visitor's own entries (highlighted, newest first) then the registry
-  const serverEntries: Entry[] = (data?.eyes || []).flatMap(e => e.lines.map((l, i) => ({ eye: e.name, words: l, key: e.name + ':' + i })))
-  const chat: Entry[] = [...mine, ...serverEntries].slice(0, 40)
+  // CHANT ENTRIES — one card per participant, most recent poster on top. Each shows the
+  // user's last entry and the cradle's response (their eye's champion). The visitor's own
+  // cards (with the live personal reply) always lead.
+  const seen = new Set<string>()
+  const chants: Chant[] = []
+  for (const m of mine) { if (seen.has(m.eye)) continue; seen.add(m.eye); chants.push({ eye: m.eye, last: m.words, response: m.reply || null, mine: true }) }
+  for (const e of (data?.eyes || [])) { if (seen.has(e.name)) continue; seen.add(e.name); chants.push({ eye: e.name, last: e.lines[0] || '', response: e.champion || null }) }
 
   return (
     <div className="min-h-screen bg-background text-foreground font-mono">
@@ -124,20 +130,28 @@ export default function ChamberPage() {
           {status && <div className="text-muted text-xs mt-2">{status}</div>}
         </div>
 
-        {chat.length > 0 && (
+        {chants.length > 0 && (
           <div className="border border-border rounded-lg p-5 bg-surface mb-6">
-            <div className="text-xs uppercase tracking-widest text-muted mb-3">the chat — every voice, yours on top</div>
-            <div className="space-y-1">
-              {chat.map(e => (
-                <div key={e.key} className={`text-xs rounded px-2 py-1 ${e.mine ? 'bg-accent/15 border-l-2 border-accent text-foreground' : 'text-muted'}`}>
-                  <div>
-                    <span className={e.mine ? 'text-accent' : 'text-foreground/70'}>◉ {e.eye}</span> <span className="break-words">{e.words}</span>
-                    {e.mine && !e.reply && <span className="text-accent/60 ml-2">· you · the cradle is thinking…</span>}
+            <div className="text-xs uppercase tracking-widest text-muted mb-3">the chat — chant entries, newest on top</div>
+            <div className="space-y-2">
+              {(expanded ? chants : chants.slice(0, 5)).map(ch => (
+                <div key={ch.eye} className={`rounded-lg px-3 py-2 ${ch.mine ? 'bg-accent/15 border border-accent/40' : 'bg-background/60 border border-border'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className={`text-[10px] uppercase tracking-widest px-1.5 py-0.5 rounded ${ch.mine ? 'bg-accent/25 text-accent' : 'bg-surface text-muted'}`}>chant entry</span>
+                    <span className={`text-xs ${ch.mine ? 'text-accent' : 'text-foreground/70'}`}>◉ {ch.eye}{ch.mine ? ' · you' : ''}</span>
                   </div>
-                  {e.reply && <div className="mt-1 pl-4 text-success break-words">↩ the cradle answers you: <span className="text-foreground">{e.reply}</span></div>}
+                  <div className="text-sm text-foreground break-words">{ch.last}</div>
+                  {ch.response
+                    ? <div className="text-xs text-success mt-1 break-words">↩ cradle: <span className="text-foreground">{ch.response}</span></div>
+                    : <div className="text-xs text-accent/50 mt-1">the cradle is forming its reply…</div>}
                 </div>
               ))}
             </div>
+            {chants.length > 5 && (
+              <button onClick={() => setExpanded(x => !x)} className="mt-3 text-xs text-accent hover:underline">
+                {expanded ? '▲ show fewer' : `▼ show ${chants.length - 5} more chant ${chants.length - 5 === 1 ? 'entry' : 'entries'}`}
+              </button>
+            )}
           </div>
         )}
 
