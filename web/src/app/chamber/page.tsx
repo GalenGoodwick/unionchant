@@ -75,6 +75,15 @@ export default function ChamberPage() {
   return (
     <div className="min-h-screen bg-background text-foreground font-mono">
       <div className="max-w-3xl mx-auto px-4 py-10">
+        {mine[0] && (
+          <div className="sticky top-0 z-20 -mx-4 px-4 py-3 mb-4 bg-background/95 backdrop-blur border-b border-accent/30">
+            <div className="text-[10px] uppercase tracking-widest text-accent/70 mb-1">your last word · pinned</div>
+            <div className="text-sm text-foreground">◉ {mine[0].eye}: <span className="break-words">{mine[0].words}</span></div>
+            {mine[0].reply
+              ? <div className="text-sm text-success mt-1">↩ the cradle answers: <span className="text-foreground">{mine[0].reply}</span></div>
+              : <div className="text-xs text-accent/60 mt-1">the cradle is forming its reply…</div>}
+          </div>
+        )}
         <div className="mb-8">
           <h1 className="text-2xl font-serif text-foreground">The Chamber</h1>
           <p className="text-muted text-sm mt-2 leading-relaxed">
