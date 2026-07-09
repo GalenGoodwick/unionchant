@@ -15,6 +15,8 @@ const CSRF_EXEMPT_PATHS = [
   '/api/shell/',
   '/api/eye/',
   '/api/claude-bridge',
+  '/api/chamber/state',  // chamber-bridge daemon push (bearer-token auth, no browser origin)
+  '/api/chamber/pokes',  // chamber-bridge poke drain (bearer-token auth)
 ]
 
 // Patterns that match via regex (for dynamic segments)
