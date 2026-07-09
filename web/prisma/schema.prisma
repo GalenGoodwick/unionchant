@@ -1511,3 +1511,21 @@ model Eye {
   @@index([ownerId])
   @@index([type])
 }
+// ============ THE CHAMBER (live collective-precedent bridge from the local cradle) ============
+
+model ChamberState {
+  id        String   @id            // "main"
+  data      Json                    // {collective, history, flow, eyes, units} pushed by chamber-bridge
+  updatedAt DateTime @updatedAt
+}
+
+model ChamberPoke {
+  id        String   @id @default(cuid())
+  eye       String                  // participant name (sanitized [a-z0-9-])
+  words     String   @db.Text       // plain lowercase words only
+  ip        String?
+  status    String   @default("pending") // "pending" | "applied"
+  createdAt DateTime @default(now())
+
+  @@index([status])
+}
