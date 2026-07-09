@@ -12,7 +12,7 @@ type Vote = string
 type Unit = { id: string; sessions: number; champion: string | null; margin: number; citizens: number }
 type Collective = { champion?: string; from?: string; score?: number; raw?: number; armyDiscount?: number; votes?: Vote[]; units?: Unit[]; at?: string }
 type ChamberData = { collective?: Collective; history?: { champion: string; from: string; at: string }[]; flow?: string[]; eyes?: { name: string; lines: string[] }[]; updatedAt?: string; offline?: boolean }
-type Entry = { eye: string; words: string; mine?: boolean; key: string }
+type Entry = { eye: string; words: string; mine?: boolean; key: string; id?: string; reply?: string }
 
 export default function ChamberPage() {
   const [data, setData] = useState<ChamberData | null>(null)
@@ -41,12 +41,29 @@ export default function ChamberPage() {
     try {
       const r = await fetch('/api/chamber/poke', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ eye: name, txt: words }) })
       const j = await r.json()
-      setStatus(r.ok ? `heard — "${j.words}" enters the ${j.eye} eye; the minds will weigh it shortly` : (j.error || 'failed'))
-      if (!r.ok) setMine(m => m.filter(e => e.key !== entry.key))
+      setStatus(r.ok ? `heard — "${j.words}" enters the ${j.eye} eye; the cradle is forming a reply…` : (j.error || 'failed'))
+      if (!r.ok) { setMine(m => m.filter(e => e.key !== entry.key)); return }
+      setMine(m => m.map(e => e.key === entry.key ? { ...e, id: j.id } : e))
       // hot reload burst so the visitor sees their word land
       for (const d of [1200, 3000, 6000, 12000, 22000]) setTimeout(load, d)
+      // the personal reply: poll until the cradle's geometry answers, then feed it to the reader
+      if (j.id) pollReply(entry.key, j.id, 0)
     } catch { setStatus('failed to reach the chamber'); setMine(m => m.filter(e => e.key !== entry.key)) }
   }
+
+  const pollReply = useCallback(async (key: string, id: string, tries: number) => {
+    if (tries > 30) return
+    try {
+      const r = await fetch('/api/chamber/response?id=' + id, { cache: 'no-store' })
+      const j = await r.json()
+      if (j.response) {
+        setMine(m => m.map(e => e.key === key ? { ...e, reply: j.response } : e))
+        setStatus('the cradle answered you')
+        return
+      }
+    } catch { /* retry */ }
+    setTimeout(() => pollReply(key, id, tries + 1), 3000)
+  }, [])
 
   const c = data?.collective
   const stale = data?.updatedAt ? Date.now() - new Date(data.updatedAt).getTime() > 120_000 : true
@@ -104,8 +121,11 @@ export default function ChamberPage() {
             <div className="space-y-1">
               {chat.map(e => (
                 <div key={e.key} className={`text-xs rounded px-2 py-1 ${e.mine ? 'bg-accent/15 border-l-2 border-accent text-foreground' : 'text-muted'}`}>
-                  <span className={e.mine ? 'text-accent' : 'text-foreground/70'}>◉ {e.eye}</span> <span className="break-words">{e.words}</span>
-                  {e.mine && <span className="text-accent/60 ml-2">· you · landing…</span>}
+                  <div>
+                    <span className={e.mine ? 'text-accent' : 'text-foreground/70'}>◉ {e.eye}</span> <span className="break-words">{e.words}</span>
+                    {e.mine && !e.reply && <span className="text-accent/60 ml-2">· you · the cradle is thinking…</span>}
+                  </div>
+                  {e.reply && <div className="mt-1 pl-4 text-success break-words">↩ the cradle answers you: <span className="text-foreground">{e.reply}</span></div>}
                 </div>
               ))}
             </div>

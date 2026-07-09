@@ -1525,7 +1525,9 @@ model ChamberPoke {
   words     String   @db.Text       // plain lowercase words only
   ip        String?
   status    String   @default("pending") // "pending" | "applied"
+  response  String?  @db.Text       // the cradle's personal reply to this poke (eye's champion answer)
   createdAt DateTime @default(now())
 
   @@index([status])
+  @@index([response])
 }

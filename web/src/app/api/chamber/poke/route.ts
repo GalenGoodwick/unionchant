@@ -24,6 +24,6 @@ export async function POST(req: NextRequest) {
     .filter(w => /^[a-z]+$/.test(w) && w.length > 1).slice(0, 60).join(' ')
   if (!eye || !words) return NextResponse.json({ error: 'need a name and plain words' }, { status: 400 })
 
-  await prisma.chamberPoke.create({ data: { eye, words, ip } })
-  return NextResponse.json({ ok: true, eye, words })
+  const poke = await prisma.chamberPoke.create({ data: { eye, words, ip } })
+  return NextResponse.json({ ok: true, id: poke.id, eye, words })
 }
