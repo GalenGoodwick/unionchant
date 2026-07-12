@@ -124,6 +124,10 @@ export class FieldRenderer {
   private frameUniformBuf: GPUBuffer | null = null
   private effectUniformBuf: GPUBuffer | null = null
   private stateUniformBuf: GPUBuffer | null = null
+  // World uniforms — the shared "whiteboard" hooks write and all shaders read
+  private worldUniBuffer: GPUBuffer | null = null
+  private _worldUniData = new Float32Array(64)
+  private _worldUniDirty = true
 
   // Pre-allocated typed arrays (reused every frame to avoid GC pressure)
   private _frameUniformData = new Float32Array(16)
@@ -485,6 +489,13 @@ export class FieldRenderer {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
 
+    // The whiteboard: 64 floats written from worldData.gpuUniforms each frame,
+    // visible to every visual/interaction shader as uni(i) / uni4(i)
+    this.worldUniBuffer = device.createBuffer({
+      size: 256, // 16 vec4f
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+
     this.effectUniformBuf = device.createBuffer({
       size: 112, // 28 floats: bounds(4) + params(4) + transform(4) + fieldAColor(4) + fieldBColor(4) + fieldATransform(4) + fieldBTransform(4)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -768,6 +779,7 @@ export class FieldRenderer {
         { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
         { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
       ],
     })
 
@@ -2406,6 +2418,31 @@ export class FieldRenderer {
     this.hitIdPixelCount = pixelCount
   }
 
+  /** Write the world-uniform whiteboard (up to 64 floats). Cheap: skips upload when values unchanged. */
+  updateWorldUniforms(vals: number[] | Float32Array): void {
+    const n = Math.min(64, vals.length)
+    let changed = false
+    for (let i = 0; i < n; i++) {
+      const v = Number.isFinite(vals[i]) ? vals[i] : 0
+      if (this._worldUniData[i] !== v) { this._worldUniData[i] = v; changed = true }
+    }
+    if (changed) this._worldUniDirty = true
+  }
+
+  private flushWorldUniforms(): void {
+    if (!this.device) return
+    if (!this.worldUniBuffer) {
+      this.worldUniBuffer = this.device.createBuffer({
+        size: 256,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+      })
+      this._worldUniDirty = true
+    }
+    if (!this._worldUniDirty) return
+    this.device.queue.writeBuffer(this.worldUniBuffer, 0, this._worldUniData)
+    this._worldUniDirty = false
+  }
+
   /** Ensure the interaction buffer exists and is large enough */
   private ensureInteractionBuffer(count: number): void {
     const device = this.device!
@@ -2447,6 +2484,7 @@ export class FieldRenderer {
           { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
           { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
           { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+          { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
         ],
       })
       this.superLayoutHasIxBuf = true
@@ -2459,6 +2497,7 @@ export class FieldRenderer {
       this.recompilePropagationPipeline()
     }
 
+    this.flushWorldUniforms()
     const pixelCount = bufferW * bufferH
     this.ensureSuperFieldBuffer(fields.length)
     this.ensureHitIdBuffer(pixelCount)
@@ -2543,6 +2582,7 @@ export class FieldRenderer {
           { binding: 4, resource: { buffer: this.ixBuf! } },
           { binding: 5, resource: { buffer: this.ixTypeBuf! } },
           { binding: 6, resource: { buffer: this.prevAccumBuf! } },
+          { binding: 7, resource: { buffer: this.worldUniBuffer! } },
         ],
       })
       this._lastSuperFieldCount = fields.length
@@ -2844,6 +2884,25 @@ export class FieldRenderer {
 
   /** Register a new visual type. Returns the assigned ID or updates existing.
    *  Triggers uber-shader recompilation. */
+  /** Per-visual time dependency — the signature always names `time` once, so
+   *  a second occurrence means the body actually animates. Unknown = animated. */
+  private visualTimeDep: Map<number, boolean> = new Map()
+
+  /** Is this visual a function of time? (conservative: unknown ids animate) */
+  visualAnimated(id: number): boolean {
+    return this.visualTimeDep.get(id) ?? true
+  }
+
+  /** Is the superimposed pipeline compiled and current? (safe to reuse last frame) */
+  get superReady(): boolean {
+    return this.superPipelineReady
+  }
+
+  /** Shader-registry version — part of the frame fingerprint */
+  get compilationId(): number {
+    return this.superCompilationId
+  }
+
   registerVisualType(name: string, wgsl: string): { id: number; error?: string } {
     const existing = this.visualTypeRegistry.get(name)
     let id: number
@@ -2857,6 +2916,8 @@ export class FieldRenderer {
       id = this.nextVisualTypeId++
       this.visualTypeRegistry.set(name, { id, name, wgsl })
     }
+    // Signature contributes exactly one `time` — more means the body uses it
+    this.visualTimeDep.set(id, ((wgsl.match(/\btime\b/g) || []).length) > 1)
     // Invalidate uber-shader — bump compilation ID so any in-flight compilation is discarded
     this.superCompilationId++
     this.superCompilationError = null

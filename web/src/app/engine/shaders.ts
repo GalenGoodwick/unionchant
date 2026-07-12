@@ -1535,6 +1535,20 @@ struct InteractionGPU {
 @group(1) @binding(4) var<storage, read_write> ixBuf: array<vec4f>;
 @group(1) @binding(5) var<storage, read_write> ixTypeBuf: array<u32>;
 @group(1) @binding(6) var<storage, read> prevAccumBuf: array<vec4f>;
+@group(1) @binding(7) var<storage, read> worldUni: array<vec4f>;
+
+// ─── World uniforms ("the whiteboard") ───
+// 64 shared floats written by step hooks via worldData.gpuUniforms.
+// Every visual and interaction shader can read them: uni(0)..uni(63), or uni4(0)..uni4(15).
+fn uni(i: i32) -> f32 {
+  let v = worldUni[clamp(i, 0, 63) / 4];
+  let c = clamp(i, 0, 63) % 4;
+  if (c == 0) { return v.x; }
+  if (c == 1) { return v.y; }
+  if (c == 2) { return v.z; }
+  return v.w;
+}
+fn uni4(i: i32) -> vec4f { return worldUni[clamp(i, 0, 15)]; }
 
 ${targetBindingsStr}
 
@@ -1981,6 +1995,20 @@ ${moduleCode}
 @group(1) @binding(4) var<storage, read_write> ixBuf: array<vec4f>;
 @group(1) @binding(5) var<storage, read_write> ixTypeBuf: array<u32>;
 @group(1) @binding(6) var<storage, read> prevAccumBuf: array<vec4f>;
+@group(1) @binding(7) var<storage, read> worldUni: array<vec4f>;
+
+// ─── World uniforms ("the whiteboard") ───
+// 64 shared floats written by step hooks via worldData.gpuUniforms.
+// Every visual and interaction shader can read them: uni(0)..uni(63), or uni4(0)..uni4(15).
+fn uni(i: i32) -> f32 {
+  let v = worldUni[clamp(i, 0, 63) / 4];
+  let c = clamp(i, 0, 63) % 4;
+  if (c == 0) { return v.x; }
+  if (c == 1) { return v.y; }
+  if (c == 2) { return v.z; }
+  return v.w;
+}
+fn uni4(i: i32) -> vec4f { return worldUni[clamp(i, 0, 15)]; }
 ${targetBindingsStr}
 
 struct FieldGPU {
