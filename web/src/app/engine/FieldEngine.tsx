@@ -99,11 +99,30 @@ interface FieldEngineProps {
   spaceId?: string
   spaceSlug?: string
   isOwner?: boolean
+  /** View a historical save point instead of the live world (read-only demo mode) */
+  versionView?: number
 }
 
-export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngineProps = {}) {
+export default function FieldEngine({ spaceId, spaceSlug, isOwner, versionView }: FieldEngineProps = {}) {
   const { showToast } = useToast()
+
+  useEffect(() => {
+    const onFocus = () => { windowFocusedRef.current = true }
+    const onBlur = () => { windowFocusedRef.current = false }
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [])
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  // Focus throttle: a WATCHING viewer gets full rate (spectators give no input) —
+  // only an unfocused-but-visible window drops to ~10fps. Hidden tabs pause free (rAF).
+  const windowFocusedRef = useRef(typeof document !== 'undefined' ? document.hasFocus() : true)
+  // Lossless frame memoization: fingerprint of everything the pixels depend on
+  const frameFingerprintRef = useRef('')
+  const lastParticleRef = useRef(0)
   const rendererRef = useRef<FieldRenderer | null>(null)
   const simulationRef = useRef<FieldSimulation | null>(null)
   const inputRef = useRef<FieldInput | null>(null)
@@ -165,6 +184,8 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
 
   // Designer sidebar state
   const [terminalOpen, setTerminalOpen] = useState(false)
+  // World mode: the world is just the world — editor chrome hides behind a toggle
+  const [chromeVisible, setChromeVisible] = useState(!spaceId)
 
   // Saved scenes list (server-side persistent)
   const [savedScenes, setSavedScenes] = useState<string[]>([])
@@ -262,6 +283,24 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
     })
     syncFields()
   }, [syncFields, selection.selectedFieldId, updateSelectionMask])
+
+  // Broadcast the player's focus to connected agents: the current selection rides
+  // the snapshot sync into worldData, so a world's AI can follow the player's target.
+  useEffect(() => {
+    const sim = simulationRef.current
+    if (!sim) return
+    if (selection.selectedFieldId) {
+      const f = sim.fields.get(selection.selectedFieldId)
+      sim.worldData['player_focus'] = {
+        fieldId: selection.selectedFieldId,
+        fieldName: f?.name || null,
+        at: Date.now(),
+      }
+    } else {
+      delete sim.worldData['player_focus']
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection.selectedFieldId])
 
   // Select field (toolbar click)
   const handleSelectField = useCallback((id: string) => {
@@ -465,7 +504,8 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
       }
 
       try {
-        const resp = await fetch(`/api/spaces/${encodeURIComponent(spaceSlug)}/snapshot`)
+        const versionQ = versionView ? `?version=${versionView}` : ''
+        const resp = await fetch(`/api/spaces/${encodeURIComponent(spaceSlug)}/snapshot${versionQ}`)
         const { snapshot } = await resp.json()
         if (!snapshot) return // Empty space — blank canvas
 
@@ -924,10 +964,13 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
     startTimeRef.current = performance.now() / 1000
     lastFrameRef.current = performance.now()
 
-    // Restore state from server, or create initial field
+    // Restore state from server, or create initial field.
+    // Space mode restores from its own snapshot effect — pulling the GLOBAL
+    // state here would layer global fields on top of the space's world.
     try {
-      const r = await fetch('/api/engine/state')
-      const data = await r.json()
+      const data = (spaceId || spaceSlug)
+        ? {}
+        : await fetch('/api/engine/state').then(r => r.json())
       if (cancelled) return
       const snaps = data.fields || []
       if (snaps.length > 0) {
@@ -1051,8 +1094,11 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
       const now = performance.now()
       // Cap at ~60fps: ProMotion displays otherwise drive the full compute
       // pipeline at 120Hz — double the GPU load (and laptop heat) for no
-      // perceptible gain in a shader-driven scene.
-      if (now - lastFrameRef.current < 15) {
+      // perceptible gain in a shader-driven scene. A focused window always
+      // gets full rate — watching IS using (spectators give no input). An
+      // unfocused-but-visible window idles at ~10fps; hidden tabs pause free.
+      const minFrameMs = windowFocusedRef.current ? 15 : 100
+      if (now - lastFrameRef.current < minFrameMs) {
         animFrameRef.current = requestAnimationFrame(frame)
         return
       }
@@ -1167,6 +1213,11 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
         // Async readback — don't block the frame. State syncs next frame.
         renderer.readbackState(sim.world.stateData).catch(() => {})
       }
+
+      // World uniforms ("the whiteboard") — hooks write worldData.gpuUniforms,
+      // every visual/interaction shader reads it via uni(i) / uni4(i)
+      const gpuUni = sim.worldData['gpuUniforms']
+      if (Array.isArray(gpuUni)) renderer.updateWorldUniforms(gpuUni as number[])
 
       const camera = cameraRef.current
       const time = now / 1000 - startTimeRef.current
@@ -1512,12 +1563,55 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
       const emitParticle = sim.worldData['__emit_particles'] as { x: number; y: number; count: number; color?: [number, number, number]; velX?: number; velY?: number; spread?: number; size?: number; life?: number } | undefined
       if (emitParticle) {
         renderer.emitParticles(emitParticle.x, emitParticle.y, emitParticle.count, emitParticle)
+        lastParticleRef.current = now
         delete sim.worldData['__emit_particles']
       }
 
       const mode3D = renderModeRef.current === '3d' ? camera3DRef.current : undefined
       const stepHookData = renderer.hasStepHooks() ? { dt, worldData: sim.worldData } : undefined
-      renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions, mode3D ? { pos: mode3D.pos, pitch: mode3D.pitch, yaw: mode3D.yaw, fov: mode3D.fov } : undefined, stepHookData)
+
+      // ── Lossless frame memoization ──
+      // Every visual is a pure function of (uv, time, params, uniforms). If no
+      // visible visual animates with time and none of the inputs changed, the
+      // last frame is still pixel-identical — skip the GPU entirely.
+      // Conservative bail-outs: 3D mode, GPU hooks, legacy effects, interactions,
+      // projectiles/particles, state shaders, or a pipeline mid-compile.
+      let skipRender = false
+      if (!mode3D && !stepHookData && renderer.superReady &&
+          fieldEffects.length === 0 && activeInteractions.length === 0 &&
+          sim.projectiles.length === 0 && !renderer.hasStateUpdate() &&
+          now - lastParticleRef.current > 6000) {
+        let animated = false
+        for (const f of sim.fields.values()) {
+          if (typeof f.visualType === 'number' && renderer.visualAnimated(f.visualType)) { animated = true; break }
+        }
+        if (!animated) {
+          const parts: (string | number)[] = [
+            renderer.compilationId, camera.x, camera.y, camera.zoom,
+            canvasRef.current?.width ?? 0, canvasRef.current?.height ?? 0,
+          ]
+          for (const f of sim.fields.values()) {
+            const tr = f.transform
+            parts.push(f.id, tr.x, tr.y, tr.rotation, tr.scale,
+              f.visualType ?? -1, String(f.color), String(f.visualParams ?? ''), f.renderOrder ?? 0)
+          }
+          const gu = sim.worldData['gpuUniforms']
+          if (Array.isArray(gu)) parts.push(gu.join(','))
+          const pp = sim.worldData['postProcess']
+          if (pp) parts.push(JSON.stringify(pp))
+          const fp = parts.join('|')
+          if (fp === frameFingerprintRef.current) skipRender = true
+          else frameFingerprintRef.current = fp
+        } else {
+          frameFingerprintRef.current = ''
+        }
+      } else {
+        frameFingerprintRef.current = ''
+      }
+
+      if (!skipRender) {
+        renderer.render(camera, camera.zoom, time, fieldEffects, superFields, activeInteractions, mode3D ? { pos: mode3D.pos, pitch: mode3D.pitch, yaw: mode3D.yaw, fov: mode3D.fov } : undefined, stepHookData)
+      }
 
       // Trigger async readback of hit ID map for pixel-perfect hit testing
       if (superFields.length > 0) {
@@ -1615,7 +1709,9 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
       }
 
       // Sample rendered pixels per field (throttled to once per second, async)
-      if (now - lastSampleTimeRef.current > 1000) {
+      // Scenes with many fields can set worldData.noPixelSampling to skip this —
+      // the per-field GPU readback loop stalls a frame (visible black flash) at scale.
+      if (now - lastSampleTimeRef.current > 1000 && !sim.worldData['noPixelSampling']) {
         lastSampleTimeRef.current = now
         // Fire async sampling — results land next cycle
         ;(async () => {
@@ -3362,6 +3458,15 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
             onPointerLeave={() => { setPixelInfo(null); if (pixelInfoTimeout.current) clearTimeout(pixelInfoTimeout.current) }}
           />
 
+          {spaceId && (
+            <button
+              onClick={() => setChromeVisible(v => !v)}
+              className="absolute bottom-3 right-3 z-40 px-2.5 py-1.5 rounded-lg text-xs font-mono bg-black/60 backdrop-blur border border-white/10 text-white/70 hover:text-white hover:bg-black/80 transition-colors"
+            >
+              {chromeVisible ? 'hide tools' : '\u2699 tools'}
+            </button>
+          )}
+
           {/* HUD overlay — positioned absolutely over the canvas, pointer-events disabled */}
           <div
             ref={hudContainerRef}
@@ -3402,6 +3507,7 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
           )}
 
           {/* Info overlay */}
+          {chromeVisible && (
           <div className="absolute top-3 left-3 text-[10px] text-muted font-mono flex items-center gap-2">
             <button
               onClick={() => setRenderMode(m => m === '2d' ? '3d' : '2d')}
@@ -3459,10 +3565,12 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
             </button>
           </div>
 
+          )}
           {/* (prompt input moved to sidebar) */}
         </div>
 
         {/* Field list panel — scrollable under the canvas */}
+        {chromeVisible && (
         <div className="h-40 flex-shrink-0 border-t border-border bg-background/95 overflow-y-auto">
           <div className="px-3 py-2">
             <div className="flex items-center justify-between mb-1">
@@ -3542,9 +3650,11 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
             </div>
           </div>
         </div>
+        )}
       </div>
 
       {/* Designer sidebar */}
+      {chromeVisible && (
       <div className="w-96 flex-shrink-0 flex flex-col border-l border-border bg-background overflow-hidden">
         {/* Inspector Panel */}
         <div className="flex-shrink-0 overflow-y-auto" style={{ maxHeight: '50%' }}>
@@ -3781,6 +3891,7 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner }: FieldEngine
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

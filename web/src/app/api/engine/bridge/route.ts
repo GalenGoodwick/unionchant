@@ -384,6 +384,23 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // AI focus beacon: derive what the agent just touched and publish it so the
+    // world UI can show "AI -> <thing>". Written to the snapshot AND relayed live.
+    if (isSpaceScoped && commands.length > 0) {
+      const last = commands[commands.length - 1] as Record<string, unknown>
+      const focus = {
+        action: last.type ?? null,
+        fieldId: last.fieldId ?? null,
+        fieldName: last.name ?? null,
+        at: Date.now(),
+      }
+      const beacon = { type: 'set_world_data', data: { ai_focus: focus } }
+      try {
+        await applyCommandToSnapshot(auth.spaceId!, beacon)
+        await pushToAgent(beacon, req, auth.spaceId)
+      } catch { /* the beacon must never break the bridge */ }
+    }
+
     return NextResponse.json({ ok: true, executed: results.length, results })
   } catch (error) {
     console.error('[Engine Bridge] Error:', error)

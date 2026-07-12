@@ -7,6 +7,21 @@ import type { FieldSnapshot, SceneSnapshot } from '@/app/engine/types'
 
 export const dynamic = 'force-dynamic'
 
+/** Per-space writer leases — same semantics as the global lease in store.ts:
+ *  one tab syncs a space, any other tab gets 409 until the lease expires or is taken over. */
+const SPACE_LEASE_MS = 8000
+function claimSpaceWriter(spaceId: string, clientId: string, takeover: boolean): boolean {
+  const g = globalThis as unknown as { __spaceWriters?: Map<string, { id: string; seen: number }> }
+  if (!g.__spaceWriters) g.__spaceWriters = new Map()
+  const now = Date.now()
+  const cur = g.__spaceWriters.get(spaceId)
+  if (!cur || cur.id === clientId || now - cur.seen > SPACE_LEASE_MS || takeover) {
+    g.__spaceWriters.set(spaceId, { id: clientId, seen: now })
+    return true
+  }
+  return false
+}
+
 /** Check session or bearer token auth */
 async function checkAuth(req: NextRequest): Promise<boolean> {
   // Bearer token
@@ -52,8 +67,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Space-scoped: persist to database
+    // Space-scoped: persist to database (behind a per-space writer lease —
+    // two of the owner's tabs must not clobber each other every 2s)
     if (body.spaceId) {
+      if (typeof body.clientId === 'string' &&
+          !claimSpaceWriter(body.spaceId, body.clientId, body.takeover === true)) {
+        return NextResponse.json({ error: 'world-locked' }, { status: 409 })
+      }
       const snapshot: SceneSnapshot = {
         name: body.spaceId,
         fields,
