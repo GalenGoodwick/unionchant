@@ -122,6 +122,8 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner, versionView }
   const windowFocusedRef = useRef(typeof document !== 'undefined' ? document.hasFocus() : true)
   // Lossless frame memoization: fingerprint of everything the pixels depend on
   const frameFingerprintRef = useRef('')
+  // SSE liveness: last time the agent stream said anything (pings count)
+  const lastSSEMsgRef = useRef(Date.now())
   const lastParticleRef = useRef(0)
   const rendererRef = useRef<FieldRenderer | null>(null)
   const simulationRef = useRef<FieldSimulation | null>(null)
@@ -1799,7 +1801,9 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner, versionView }
       es.onmessage = async (event) => {
         try {
           const data = JSON.parse(event.data)
+          lastSSEMsgRef.current = Date.now()
 
+          if (data.type === 'ping') return
           if (data.type === 'connected') {
             setAgentConnected(true)
             return
@@ -3259,12 +3263,25 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner, versionView }
         // Retry in 5s
         retryTimeout = setTimeout(connect, 5000)
       }
+      lastSSEMsgRef.current = Date.now()
     }
 
     connect()
 
+    // Watchdog: the server pings every 15s — 40s of silence means the stream
+    // died without an error event (HMR orphan, dropped socket). Reconnect.
+    const watchdog = setInterval(() => {
+      if (Date.now() - lastSSEMsgRef.current > 40_000) {
+        setAgentConnected(false)
+        try { es?.close() } catch { /* already dead */ }
+        lastSSEMsgRef.current = Date.now()
+        connect()
+      }
+    }, 10_000)
+
     return () => {
       clearTimeout(retryTimeout)
+      clearInterval(watchdog)
       es?.close()
       setAgentConnected(false)
     }
@@ -3278,6 +3295,8 @@ export default function FieldEngine({ spaceId, spaceSlug, isOwner, versionView }
     if (spaceId && !isOwner) return
 
     const interval = setInterval(async () => {
+      // A hidden tab is paused — it must not renew the writer lease with frozen state
+      if (document.hidden) return
       const sim = simulationRef.current
       if (!sim || sim.fields.size === 0) return
       try {

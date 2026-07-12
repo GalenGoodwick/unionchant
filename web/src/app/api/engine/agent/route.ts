@@ -143,13 +143,33 @@ function deduplicateQueue(queue: QueueEntry[], entry: QueueEntry): void {
 // session happens to hold). Broadcast to live listeners, never queue.
 const NO_REPLAY = new Set(['save_scene', 'load_scene', 'delete_scene', 'reset'])
 
+/** Ephemeral input (key/mouse flags) must broadcast live but never replay —
+ *  a reconnecting tab re-running an hour-old key press is a phantom input.
+ *  Returns the command to queue (stripped), or null if nothing durable remains. */
+function stripEphemeral(command: EngineCommand): EngineCommand | null {
+  const cmd = command as Record<string, unknown>
+  if (cmd.type !== 'set_world_data' || !cmd.data || typeof cmd.data !== 'object') return command
+  const data = cmd.data as Record<string, unknown>
+  const durable: Record<string, unknown> = {}
+  let stripped = false
+  for (const k of Object.keys(data)) {
+    if (k.startsWith('key_') || k.startsWith('mouse_')) { stripped = true; continue }
+    durable[k] = data[k]
+  }
+  if (!stripped) return command
+  if (Object.keys(durable).length === 0) return null
+  return { ...cmd, data: durable } as EngineCommand
+}
+
 function pushCommand(command: EngineCommand, spaceId?: string | null): QueueEntry {
   const entry: QueueEntry = {
     id: `cmd_${(g.__engineCommandCounter = ++commandCounter)}_${Date.now()}`,
     command,
     timestamp: Date.now(),
   }
-  const skipReplay = NO_REPLAY.has((command as Record<string, unknown>).type as string)
+  const durableCommand = stripEphemeral(command)
+  const skipReplay = NO_REPLAY.has((command as Record<string, unknown>).type as string) || durableCommand === null
+  const queueEntry: QueueEntry = durableCommand === command ? entry : { ...entry, command: durableCommand as EngineCommand }
 
   if (spaceId) {
     const queue = getSpaceQueue(spaceId)
@@ -160,8 +180,8 @@ function pushCommand(command: EngineCommand, spaceId?: string | null): QueueEntr
       }
     }
     if (!skipReplay) {
-      deduplicateQueue(queue, entry)
-      queue.push(entry)
+      deduplicateQueue(queue, queueEntry)
+      queue.push(queueEntry)
       if (queue.length > 1000) queue.splice(0, queue.length - 1000)
     }
   } else {
@@ -169,8 +189,8 @@ function pushCommand(command: EngineCommand, spaceId?: string | null): QueueEntr
       listener(entry)
     }
     if (!skipReplay) {
-      deduplicateQueue(commandQueue, entry)
-      commandQueue.push(entry)
+      deduplicateQueue(commandQueue, queueEntry)
+      commandQueue.push(queueEntry)
       if (commandQueue.length > 1000) commandQueue.splice(0, commandQueue.length - 1000)
     }
   }
@@ -249,7 +269,7 @@ export async function GET(req: NextRequest) {
         // Heartbeat
         const heartbeat = setInterval(() => {
           try {
-            controller.enqueue(encoder.encode(`: heartbeat\n\n`))
+            controller.enqueue(encoder.encode(`data: {"type":"ping"}\n\n`))
           } catch {
             clearInterval(heartbeat)
             sListeners.delete(listener)
@@ -289,7 +309,7 @@ export async function GET(req: NextRequest) {
         // Heartbeat every 15s to keep connection alive
         const heartbeat = setInterval(() => {
           try {
-            controller.enqueue(encoder.encode(`: heartbeat\n\n`))
+            controller.enqueue(encoder.encode(`data: {"type":"ping"}\n\n`))
           } catch {
             clearInterval(heartbeat)
             listeners.delete(listener)

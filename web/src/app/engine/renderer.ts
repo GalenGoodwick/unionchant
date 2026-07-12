@@ -158,6 +158,10 @@ export class FieldRenderer {
   /** Whether compute effects are available and enabled */
   useComputeEffects: boolean = true
   private accumBuf: GPUBuffer | null = null
+  /** Post-process output — bloom must read raw HDR neighbors while writing
+   *  tonemapped pixels; same-buffer read/write raced per 16x16 workgroup
+   *  (the dark-square artifact on bright regions) */
+  private postOutBuf: GPUBuffer | null = null
   private prevAccumBuf: GPUBuffer | null = null
   private accumBufPixelCount: number = 0
   private accumBufStride: number = 0
@@ -649,6 +653,11 @@ export class FieldRenderer {
       size: bufSize,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     })
+    this.postOutBuf?.destroy()
+    this.postOutBuf = device.createBuffer({
+      size: bufSize,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
     this.accumBufPixelCount = pixelCount
     this.accumBufStride = width
     this.invalidateBindGroupCaches()
@@ -802,10 +811,11 @@ export class FieldRenderer {
       ],
     })
 
-    // Post-process group 1: accumBuf (read-write)
+    // Post-process group 1: accumBuf in (read-only), postOut (write)
     this.postProcessBindGroupLayout = device.createBindGroupLayout({
       entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } },
       ],
     })
 
@@ -938,8 +948,12 @@ export class FieldRenderer {
   }
 
   /** Dispatch the post-processing compute pass if enabled */
+  private _postRanThisFrame = false
+  private _cachedBlitSrcPost: boolean | null = null
+
   private dispatchPostProcess(encoder: GPUCommandEncoder, device: GPUDevice, bufferW: number, bufferH: number): void {
-    if (!this.postProcessSettings.enabled || !this.postProcessPipeline || !this.postProcessUniformBuf || !this.accumBuf) return
+    this._postRanThisFrame = false
+    if (!this.postProcessSettings.enabled || !this.postProcessPipeline || !this.postProcessUniformBuf || !this.accumBuf || !this.postOutBuf) return
 
     const pp = this.postProcessSettings
     const d = this._postProcessUniformData
@@ -960,8 +974,10 @@ export class FieldRenderer {
       layout: this.postProcessBindGroupLayout!,
       entries: [
         { binding: 0, resource: { buffer: this.accumBuf } },
+        { binding: 1, resource: { buffer: this.postOutBuf! } },
       ],
     })
+    this._postRanThisFrame = true
 
     const ppPass = encoder.beginComputePass()
     ppPass.setPipeline(this.postProcessPipeline)
@@ -1554,11 +1570,12 @@ export class FieldRenderer {
 
         // Blit accumulation buffer to screen
         {
-          if (!this._cachedBlitBG) {
+          if (!this._cachedBlitBG || this._cachedBlitSrcPost !== this._postRanThisFrame) {
             this._cachedBlitBG = device.createBindGroup({
               layout: this.blitStorageLayout!,
-              entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }],
+              entries: [{ binding: 0, resource: { buffer: (this._postRanThisFrame ? this.postOutBuf! : this.accumBuf!) } }],
             })
+            this._cachedBlitSrcPost = this._postRanThisFrame
           }
           const pass = encoder.beginRenderPass({
             colorAttachments: [{
@@ -1736,8 +1753,9 @@ export class FieldRenderer {
         // Post-processing
         this.dispatchPostProcess(encoder, device, bufferW, bufferH)
 
-        if (!this._cachedBlitBG) {
-          this._cachedBlitBG = device.createBindGroup({ layout: this.blitStorageLayout!, entries: [{ binding: 0, resource: { buffer: this.accumBuf! } }] })
+        if (!this._cachedBlitBG || this._cachedBlitSrcPost !== this._postRanThisFrame) {
+          this._cachedBlitBG = device.createBindGroup({ layout: this.blitStorageLayout!, entries: [{ binding: 0, resource: { buffer: (this._postRanThisFrame ? this.postOutBuf! : this.accumBuf!) } }] })
+          this._cachedBlitSrcPost = this._postRanThisFrame
         }
         const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: textureView, loadOp: 'load', storeOp: 'store' }] })
         blitPass.setPipeline(this.blitPipeline!)

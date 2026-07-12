@@ -2435,7 +2435,8 @@ struct PostProcessUniforms {
 };
 @group(0) @binding(1) var<uniform> pp: PostProcessUniforms;
 
-@group(1) @binding(0) var<storage, read_write> accumBuf: array<vec4f>;
+@group(1) @binding(0) var<storage, read> accumIn: array<vec4f>;
+@group(1) @binding(1) var<storage, read_write> postOut: array<vec4f>;
 
 // ACES filmic tone mapping
 fn acesToneMap(x: vec3f) -> vec3f {
@@ -2458,8 +2459,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
   let resY = i32(frame.resolution.y);
   let idx = gid.y * stride + gid.x;
 
-  let center = accumBuf[idx];
-  if (center.a < 0.001 && pp.bloomIntensity < 0.001) { return; }
+  let center = accumIn[idx];
 
   var color = center.rgb;
 
@@ -2477,14 +2477,14 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       // Horizontal samples
       let lx = clamp(i32(gid.x) - off, 0, resX - 1);
       let rx = clamp(i32(gid.x) + off, 0, resX - 1);
-      let sL = accumBuf[gid.y * stride + u32(lx)].rgb;
-      let sR = accumBuf[gid.y * stride + u32(rx)].rgb;
+      let sL = accumIn[gid.y * stride + u32(lx)].rgb;
+      let sR = accumIn[gid.y * stride + u32(rx)].rgb;
 
       // Vertical samples
       let uy = clamp(i32(gid.y) - off, 0, resY - 1);
       let dy_ = clamp(i32(gid.y) + off, 0, resY - 1);
-      let sU = accumBuf[u32(uy) * stride + gid.x].rgb;
-      let sD = accumBuf[u32(dy_) * stride + gid.x].rgb;
+      let sU = accumIn[u32(uy) * stride + gid.x].rgb;
+      let sD = accumIn[u32(dy_) * stride + gid.x].rgb;
 
       // Threshold — only accumulate bright parts
       bloomAccum += max(sL - thresh, vec3f(0.0)) * w;
@@ -2511,7 +2511,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
     color *= vig;
   }
 
-  accumBuf[idx] = vec4f(color, center.a);
+  postOut[idx] = vec4f(color, center.a);
 }
 `
 }

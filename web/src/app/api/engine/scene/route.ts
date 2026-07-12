@@ -1,4 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+
+/** Scenes are world-definitions with executable hooks — writes need identity.
+ *  Dev keeps the frictionless local cartridge workflow; production requires
+ *  a session or the engine agent token. */
+async function sceneWriteAllowed(req: NextRequest): Promise<boolean> {
+  if (process.env.NODE_ENV !== 'production') return true
+  const authHeader = req.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const envToken = process.env.ENGINE_AGENT_TOKEN
+    if (envToken && authHeader.slice(7) === envToken) return true
+  }
+  const session = await getServerSession(authOptions)
+  return !!session?.user?.email
+}
 import { saveScene, loadScene, listScenes, deleteScene } from '../store'
 
 export const dynamic = 'force-dynamic'
@@ -32,6 +48,9 @@ export async function GET(req: NextRequest) {
  * Body: { action: 'save', name: string, scene: SceneSnapshot }
  */
 export async function POST(req: NextRequest) {
+  if (!(await sceneWriteAllowed(req))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
     const body = await req.json()
     if (body.action === 'save' && body.name && body.scene) {
