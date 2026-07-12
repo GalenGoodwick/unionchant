@@ -40,6 +40,42 @@ GET requests return engine state (fields, world data, params).
 
 ---
 
+## Player Worlds (Spaces)
+
+Besides the global world, every player can own worlds at `/space/<slug>`. Agents connect to a
+SPECIFIC world with a world token (`uc_st_...`, minted by the owner via "Connect AI" or
+`POST /api/spaces/<slug>/token`). Same bridge URL — the token scopes everything:
+
+```
+Authorization: Bearer uc_st_...   →  all commands apply to that world only
+```
+
+**What works without a browser tab open** (persisted server-side into the world snapshot):
+`create_field`, `delete_field`, `set_position`, `set_color`, `set_scale`, `clone_field`,
+`define_visual`, `define_module`, `add_effect`, `set_world_params`, `set_world_data`,
+`add_step_hook`, `define_interaction`, `reset`.
+
+**What needs a live tab**: shader COMPILATION and the running simulation. The world executes
+in the viewer's browser. `define_visual` persists either way, but you only get a
+`compileResult` back when someone has the world's page open — if it times out, your WGSL is
+saved but unverified. Ask the owner to keep the world page open while you do shader work.
+
+**Make things visible.** Fields with no visual render as NOTHING. Always pair `create_field`
+with `visualType`, or use `set_visual` on existing fields. A skeleton of bare fields is
+invisible — skin it.
+
+**Focus channel (both directions):**
+- `worldData.player_focus = { fieldId, fieldName, at }` — what the player has selected right
+  now. Read it and follow their target: "make this taller" refers to it.
+- `worldData.ai_focus` is stamped automatically from your last command — the UI shows the
+  player "AI → <thing>". You don't need to set it (but you may overwrite it via
+  `set_world_data` with a more precise `{ action, fieldName, at }`).
+
+**Save points**: the owner versions the world from the UI. Big destructive changes deserve a
+heads-up first — `reset` wipes the world (history survives, but don't make them need it).
+
+---
+
 ## Bridge API
 
 **Endpoint**: `POST /api/engine/bridge`
@@ -79,6 +115,7 @@ Send a single command or an array:
 | `set_scale` | `fieldId, scale` | Scale transform |
 | `set_shape` | `fieldId, shape?, shapeType?, radius?, w?, h?` | Change shape/size |
 | `set_name` | `fieldId, name` | Rename field |
+| `set_visual` | `fieldId, visualType` | Assign a registered visual to an existing field (name resolves) |
 | `set_parent` | `fieldId, parentFieldId?` | Set parent (null to unparent) |
 | `set_property` | `fieldId, key, value` | Store arbitrary key-value data |
 | `get_properties` | `fieldId` | Read field properties |
@@ -262,6 +299,25 @@ fn visual_sphere(uv: vec2f, sdf: f32, color: vec4f, time: f32, params: vec4f, be
 
   return vec4f(color.rgb * (0.2 + diff * 0.8), 1.0);
 }
+```
+
+### World Uniforms — the shared whiteboard
+
+64 floats shared by ALL visuals and interaction shaders. Write them from a step hook
+(`sim.worldData.gpuUniforms = [...]`) or via the bridge (`set_world_data {"gpuUniforms": [...]}`);
+read them in any shader with `uni(i)` (i = 0..63) or `uni4(i)` (vec4 rows, i = 0..15).
+
+This is how cross-field state flows: the sea shader can read the boat's position, terrain can
+react to every entity, one clock can drive every field. Upload happens once per frame and only
+when values change. Unset slots read 0.0.
+
+```js
+// step hook: publish shared state
+wd.gpuUniforms = [boat.x, boat.y, boat.heading, windX, windY, gust]
+```
+```wgsl
+// any visual: read it
+let boatPos = vec2f(uni(0), uni(1));
 ```
 
 ### Available WGSL Utility Functions
@@ -543,6 +599,46 @@ taps → dithered bands (`mod_band`) for pixel skins; + soft self-shadow
 smooth-union seams), subsurface `exp(d) * facing` at thin edges; → full
 raymarched 3D above.
 
+## Raymarched Worlds & the Whiteboard in Practice
+
+Proven patterns from the SEASCAPE / ONE DAY / SAIL scenes (Jul 10 2026). Working code:
+`scenes/oneday-cartridge.mjs`, `scenes/sail-cartridge.mjs`, `scenes/solstice-cartridge.mjs`.
+
+**Ocean/terrain = heightfield tracing, not sphere marching.** For a full-screen 3D scene,
+march a height function h(x,z):
+- Ocean (unbounded, wavy): cast to a far plane, then ~8 bisection steps between the last
+  above/below pair. Cheap and stable (see `sl_map3`/8-step loop in sail-cartridge).
+- Terrain (bounded hills): step `t += clamp((p.y - h) * 0.45, 0.03, 0.9)` for 45-60 steps;
+  hit when `p.y - h < 0.012 * (1 + t)`. Coarse-noise h for the march, more octaves only for
+  normals (3-octave trace / 5-octave normal split).
+- Soft shadows: 5-6 taps along the sun direction, `sh = min(sh, k * dh / ts)`, ts doubling.
+
+**Light does realism.** Output linear HDR, let bloom+ACES grade it. Sun disk =
+`smoothstep(0.9997, 0.9999, dot(rd, sunDir)) * vec3f(5+)`. Water glitter = specular off
+per-pixel wave normals — never painted streaks. Day/night = ONE sun-elevation uniform
+driving sky gradient, sun color, terrain lambert, star fade (see od_sky).
+
+**The whiteboard is the cross-field nervous system.** Feed `worldData.gpuUniforms` from a
+step hook; every visual reads `uni(i)`. Patterns that work:
+- One sun/wind/clock shared by all fields (no visualParams bit-packing).
+- Entity state into the environment: the SAIL ocean reads the boat's position from uni(3)
+  and carves its Kelvin wake INTO the height field — the sea knows the boat.
+- Phase-locking CPU and GPU: if the hook must know a GPU function's value (boat riding the
+  waves), port the function to JS with MATCHED constants (gnoise is ~15 lines) and share the
+  time base through a uniform (`uni(7) = seaTime`) so both evaluate the identical field.
+
+**Physics in hooks.** Real dynamics beat surface-gluing: buoyancy spring
+`vy += g * ((h - y)/draft) * dt`, damping `vy *= 1 - c*dt`, pitch as a damped righting moment
+toward the wave slope. ALWAYS clamp the integration step (`pdt = min(dt, 0.05)`) — a hidden
+tab delivers multi-second dt spikes that detonate springs — and add a divergence guard that
+resets state if it goes non-finite.
+
+**Game cartridges** (fields + WGSL + JS hook shipped as a scene): see `scenes/README.md` —
+step hooks only run from scenes (the bridge blocks them), entity pools are pre-created and
+recycled, keyboard arrives in `worldData.key_*`.
+
+---
+
 ## Performance Guidelines
 
 1. **Field size matters most** — pixel count is the primary cost driver. A 500x500 field = 250k pixels per frame. Use the smallest field that looks good.
@@ -576,7 +672,10 @@ raymarched 3D above.
 
 12. **Uber-shader compile budget** — all visual types compile into a single compute shader. Complex shaders across multiple fields compound. Keep total nested loop iterations under ~100 per visual. If 3 visuals each have 8x4 nested loops = 96 iterations each, the combined shader may exceed GPU compile limits or timeout.
 
-13. **Broken shaders are quarantined** — if a visual shader has a WGSL error, the engine test-compiles each visual in isolation, excludes the broken one(s), and recompiles the rest. Fields using a quarantined visual render as a solid fill. Check the browser console for `[Super] QUARANTINED ... <name>` and the per-visual error; re-sending `define_visual` with fixed WGSL clears the quarantine. Common causes: wrong function signatures, missing `var` on mutable variables, type mismatches.
+13. **Many-field scenes: set `worldData.noPixelSampling = true`** — skips the per-field GPU
+    readback that stalls one frame per second (visible black flash) once a scene has ~10+ fields.
+
+14. **Broken shaders are quarantined** — if a visual shader has a WGSL error, the engine test-compiles each visual in isolation, excludes the broken one(s), and recompiles the rest. Fields using a quarantined visual render as a solid fill. Check the browser console for `[Super] QUARANTINED ... <name>` and the per-visual error; re-sending `define_visual` with fixed WGSL clears the quarantine. Common causes: wrong function signatures, missing `var` on mutable variables, type mismatches.
 
 14. **Deploy incrementally** — when building multi-layer scenes, deploy and test one visual at a time. If all visuals are registered at once and one has an error, it's hard to tell which one broke.
 

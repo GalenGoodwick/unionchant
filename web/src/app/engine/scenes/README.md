@@ -32,6 +32,10 @@ Recreate:
 ```
 
 ## Engine contracts learned the hard way
+- **World uniforms (Jul 10 2026)**: 64 shared floats, `worldData.gpuUniforms` →
+  `uni(i)`/`uni4(i)` in every visual/interaction shader. Cross-field state
+  (boat position into the sea shader, one sun for all fields) goes here, not
+  through visualParams packing.
 - **Effects/visuals are WGSL, not GLSL** — FIELD_ENGINE_API.md predates the
   WebGPU renderer.
 - **Output linear HDR.** The post pipeline always applies ACES + bloom; if you
