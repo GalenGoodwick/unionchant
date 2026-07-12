@@ -133,7 +133,17 @@ model User {
   apiKeys               ApiKey[]
 
   // Player engine spaces
+  // Prediction stats (denormalized; kept to match live DB — removed from schema in 677cca3 without a push)
+  totalPredictions     Int @default(0)
+  currentStreak        Int @default(0)
+  bestStreak           Int @default(0)
+  isSupporter          Boolean @default(false)
+  correctPredictions   Int @default(0)
+  championPicks        Int @default(0)
+
   ownedSpaces           PlayerSpace[] @relation("OwnedSpaces")
+  spaceVersions         SpaceVersion[]
+  spaceFlags            SpaceFlag[]
 
   // Webhook integrations
   integrations          Integration[]
@@ -306,6 +316,7 @@ model Deliberation {
 
   // Emergence signals detected in this chant
   emergenceSignals EmergenceSignal[]
+  spaceFlag     SpaceFlag?
   // Shells that emerged from this deliberation's dialogue
   emergedShells    Shell[]          @relation("ShellOrigin")
 
@@ -1063,8 +1074,57 @@ model PlayerSpace {
   parentSpace   PlayerSpace?  @relation("SpaceChildren", fields: [parentSpaceId], references: [id], onDelete: SetNull)
   childSpaces   PlayerSpace[] @relation("SpaceChildren")
 
+  // World history + governance
+  versions      SpaceVersion[]
+  flags         SpaceFlag[]
+  forkOfId      String?
+  forkOf        PlayerSpace?  @relation("SpaceForks", fields: [forkOfId], references: [id], onDelete: SetNull)
+  forks         PlayerSpace[] @relation("SpaceForks")
+
   @@index([ownerId])
   @@index([parentSpaceId])
+}
+
+// Append-only world history: every save is a version, nothing is ever lost.
+model SpaceVersion {
+  id        String      @id @default(cuid())
+  spaceId   String
+  space     PlayerSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  version   Int                                  // monotonic per space
+  snapshot  Json                                 // SceneSnapshot at this point
+  authorId  String?
+  author    User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  note      String?                              // "added lighthouse", "pre-flag snapshot"
+  createdAt DateTime    @default(now())
+
+  @@unique([spaceId, version])
+  @@index([spaceId, createdAt])
+}
+
+// Conflict valve: a flag freezes the dispute into versions and spawns a fastCell
+// deliberation whose ideas ARE the candidate versions (with live demo links).
+model SpaceFlag {
+  id                String          @id @default(cuid())
+  spaceId           String
+  space             PlayerSpace     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  raisedById        String
+  raisedBy          User            @relation(fields: [raisedById], references: [id], onDelete: Cascade)
+  reason            String
+  status            SpaceFlagStatus @default(OPEN)
+  deliberationId    String?         @unique
+  deliberation      Deliberation?   @relation(fields: [deliberationId], references: [id], onDelete: SetNull)
+  candidateVersions Int[]           @default([])  // version numbers under dispute
+  resolvedVersion   Int?                          // winning version that was applied
+  createdAt         DateTime        @default(now())
+  resolvedAt        DateTime?
+
+  @@index([spaceId, status])
+}
+
+enum SpaceFlagStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
 }
 
 model SpaceToken {
@@ -1424,6 +1484,7 @@ model ChamberPoke {
   words     String   @db.Text       // plain lowercase words only
   ip        String?
   status    String   @default("pending") // "pending" | "applied"
+  response  String?  @db.Text       // the cradle's personal reply to this poke
   createdAt DateTime @default(now())
 
   @@index([status])

@@ -5,9 +5,10 @@ interface SubspaceOverlayProps {
   hostColor: string
   visitorCount: number
   onExit: () => void
+  spaceSlug?: string | null
 }
 
-export default function SubspaceOverlay({ hostName, hostColor, visitorCount, onExit }: SubspaceOverlayProps) {
+export default function SubspaceOverlay({ hostName, hostColor, visitorCount, onExit, spaceSlug }: SubspaceOverlayProps) {
   return (
     <div className="absolute top-0 left-0 right-0 z-40 flex items-center justify-between px-3 py-1.5 bg-surface/90 backdrop-blur-sm border-b border-border">
       <div className="flex items-center gap-2 min-w-0">
@@ -24,6 +25,15 @@ export default function SubspaceOverlay({ hostName, hostColor, visitorCount, onE
           </span>
         )}
       </div>
+      {spaceSlug && (
+        <a
+          href={`/space/${spaceSlug}`}
+          className="text-[10px] font-mono px-2 py-0.5 rounded border border-border transition-colors mr-1.5"
+          style={{ color: hostColor, borderColor: hostColor + '55' }}
+        >
+          Visit world →
+        </a>
+      )}
       <button
         onClick={onExit}
         className="text-[10px] font-mono text-muted-light/60 hover:text-foreground px-2 py-0.5 rounded border border-border hover:border-foreground/30 transition-colors"

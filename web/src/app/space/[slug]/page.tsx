@@ -3,9 +3,11 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import FieldEngine from '@/app/engine/FieldEngine'
+import SpaceToolbar from './SpaceToolbar'
 
 interface SpacePageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ version?: string }>
 }
 
 export async function generateMetadata({ params }: SpacePageProps) {
@@ -23,8 +25,10 @@ export async function generateMetadata({ params }: SpacePageProps) {
   }
 }
 
-export default async function SpacePage({ params }: SpacePageProps) {
+export default async function SpacePage({ params, searchParams }: SpacePageProps) {
   const { slug } = await params
+  const { version } = await searchParams
+  const versionView = version ? parseInt(version, 10) : undefined
 
   const space = await prisma.playerSpace.findUnique({
     where: { slug },
@@ -49,6 +53,24 @@ export default async function SpacePage({ params }: SpacePageProps) {
   if (!space.isPublic && userId !== space.ownerId) notFound()
 
   const isOwner = userId === space.ownerId
+  // viewing a save point is always read-only — syncing it would overwrite the live world
+  const engineOwner = versionView !== undefined ? false : isOwner
 
-  return <FieldEngine spaceId={space.id} spaceSlug={space.slug} isOwner={isOwner} />
+  return (
+    <>
+      <FieldEngine
+        spaceId={space.id}
+        spaceSlug={space.slug}
+        isOwner={engineOwner}
+        versionView={Number.isFinite(versionView) ? versionView : undefined}
+      />
+      <SpaceToolbar
+        slug={space.slug}
+        name={space.name}
+        ownerName={space.owner?.name ?? null}
+        isOwner={isOwner}
+        versionView={Number.isFinite(versionView) ? versionView : undefined}
+      />
+    </>
+  )
 }

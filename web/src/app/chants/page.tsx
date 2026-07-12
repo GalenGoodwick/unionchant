@@ -1762,6 +1762,7 @@ function ChantsPageContent() {
             hostColor={dockedUserspace.userColor}
             visitorCount={visitors.length}
             onExit={handleExitUserspace}
+            spaceSlug={activeSubspaces.find(u => u.userId === dockedUserspace.userId)?.spaceSlug}
           />
         )}
 

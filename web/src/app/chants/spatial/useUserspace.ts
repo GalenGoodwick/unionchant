@@ -7,6 +7,7 @@ export interface UserspaceNode {
   userId: string
   hostName: string
   hostColor: string
+  spaceSlug?: string | null
   occupancy: number
   currentChant: string | null
   activeTab: string

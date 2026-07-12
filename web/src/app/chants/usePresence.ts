@@ -44,6 +44,23 @@ interface UsePresenceReturn {
 const PRESENCE_URL = process.env.NEXT_PUBLIC_PRESENCE_URL || 'http://localhost:8080'
 
 export function usePresence({ userId, name, color, currentInstance }: UsePresenceOptions): UsePresenceReturn {
+  // the player's own world (first space) — carried in presence so others can visit it
+  const worldSlugRef = useRef<string | null>(null)
+  useEffect(() => {
+    let mounted = true
+    fetch('/api/spaces')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (!mounted || !d?.spaces?.length) return
+        worldSlugRef.current = d.spaces[0].slug
+        // re-announce so the presence server learns the world without waiting for a reconnect
+        const s = socketRef.current
+        if (s?.connected) s.emit('auth', { userId, name, color, spaceSlug: worldSlugRef.current })
+      })
+      .catch(() => {})
+    return () => { mounted = false }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId])
   const [players, setPlayers] = useState<Map<string, PresencePlayer[]>>(new Map())
   const [connected, setConnected] = useState(false)
   const [transitions, setTransitions] = useState<PlayerTransition[]>([])
@@ -62,7 +79,7 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
 
     socket.on('connect', () => {
       setConnected(true)
-      socket.emit('auth', { userId, name, color })
+      socket.emit('auth', { userId, name, color, spaceSlug: worldSlugRef.current })
       socket.emit('join-instance', { instance: instanceRef.current })
     })
 

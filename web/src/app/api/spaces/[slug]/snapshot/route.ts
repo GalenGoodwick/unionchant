@@ -7,10 +7,11 @@ export const dynamic = 'force-dynamic'
 
 /** GET /api/spaces/:slug/snapshot — Load space's SceneSnapshot (for visitor browsers) */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
+  const versionParam = req.nextUrl.searchParams.get('version')
 
   const space = await prisma.playerSpace.findUnique({
     where: { slug },
@@ -36,6 +37,24 @@ export async function GET(
     if (user?.id !== space.ownerId) {
       return NextResponse.json({ error: 'Space not found' }, { status: 404 })
     }
+  }
+
+  // ?version=N — serve a historical save point instead of the live world (demo view)
+  if (versionParam) {
+    const versionNum = parseInt(versionParam, 10)
+    if (!Number.isFinite(versionNum)) {
+      return NextResponse.json({ error: 'Invalid version' }, { status: 400 })
+    }
+    const version = await prisma.spaceVersion.findUnique({
+      where: { spaceId_version: { spaceId: space.id, version: versionNum } },
+      select: { snapshot: true, version: true },
+    })
+    if (!version) return NextResponse.json({ error: 'Version not found' }, { status: 404 })
+    return NextResponse.json({
+      spaceId: space.id,
+      snapshot: version.snapshot,
+      version: version.version,
+    })
   }
 
   return NextResponse.json({
