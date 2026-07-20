@@ -45,7 +45,6 @@ type Community = {
   description: string | null
   isPublic: boolean
   inviteCode: string | null
-  discordInviteUrl: string | null
   creatorId: string
   creator: { id: string; name: string | null; image: string | null; status: UserStatus }
   createdAt: string
@@ -486,16 +485,6 @@ export default function CommunityPageClient() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </Link>
-            )}
-            {community.discordInviteUrl && (
-              <a
-                href={community.discordInviteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1 bg-discord hover:bg-discord-hover text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors"
-              >
-                Discord
-              </a>
             )}
             {isMember && community.userRole !== 'OWNER' && (
               <button

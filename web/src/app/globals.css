@@ -62,10 +62,6 @@
   --color-orange-bg: rgba(249,115,22,0.1);
   --color-orange-light: rgba(249,115,22,0.15);
 
-  /* Brand: Discord */
-  --color-discord: #5865F2;
-  --color-discord-hover: #4752C4;
-
   /* Status: Blue (Deliberation/Discussion) */
   --color-blue: #60a5fa;
   --color-blue-hover: #3b82f6;
@@ -129,10 +125,6 @@
   --color-orange-hover: #ea580c;
   --color-orange-bg: rgba(249,115,22,0.1);
   --color-orange-light: rgba(249,115,22,0.15);
-
-  /* Brand: Discord */
-  --color-discord: #5865F2;
-  --color-discord-hover: #4752C4;
 
   --color-blue: #3b82f6;
   --color-blue-hover: #2563eb;

@@ -9,7 +9,6 @@ import CollectiveChat from '@/components/CollectiveChat'
 
 import ChallengeProvider from '@/components/ChallengeProvider'
 import PasskeyPrompt from '@/components/PasskeyPrompt'
-import { useOnboarding } from '@/hooks/useOnboarding'
 import Header from '@/components/Header'
 
 type OnboardingContextType = {

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import FrameLayout from '@/components/FrameLayout'
-import FirstVisitTooltip from '@/components/FirstVisitTooltip'
+import DashboardGuide from '@/components/DashboardGuide'
 import { phaseLabel } from '@/lib/labels'
 
 interface DeliberationSummary {
@@ -82,9 +82,7 @@ export default function DashboardPage() {
 
   return (
     <FrameLayout active="chants" showBack>
-      <FirstVisitTooltip id="manage-page">
-        This is your facilitator dashboard. Select a chant to start voting, set timers, and control the flow.
-      </FirstVisitTooltip>
+      <DashboardGuide />
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-sm font-bold text-foreground">My Chants</h1>
         <Link
