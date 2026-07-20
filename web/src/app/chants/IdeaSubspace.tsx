@@ -221,7 +221,7 @@ export default function IdeaSubspace({
         </div>
       )}
 
-      {/* CHAT AREA — scrollable messages */}
+      {/* CHAT AREA, scrollable messages */}
       <div className="relative flex-1 overflow-hidden">
         {/* Scrollable chat messages */}
         <div className="absolute inset-0 overflow-y-auto px-3 py-3 space-y-3 z-0">
@@ -265,7 +265,7 @@ export default function IdeaSubspace({
         </div>
       </div>
 
-      {/* MESSAGE INPUT — spans full viewport width */}
+      {/* MESSAGE INPUT, spans full viewport width */}
       <div className="shrink-0 bg-header border-t border-border/30 px-3 py-2" style={{ marginLeft: 'calc(-50vw + 50%)', marginRight: 'calc(-50vw + 50%)', paddingLeft: 'max(0.75rem, calc(50vw - 336px))', paddingRight: 'max(0.75rem, calc(50vw - 336px))' }}>
         {sendError && (
           <div className="text-error text-xs font-mono mb-1 px-1">{sendError}</div>

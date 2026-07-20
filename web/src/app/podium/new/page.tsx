@@ -232,7 +232,7 @@ function NewPodiumPageInner() {
           />
           <div className="text-xs text-muted mb-6">{title.length}/{TITLE_MAX}</div>
 
-          {/* Body — Markdown Editor */}
+          {/* Body, Markdown Editor */}
           <MarkdownEditor
             value={body}
             onChange={setBody}

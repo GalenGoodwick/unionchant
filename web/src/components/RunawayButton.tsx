@@ -365,7 +365,7 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
           </div>
         )}
 
-        {/* Runaway button — always visible */}
+        {/* Runaway button, always visible */}
         <button
           ref={btnRef}
           onClick={handleClick}
@@ -399,9 +399,9 @@ export default function RunawayButton({ onCaught, onBotDetected }: RunawayButton
       </div>
       <p className="text-xs text-muted text-center">
         Chase the button for 3 seconds to pass, or catch it if it stops.
-        {!chasing && <><br /><span className="text-subtle">Timer decays if you stop — keep chasing!</span></>}
+        {!chasing && <><br /><span className="text-subtle">Timer decays if you stop, keep chasing!</span></>}
         <br />
-        <span className="text-subtle">Screen reader: a rising sound starts the chase with a drum roll. A ding means the button stopped — tap anywhere in the box to catch it. A falling sound means you passed.</span>
+        <span className="text-subtle">Screen reader: a rising sound starts the chase with a drum roll. A ding means the button stopped, tap anywhere in the box to catch it. A falling sound means you passed.</span>
       </p>
     </div>
   )

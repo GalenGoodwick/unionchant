@@ -211,7 +211,7 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
         ) : (
           <>
             <h2 className="text-lg font-bold text-foreground text-center">Sign in to continue</h2>
-            <p className="text-xs text-muted text-center">Your place is saved — you won&apos;t lose your spot</p>
+            <p className="text-xs text-muted text-center">Your place is saved, you won&apos;t lose your spot</p>
 
             {error && (
               <div className="text-xs text-error text-center p-2 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>

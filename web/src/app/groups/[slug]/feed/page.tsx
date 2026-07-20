@@ -178,7 +178,7 @@ function FeedCard({ item }: { item: FeedItem }) {
           <h3 className="text-foreground font-medium text-xs leading-snug">{item.question}</h3>
           {item.champion && item.kind === 'completed' && (
             <p className="text-[10px] text-success mt-0.5 truncate">
-              Priority: {item.champion.text}
+              Winner: {item.champion.text}
             </p>
           )}
         </div>

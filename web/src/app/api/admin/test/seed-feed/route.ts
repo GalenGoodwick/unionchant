@@ -521,11 +521,11 @@ export async function POST(req: NextRequest) {
     // ────────────────────────────────────────────────────────────
     const activityItems = [
       { type: 'DELIBERATION_UPDATE' as const, title: 'Discussion opened in "Parental leave policy"', body: '8 cells deliberating \u00B7 52 participants', deliberationId: discDelib.id },
-      { type: 'VOTE_NEEDED' as const, title: 'Round 3 started for "Annual team retreat"', body: 'Priority vs 4 challengers', deliberationId: challDelib.id },
+      { type: 'VOTE_NEEDED' as const, title: 'Round 3 started for "Annual team retreat"', body: 'Winner vs 4 challengers', deliberationId: challDelib.id },
       { type: 'IDEA_ADVANCING' as const, title: 'Tier 1 completed for "Developer tools"', body: '3 ideas advancing to Tier 2', deliberationId: advDelib.id },
       { type: 'VOTE_NEEDED' as const, title: '10 people voting in "Community center funding"', body: 'Tier 2 \u00B7 2 cells active', deliberationId: voteDelib.id },
       { type: 'DELIBERATION_UPDATE' as const, title: 'New question: "Onboarding experience"', body: '7 participants \u00B7 7 ideas so far', deliberationId: submitDelib.id },
-      { type: 'IDEA_WON' as const, title: 'Priority declared for "Office layout"', body: '"Open plan with quiet zones" won with 42 votes', deliberationId: null },
+      { type: 'IDEA_WON' as const, title: 'Winner declared for "Office layout"', body: '"Open plan with quiet zones" won with 42 votes', deliberationId: null },
     ]
 
     for (let i = 0; i < activityItems.length; i++) {

@@ -10,12 +10,12 @@ const steps = [
   {
     title: 'Join a Chant',
     icon: '💡',
-    body: 'A Chant is a question posed to a group. Browse your Feed for open chants, or create your own. Submit your best idea — one per person.',
+    body: 'A Chant is a question you ask a group: everyone submits an answer, then votes narrow them to the best one. Browse your Feed for open chants, or create your own. Submit your best idea, one per person.',
   },
   {
     title: 'Discuss in Your Cell',
     icon: '💬',
-    body: 'You\'re placed in a cell of 5 people with 5 ideas. Read them all, then tap the chat icon on any idea to comment. If your comment gets upvoted, it spreads to other cells — every 2 upvotes reach one more cell.',
+    body: 'You\'re placed in a cell of 5 people with 5 ideas. Read them all, then tap the chat icon on any idea to comment. If your comment gets upvoted, it spreads to other cells, every 2 upvotes reach one more cell.',
   },
   {
     title: 'Allocate 10 Vote Points',
@@ -25,17 +25,17 @@ const steps = [
   {
     title: 'Strongest Ideas Advance',
     icon: '🏆',
-    body: 'The top idea in each cell advances to the next tier. New cells form, and it repeats. In the final round, everyone votes together. The top idea becomes the priority.',
+    body: 'The top idea in each cell advances to the next tier. New cells form, and it repeats. In the final round, everyone votes together. The top idea becomes the winner.',
   },
   {
     title: 'Your Feed',
     icon: '📋',
-    body: 'Feed shows actions you can take — vote, submit, join. Activity shows what\'s happening across the platform. Results shows completed chants.',
+    body: 'Feed shows actions you can take, vote, submit, join. Activity shows what\'s happening across the platform. Results shows completed chants.',
   },
   {
     title: 'Rolling Mode',
     icon: '🔄',
-    body: 'Some chants keep going after a priority is declared. New challenger ideas can be submitted, and periodically a new round tests whether the priority still holds.',
+    body: 'Some chants keep going after a winner is declared. New challenger ideas can be submitted, and periodically a new round tests whether the winner still holds.',
   },
 ]
 

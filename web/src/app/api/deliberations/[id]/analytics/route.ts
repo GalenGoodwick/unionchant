@@ -417,7 +417,7 @@ export async function GET(
 
     if (deliberation.completedAt) {
       timeline.push({
-        event: 'Priority declared',
+        event: 'Winner declared',
         timestamp: deliberation.completedAt.toISOString(),
         detail: champion?.text,
       })

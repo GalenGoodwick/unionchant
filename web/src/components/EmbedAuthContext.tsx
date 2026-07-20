@@ -48,7 +48,7 @@ export function EmbedAuthProvider({
 
   // Log mount info
   useEffect(() => {
-    log(`mounted — slug=${communitySlug}`)
+    log(`mounted, slug=${communitySlug}`)
     log(`href=${window.location.href}`)
     const url = new URL(window.location.href)
     log(`params: iframeUid=${url.searchParams.get('iframeUid')}, pluginToken=${url.searchParams.get('pluginToken') ? 'YES' : 'no'}, cgToken=${url.searchParams.get('cgToken') ? 'YES' : 'no'}`)
@@ -120,7 +120,7 @@ export function EmbedAuthProvider({
     const url = new URL(window.location.href)
     const iframeUid = url.searchParams.get('iframeUid')
     if (!iframeUid) {
-      log('Path B: no iframeUid — skipping CG plugin init')
+      log('Path B: no iframeUid, skipping CG plugin init')
       return
     }
 
@@ -128,7 +128,7 @@ export function EmbedAuthProvider({
 
     const publicKey = process.env.NEXT_PUBLIC_CG_PLUGIN_PUBLIC_KEY
     if (!publicKey) {
-      log('Path B: NEXT_PUBLIC_CG_PLUGIN_PUBLIC_KEY NOT SET — aborting')
+      log('Path B: NEXT_PUBLIC_CG_PLUGIN_PUBLIC_KEY NOT SET, aborting')
       return
     }
 
@@ -152,11 +152,11 @@ export function EmbedAuthProvider({
         if (cancelled) { log('Path B: cancelled after init'); return }
 
         const ctx = plugin.getContextData()
-        log(`Path B: contextData — pluginId=${ctx.pluginId}, userId=${ctx.userId}`)
+        log(`Path B: contextData, pluginId=${ctx.pluginId}, userId=${ctx.userId}`)
 
         log('Path B: calling getUserInfo...')
         const userInfo = await plugin.getUserInfo()
-        log(`Path B: userInfo — id=${userInfo.data.id}, name=${userInfo.data.name}`)
+        log(`Path B: userInfo, id=${userInfo.data.id}, name=${userInfo.data.name}`)
         log(`Path B: rawResponse length=${userInfo.__rawResponse?.length || 0}`)
         if (cancelled) { log('Path B: cancelled after getUserInfo'); return }
 

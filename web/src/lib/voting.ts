@@ -164,40 +164,37 @@ export async function resolveChampionPredictions(deliberationId: string, champio
     where: { deliberationId },
   })
 
-  // Get champion predictions for user stat updates
-  const championPredictions = await prisma.prediction.findMany({
-    where: { deliberationId, predictedIdeaId: championId },
-  })
-
-  // Batch all updates in a single transaction
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ops: any[] = []
-
-  // Mark champion predictions
-  for (const prediction of championPredictions) {
-    ops.push(
-      prisma.prediction.update({
-        where: { id: prediction.id },
-        data: { ideaBecameChampion: true, ideaFinalTier: champion.tier },
-      })
-    )
-    // championPicks field removed from User model; skipping user stat update
-  }
-
-  // Mark non-champion predictions with final tier info
+  // Group non-champion ideas by their final tier so we can bulk-update predictions
+  // per-tier instead of one statement per idea. The old per-idea loop produced O(ideas)
+  // statements in a single interactive transaction, which overflowed the 5s tx timeout
+  // once a deliberation had ~1000 ideas (P2028). This is O(distinct tiers) instead.
+  const nonChampionIdsByTier = new Map<number, string[]>()
   for (const idea of allIdeas) {
     if (idea.id === championId) continue
-    ops.push(
-      prisma.prediction.updateMany({
-        where: { deliberationId, predictedIdeaId: idea.id },
-        data: { ideaBecameChampion: false, ideaFinalTier: idea.tier },
-      })
-    )
+    const arr = nonChampionIdsByTier.get(idea.tier) ?? []
+    arr.push(idea.id)
+    nonChampionIdsByTier.set(idea.tier, arr)
   }
 
-  if (ops.length > 0) {
-    await prisma.$transaction(ops)
-  }
+  // Interactive transaction (not the array form) so maxWait/timeout actually apply —
+  // the array form ignores those options. maxWait: tolerate connection-pool contention
+  // when many cells resolve at once; timeout: headroom for the per-tier updates at scale.
+  await prisma.$transaction(async (tx) => {
+    // Mark all champion predictions in one statement
+    // (championPicks user-stat update was removed, so no per-prediction work is needed)
+    await tx.prediction.updateMany({
+      where: { deliberationId, predictedIdeaId: championId },
+      data: { ideaBecameChampion: true, ideaFinalTier: champion.tier },
+    })
+
+    // Mark non-champion predictions with final tier info, one statement per distinct tier
+    for (const [tier, ideaIds] of nonChampionIdsByTier) {
+      await tx.prediction.updateMany({
+        where: { deliberationId, predictedIdeaId: { in: ideaIds } },
+        data: { ideaBecameChampion: false, ideaFinalTier: tier },
+      })
+    }
+  }, { maxWait: 30000, timeout: 30000 })
 }
 
 /**

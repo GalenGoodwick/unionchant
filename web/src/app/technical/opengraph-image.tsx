@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og'
 import { OGCard, ogSize } from '@/lib/og-helpers'
 
 export const runtime = 'edge'
-export const alt = 'Unity Chant — Technical Whitepaper'
+export const alt = 'Unity Chant, Technical Whitepaper'
 export const size = ogSize
 export const contentType = 'image/png'
 

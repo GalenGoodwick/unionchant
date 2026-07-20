@@ -31,13 +31,13 @@ export default function PrivacyPage() {
               We explicitly <strong className="text-foreground">do not</strong> collect, store, or log:
             </p>
             <ul className="list-disc pl-6 text-subtle space-y-2">
-              <li><strong className="text-foreground">IP addresses</strong> — We do not store your IP address in our database. For anonymous accounts, we actively strip IP headers before processing. IP addresses are only used transiently for in-memory rate limiting (to prevent abuse) and are never written to disk or database.</li>
-              <li><strong className="text-foreground">Location data</strong> — No GPS, no city, no country, no timezone auto-detection. We previously had location tracking fields and deliberately removed them.</li>
-              <li><strong className="text-foreground">Device fingerprints</strong> — No browser fingerprinting, no canvas fingerprinting, no device IDs.</li>
-              <li><strong className="text-foreground">Browsing behavior</strong> — No page view tracking, no click tracking, no session recordings, no heat maps.</li>
-              <li><strong className="text-foreground">Analytics</strong> — We do not use Google Analytics, Mixpanel, Amplitude, or any third-party analytics service.</li>
-              <li><strong className="text-foreground">Advertising data</strong> — No ad trackers, no pixel tags, no cross-site tracking, no data brokers.</li>
-              <li><strong className="text-foreground">User agent strings</strong> — We do not store what browser or operating system you use.</li>
+              <li><strong className="text-foreground">IP addresses</strong>, We do not store your IP address in our database. For anonymous accounts, we actively strip IP headers before processing. IP addresses are only used transiently for in-memory rate limiting (to prevent abuse) and are never written to disk or database.</li>
+              <li><strong className="text-foreground">Location data</strong>, No GPS, no city, no country, no timezone auto-detection. We previously had location tracking fields and deliberately removed them.</li>
+              <li><strong className="text-foreground">Device fingerprints</strong>, No browser fingerprinting, no canvas fingerprinting, no device IDs.</li>
+              <li><strong className="text-foreground">Browsing behavior</strong>, No page view tracking, no click tracking, no session recordings, no heat maps.</li>
+              <li><strong className="text-foreground">Analytics</strong>, We do not use Google Analytics, Mixpanel, Amplitude, or any third-party analytics service.</li>
+              <li><strong className="text-foreground">Advertising data</strong>, No ad trackers, no pixel tags, no cross-site tracking, no data brokers.</li>
+              <li><strong className="text-foreground">User agent strings</strong>, We do not store what browser or operating system you use.</li>
             </ul>
           </section>
 
@@ -111,7 +111,7 @@ export default function PrivacyPage() {
             <h2 className="text-xl font-semibold text-foreground mb-3">Public vs Private Deliberations</h2>
             <p className="text-subtle mb-4">
               <strong className="text-foreground">Public deliberations:</strong> Ideas, votes, and participant names are visible to all users. This
-              transparency is by design — democratic decision-making requires accountability.
+              transparency is by design, democratic decision-making requires accountability.
             </p>
             <p className="text-subtle">
               <strong className="text-foreground">Private deliberations:</strong> Only invited members can see content. Private deliberations

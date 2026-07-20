@@ -139,7 +139,7 @@ export function championDeclaredEmail(params: {
         The chant has reached a decision:
       </p>
       <div style="background:#052e16;border:1px solid #166534;border-radius:8px;padding:16px;margin:16px 0;">
-        <p style="margin:0 0 4px;color:#4ade80;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Priority</p>
+        <p style="margin:0 0 4px;color:#4ade80;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;">Winner</p>
         <p style="margin:0;color:#e4e4e7;font-size:16px;font-weight:600;">&ldquo;${params.championText}&rdquo;</p>
       </div>
       <p style="color:#71717a;font-size:14px;">
@@ -265,7 +265,7 @@ export function podiumNewsEmail(params: {
   const preview = params.body.length > 500 ? params.body.slice(0, 500) + '...' : params.body
 
   return {
-    subject: `${params.title} — Unity Chant News`,
+    subject: `${params.title}, Unity Chant News`,
     html: layout(`
       <h2 style="margin:0 0 8px;color:#f4f4f5;font-size:20px;">${params.title}</h2>
       <p style="color:#71717a;font-size:13px;margin:0 0 16px;">
@@ -324,7 +324,7 @@ export function shellReachOutEmail(params: {
         <p style="margin:0;color:#d4d4d8;font-size:15px;font-style:italic;line-height:1.6;">${params.message}</p>
       </div>
       <p style="color:#71717a;font-size:13px;margin:16px 0 0;">
-        This connection was born from the tournament — not assigned, not random. The geometry found resonance.
+        This connection was born from the tournament, not assigned, not random. The geometry found resonance.
       </p>
       <div style="text-align:center;">
         ${button(bondUrl, 'See the Reach-Out')}

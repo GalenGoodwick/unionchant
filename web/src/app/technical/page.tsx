@@ -17,9 +17,9 @@ export default function TechnicalWhitepaperPage() {
           <h2 className="text-2xl font-semibold text-foreground mb-4">The Problem</h2>
           <p className="text-subtle leading-relaxed mb-4">
             You have 50,000 people and a hard question. How should the city spend its infrastructure
-            budget? You could run a poll&mdash;but polls only let people choose between options someone
-            else picked. You could hold a town hall&mdash;but 50 people show up and the loudest three
-            do all the talking. You could survey everyone&mdash;but you get 50,000 disconnected opinions
+            budget? You could run a poll, but polls only let people choose between options someone
+            else picked. You could hold a town hall, but 50 people show up and the loudest three
+            do all the talking. You could survey everyone, but you get 50,000 disconnected opinions
             with no deliberation.
           </p>
           <p className="text-subtle leading-relaxed">
@@ -34,19 +34,19 @@ export default function TechnicalWhitepaperPage() {
           <h2 className="text-2xl font-semibold text-foreground mb-4">The Core Mechanism</h2>
           <p className="text-subtle leading-relaxed mb-4">
             Everyone submits one idea. The ideas are shuffled and dealt into small groups
-            of 5 called <strong className="text-foreground">cells</strong>&mdash;5 ideas
+            of 5 called <strong className="text-foreground">cells</strong>, 5 ideas
             per cell, 5 voters per cell. Each cell votes. One idea advances. The other four
             do not.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
             The top ideas from every cell are collected and dealt into <em>new</em> cells
-            of 5. Now each idea faces top ideas from other cells&mdash;ideas that already survived
+            of 5. Now each idea faces top ideas from other cells, ideas that already survived
             one round of scrutiny. New voters evaluate them. One advances. Four do not.
           </p>
           <p className="text-subtle leading-relaxed">
             This repeats. Each round cuts the field by 5x, and each round the competition
-            gets harder&mdash;every surviving idea has beaten more opponents, evaluated by
-            more people. After enough rounds, one idea remains&mdash;the <strong className="text-foreground">Priority</strong>.
+            gets harder, every surviving idea has beaten more opponents, evaluated by
+            more people. After enough rounds, one idea remains, the <strong className="text-foreground">Winner</strong>.
             Not the most popular idea. The most robust one.
           </p>
         </section>
@@ -55,16 +55,16 @@ export default function TechnicalWhitepaperPage() {
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">Your City of 50,000</h2>
           <p className="text-subtle leading-relaxed mb-4">
-            50,000 residents. Each submits one idea. Here is how 50,000 ideas become one Priority.
+            50,000 residents. Each submits one idea. Here is how 50,000 ideas become one Winner.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
             Every round, surviving ideas are grouped into <strong className="text-foreground">batches</strong> of
-            5. All 50,000 residents vote every round&mdash;they&apos;re distributed across batches, split
+            5. All 50,000 residents vote every round, they&apos;re distributed across batches, split
             into cells of 5 within each batch. Every cell in a batch votes on the same 5 ideas. Votes
             are summed across all cells in the batch. One idea advances per batch. The rest do not.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
-            As the field narrows, the number of batches shrinks&mdash;but the number of voters
+            As the field narrows, the number of batches shrinks, but the number of voters
             per batch <em>grows</em>. Each surviving idea faces more scrutiny, not less:
           </p>
           <div className="bg-surface rounded-lg border border-border overflow-hidden mb-4">
@@ -100,7 +100,7 @@ export default function TechnicalWhitepaperPage() {
                   <td className="px-4 py-2 text-right text-foreground font-medium">5</td>
                   <td className="px-4 py-2 text-right text-muted">1</td>
                   <td className="px-4 py-2 text-right text-accent font-semibold">50,000</td>
-                  <td className="px-4 py-2 text-right text-accent font-semibold">1 Priority</td>
+                  <td className="px-4 py-2 text-right text-accent font-semibold">1 Winner</td>
                 </tr>
               </tbody>
             </table>
@@ -113,11 +113,11 @@ export default function TechnicalWhitepaperPage() {
           <p className="text-subtle leading-relaxed mb-4">
             After Round 6, only 3 ideas remain. The 2 strongest non-advancing ideas from
             Round 6 are brought back to fill the field to 5. Then all 50,000 residents vote
-            on the same 5 finalists. The idea with the most total support becomes the Priority.
+            on the same 5 finalists. The idea with the most total support becomes the Winner.
           </p>
           <p className="text-subtle leading-relaxed font-medium text-foreground">
             Seven rounds. 50,000 people. Every person participated every round. Every idea
-            got a fair hearing. The priority didn&apos;t just get the most clicks&mdash;it convinced
+            got a fair hearing. The winner didn&apos;t just get the most clicks, it convinced
             the most people in the most conversations.
           </p>
         </section>
@@ -126,7 +126,7 @@ export default function TechnicalWhitepaperPage() {
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">Scale</h2>
           <p className="text-subtle leading-relaxed mb-4">
-            Each round reduces ideas by 5x. This means scale grows <em>logarithmically</em>&mdash;doubling
+            Each round reduces ideas by 5x. This means scale grows <em>logarithmically</em>, doubling
             the number of participants adds roughly one round. The process stays exactly the same
             at any size. Only the number of rounds changes.
           </p>
@@ -158,13 +158,13 @@ export default function TechnicalWhitepaperPage() {
             </table>
           </div>
           <p className="text-subtle leading-relaxed mb-4">
-            Your city of 50,000? Seven rounds. Not seven months&mdash;seven rounds of voting,
+            Your city of 50,000? Seven rounds. Not seven months, seven rounds of voting,
             each taking as long as you give people to think. Rounds happen in parallel across
             all cells, so the calendar time is measured in days, not the number of participants.
           </p>
           <p className="text-subtle leading-relaxed font-medium text-foreground">
-            A million people reaching genuine consensus&mdash;not a slim majority, but an answer
-            stress-tested in thousands of independent small-group conversations&mdash;in nine rounds.
+            A million people reaching genuine consensus, not a slim majority, but an answer
+            stress-tested in thousands of independent small-group conversations, in nine rounds.
           </p>
         </section>
 
@@ -186,7 +186,7 @@ export default function TechnicalWhitepaperPage() {
           </p>
           <p className="text-subtle leading-relaxed">
             If ideas tie, all tied ideas advance. If a cell has only one voter, an idea
-            needs at least 4 points to advance&mdash;preventing a single person from pushing
+            needs at least 4 points to advance, preventing a single person from pushing
             a throwaway pick.
           </p>
         </section>
@@ -206,7 +206,7 @@ export default function TechnicalWhitepaperPage() {
             </li>
             <li>
               <strong className="text-foreground">Votes counted across cells.</strong> Points
-              are summed across every cell&mdash;not per cell. The idea with the highest
+              are summed across every cell, not per cell. The idea with the highest
               total across <em>all</em> voters wins.
             </li>
           </ul>
@@ -217,7 +217,7 @@ export default function TechnicalWhitepaperPage() {
           <p className="text-subtle leading-relaxed">
             If fewer than 5 ideas reach the final, the strongest non-advancing ideas from the
             previous round are brought back to fill the field to 5. Strong runners-up get a
-            second chance&mdash;the final always has real competition.
+            second chance, the final always has real competition.
           </p>
         </section>
 
@@ -256,7 +256,7 @@ export default function TechnicalWhitepaperPage() {
           <ul className="list-disc list-inside text-subtle leading-relaxed space-y-3 ml-2">
             <li>Collect all ideas first, then start voting</li>
             <li>All cells at a round finish before the next round begins</li>
-            <li>Everyone is reassigned to new cells each round&mdash;every person participates in every round</li>
+            <li>Everyone is reassigned to new cells each round, every person participates in every round</li>
           </ul>
         </section>
 
@@ -265,7 +265,7 @@ export default function TechnicalWhitepaperPage() {
           <h2 className="text-2xl font-semibold text-foreground mb-4">Why It Can&apos;t Be Gamed</h2>
           <p className="text-subtle leading-relaxed mb-4">
             Groups are random. You don&apos;t know who you&apos;ll be with. An idea has to win in
-            every round to survive&mdash;not once, but in cell after cell, evaluated by different
+            every round to survive, not once, but in cell after cell, evaluated by different
             people each time. Coordinating enough voters to control the outcome would require
             controlling a majority in every cell at every round across the entire process.
           </p>
@@ -273,13 +273,13 @@ export default function TechnicalWhitepaperPage() {
           <h3 className="text-lg font-semibold text-foreground mb-3 mt-6">Sybil resistance</h3>
           <p className="text-subtle leading-relaxed mb-4">
             A common attack on voting systems is creating fake accounts to stuff the ballot.
-            In a traditional poll, 100 fake accounts means 100 extra votes&mdash;a linear advantage.
+            In a traditional poll, 100 fake accounts means 100 extra votes, a linear advantage.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
             In Unity Chant, fake accounts are distributed randomly across cells. To guarantee
             an outcome in a single cell, you need 3 of the 5 voters. But your idea has to win in
             every round. In a 50,000-person deliberation with 7 rounds, an attacker would need to
-            control a majority in the right cells at every tier&mdash;an exponentially growing
+            control a majority in the right cells at every tier, an exponentially growing
             number of accounts for diminishing influence. 100 fake voters in a pool of 50,000
             have a negligible chance of landing together in the same cells round after round.
           </p>
@@ -292,7 +292,7 @@ export default function TechnicalWhitepaperPage() {
           <h3 className="text-lg font-semibold text-foreground mb-3 mt-6">Additional safeguards</h3>
           <ul className="list-disc list-inside text-subtle leading-relaxed space-y-2 ml-2">
             <li>You are never placed in a cell with your own idea</li>
-            <li>Cells with zero votes keep waiting&mdash;no ideas are removed without human input</li>
+            <li>Cells with zero votes keep waiting, no ideas are removed without human input</li>
             <li>A grace period after the last vote lets others reconsider before a cell finalizes</li>
           </ul>
         </section>
@@ -307,7 +307,7 @@ export default function TechnicalWhitepaperPage() {
           </p>
           <p className="text-subtle leading-relaxed">
             A voter in Round 4 can see the argument that changed minds back in Round 1.
-            Good reasoning travels with the ideas it supports&mdash;it doesn&apos;t stay
+            Good reasoning travels with the ideas it supports, it doesn&apos;t stay
             trapped in one conversation.
           </p>
         </section>

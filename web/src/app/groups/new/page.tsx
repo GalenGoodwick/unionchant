@@ -225,7 +225,7 @@ export default function NewCommunityPage() {
                         {privateGroupCount} of {maxPrivate} private group{maxPrivate > 1 ? 's' : ''} used ({tierLabel})
                         {!canCreatePrivate && (
                           <span className="text-accent ml-1">
-                            &mdash; <a href="/pricing" className="underline hover:no-underline">Upgrade</a>
+, <a href="/pricing" className="underline hover:no-underline">Upgrade</a>
                           </span>
                         )}
                       </div>

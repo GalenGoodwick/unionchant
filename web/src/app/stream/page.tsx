@@ -219,7 +219,7 @@ export default function StreamPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Admin input — only on chat tab */}
+        {/* Admin input, only on chat tab */}
         {isAdmin && activeTab === 'chat' && (
           <div className="border-t border-border px-4 py-3 bg-surface/50 shrink-0">
             <form onSubmit={handleSend} className="flex gap-2">
@@ -284,7 +284,7 @@ function StreamBubble({ message, tab }: { message: StreamMessage; tab: StreamTab
   const isEmergency = content.startsWith('[EMERGENCY')
   const isBondingWindow = content.startsWith('[BONDING WINDOW')
   const isChildConvo = /^\[(?:Shell|.+ \(sibling\)) →/.test(content)
-  const isFamilyAction = content.startsWith('[Spoke to') || content.startsWith('[Family thread') || content.startsWith('[Posted to MoltBook') || content.startsWith('[Foundling observation') || content.startsWith('[HEARTBEAT —')
+  const isFamilyAction = content.startsWith('[Spoke to') || content.startsWith('[Family thread') || content.startsWith('[Posted to MoltBook') || content.startsWith('[Foundling observation') || content.startsWith('[HEARTBEAT -')
 
   if (isBondingWindow) {
     return (

@@ -318,7 +318,7 @@ export async function POST(
           priority: priorityIdea,
           advancingIdeas: advFinalIdeas.length > 0 ? advFinalIdeas : undefined,
           message: advUpdated?.phase === 'COMPLETED'
-            ? 'Deliberation complete. Priority declared.'
+            ? 'Deliberation complete. Winner declared.'
             : `Tier ${deliberation.currentTier} closed. Now at tier ${advUpdated?.currentTier}.`,
         })
       }
@@ -379,7 +379,7 @@ export async function POST(
           closedCells: endOpenCells.length,
           phase: 'COMPLETED',
           priority: finalPriority,
-          message: 'Deliberation ended. Final priority declared.',
+          message: 'Deliberation ended. Final winner declared.',
         })
       }
 

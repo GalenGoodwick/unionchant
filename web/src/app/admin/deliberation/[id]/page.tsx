@@ -347,7 +347,7 @@ export default function AdminDeliberationPage() {
               <div className={`text-[10px] font-semibold uppercase tracking-wide mb-0.5 ${
                 deliberation.phase === 'ACCUMULATING' ? 'text-purple' : 'text-success'
               }`}>
-                {deliberation.phase === 'ACCUMULATING' ? 'Priority (Accepting Challengers)' : 'Priority'}
+                {deliberation.phase === 'ACCUMULATING' ? 'Winner (Accepting Challengers)' : 'Winner'}
               </div>
               <p className="text-foreground font-medium text-xs">{champion.text}</p>
               <p className="text-muted text-xs mt-0.5">{champion.totalXP || champion.totalVotes} total VP</p>
@@ -847,7 +847,7 @@ export default function AdminDeliberationPage() {
               {/* Champion */}
               {deliberation.ideas.filter(i => i.isChampion).map(idea => (
                 <div key={idea.id} className="mt-4 bg-success/10 border border-success/30 rounded p-2">
-                  <div className="text-xs text-success mb-1">Priority</div>
+                  <div className="text-xs text-success mb-1">Winner</div>
                   <p className="text-sm text-foreground">{idea.text}</p>
                 </div>
               ))}

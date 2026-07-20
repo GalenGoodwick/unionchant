@@ -213,7 +213,7 @@ export default function AnalyticsPage() {
       {d.champion && (
         <div className="border-b-2 border-gold/30" style={{ background: 'linear-gradient(to right, rgba(251,191,36,0.04), rgba(251,191,36,0.08), rgba(251,191,36,0.04))' }}>
           <div className="max-w-[960px] mx-auto px-4 md:px-8 py-8 text-center">
-            <p className="text-gold text-xs uppercase tracking-[0.25em] font-mono mb-3">Community Priority</p>
+            <p className="text-gold text-xs uppercase tracking-[0.25em] font-mono mb-3">Winner</p>
             <p className="text-xl md:text-2xl font-serif font-bold text-gold leading-snug max-w-[600px] mx-auto">
               &ldquo;{d.champion.text}&rdquo;
             </p>
@@ -426,7 +426,7 @@ export default function AnalyticsPage() {
                 <div key={i} className="bg-surface border border-border rounded-lg p-4">
                   <p className="text-sm text-foreground leading-relaxed mb-3 italic">&ldquo;{c.text}&rdquo;</p>
                   <div className="flex items-center justify-between flex-wrap gap-2 text-xs text-muted">
-                    <span>&mdash; {c.author}, Tier {c.cellTier}</span>
+                    <span>, {c.author}, Tier {c.cellTier}</span>
                     <div className="flex gap-4">
                       <span>Spread to <span className="text-accent font-mono font-semibold">{c.spreadCount}</span> cells</span>
                       <span>Reached <span className="text-purple font-mono font-semibold">Tier {c.reachTier}</span></span>

@@ -222,7 +222,7 @@ export default function VotingCell({
         {!commentsLoaded ? (
           <p className="text-muted text-sm py-6 text-center">Loading...</p>
         ) : getIdeaComments(openIdeaId).length === 0 ? (
-          <p className="text-muted text-sm py-6 text-center">No comments yet — be the first</p>
+          <p className="text-muted text-sm py-6 text-center">No comments yet, be the first</p>
         ) : (
           getIdeaComments(openIdeaId).map(c => (
             <div
@@ -264,7 +264,7 @@ export default function VotingCell({
                 }`}
               >
                 <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-44 rounded bg-surface-hover px-2 py-1 text-[10px] text-foreground text-center opacity-0 group-hover:opacity-100 transition-opacity shadow-lg border border-border z-10">
-                  {c.userHasUpvoted ? 'You upvoted this' : 'Upvote — enough upvotes spread this comment to other cells'}
+                  {c.userHasUpvoted ? 'You upvoted this' : 'Upvote, enough upvotes spread this comment to other cells'}
                 </span>
                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 19V5" />
@@ -277,7 +277,7 @@ export default function VotingCell({
         )}
       </div>
 
-      {/* Compose — hidden after tier finalizes */}
+      {/* Compose, hidden after tier finalizes */}
       {!tierFinalized && (
         <div className="p-3 border-t border-border shrink-0">
           <p className="text-[11px] text-muted mb-1.5">Upvoted comments spread to other cells</p>
@@ -332,7 +332,7 @@ export default function VotingCell({
       </div>
 
       {isFinalizing && !editing && (
-        <p className="text-xs text-accent px-3 pb-2">All votes in — you can change your Vote Points before it finalizes.</p>
+        <p className="text-xs text-accent px-3 pb-2">All votes in, you can change your Vote Points before it finalizes.</p>
       )}
 
       {/* Ideas */}
@@ -412,7 +412,7 @@ export default function VotingCell({
                     {!commentsLoaded ? (
                       <p className="text-muted text-xs py-3 text-center">Loading...</p>
                     ) : getIdeaComments(idea.id).length === 0 ? (
-                      <p className="text-muted text-xs py-3 text-center">No comments yet — be the first</p>
+                      <p className="text-muted text-xs py-3 text-center">No comments yet, be the first</p>
                     ) : (
                       getIdeaComments(idea.id).map(c => (
                         <div
@@ -520,10 +520,10 @@ export default function VotingCell({
   return (
     <>
       <FirstVisitTooltip id="voting-cell">
-        Drag sliders to distribute 10 Vote Points. Tap the chat icon to discuss ideas — upvoted comments spread to other cells. Submit when all points are allocated.
+        Drag sliders to distribute 10 Vote Points. Tap the chat icon to discuss ideas, upvoted comments spread to other cells. Submit when all points are allocated.
       </FirstVisitTooltip>
 
-      {/* === DESKTOP: Side-by-side — voting card + comments column === */}
+      {/* === DESKTOP: Side-by-side, voting card + comments column === */}
       <div className="hidden lg:grid lg:grid-cols-2 gap-4">
         {votingCard}
         {openIdeaId && openIdea && (

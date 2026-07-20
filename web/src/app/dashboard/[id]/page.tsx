@@ -213,7 +213,7 @@ export default function DashboardDetailPage() {
           'ai-resolve': `AI filled ${data.aiVotersAdded || 0} seats across ${data.cellsResolved || 0} cells`,
           'close-submissions': `Submissions closed. ${data.tier2Started ? 'Tier 2 started!' : 'Waiting for cells to complete.'}`,
           'advance-tier': data.message || `Advanced to tier ${data.currentTier}`,
-          'end-delib': data.message || 'Deliberation ended. Priority declared.',
+          'end-delib': data.message || 'Deliberation ended. Winner declared.',
         }
         setActionMessage(messages[action] || 'Done!')
         fetchDeliberation()
@@ -385,7 +385,7 @@ export default function DashboardDetailPage() {
               {[
                 { key: 'SUBMISSION', label: 'Ideas', color: 'accent' },
                 { key: 'VOTING', label: 'Voting', color: 'warning' },
-                { key: 'COMPLETED', label: 'Priority', color: 'success' },
+                { key: 'COMPLETED', label: 'Winner', color: 'success' },
               ].map((step, i, arr) => {
                 const phases = arr.map(s => s.key)
                 const currentIndex = phases.indexOf(deliberation.phase)
@@ -488,13 +488,13 @@ export default function DashboardDetailPage() {
                         onClick={async () => { if (deliberation.currentTier <= 1) await patchSettings({ continuousFlow: true }) }}
                         disabled={saving || deliberation.currentTier > 1}
                         className="w-full bg-accent hover:bg-accent-hover disabled:opacity-40 text-white font-medium px-3 py-2 rounded-lg text-xs transition-colors"
-                        title={deliberation.currentTier > 1 ? 'Idea submission is only available during Tier 1. New ideas enter through the Accepting New Ideas phase after a priority is chosen.' : ''}
+                        title={deliberation.currentTier > 1 ? 'Idea submission is only available during Tier 1. New ideas enter through the Accepting New Ideas phase after a winner is chosen.' : ''}
                       >
                         {saving ? 'Saving...' : 'Open Idea Submission'}
                       </button>
                       <p className="text-xs text-muted mt-0.5">
                         {deliberation.currentTier > 1
-                          ? 'Not available past Tier 1. New ideas enter after a priority is chosen.'
+                          ? 'Not available past Tier 1. New ideas enter after a winner is chosen.'
                           : 'Opens idea submission alongside Tier 1 voting.'}
                       </p>
                     </>
@@ -516,7 +516,7 @@ export default function DashboardDetailPage() {
                   )}
 
 
-                  {/* Advance Tier — force-complete + create next tier */}
+                  {/* Advance Tier, force-complete + create next tier */}
                   {!confirmAdvanceTier ? (
                     <>
                       <button
@@ -526,7 +526,7 @@ export default function DashboardDetailPage() {
                       >
                         Advance Tier
                       </button>
-                      <p className="text-xs text-muted mt-0.5">Force-complete open cells, recalculate priority, and create next tier. Advancing ideas compete again.</p>
+                      <p className="text-xs text-muted mt-0.5">Force-complete open cells, recalculate the winner, and create next tier. Advancing ideas compete again.</p>
                     </>
                   ) : (
                     <div className="border border-warning rounded-lg p-2 space-y-1.5">
@@ -548,7 +548,7 @@ export default function DashboardDetailPage() {
                     </div>
                   )}
 
-                  {/* End Deliberation — declare final priority + close */}
+                  {/* End Deliberation, declare final priority + close */}
                   {!confirmEndDelib ? (
                     <>
                       <button
@@ -558,12 +558,12 @@ export default function DashboardDetailPage() {
                       >
                         End Deliberation
                       </button>
-                      <p className="text-xs text-muted mt-0.5">Declare the current highest-XP idea as the final priority and permanently close the chant.</p>
+                      <p className="text-xs text-muted mt-0.5">Declare the current highest-XP idea as the final winner and permanently close the chant.</p>
                     </>
                   ) : (
                     <div className="border border-success rounded-lg p-2 space-y-1.5">
                       <p className="text-xs text-success font-medium">End deliberation?</p>
-                      <p className="text-xs text-foreground">All open cells will be force-completed. The highest XP idea becomes the final priority. No more voting or ideas accepted.</p>
+                      <p className="text-xs text-foreground">All open cells will be force-completed. The highest XP idea becomes the final winner. No more voting or ideas accepted.</p>
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => { setConfirmEndDelib(false); handleAction('end-delib', `/api/deliberations/${deliberationId}/facilitate`, { action: 'end' }) }}
@@ -586,7 +586,7 @@ export default function DashboardDetailPage() {
               {deliberation.phase === 'COMPLETED' && (
                 <div className="bg-success-bg border border-success rounded-lg p-2">
                   <p className="text-xs text-success font-medium">Chant Complete</p>
-                  <p className="text-xs text-foreground mt-0.5">The priority has been declared.</p>
+                  <p className="text-xs text-foreground mt-0.5">The winner has been declared.</p>
                 </div>
               )}
             </div>

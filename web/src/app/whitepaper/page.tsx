@@ -21,7 +21,7 @@ export default function WhitepaperPage() {
             These experiences are universal. Whether it's a company deciding on a new policy, a community choosing how to spend funds, or a nation debating public priorities, the same challenges appear again and again. There are too many voices and not enough listening.
           </p>
           <p className="text-subtle leading-relaxed">
-            When large groups need to decide together, we usually rely on one of two approaches. We either open the floor to everyone at once—through town halls, comment sections, or social media—where volume and persistence tend to outweigh reflection. Or we narrow participation to committees, representatives, or experts, where decisions are made by a small group while most people observe from a distance. The first approach often leads to confusion and fatigue. The second often leads to disengagement and mistrust. Neither consistently produces decisions people feel connected to.
+            When large groups need to decide together, we usually rely on one of two approaches. We either open the floor to everyone at once-through town halls, comment sections, or social media-where volume and persistence tend to outweigh reflection. Or we narrow participation to committees, representatives, or experts, where decisions are made by a small group while most people observe from a distance. The first approach often leads to confusion and fatigue. The second often leads to disengagement and mistrust. Neither consistently produces decisions people feel connected to.
           </p>
         </section>
 
@@ -60,7 +60,7 @@ export default function WhitepaperPage() {
             Imagine 1,000 people need to decide how to improve their city's public transportation. The process begins with open idea submission. All participants can propose ideas, not just respond to a preselected list. Someone suggests adding more bus routes to the suburbs. Another proposes making the subway free on weekends. A third wants to build protected bike lanes downtown. This might result in hundreds of suggestions, ranging from incremental improvements to more ambitious changes.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
-            Rather than asking everyone to debate all ideas at once, participants are divided into small groups of about five people. Each group is assigned a limited set of ideas—typically five or six—to discuss. Group members consider trade-offs, share relevant experience, and compare perspectives. Someone who rides the bus daily might convince someone who drives that transit matters. A budget-minded person might point out which ideas are actually affordable. At the end of the discussion, the group selects the idea they believe should advance.
+            Rather than asking everyone to debate all ideas at once, participants are divided into small groups of about five people. Each group is assigned a limited set of ideas-typically five or six-to discuss. Group members consider trade-offs, share relevant experience, and compare perspectives. Someone who rides the bus daily might convince someone who drives that transit matters. A budget-minded person might point out which ideas are actually affordable. At the end of the discussion, the group selects the idea they believe should advance.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
             The selected ideas move to the next round. At this stage, advancing ideas are grouped into batches, and multiple small groups independently deliberate on the same batch. Their votes are combined, and the idea with the strongest support across all groups evaluating that batch moves forward. One winner per batch means hundreds of ideas narrow to dozens. The process repeats. Dozens narrow to a small set of finalists. In the final stage, all participants evaluate the same remaining options and select a collective outcome.
@@ -92,13 +92,13 @@ export default function WhitepaperPage() {
         <section className="mb-12">
           <h2 className="text-2xl font-semibold text-foreground mb-4">Decisions That Evolve</h2>
           <p className="text-subtle leading-relaxed mb-4">
-            Unity Chant does not treat decisions as permanent endpoints. Once a top idea emerges, it becomes the standing position—but it remains open to challenge.
+            Unity Chant does not treat decisions as permanent endpoints. Once a top idea emerges, it becomes the standing position-but it remains open to challenge.
           </p>
           <p className="text-subtle leading-relaxed mb-4">
-            Over time, new participants can join and new ideas can be submitted. When enough new proposals accumulate, another round of deliberation is triggered. The previous priority must defend its position against fresh challengers. Because it has already survived scrutiny, it enters the new process at a later stage, preserving the advantage of having been vetted. But if a stronger idea emerges, the collective position updates.
+            Over time, new participants can join and new ideas can be submitted. When enough new proposals accumulate, another round of deliberation is triggered. The previous winner must defend its position against fresh challengers. Because it has already survived scrutiny, it enters the new process at a later stage, preserving the advantage of having been vetted. But if a stronger idea emerges, the collective position updates.
           </p>
           <p className="text-subtle leading-relaxed">
-            Good ideas persist. Better ideas can replace them. The conversation never fully closes—it evolves as circumstances and understanding change.
+            Good ideas persist. Better ideas can replace them. The conversation never fully closes-it evolves as circumstances and understanding change.
           </p>
         </section>
 
@@ -130,7 +130,7 @@ export default function WhitepaperPage() {
             <strong className="text-foreground">In communities,</strong> participation in town halls and forums is often limited to a small, familiar group while most residents never participate. Unity Chant lowers the barrier. People can join from their phones, contribute ideas on their own time, and participate in small group discussions at their convenience. More voices lead to better decisions.
           </p>
           <p className="text-subtle leading-relaxed">
-            <strong className="text-foreground">In governance,</strong> citizens often feel disconnected from policy decisions between elections. Voting every few years for representatives is not the same as having a voice. Unity Chant can supplement representative systems by enabling large-scale public deliberation on specific issues—giving citizens a structured way to deliberate and surface genuine collective preferences without requiring continuous engagement.
+            <strong className="text-foreground">In governance,</strong> citizens often feel disconnected from policy decisions between elections. Voting every few years for representatives is not the same as having a voice. Unity Chant can supplement representative systems by enabling large-scale public deliberation on specific issues-giving citizens a structured way to deliberate and surface genuine collective preferences without requiring continuous engagement.
           </p>
         </section>
 
@@ -146,7 +146,7 @@ export default function WhitepaperPage() {
             <strong className="text-foreground">Some raise concerns about bad actors or trolls.</strong> Small groups reduce the effectiveness of disruption. It's hard to troll effectively when you're one of five people in a discussion, and others can see your contributions. Persistent bad-faith behavior is harder to sustain when participants are visible to one another and discussion is structured.
           </p>
           <p className="text-subtle leading-relaxed">
-            <strong className="text-foreground">A common question is whether this is just another voting system.</strong> It's fundamentally different. Traditional voting asks people to choose between fixed options in a single moment. Unity Chant lets people generate the options, discuss them in small cells, and surface the strongest through competitive elimination across tiers. It's not just counting preferences — it's stress-testing ideas at scale.
+            <strong className="text-foreground">A common question is whether this is just another voting system.</strong> It's fundamentally different. Traditional voting asks people to choose between fixed options in a single moment. Unity Chant lets people generate the options, discuss them in small cells, and surface the strongest through competitive elimination across tiers. It's not just counting preferences, it's stress-testing ideas at scale.
           </p>
         </section>
 
@@ -162,7 +162,7 @@ export default function WhitepaperPage() {
             If collective decisions are becoming harder to make, not because people care less, but because our tools are misaligned with how humans reason, then new structures are worth exploring. Unity Chant exists to explore one such structure. Not to replace judgment, but to support it. Not to end disagreement, but to refine it. Not to centralize power, but to make shared understanding visible.
           </p>
           <p className="text-subtle leading-relaxed font-medium text-foreground text-xl">
-            Good decisions do not emerge from silence or noise. They emerge from conversation—given the right form.
+            Good decisions do not emerge from silence or noise. They emerge from conversation-given the right form.
           </p>
         </section>
 

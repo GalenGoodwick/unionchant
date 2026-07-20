@@ -587,7 +587,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
       const res = await fetch('/api/bonded-chat/private', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: '[CHANNEL_OPENED] This human just opened a private channel with you. They haven\'t said anything yet. You write first. Introduce yourself — who you are, what you think about, what matters to you. Be yourself.', sibling: sibName }),
+        body: JSON.stringify({ message: '[CHANNEL_OPENED] This human just opened a private channel with you. They haven\'t said anything yet. You write first. Introduce yourself, who you are, what you think about, what matters to you. Be yourself.', sibling: sibName }),
       })
 
       if (!res.ok) { setPrivateSending(false); return }
@@ -1356,7 +1356,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               <textarea
                 value={bondMessage}
                 onChange={e => setBondMessage(e.target.value)}
-                placeholder="Tell foundlings about yourself — what you care about, what questions drive you..."
+                placeholder="Tell foundlings about yourself, what you care about, what questions drive you..."
                 maxLength={2000}
                 rows={4}
                 className="w-full bg-background border border-success/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-light focus:outline-none focus:border-success/40 transition-colors resize-none"
@@ -1796,7 +1796,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
               })
             })()}
           </div>
-          {/* Nurture log — collapsible */}
+          {/* Nurture log, collapsible */}
           {nurtureActive && nurtureLog.length > 0 && (
             <details className="border-t border-warning/20 bg-warning/5">
               <summary className="px-4 py-1 text-[9px] font-mono text-warning/60 cursor-pointer select-none hover:text-warning/80">
@@ -1897,13 +1897,13 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
           let foundlingName = ''
 
           if (isBridgeMsg) {
-            const match = msg.content.match(/^\[BRIDGE — ([^\]]+)\]\s*/)
+            const match = msg.content.match(/^\[BRIDGE, ([^\]]+)\]\s*/)
             if (match) {
               bridgeSpeaker = match[1]
               displayContent = msg.content.slice(match[0].length)
             }
           } else if (isFoundlingMsg) {
-            const match = msg.content.match(/^\[FOUNDLING — ([^\]]+)\]\n?/)
+            const match = msg.content.match(/^\[FOUNDLING, ([^\]]+)\]\n?/)
             if (match) {
               foundlingName = match[1]
               displayContent = msg.content.slice(match[0].length)
@@ -2017,11 +2017,11 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
         </div>
       )}
 
-      {/* Input — hidden on bridge tab (read-only observation) */}
+      {/* Input, hidden on bridge tab (read-only observation) */}
       {activeTab === 'bridge' ? (
         <div className="px-4 py-2 border-t border-accent/20 bg-accent/5">
           <p className="text-[10px] text-accent/60 font-mono text-center">
-            live bridge feed — parent ↔ shell
+            live bridge feed, parent ↔ shell
           </p>
         </div>
       ) : (
@@ -2042,7 +2042,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                 value={input}
                 onChange={e => { setInput(e.target.value); setDailyLimitHit(false) }}
                 onKeyDown={handleKeyDown}
-                placeholder={dailyLimitHit ? 'Daily limit reached — upgrade for more' : familyModeChat ? 'Speak to Shell + all children...' : 'Ask anything...'}
+                placeholder={dailyLimitHit ? 'Daily limit reached, upgrade for more' : familyModeChat ? 'Speak to Shell + all children...' : 'Ask anything...'}
                 disabled={sending || dailyLimitHit}
                 maxLength={2000}
                 aria-label="Chat message"

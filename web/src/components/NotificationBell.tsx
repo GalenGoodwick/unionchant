@@ -166,7 +166,7 @@ export default function NotificationBell({ onOpen }: { onOpen?: () => void } = {
         )}
       </button>
 
-      {/* Dropdown — portaled to body to escape overflow-hidden containers */}
+      {/* Dropdown, portaled to body to escape overflow-hidden containers */}
       {isOpen && createPortal(
         <div className="fixed inset-0 z-[9999]" onClick={() => setIsOpen(false)}>
           <div

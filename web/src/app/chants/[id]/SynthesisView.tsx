@@ -256,7 +256,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
       {/* ─── CHAMPION / OUTCOME ─── */}
       {status.champion && (
         <div className="mb-3 p-3 bg-success/8 border border-success/20 rounded-lg">
-          <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Priority Declared</p>
+          <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Winner Declared</p>
           <p className="text-foreground font-medium text-sm select-text">{status.champion.text}</p>
           <p className="text-xs text-muted mt-0.5">by {status.champion.author.name}</p>
         </div>
@@ -587,7 +587,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
 // ─── Helpers ───
 
 function IdeaStatus({ status, isChampion }: { status: string; isChampion: boolean }) {
-  if (isChampion) return <span className="text-[9px] text-success font-bold">Priority</span>
+  if (isChampion) return <span className="text-[9px] text-success font-bold">Winner</span>
   const map: Record<string, { label: string; color: string }> = {
     ADVANCING: { label: 'Advancing', color: 'text-accent' },
     IN_VOTING: { label: 'In Cell', color: 'text-success' },

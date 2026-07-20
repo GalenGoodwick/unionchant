@@ -272,7 +272,7 @@ export default function SettingsPage() {
           <div className="space-y-2.5">
             {([
               { key: 'emailVoting' as const, label: 'Voting alerts', desc: 'Your turn to vote' },
-              { key: 'emailResults' as const, label: 'Results', desc: 'Priority declared' },
+              { key: 'emailResults' as const, label: 'Results', desc: 'Winner declared' },
               { key: 'emailSocial' as const, label: 'Following', desc: 'New chants from follows' },
               { key: 'emailCommunity' as const, label: 'Groups', desc: 'Invitations, group activity' },
               { key: 'emailNews' as const, label: 'News', desc: 'Platform updates' },
@@ -366,7 +366,7 @@ export default function SettingsPage() {
           {apiKeyError && <div className="bg-error-bg border border-error text-error text-[10px] p-2 rounded-lg mb-2">{apiKeyError}</div>}
           {newApiKey && (
             <div className="bg-success-bg border border-success rounded-lg p-2 mb-2">
-              <p className="text-success text-[10px] font-medium mb-1">Copy now — won&apos;t be shown again.</p>
+              <p className="text-success text-[10px] font-medium mb-1">Copy now, won&apos;t be shown again.</p>
               <div className="flex items-center gap-1.5">
                 <code className="flex-1 text-[10px] text-foreground bg-background px-1.5 py-1 rounded border border-border break-all">{newApiKey}</code>
                 <button onClick={() => navigator.clipboard.writeText(newApiKey)} className="px-2 py-1 bg-success text-white text-[10px] rounded transition-colors">Copy</button>

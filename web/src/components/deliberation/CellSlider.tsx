@@ -106,7 +106,7 @@ export default function CellSlider({
         />
       ) : (
         <div className="rounded-lg border border-border border-dashed p-6 text-center">
-          <p className="text-muted text-sm">No cells yet — you'll be assigned when voting begins</p>
+          <p className="text-muted text-sm">No cells yet, you'll be assigned when voting begins</p>
         </div>
       )}
     </div>

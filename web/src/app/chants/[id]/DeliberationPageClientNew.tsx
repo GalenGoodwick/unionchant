@@ -147,7 +147,7 @@ function buildJourneyEntries(
     let personalNote: string | undefined
     if (isCurrentTier) {
       status = 'current'
-      if (wasInTier && voted) personalNote = 'You voted — waiting for results'
+      if (wasInTier && voted) personalNote = 'You voted, waiting for results'
       else if (wasInTier) personalNote = 'Your turn to vote'
       else personalNote = 'You can join this tier'
     } else if (tierDone && wasInTier) {
@@ -180,7 +180,7 @@ function JoinBody({ d, onSwitchTab }: { d: ReturnType<typeof useDeliberation>; o
     .filter(i => i.status === 'PENDING' || i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER')
     .sort((a, b) => (b.totalXP || 0) - (a.totalXP || 0) || a.id.localeCompare(b.id))
   const phaseLabel = delib.phase === 'SUBMISSION' ? 'Accepting ideas'
-    : delib.phase === 'VOTING' ? `Voting — Tier ${delib.currentTier}`
+    : delib.phase === 'VOTING' ? `Voting, Tier ${delib.currentTier}`
     : delib.phase === 'COMPLETED' ? 'Completed' : delib.phase
 
   return (
@@ -508,7 +508,7 @@ function AccumulatingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
           <form onSubmit={d.handleSubmitIdea} className="bg-purple-bg border border-purple rounded-[10px] p-4">
             <label className="text-sm font-medium text-purple mb-2 block">Submit a Challenger</label>
             <textarea
-              placeholder="Got a better idea? Challenge the current priority..."
+              placeholder="Got a better idea? Challenge the current winner..."
               value={d.newIdea}
               onChange={(e) => d.setNewIdea(e.target.value)}
               rows={3}
@@ -537,7 +537,7 @@ function AccumulatingBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
             ))}
           </div>
         ) : (
-          <p className="text-muted text-sm">No challengers yet — be the first!</p>
+          <p className="text-muted text-sm">No challengers yet, be the first!</p>
         )}
       </div>
 
@@ -585,7 +585,7 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
 
   return (
     <div className="space-y-4">
-      {/* Defender card — display only (Vote Point allocation happens in VotingCell) */}
+      {/* Defender card, display only (Vote Point allocation happens in VotingCell) */}
       {d.defender && (
         <DefenderCard
           defender={d.defender}
@@ -593,7 +593,7 @@ function ChallengeBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
         />
       )}
 
-      {/* Voting cell — Vote Point allocation UI */}
+      {/* Voting cell, Vote Point allocation UI */}
       {displayCell ? (
         <VotingCell cell={displayCell} onVote={d.handleVote} voting={d.voting} onRefresh={d.handleRefresh} currentTier={delib.currentTier} />
       ) : null}
@@ -809,7 +809,7 @@ function DiscussBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
                     {!commentsLoaded ? (
                       <p className="text-muted text-sm py-3">Loading...</p>
                     ) : getIdeaComments(idea.id).length === 0 ? (
-                      <p className="text-muted text-sm py-3">No comments yet — be the first</p>
+                      <p className="text-muted text-sm py-3">No comments yet, be the first</p>
                     ) : (
                       getIdeaComments(idea.id).map(c => (
                         <div
@@ -893,7 +893,7 @@ function DiscussBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
       )}
 
       {sortedCells.length === 0 && (
-        <p className="text-muted text-sm text-center py-6">No cells yet — discussion starts when voting begins.</p>
+        <p className="text-muted text-sm text-center py-6">No cells yet, discussion starts when voting begins.</p>
       )}
     </div>
   )

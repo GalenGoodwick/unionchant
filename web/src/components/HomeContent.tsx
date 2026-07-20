@@ -299,7 +299,7 @@ export default function HomeContent({
                     &ldquo;{champ.ideas[0]?.text || champ.question}&rdquo;
                   </span>
                   <span className="text-muted text-sm ml-2">
-                    — {champ._count.members} people agreed
+, {champ._count.members} people agreed
                   </span>
                 </div>
               </div>

@@ -270,7 +270,7 @@ function PricingContent() {
         <div className="space-y-3">
           <h3 className="text-xs font-semibold text-foreground text-center">Questions</h3>
           {[
-            { q: 'How does voting work?', a: 'Ideas compete in small cells of five. Each cell picks a winner, winners advance through tiers, and losers are eliminated — until one champion remains. What survives is what\'s robust, not just what\'s popular.' },
+            { q: 'How does voting work?', a: 'Ideas compete in small cells of five. Each cell picks a winner, winners advance through tiers, and losers are eliminated, until one champion remains. What survives is what\'s robust, not just what\'s popular.' },
             { q: 'What is a chant?', a: 'A chant is a deliberation: a question the collective answers by submitting ideas and voting through tiers to a single winner.' },
             { q: 'Can I cancel anytime?', a: 'Yes. Cancel from the billing portal. Your subscription stays active until the end of your billing period.' },
           ].map(faq => (

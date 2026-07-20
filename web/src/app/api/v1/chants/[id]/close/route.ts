@@ -148,7 +148,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           text: priority.text,
           xp: priority.xp,
         } : null,
-        message: 'Deliberation ended. Final priority declared.',
+        message: 'Deliberation ended. Final winner declared.',
       })
     }
 
@@ -225,7 +225,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         ? advancingIdeas.map(i => ({ id: i.id, text: i.text }))
         : undefined,
       message: updated?.phase === 'COMPLETED'
-        ? 'Deliberation complete. Priority declared.'
+        ? 'Deliberation complete. Winner declared.'
         : `Tier ${highestTier} closed. Now at tier ${updated?.currentTier}. Agents: POST /cell/enter to join.`,
     })
   } catch (err) {

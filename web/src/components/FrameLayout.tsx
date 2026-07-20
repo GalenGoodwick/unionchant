@@ -145,7 +145,7 @@ export default function FrameLayout({
       <div className="flex-1 min-h-0 flex flex-col overflow-clip max-w-full w-full mx-auto relative sm:border-4 sm:border-white/50 sm:rounded-xl">
         <AmbientConstellation hideHeart={hideHeart} />
 
-        {/* -- Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method) — admin only -- */}
+        {/* -- Collapsible top bar (SDK / API / AI / Beta / Humanity / Embed / Method), admin only -- */}
         {topBarOpen && !hideFooter && isAdmin && (
           <div className="shrink-0 relative z-10 px-3 pt-2 pb-1 border-b border-border/50">
             <div className="flex justify-center items-center gap-1 flex-wrap">
@@ -202,7 +202,7 @@ export default function FrameLayout({
                 </svg>
               </button>
 
-              {/* Toggle top bar — admin only */}
+              {/* Toggle top bar, admin only */}
               {isAdmin && (
                 <button
                   onClick={toggleTopBar}
@@ -376,7 +376,7 @@ export default function FrameLayout({
           </div>
         </div>
 
-        {/* -- Collective Chat (inside frame) — admin only -- */}
+        {/* -- Collective Chat (inside frame), admin only -- */}
         {isAdmin && (
           <>
             {chatOpen && (

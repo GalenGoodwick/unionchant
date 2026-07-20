@@ -60,7 +60,7 @@ export default function SDKPage() {
             ].map(item => (
               <div key={item.label} className="bg-surface rounded-lg border border-border px-4 py-3">
                 <span className="text-sm font-medium text-foreground">{item.label}</span>
-                <span className="text-sm text-muted ml-2">&mdash; {item.desc}</span>
+                <span className="text-sm text-muted ml-2">, {item.desc}</span>
               </div>
             ))}
           </div>

@@ -108,11 +108,11 @@ export default function ChallengeProvider({ children }: { children: React.ReactN
               Still human?
             </h2>
             <p className="text-muted text-sm text-center mb-4">
-              Quick check — catch the button to continue.
+              Quick check, catch the button to continue.
             </p>
             <div className="sr-only" role="note">
               Audio cues: A rising vroom sound with a drum roll means the chase has started.
-              A ding means the button has stopped moving — tap anywhere in the box to catch it.
+              A ding means the button has stopped moving, tap anywhere in the box to catch it.
               A falling vroom sound means you passed the challenge.
             </div>
             <RunawayButton key={retryKey} onCaught={handleCaught} onBotDetected={handleBotDetected} />

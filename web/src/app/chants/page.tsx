@@ -95,7 +95,7 @@ function phaseBadge(phase: string, tier: number) {
   switch (phase) {
     case 'VOTING': return { label: 'Voting Phase', sublabel: tier > 0 ? `T${tier}` : '', color: 'bg-warning/15 text-warning border-warning/30' }
     case 'SUBMISSION': return { label: 'Submission Phase', sublabel: '', color: 'bg-accent/15 text-accent border-accent/30' }
-    case 'COMPLETED': return { label: 'Priority Set', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
+    case 'COMPLETED': return { label: 'Winner', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
     default: return { label: phase, sublabel: '', color: 'bg-surface text-muted border-border' }
   }
 }
@@ -1512,7 +1512,7 @@ function ChantsPageContent() {
       } else if (data.reason === 'INSUFFICIENT_PARTICIPANTS') {
         setManageMsg({ type: 'error', text: 'Need at least 1 participant to start voting' })
       } else if (data.reason === 'SINGLE_IDEA') {
-        setManageMsg({ type: 'success', text: 'Only 1 idea — declared champion automatically' })
+        setManageMsg({ type: 'success', text: 'Only 1 idea, declared champion automatically' })
         refreshDetail()
         setManageMode(false)
       } else {
@@ -1536,7 +1536,7 @@ function ChantsPageContent() {
       >
         <TransitionOverlay transitions={transitions} instanceRefs={instanceCanvasRefs} />
 
-        {/* UNIFIED HEADER — same container for all states */}
+        {/* UNIFIED HEADER, same container for all states */}
         <div className="sticky top-0 z-[60] bg-header border-b border-border/30">
           <div className="px-3 py-2.5 flex items-center gap-2.5 max-w-2xl mx-auto min-h-[52px]">
             {activeSubspaceId?.startsWith('podiumchat:') && dockedPodium ? (
@@ -1946,7 +1946,7 @@ function ChantsPageContent() {
               </>
             )}
           </div>
-          {/* MOBILE SEARCH BAR — slides down below toolbar */}
+          {/* MOBILE SEARCH BAR, slides down below toolbar */}
           {searchOpen && activeTab !== 'profile' && !dockedPostId && !activeSubspaceId && (
             <div className="sm:hidden px-3 pb-2 max-w-2xl mx-auto">
               <input
@@ -1967,7 +1967,7 @@ function ChantsPageContent() {
           {inactivityWarning && (
             <div className="px-3 py-2 bg-warning/10 border-t border-warning/30 flex items-center gap-2 max-w-2xl mx-auto">
               <span className="text-warning font-mono text-sm font-bold">{inactivitySecondsLeft}s</span>
-              <span className="text-warning/80 text-xs flex-1">Inactive — you will be removed from this cell</span>
+              <span className="text-warning/80 text-xs flex-1">Inactive, you will be removed from this cell</span>
               <button
                 data-interactive
                 onClick={dismissWarning}
@@ -1977,7 +1977,7 @@ function ChantsPageContent() {
               </button>
             </div>
           )}
-          {/* INLINE CREATE FORM — tab-aware */}
+          {/* INLINE CREATE FORM, tab-aware */}
           <div className={`overflow-hidden transition-all duration-300 ease-out ${createMode ? (activeTab === 'podiums' ? 'max-h-[800px]' : 'max-h-[500px]') + ' opacity-100' : 'max-h-0 opacity-0'}`}>
             <div className="px-3 pb-3 space-y-3 max-w-2xl mx-auto">
               {activeTab === 'podiums' ? (
@@ -2151,7 +2151,7 @@ function ChantsPageContent() {
             </div>
           </div>
         </div>
-        {/* GROUP CHANT CREATE — drops down from top bar when docked to group */}
+        {/* GROUP CHANT CREATE, drops down from top bar when docked to group */}
         <div className={`overflow-hidden transition-all duration-300 ease-out bg-header ${groupCreateOpen && dockedPostId?.startsWith('group:') ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
           <div className="px-3 pb-3 space-y-3 max-w-2xl mx-auto">
             <div className="flex gap-2">
@@ -2377,7 +2377,7 @@ function ChantsPageContent() {
                       </div>
                     ) : (
                     <>
-                    {/* Body content — render markdown */}
+                    {/* Body content, render markdown */}
                     <div className="prose-podium text-sm text-foreground/90 leading-relaxed">
                       <ReactMarkdown
                         components={{
@@ -2412,7 +2412,7 @@ function ChantsPageContent() {
                         </div>
                       </div>
                     )}
-                    {/* Chat card — dockable into podium subspace (comments) */}
+                    {/* Chat card, dockable into podium subspace (comments) */}
                     {(() => {
                       const isPodiumChatDocked = activeSubspaceId === `podiumchat:${dockedPodium.id}`
                       const chatPlayers = getInstancePlayers(`podium:${dockedPodium.id}`).filter(p => p.id !== presenceUserId)
@@ -2582,7 +2582,7 @@ function ChantsPageContent() {
                   <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
                 ) : dockedGroup ? (
                   <div className="animate-slideDown space-y-2.5">
-                    {/* Private gate — shown for private groups without membership */}
+                    {/* Private gate, shown for private groups without membership */}
                     {dockedGroup._private_gate && (
                       <div className="rounded border border-[#fbbf24]/30 bg-surface/90 px-4 py-6 text-center space-y-3">
                         <div className="text-2xl">🔒</div>
@@ -2627,7 +2627,7 @@ function ChantsPageContent() {
                         })()}
                       </div>
                     )}
-                    {/* Join card — shown for public groups when not a member */}
+                    {/* Join card, shown for public groups when not a member */}
                     {!dockedGroup._private_gate && !dockedGroup.userRole && (
                       <div className="rounded border border-[#fbbf24]/30 bg-[#fbbf24]/[0.06] px-3 py-3">
                         <div className="flex items-center gap-3">
@@ -2657,9 +2657,9 @@ function ChantsPageContent() {
                         </div>
                       </div>
                     )}
-                    {/* Group content — hidden behind private gate */}
+                    {/* Group content, hidden behind private gate */}
                     {!dockedGroup._private_gate && (<>
-                    {/* Chat card — dockable into group subspace */}
+                    {/* Chat card, dockable into group subspace */}
                     {(() => {
                       const isGroupChatDocked = activeSubspaceId === `groupchat:${dockedGroup.slug}`
                       const chatPlayers = getInstancePlayers(`group:${dockedGroup.slug}`).filter(p => p.id !== presenceUserId)
@@ -2950,7 +2950,7 @@ function ChantsPageContent() {
                         </div>
                       </div>
                     )}
-                    {/* Group's chants — same as main feed cards */}
+                    {/* Group's chants, same as main feed cards */}
                     {!groupSettingsOpen && dockedGroup.deliberations && dockedGroup.deliberations.length > 0 && (
                       <div className="divide-y divide-border/30">
                         {dockedGroup.deliberations.map(d => {
@@ -3003,7 +3003,7 @@ function ChantsPageContent() {
                                     onClick={() => handleDock(d.id)}
                                     flashDocks={flashDocks}
                                     glowDrag={isDraggingDockstar}
-                                    icon="flame"
+                                    icon="chant"
                                   />
                                   {chantPlayers.length > 0 && chantPlayers.slice(0, 6).map((p, i) => {
                                     const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -3473,7 +3473,7 @@ function ChantsPageContent() {
                               onClick={() => handleDock(chant.id)}
                               flashDocks={flashDocks}
                               glowDrag={isDraggingDockstar}
-                              icon="flame"
+                              icon="chant"
                             />
                             {remotePlayers.length > 0 && remotePlayers.slice(0, 12).map((p, i) => {
                               const ring = i < 6 ? 0 : 1
@@ -3504,7 +3504,7 @@ function ChantsPageContent() {
                   {isDocked && (
                     <div className="relative z-10 px-3 pb-3 animate-slideDown">
                       <div className="border-t border-border/30 pt-2.5">
-                        {/* Loading indicator — shown in both normal and manage mode */}
+                        {/* Loading indicator, shown in both normal and manage mode */}
                         {detailLoading && (
                           <div className="py-6 text-center">
                             <div className="text-muted-light text-sm font-mono animate-pulse">Loading...</div>
@@ -3519,7 +3519,7 @@ function ChantsPageContent() {
                           </div>
                         )}
 
-                        {/* Auto-join status — only show for logged-in users (unauthenticated can browse without joining) */}
+                        {/* Auto-join status, only show for logged-in users (unauthenticated can browse without joining) */}
                         {!manageMode && !detailLoading && detail && !detail.isMember && detail.phase !== 'COMPLETED' && detail.phase !== 'SUBMISSION' && session?.user && (
                           <div className="mb-2.5 py-1 text-center text-muted-light text-xs font-mono animate-pulse">Joining...</div>
                         )}
@@ -3529,7 +3529,7 @@ function ChantsPageContent() {
                           <div className="mb-2.5 text-sm text-muted-light leading-snug">{detail.description}</div>
                         )}
 
-                        {/* Podium context — on-ramp card linking to the podium that inspired this chant */}
+                        {/* Podium context, on-ramp card linking to the podium that inspired this chant */}
                         {!manageMode && !detailLoading && detail?.podiumContext && (
                           <button
                             data-interactive
@@ -3716,7 +3716,7 @@ function ChantsPageContent() {
                           </div>
                         )}
 
-                        {/* VOTING phase — no cell yet (not assigned or browsing) — show competing ideas */}
+                        {/* VOTING phase, no cell yet (not assigned or browsing), show competing ideas */}
                         {!manageMode && !detailLoading && detail?.phase === 'VOTING' && dockedCellIdeas.length === 0 && (() => {
                           const votingIdeas = detail.ideas.filter(i => i.status === 'IN_VOTING' || i.status === 'ADVANCING' || i.status === 'WINNER').slice(0, 5)
                           return (
@@ -3782,7 +3782,7 @@ function ChantsPageContent() {
                           )
                         })()}
 
-                        {/* COMPLETED phase — show top ideas */}
+                        {/* COMPLETED phase, show top ideas */}
                         {!manageMode && !detailLoading && detail?.phase === 'COMPLETED' && (
                           <div>
                             <div className="flex gap-4 text-center text-xs font-mono mb-2.5">
@@ -3799,7 +3799,7 @@ function ChantsPageContent() {
                                       {!isChampion && <span className="text-purple/30 font-mono text-xs shrink-0 pt-0.5">{i + 1}.</span>}
                                       {isChampion && <span className="text-gold/50 font-mono text-xs shrink-0 pt-0.5">&#9733;</span>}
                                       <div className="flex-1 min-w-0">
-                                        {isChampion && <div className="text-[9px] font-mono text-gold/50 uppercase tracking-wider mb-0.5">Priority</div>}
+                                        {isChampion && <div className="text-[9px] font-mono text-gold/50 uppercase tracking-wider mb-0.5">Winner</div>}
                                         <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple')}`}>{idea.text}</div>
                                         <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/70'}`}>{idea.author?.name || 'Anonymous'} &middot; {idea.totalXP}xp</div>
                                       </div>
@@ -3849,7 +3849,7 @@ function ChantsPageContent() {
                         )}
 
                         {/* MANAGE PANEL -- creator only */}
-                        {/* MANAGE MODE — replaces normal content when active */}
+                        {/* MANAGE MODE, replaces normal content when active */}
                         {!detailLoading && detail && manageMode && chant.isCreator && (
                           <div>
                             <div className="flex items-center gap-1.5 mb-3">

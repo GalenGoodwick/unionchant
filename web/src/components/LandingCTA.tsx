@@ -28,7 +28,7 @@ export default function LandingCTA({ variant = 'hero' }: { variant?: 'hero' | 'f
           href="/auth/signup"
           className="bg-accent hover:bg-accent-hover text-white px-8 py-4 rounded-lg font-semibold text-lg transition-colors"
         >
-          Get Started — It&apos;s Free
+          Get Started, It&apos;s Free
         </Link>
         <Link
           href="/demo"

@@ -68,7 +68,7 @@ export default function MethodologyClient() {
                 <h3 className="font-semibold mb-1">Converge</h3>
                 <p className="text-sm text-subtle leading-relaxed">
                   When 5 or fewer ideas remain, every participant votes on every remaining idea.
-                  Cross-cell tallying produces a single priority &mdash; the idea that survived the most scrutiny.
+                  Cross-cell tallying produces a single winner, the idea that survived the most scrutiny.
                 </p>
               </div>
             </div>
@@ -103,7 +103,7 @@ export default function MethodologyClient() {
             </div>
             <p className="text-subtle leading-relaxed">
               XP allocation captures nuance that binary voting destroys. Two cells can produce the same winner
-              with very different conviction levels &mdash; and the system sees both.
+              with very different conviction levels, and the system sees both.
             </p>
           </div>
         </section>
@@ -114,7 +114,7 @@ export default function MethodologyClient() {
           <div className="bg-surface rounded-xl border border-border p-6">
             <p className="text-subtle leading-relaxed mb-4">
               With 5 ideas per cell and 1 winner advancing, the field shrinks 5:1 each tier.
-              The number of tiers needed is logarithmic &mdash; even millions of participants
+              The number of tiers needed is logarithmic, even millions of participants
               reach consensus in single-digit rounds.
             </p>
             <div className="overflow-x-auto">
@@ -194,7 +194,7 @@ export default function MethodologyClient() {
               </div>
             </div>
             <p className="text-subtle leading-relaxed">
-              When an idea advances to a higher tier, its top comments are promoted too &mdash; but
+              When an idea advances to a higher tier, its top comments are promoted too, but
               reset to zero spread. Good arguments earn their reach at every level independently.
             </p>
           </div>
@@ -205,13 +205,13 @@ export default function MethodologyClient() {
           <h2 className="text-sm text-muted uppercase tracking-widest mb-6">Rolling Mode</h2>
           <div className="bg-surface rounded-xl border border-border p-6 space-y-4">
             <p className="text-subtle leading-relaxed">
-              Decisions don&apos;t have to be final. In rolling mode, the priority stands but can be
+              Decisions don&apos;t have to be final. In rolling mode, the winner stands but can be
               challenged by new ideas at any time. New challengers enter at tier 1 and must climb
               through the same gauntlet the original winner did.
             </p>
             <p className="text-subtle leading-relaxed">
-              The defending priority enters at a higher tier &mdash; it has already proven itself.
-              If a challenger can beat it, the priority changes. If not, it stays. The system never
+              The defending winner enters at a higher tier, it has already proven itself.
+              If a challenger can beat it, the winner changes. If not, it stays. The system never
               stops evaluating.
             </p>
             <div className="bg-background rounded-lg p-3 text-xs text-muted">
@@ -243,7 +243,7 @@ export default function MethodologyClient() {
             <div className="bg-surface rounded-lg border border-border p-5">
               <h3 className="font-semibold mb-2">Transparency</h3>
               <p className="text-sm text-subtle leading-relaxed">
-                Every vote is recorded. Cell results are public. The path from idea to priority
+                Every vote is recorded. Cell results are public. The path from idea to winner
                 can be audited tier by tier. On-chain proof is available for completed deliberations.
               </p>
             </div>

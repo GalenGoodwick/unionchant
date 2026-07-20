@@ -149,7 +149,7 @@ export default function SynthesisCell({ cellId, userId, onCellComplete }: Synthe
 
   return (
     <div className="flex flex-col h-full">
-      {/* Dialogue stream — FIRST, always visible */}
+      {/* Dialogue stream, FIRST, always visible */}
       <div
         ref={containerRef}
         onScroll={handleScroll}

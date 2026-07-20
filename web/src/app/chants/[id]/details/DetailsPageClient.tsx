@@ -54,7 +54,7 @@ export default function DetailsPageClient() {
       bg: 'bg-accent-light',
       border: 'border-accent',
       text: 'text-accent',
-      label: `Collecting ideas — ${delib.ideas.length} submitted so far`,
+      label: `Collecting ideas, ${delib.ideas.length} submitted so far`,
     },
     VOTING: {
       icon: '🗳️',
@@ -63,8 +63,8 @@ export default function DetailsPageClient() {
       text: 'text-warning',
       label: delib.continuousFlow
         ? delib.currentTier === 1
-          ? `Tier 1 — accepting ideas + voting`
-          : `Tier ${delib.currentTier} voting — ideas pool for next round`
+          ? `Tier 1, accepting ideas + voting`
+          : `Tier ${delib.currentTier} voting, ideas pool for next round`
         : `Tier ${delib.currentTier} voting in progress`,
     },
     COMPLETED: {
@@ -133,7 +133,7 @@ export default function DetailsPageClient() {
         {d.winner && (
           <div className="rounded-lg p-4 mb-4 border bg-success-bg border-success">
             <div className="text-xs font-semibold uppercase tracking-wide mb-1 text-success">
-              Priority
+              Winner
             </div>
             <p className="text-foreground font-medium">{d.winner.text}</p>
             <p className="text-xs text-muted mt-1">
@@ -291,7 +291,7 @@ export default function DetailsPageClient() {
         {delib.currentTier >= 1 && (delib.phase === 'VOTING' || delib.phase === 'COMPLETED') && (
           <>
             <div className="text-xs font-semibold text-muted uppercase tracking-wide mb-2 mt-6">
-              Audit — Cell Details by Tier
+              Audit, Cell Details by Tier
             </div>
             {Array.from({ length: delib.currentTier }, (_, i) => i + 1).map(tier => (
               <LazySection

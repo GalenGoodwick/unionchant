@@ -51,7 +51,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
       {isFinalShowdown && (
         <div className="bg-purple-bg border border-purple rounded-lg p-3 mb-4 text-center">
           <div className="text-purple font-semibold text-sm">All {stats.totalCells} cells voting on the same {ideas?.length} ideas!</div>
-          <div className="text-xs text-muted mt-1">Cross-cell tallying determines the priority</div>
+          <div className="text-xs text-muted mt-1">Cross-cell tallying determines the winner</div>
         </div>
       )}
 

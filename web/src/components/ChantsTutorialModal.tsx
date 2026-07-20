@@ -58,7 +58,7 @@ export default function ChantsTutorialModal({ show, onClose }: ChantsTutorialMod
             <div className="grid md:grid-cols-2 divide-x divide-border">
               <div className="p-4">
                 <div className="text-xs font-semibold text-accent uppercase tracking-wide mb-2">As a Participant</div>
-                <p className="text-sm text-muted">Allocate 10 points across ideas you support. One idea wins your cell and advances. Vote honestly—your judgment matters.</p>
+                <p className="text-sm text-muted">Allocate 10 points across ideas you support. One idea wins your cell and advances. Vote honestly-your judgment matters.</p>
               </div>
               <div className="p-4">
                 <div className="text-xs font-semibold text-warning uppercase tracking-wide mb-2">As a Facilitator</div>

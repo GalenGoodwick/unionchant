@@ -226,9 +226,9 @@ export default function LandingParallax() {
           <div className="max-w-[560px] mx-auto mb-2 space-y-5 text-white/90 text-lg leading-relaxed">
             <p>
               Unity Chant is a decision-making platform that helps communities turn
-              hundreds or millions of ideas into one trusted priority. People submit
+              hundreds or millions of ideas into one trusted winner. People submit
               ideas, discuss trade-offs in small groups, and advance the strongest
-              proposals through multiple rounds until a clear community priority
+              proposals through multiple rounds until a clear community winner
               emerges. It is designed for cities, institutions, and communities that
               need more than a survey. They need a collective mirror that people
               understand, trust, and helped shape.
@@ -238,7 +238,7 @@ export default function LandingParallax() {
             The Journey.
           </p>
           <p className="text-accent text-7xl sm:text-8xl font-black mb-4">&darr;</p>
-          <TierTab>so many individuals &mdash; good ideas flare<br />and are lost to disconnection and chaos</TierTab>
+          <TierTab>so many individuals, good ideas flare<br />and are lost to disconnection and chaos</TierTab>
         </div>
       </section>
 
@@ -254,7 +254,7 @@ export default function LandingParallax() {
           <p className="text-lg text-subtle leading-relaxed mb-5">
             Think about the best discussions you&apos;ve ever had. They
             weren&apos;t in a stadium or a comment section. They were
-            around a table, with a few people who actually listened &mdash;
+            around a table, with a few people who actually listened, 
             and you discovered you agreed on more than you expected.
           </p>
           <p className="text-lg text-subtle leading-relaxed">
@@ -264,7 +264,7 @@ export default function LandingParallax() {
             conversations in parallel. Each one uncovers a small piece
             of hidden consensus. Connected together, they reveal the whole.
           </p>
-          <TierTab>each person writes 1 idea &mdash; they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks the strongest idea</TierTab>
+          <TierTab>each person writes 1 idea, they are arranged<br />into cells of 5 people with 5 ideas from others<br />each cell talks and picks the strongest idea</TierTab>
         </div>
       </section>
 
@@ -281,7 +281,7 @@ export default function LandingParallax() {
             Nobody knows the answer in advance. The process finds it.
           </p>
           <p className="text-subtle text-sm leading-relaxed max-w-[600px] mx-auto mb-10">
-            The current technical model uses small cells of about five people, where ideas are reviewed in batches, scored, and advanced round by round. In the example from the <Link href="/whitepaper" className="text-accent hover:underline">technical paper</Link>, 50,000 ideas can narrow to one priority in roughly seven rounds, with each round happening in parallel rather than sequentially across the whole population. This is the opposite of the United Nations where one person talks at a time.
+            The current technical model uses small cells of about five people, where ideas are reviewed in batches, scored, and advanced round by round. In the example from the <Link href="/whitepaper" className="text-accent hover:underline">technical paper</Link>, 50,000 ideas can narrow to one winner in roughly seven rounds, with each round happening in parallel rather than sequentially across the whole population. This is the opposite of the United Nations where one person talks at a time.
           </p>
 
           <h3 className="text-2xl font-bold text-foreground mb-8">How it works</h3>
@@ -312,10 +312,10 @@ export default function LandingParallax() {
             <div className="text-center">
               <div className="w-12 h-12 rounded-full border-2 border-gold flex items-center justify-center mx-auto mb-4 font-mono text-xl font-bold text-gold">5</div>
               <h3 className="text-lg font-semibold text-foreground mb-2">The community chooses</h3>
-              <p className="text-muted text-sm">The final set is presented to the broader group, producing a clear shared priority.</p>
+              <p className="text-muted text-sm">The final set is presented to the broader group, producing a clear shared winner.</p>
             </div>
           </div>
-          <TierTab>strongest ideas advance &mdash; each cell<br />joins with 4 others &mdash; 5 ideas from the<br />previous round are debated and scrutinized</TierTab>
+          <TierTab>strongest ideas advance, each cell<br />joins with 4 others, 5 ideas from the<br />previous round are debated and scrutinized</TierTab>
         </div>
       </section>
 
@@ -346,7 +346,7 @@ export default function LandingParallax() {
               <p className="text-muted text-sm">It gives leaders a clearer, more legitimate picture of collective judgment.</p>
             </div>
           </div>
-          <TierTab>the strongest idea advances &mdash; the pattern repeats<br />each layer distills further and the<br />most collectively durable ideas emerge</TierTab>
+          <TierTab>the strongest idea advances, the pattern repeats<br />each layer distills further and the<br />most collectively durable ideas emerge</TierTab>
         </div>
       </section>
 
@@ -395,14 +395,14 @@ export default function LandingParallax() {
         <div className="max-w-[800px] mx-auto px-6 py-20 text-center">
           <p className="font-serif italic text-lg text-foreground/70 leading-[1.8] mb-8">
             &ldquo;Imagine asking a million people: what should we do? Not giving them
-            options &mdash; letting them propose. Then watching as, through thousands
+            options, letting them propose. Then watching as, through thousands
             of honest conversations, a single answer surfaces that nobody wrote
             but everyone recognizes. Not a majority outvoting a minority.
             A million people discovering they already agreed.&rdquo;
           </p>
           <div className="flex gap-4 justify-center flex-wrap">
           </div>
-          <TierTab>consensus &mdash; not a slim majority<br />but a million conversations arriving at the same answer</TierTab>
+          <TierTab>consensus, not a slim majority<br />but a million conversations arriving at the same answer</TierTab>
         </div>
       </section>
 
@@ -417,7 +417,7 @@ export default function LandingParallax() {
           </h2>
           <p className="text-white/60 text-lg mb-8 max-w-[500px] mx-auto">
             What do we collectively agree on? Until now, there was no
-            way to ask &mdash; and no way to trust the answer.
+            way to ask, and no way to trust the answer.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/chants" className="bg-accent hover:bg-accent-hover text-white px-8 py-3 rounded-lg font-semibold transition-colors">

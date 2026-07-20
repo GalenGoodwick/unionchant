@@ -35,7 +35,7 @@ const PANELS = [
     body: (
       <>
         <p className="text-[#94a3b8] text-sm leading-relaxed mb-3">
-          A chant is a question posed to a crowd. It moves through phases:
+          A chant is a question you ask a group: everyone submits an answer, then votes narrow them to the best one. It moves through phases:
         </p>
         <ul className="space-y-2.5 mb-4">
           <li className="flex items-start gap-2.5">
@@ -55,7 +55,7 @@ const PANELS = [
           <li className="flex items-start gap-2.5">
             <span className="shrink-0 mt-0.5 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded"
                   style={{ backgroundColor: 'rgba(5,150,105,0.15)', color: '#34d399' }}>
-              Priority Set
+              Winner
             </span>
             <span className="text-[#94a3b8] text-sm">Winners advance through tiers until one answer emerges</span>
           </li>
@@ -157,7 +157,7 @@ const PANELS = [
     body: (
       <p className="text-[#94a3b8] text-sm leading-relaxed">
         Tap any card to open it. Use the + button to create a new chant, podium, or group.
-        You&apos;re already signed in — just start participating.
+        You&apos;re already signed in, just start participating.
       </p>
     ),
   },

@@ -72,7 +72,7 @@ export default function TermsPage() {
               <a href="https://creativecommons.org/publicdomain/zero/1.0/" className="text-accent hover:text-accent-hover" target="_blank" rel="noopener noreferrer">
                 Creative Commons Zero (CC0)
               </a>{' '}
-              — dedicated to the public domain. You waive all copyright and related rights to the extent
+, dedicated to the public domain. You waive all copyright and related rights to the extent
               permitted by law.
             </p>
             <p className="text-subtle mb-4">

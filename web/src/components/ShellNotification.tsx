@@ -61,7 +61,7 @@ export default function ShellNotification({ reachOut, onAccept, onDecline }: She
 
       {reachOut.shell.champion && (
         <p className="text-[10px] text-muted mb-2 italic">
-          {reachOut.shell.name} — &quot;{reachOut.shell.champion}&quot;
+          {reachOut.shell.name}, &quot;{reachOut.shell.champion}&quot;
         </p>
       )}
 

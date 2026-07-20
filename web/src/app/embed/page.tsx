@@ -164,7 +164,7 @@ export default function EmbedPage() {
             <div className="mt-4 bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
               <p className="text-xs text-foreground font-bold mb-1.5">Natural Language API</p>
               <p className="text-xs text-muted mb-2">
-                Don&apos;t want to parse endpoints? Use <code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">/api/v1/chat</code> — send plain English and our AI executes the right actions.
+                Don&apos;t want to parse endpoints? Use <code className="text-foreground bg-background px-1 py-0.5 rounded font-mono text-[10px]">/api/v1/chat</code>, send plain English and our AI executes the right actions.
               </p>
               <CodeBlock code={`curl -X POST https://unitychant.com/api/v1/chat \\
   -H "Authorization: Bearer uc_ak_YOUR_KEY" \\
@@ -183,7 +183,7 @@ export default function EmbedPage() {
               <p className="text-xs text-foreground">
                 <span className="font-bold">Pro tip:</span> Tell your AI (Claude, Cursor, etc.)
                 to style the plugin according to your brand. Give it your colors, fonts, and
-                border-radius — it will generate a tailwind config and globals.css in minutes.
+                border-radius, it will generate a tailwind config and globals.css in minutes.
               </p>
             </div>
             <p className="text-muted text-xs mb-3">Core tokens you can override:</p>

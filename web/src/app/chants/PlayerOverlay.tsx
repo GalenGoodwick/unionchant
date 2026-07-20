@@ -8,7 +8,7 @@ interface PlayerPixel {
   color: string
   x: number // screen x position
   y: number // position relative to page scroll (scrollY + screenY)
-  instance?: string // 'list' or a post id — which space this player is in
+  instance?: string // 'list' or a post id, which space this player is in
   dockedTo?: string // which dock point they're at (chant id or 'idea:${id}')
 }
 
@@ -17,7 +17,7 @@ interface PlayerOverlayProps {
   scrollY: number
 }
 
-const PX = 4 // pixel size — each pixel block is 4x4
+const PX = 4 // pixel size, each pixel block is 4x4
 const SELF_PX = 8 // self pixel is 2x larger (8x8 frame, 4x4 moving block)
 
 // Fairy animation: 4x4 block jitters within an 8x8 frame

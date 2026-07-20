@@ -43,11 +43,11 @@ export default function AnonymousSignIn() {
       if (json.verified) {
         setVerified(true)
       } else {
-        setError('Verification failed — try again')
+        setError('Verification failed, try again')
         setRetryKey(k => k + 1)
       }
     } catch {
-      setError('Verification failed — try again')
+      setError('Verification failed, try again')
       setRetryKey(k => k + 1)
     } finally {
       setVerifying(false)
@@ -108,17 +108,17 @@ export default function AnonymousSignIn() {
             Anonymous Entry
           </h1>
           <p className="text-muted text-xs text-center mb-4">
-            Non-linked account — no email, no password, no identity
+            Non-linked account, no email, no password, no identity
           </p>
 
           <div className="bg-success-bg border border-success/30 text-success text-xs p-3 rounded-lg mb-4 space-y-1.5">
             <p className="font-semibold">How It Works</p>
             <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-              <li><strong>No email or password required</strong> — We generate a random account for you</li>
-              <li><strong>No IP address stored</strong> — We actively strip it before processing</li>
-              <li><strong>Your entries are preserved</strong> — Ideas and votes stay in the system permanently</li>
-              <li><strong>Not linked to your identity</strong> — There is no way to trace this account back to you</li>
-              <li><strong>One catch</strong> — If you lose your session (clear cookies, switch device), there is no way to recover it</li>
+              <li><strong>No email or password required</strong>, We generate a random account for you</li>
+              <li><strong>No IP address stored</strong>, We actively strip it before processing</li>
+              <li><strong>Your entries are preserved</strong>, Ideas and votes stay in the system permanently</li>
+              <li><strong>Not linked to your identity</strong>, There is no way to trace this account back to you</li>
+              <li><strong>One catch</strong>, If you lose your session (clear cookies, switch device), there is no way to recover it</li>
             </ul>
           </div>
 
@@ -142,7 +142,7 @@ export default function AnonymousSignIn() {
 
           {!verified ? (
             <div className="space-y-2">
-              <p className="text-muted text-xs text-center">Prove you&apos;re human — catch the button:</p>
+              <p className="text-muted text-xs text-center">Prove you&apos;re human, catch the button:</p>
               {verifying ? (
                 <div className="text-center py-8">
                   <p className="text-accent text-sm animate-pulse">Verifying...</p>

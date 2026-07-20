@@ -34,7 +34,7 @@ interface Analytics {
 }
 
 function formatDuration(ms: number | null): string {
-  if (!ms) return '—'
+  if (!ms) return '-'
   const mins = Math.floor(ms / 60000)
   if (mins < 60) return `${mins}m`
   const hours = Math.floor(mins / 60)
@@ -174,7 +174,7 @@ export default function AnalyticsPage() {
         <div className="grid grid-cols-2 gap-2 mb-3">
           <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-2.5">
             <div className="text-sm font-bold text-foreground font-mono">
-              {data.participation.medianVoteTimeMs ? formatDuration(data.participation.medianVoteTimeMs) : '—'}
+              {data.participation.medianVoteTimeMs ? formatDuration(data.participation.medianVoteTimeMs) : '-'}
             </div>
             <div className="text-[10px] text-muted">Median vote time</div>
           </div>

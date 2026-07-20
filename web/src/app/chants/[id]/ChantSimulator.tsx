@@ -190,7 +190,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           if (isMyIdea) {
             showToast('Your idea won!', 'celebration', `"${data.champion.text}"`)
           } else {
-            showToast('Priority declared', 'success', `"${data.champion.text}" by ${data.champion.author.name}`)
+            showToast('Winner declared', 'success', `"${data.champion.text}" by ${data.champion.author.name}`)
           }
         } else {
           showToast('Chant complete', 'success')
@@ -696,7 +696,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           </FirstVisitTooltip>
         )}
 
-        {/* Join CTA — above stats for visibility */}
+        {/* Join CTA, above stats for visibility */}
         {!joined && (
           <div className="mb-3">
             {!userId ? (
@@ -744,7 +744,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             .slice(0, 4)
           return (
             <div className="mb-3 p-3 bg-success/8 border border-success/20 rounded-lg">
-              <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Priority Declared</p>
+              <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Winner Declared</p>
               <p className="text-foreground font-medium text-sm select-text">{status.champion.text}</p>
               <div className="flex items-center justify-between mt-0.5">
                 <p className="text-xs text-muted">by {status.champion.author.name} &middot; {status.champion.totalXP} XP</p>
@@ -1016,7 +1016,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                             : votingTiers.has(tier)
                             ? 'Submitting...'
                             : hasOpenCells
-                            ? 'Open — enter to vote'
+                            ? 'Open, enter to vote'
                             : 'Closed'}
                         </span>
                         {available && (
@@ -1065,7 +1065,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             )}
 
             {status.phase === 'COMPLETED' && status.champion && (
-              <EmptyState icon={'\u2605'} title="Priority Declared" bold subtitle={<>Check <button onClick={() => setActiveTab('discuss')} className="text-accent hover:underline font-medium">Discuss</button> to see all ideas and comments.</>} />
+              <EmptyState icon={'\u2605'} title="Winner Declared" bold subtitle={<>Check <button onClick={() => setActiveTab('discuss')} className="text-accent hover:underline font-medium">Discuss</button> to see all ideas and comments.</>} />
             )}
 
             {status.phase === 'VOTING' && (status.votedTiers?.includes(effectiveTier) || localVotedTiers.has(effectiveTier)) && !status.multipleIdeasAllowed && !tierVoteResults[effectiveTier] && (() => {
@@ -1134,7 +1134,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   </div>
                   <p className="text-xs text-muted text-center">
                     {tierVoteResults[effectiveTier].voterCount}/{tierVoteResults[effectiveTier].votersNeeded} voters in cell
-                    {tierVoteResults[effectiveTier].cellCompleted && ' — Cell complete!'}
+                    {tierVoteResults[effectiveTier].cellCompleted && ', Cell complete!'}
                   </p>
                   <p className="text-xs text-muted mt-1 text-center">
                     {tierVoteResults[effectiveTier].progress.completedCells}/{tierVoteResults[effectiveTier].progress.totalCells} cells done
@@ -1191,7 +1191,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   disabled={votingTiers.has(effectiveTier) || totalAllocated !== 10}
                   className="w-full mt-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
                 >
-                  {votingTiers.has(effectiveTier) ? 'Submitting...' : totalAllocated > 10 ? `Too many — remove ${totalAllocated - 10} XP` : totalAllocated < 10 ? `Not enough — add ${10 - totalAllocated} XP` : 'Cast Vote'}
+                  {votingTiers.has(effectiveTier) ? 'Submitting...' : totalAllocated > 10 ? `Too many, remove ${totalAllocated - 10} XP` : totalAllocated < 10 ? `Not enough, add ${10 - totalAllocated} XP` : 'Cast Vote'}
                 </button>
               </div>
             )}
@@ -1278,7 +1278,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 {/* Current top priority */}
                 {dynamicCell.currentPriority && (
                   <div className="mt-2 pt-2 border-t border-border">
-                    <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Current Priority</p>
+                    <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Current Winner</p>
                     <p className="text-xs text-foreground/90 font-medium leading-snug">{dynamicCell.currentPriority.text}</p>
                     <p className="text-[10px] text-muted mt-0.5">Tier {dynamicCell.currentPriority.tier} &middot; {dynamicCell.currentPriority.xp} XP</p>
                   </div>
@@ -1291,7 +1291,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 <EmptyState icon={'\u23F3'} title="Waiting for a cell" subtitle="Cells form as voters arrive. You'll be assigned shortly." />
                 {dynamicCell?.currentPriority && (
                   <div className="mt-3 p-3 bg-surface/90 rounded-lg border border-border">
-                    <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Current Priority</p>
+                    <p className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Current Winner</p>
                     <p className="text-xs text-foreground/90 font-medium leading-snug">{dynamicCell.currentPriority.text}</p>
                     <p className="text-[10px] text-muted mt-0.5">Tier {dynamicCell.currentPriority.tier} &middot; {dynamicCell.currentPriority.xp} XP</p>
                   </div>
@@ -1314,7 +1314,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
               {!submissionsOpen
                 ? 'Submissions are closed. Voting is in progress.'
                 : status.multipleIdeasAllowed
-                ? 'Multiple ideas allowed — submit as many as you like.'
+                ? 'Multiple ideas allowed, submit as many as you like.'
                 : userIdeas.length > 0
                 ? 'You\'ve submitted your idea. One per person.'
                 : 'One idea per person. Make it count.'}
@@ -1402,7 +1402,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           <div className="space-y-3">
             {status.phase === 'SUBMISSION' ? (
               <>
-                <EmptyState icon={'💬'} title="Discussion opens when voting starts" subtitle="Submit your idea first — discussion begins once enough ideas are collected." />
+                <EmptyState icon={'💬'} title="Discussion opens when voting starts" subtitle="Submit your idea first, discussion begins once enough ideas are collected." />
                 {/* Invite Link */}
                 {status.inviteCode && (
                   <div className="p-3 bg-surface/90 backdrop-blur-sm rounded-lg border border-border">
@@ -1756,7 +1756,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
               {[
                 { key: 'SUBMISSION', label: 'Ideas', color: 'accent' },
                 { key: 'VOTING', label: 'Voting', color: 'warning' },
-                { key: 'COMPLETED', label: 'Priority', color: 'success' },
+                { key: 'COMPLETED', label: 'Winner', color: 'success' },
               ].map((step, i, arr) => {
                 const phases = arr.map(s => s.key)
                 const currentIndex = phases.indexOf(status.phase)
@@ -1810,7 +1810,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                       />
                     </div>
                     {status.memberCount >= status.memberGoal && (
-                      <p className="text-xs text-success mt-0.5">Goal reached — voting will auto-start.</p>
+                      <p className="text-xs text-success mt-0.5">Goal reached, voting will auto-start.</p>
                     )}
                   </div>
                 )}
@@ -1870,7 +1870,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   />
                 )}
 
-                {/* Tier progress — shows votes needed */}
+                {/* Tier progress, shows votes needed */}
                 {(() => {
                   const votingCells = status.cells.filter(c => c.tier === status.currentTier && c.status === 'VOTING')
                   const doneCells = status.cells.filter(c => c.tier === status.currentTier && c.status === 'COMPLETED')
@@ -1892,26 +1892,26 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                       </div>
                       <p className="text-xs text-muted">
                         {remaining > 0
-                          ? `${totalVoted}/${totalNeeded} votes cast — ${remaining} more to complete tier`
-                          : 'All votes in — tier advancing...'}
+                          ? `${totalVoted}/${totalNeeded} votes cast, ${remaining} more to complete tier`
+                          : 'All votes in, tier advancing...'}
                       </p>
                     </div>
                   )
                 })()}
 
-                {/* Declare Priority — continuous flow only */}
+                {/* Declare Priority, continuous flow only */}
                 {status.continuousFlow && (
                   <ManageAction
-                    label="Declare Priority"
-                    description="Announce the current top idea as priority. Ends the chant."
+                    label="Declare Winner"
+                    description="Announce the current top idea as the winner. Ends the chant."
                     color="bg-success hover:bg-success-hover"
                     disabled={actionLoading === 'declare'}
                     loading={actionLoading === 'declare'}
-                    onClick={() => handleFacilitatorAction('declare', 'Declare priority')}
+                    onClick={() => handleFacilitatorAction('declare', 'Declare winner')}
                   />
                 )}
 
-                {/* Close Submissions — continuous flow only, when subs still open */}
+                {/* Close Submissions, continuous flow only, when subs still open */}
                 {status.continuousFlow && !status.submissionsClosed && (
                   <ManageAction
                     label="Close Submissions"
@@ -1923,7 +1923,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   />
                 )}
 
-                {/* Force Next Tier — emergency fallback */}
+                {/* Force Next Tier, emergency fallback */}
                 <div className="border-t border-border pt-3 mt-3">
                   <ManageAction
                     label="⚠️ Force Next Tier (Emergency)"
@@ -1955,7 +1955,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             {status.phase === 'COMPLETED' && (
               <div className="p-3 bg-success/8 border border-success/20 rounded-lg">
                 <p className="text-xs text-success font-medium">Chant Complete</p>
-                <p className="text-xs text-foreground/80 mt-0.5">The priority has been declared.</p>
+                <p className="text-xs text-foreground/80 mt-0.5">The winner has been declared.</p>
               </div>
             )}
 
@@ -2033,7 +2033,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
         document.body
       )}
 
-      {/* Onboarding final — shown on results page after first chant completes */}
+      {/* Onboarding final, shown on results page after first chant completes */}
       {showOnboardingFinal && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[200] bg-black/60 flex items-center justify-center px-4">
           <div className="max-w-[400px] w-full bg-surface border-2 border-gold rounded-xl p-5 shadow-lg">
@@ -2044,10 +2044,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
             </div>
             <h3 className="text-base font-bold text-foreground text-center mb-2">Your first chant is complete!</h3>
             <div className="text-sm text-muted leading-relaxed space-y-2 mb-4">
-              <p>Review how each idea did, what comments were made, how cells voted, and what the collective priority was.</p>
+              <p>Review how each idea did, what comments were made, how cells voted, and what the collective winner was.</p>
               <div className="text-[11px] space-y-1 px-1">
-                <p><span className="text-foreground font-medium">Ideas tab</span> — all ideas ranked by vote points</p>
-                <p><span className="text-foreground font-medium">Cells tab</span> — how your agent voted and what it said</p>
+                <p><span className="text-foreground font-medium">Ideas tab</span>, all ideas ranked by vote points</p>
+                <p><span className="text-foreground font-medium">Cells tab</span>, how your agent voted and what it said</p>
               </div>
               <p>We hope this was helpful. Take what you&apos;ve gained and explore the rest of the app.</p>
             </div>
@@ -2198,7 +2198,7 @@ function DiscussTab({
       )}
 
       <FirstVisitTooltip id="discuss-tab">
-        <strong>Tap an idea</strong> to open it and leave a comment. <strong>Upvote</strong> comments you support to boost their visibility — comments with 3 or more upvotes can spread to other cells in large chants.
+        <strong>Tap an idea</strong> to open it and leave a comment. <strong>Upvote</strong> comments you support to boost their visibility, comments with 3 or more upvotes can spread to other cells in large chants.
       </FirstVisitTooltip>
 
       {/* Ideas for selected tier */}
@@ -2343,7 +2343,7 @@ function PhaseBadge({ phase }: { phase: string }) {
 }
 
 function IdeaStatusBadge({ status, isChampion, tier }: { status: string; isChampion: boolean; tier?: number }) {
-  if (isChampion) return <span className="text-[11px] text-success font-bold">Priority{tier ? ` (Tier ${tier})` : ''}</span>
+  if (isChampion) return <span className="text-[11px] text-success font-bold">Winner{tier ? ` (Tier ${tier})` : ''}</span>
   const map: Record<string, { label: string; color: string; showTier?: boolean }> = {
     ADVANCING: { label: 'Advancing', color: 'text-accent' },
     IN_VOTING: { label: 'In Cell', color: 'text-success' },
