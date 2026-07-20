@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdminVerified } from '@/lib/admin'
-import { resetTestProgress } from '@/lib/ai-test-agent'
 
 // POST /api/admin/deliberation/[id]/reset - Reset deliberation to SUBMISSION phase
 export async function POST(
@@ -102,9 +101,6 @@ export async function POST(
         totalXP: 0,
       },
     })
-
-    // Clear test progress state
-    resetTestProgress()
 
     // Reset deliberation to SUBMISSION phase
     await prisma.deliberation.update({

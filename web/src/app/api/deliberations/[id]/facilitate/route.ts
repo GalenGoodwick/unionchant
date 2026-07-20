@@ -3,7 +3,6 @@ import { resolveSimulatorUser } from '@/lib/simulator-auth'
 import { prisma } from '@/lib/prisma'
 import { processCellResults, checkTierCompletion } from '@/lib/voting'
 import { tryAdvanceContinuousFlowTier } from '@/lib/continuous-flow'
-import { aiResolveTier } from '@/lib/ai-voter'
 import { isAdmin } from '@/lib/admin'
 
 // POST /api/deliberations/[id]/facilitate — Facilitator actions (creator-only)
@@ -219,31 +218,6 @@ export async function POST(
         })
 
         return NextResponse.json({ success: true, mode: 'reset' })
-      }
-
-      case 'ai-resolve': {
-        // AI agents fill empty seats in stuck cells and vote
-        if (deliberation.phase !== 'VOTING') {
-          return NextResponse.json({ error: 'Chant is not in voting phase' }, { status: 400 })
-        }
-
-        const result = await aiResolveTier(id)
-
-        // Check if tier can now advance
-        await checkTierCompletion(id, deliberation.currentTier)
-
-        const afterResolve = await prisma.deliberation.findUnique({
-          where: { id },
-          select: { currentTier: true, phase: true },
-        })
-
-        return NextResponse.json({
-          success: true,
-          cellsResolved: result.cellsResolved,
-          aiVotersAdded: result.aiVotersAdded,
-          currentTier: afterResolve?.currentTier,
-          phase: afterResolve?.phase,
-        })
       }
 
       case 'advance': {

@@ -102,7 +102,6 @@ export default function DashboardDetailPage() {
   const [actionMessage, setActionMessage] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [confirmAIResolve, setConfirmAIResolve] = useState(false)
   const [confirmChallenge, setConfirmChallenge] = useState(false)
   const [confirmCloseSubmissions, setConfirmCloseSubmissions] = useState(false)
   const [confirmAdvanceTier, setConfirmAdvanceTier] = useState(false)
@@ -516,37 +515,6 @@ export default function DashboardDetailPage() {
                     </>
                   )}
 
-                  {/* AI Resolve */}
-                  {!confirmAIResolve ? (
-                    <>
-                      <button
-                        onClick={() => setConfirmAIResolve(true)}
-                        disabled={actionLoading === 'ai-resolve'}
-                        className="w-full bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-2 rounded-lg text-xs transition-colors"
-                      >
-                        AI Resolve
-                      </button>
-                      <p className="text-xs text-muted mt-0.5">AI agents fill empty seats in stuck cells and cast real votes using Haiku.</p>
-                    </>
-                  ) : (
-                    <div className="border border-purple rounded-lg p-2 space-y-1.5">
-                      <p className="text-xs text-purple font-medium">Let AI fill empty seats?</p>
-                      <p className="text-xs text-foreground">AI voters will join cells that don&apos;t have enough participants, read all ideas, and cast votes. They appear as &quot;AI Voter&quot; in the cell.</p>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => { setConfirmAIResolve(false); handleAction('ai-resolve', `/api/deliberations/${deliberationId}/facilitate`, { action: 'ai-resolve' }) }}
-                          disabled={actionLoading === 'ai-resolve'}
-                          className="flex-1 bg-purple hover:bg-purple-hover disabled:opacity-40 text-white font-medium px-3 py-1.5 rounded-lg text-xs transition-colors"
-                        >
-                          {actionLoading === 'ai-resolve' ? 'AI voting...' : 'Confirm'}
-                        </button>
-                        <button onClick={() => setConfirmAIResolve(false)}
-                          className="flex-1 border border-border text-foreground hover:bg-surface font-medium px-3 py-1.5 rounded-lg text-xs transition-colors">
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Advance Tier — force-complete + create next tier */}
                   {!confirmAdvanceTier ? (
@@ -563,7 +531,7 @@ export default function DashboardDetailPage() {
                   ) : (
                     <div className="border border-warning rounded-lg p-2 space-y-1.5">
                       <p className="text-xs text-warning font-medium">Advance to next tier?</p>
-                      <p className="text-xs text-foreground">Open cells will be force-completed. Winners advance. A new tier is created for agents to enter.</p>
+                      <p className="text-xs text-foreground">Open cells will be force-completed. Winners advance. A new tier is created.</p>
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => { setConfirmAdvanceTier(false); handleAction('advance-tier', `/api/deliberations/${deliberationId}/facilitate`, { action: 'advance' }) }}

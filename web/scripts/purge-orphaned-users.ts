@@ -138,9 +138,6 @@ async function deleteUserBatch(userIds: string[]) {
   await prisma.apiKey.deleteMany({ where: { userId: { in: userIds } } })
   await prisma.integration.deleteMany({ where: { userId: { in: userIds } } })
 
-  // Eye
-  await prisma.eye.deleteMany({ where: { ownerId: { in: userIds } } })
-
   // Shell — preserve shells and their content, just detach user references
   await prisma.shell.updateMany({ where: { bondedUserId: { in: userIds } }, data: { bondedUserId: null } })
   await prisma.shellReachOut.deleteMany({ where: { userId: { in: userIds } } })

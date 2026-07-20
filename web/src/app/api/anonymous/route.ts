@@ -15,11 +15,13 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
     const isAutoTemp = body.auto === true
+    // Optional user-chosen display name (falls back to a generated one)
+    const rawName = typeof body.name === 'string' ? body.name.trim().replace(/[<>]/g, '').slice(0, 30) : ''
 
     // Generate anonymous account — kept permanently to preserve entries
     const anonId = crypto.randomUUID().replace(/-/g, '').slice(0, 12)
     const email = `anon_${anonId}@temporary.unitychant.com`
-    const username = `Anonymous_${anonId.slice(0, 6)}`
+    const username = rawName || `Anonymous_${anonId.slice(0, 6)}`
     const password = crypto.randomUUID() + crypto.randomUUID()
     const passwordHash = await bcrypt.hash(password, 10)
 

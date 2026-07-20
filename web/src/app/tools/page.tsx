@@ -6,20 +6,6 @@ import FrameLayout from '@/components/FrameLayout'
 export default function ToolsPage() {
   const tools = [
     {
-      name: 'Mind Map',
-      path: '/mindmap',
-      description: 'Visual thinking and idea organization. Create connected thoughts, drag to arrange.',
-      icon: '🧠',
-      color: 'bg-purple-500/10 border-purple-500/30 hover:bg-purple-500/20'
-    },
-    {
-      name: 'Spreadsheet',
-      path: '/spreadsheet',
-      description: 'Structured data management. Rows, columns, formulas, and filtering.',
-      icon: '📊',
-      color: 'bg-green-500/10 border-green-500/30 hover:bg-green-500/20'
-    },
-    {
       name: 'Chants',
       path: '/chants',
       description: 'Adversarial consensus deliberations. Tiered voting, 5-person cells, champion selection.',
@@ -84,14 +70,6 @@ export default function ToolsPage() {
             </div>
 
             <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">The Cradle</h3>
-              <p className="text-sm text-muted">
-                18-eye geometric cognition engine. Pure adversarial consensus from words to thought.
-                No LLM, no API, no cost. Template dimensions discovered through tournament selection.
-              </p>
-            </div>
-
-            <div>
               <h3 className="text-lg font-semibold text-foreground mb-2">Authentication</h3>
               <p className="text-sm text-muted">
                 Multiple entry points: passkeys (Touch ID/Face ID), Google OAuth, email/password, anonymous.
@@ -102,7 +80,7 @@ export default function ToolsPage() {
             <div>
               <h3 className="text-lg font-semibold text-foreground mb-2">Social Layer</h3>
               <p className="text-sm text-muted">
-                Communities, following, feed, podium (long-form writing), collective chat with AI.
+                Communities, following, feed, podium (long-form writing).
                 Feed tabs: Your Turn (actionable), Activity (what's happening), Results (outcomes).
               </p>
             </div>

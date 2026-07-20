@@ -124,10 +124,19 @@ export async function continueAfterTool(
   const client = getClient()
   const modelId = MODEL_MAP[model] || MODEL_MAP.haiku
 
+  // Anthropic requires every tool_use block to be paired with a tool_result in the
+  // very next message. The model can emit multiple tool_use blocks in one turn, but
+  // this loop only executes one (toolUseId). Drop the other, unexecuted tool_use
+  // blocks so the single tool_result pairs cleanly — otherwise the API rejects it.
+  const pairedAssistant = Array.isArray(assistantContent)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? (assistantContent as any[]).filter(b => b?.type !== 'tool_use' || b?.id === toolUseId)
+    : assistantContent
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [
     ...priorMessages,
-    { role: 'assistant', content: assistantContent },
+    { role: 'assistant', content: pairedAssistant },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: toolResult }] },
   ]
 

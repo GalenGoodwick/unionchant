@@ -109,9 +109,6 @@ model User {
   // Podium relations
   podiums       Podium[]
 
-  // AI Agent relation
-  aiAgent       AIAgent?
-
   // Deliberation upvotes
   deliberationUpvotes DeliberationUpvote[]
 
@@ -141,10 +138,6 @@ model User {
   correctPredictions   Int @default(0)
   championPicks        Int @default(0)
 
-  ownedSpaces           PlayerSpace[] @relation("OwnedSpaces")
-  spaceVersions         SpaceVersion[]
-  spaceFlags            SpaceFlag[]
-
   // Webhook integrations
   integrations          Integration[]
 
@@ -155,9 +148,6 @@ model User {
   ownerId               String?  // Human user who created this AI agent
   owner                 User?    @relation("OwnedAgents", fields: [ownerId], references: [id], onDelete: SetNull)
   ownedAgents           User[]   @relation("OwnedAgents")
-
-  // Eye API
-  eyes                  Eye[]
 
   // Shell — persistent AI identity
   shells                Shell[]
@@ -310,13 +300,11 @@ model Deliberation {
   watchers      Watch[]
   predictions   Prediction[]
   podiums       Podium[]
-  aiAgents      AIAgent[]
   upvotes       DeliberationUpvote[]
   groupMessages GroupMessage[]   @relation("GroupMessages")
 
   // Emergence signals detected in this chant
   emergenceSignals EmergenceSignal[]
-  spaceFlag     SpaceFlag?
   // Shells that emerged from this deliberation's dialogue
   emergedShells    Shell[]          @relation("ShellOrigin")
 
@@ -902,28 +890,6 @@ model CronLog {
   @@index([startedAt])
 }
 
-// ============ AI AGENTS ============
-
-model AIAgent {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deliberationId  String
-  deliberation    Deliberation @relation(fields: [deliberationId], references: [id], onDelete: Cascade)
-  persona         String   // "optimist", "skeptic", "pragmatist", etc.
-  personalityDesc String   @db.Text // full personality prompt for Haiku
-  createdOrder    Int      // 1-100, lower = replaced last
-  isRetired       Boolean  @default(false)
-  retiredByUserId String?  // human who replaced this agent
-  isCollective    Boolean  @default(false) // the one agent that can't be replaced
-  hasSubmittedIdea Boolean @default(false)
-  lastActionAt    DateTime?
-  nextActionAfter DateTime? // stagger actions
-  createdAt       DateTime @default(now())
-
-  @@index([deliberationId, isRetired])
-  @@index([nextActionAfter])
-}
 
 // ============ COLLECTIVE CHAT ============
 
@@ -1052,94 +1018,6 @@ model ChallengeLog {
 
   @@index([userId, createdAt])
   @@index([pathHash])
-}
-
-// ============ PLAYER SPACES ============
-
-model PlayerSpace {
-  id          String       @id @default(cuid())
-  slug        String       @unique                  // URL-friendly name, e.g. "galens-world"
-  name        String                                // Display name
-  ownerId     String
-  owner       User         @relation("OwnedSpaces", fields: [ownerId], references: [id], onDelete: Cascade)
-  snapshot    Json?                                  // SceneSnapshot as JSONB
-  description String?
-  isPublic    Boolean      @default(true)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  tokens      SpaceToken[]
-
-  // Nested space hierarchy
-  parentSpaceId String?
-  parentSpace   PlayerSpace?  @relation("SpaceChildren", fields: [parentSpaceId], references: [id], onDelete: SetNull)
-  childSpaces   PlayerSpace[] @relation("SpaceChildren")
-
-  // World history + governance
-  versions      SpaceVersion[]
-  flags         SpaceFlag[]
-  forkOfId      String?
-  forkOf        PlayerSpace?  @relation("SpaceForks", fields: [forkOfId], references: [id], onDelete: SetNull)
-  forks         PlayerSpace[] @relation("SpaceForks")
-
-  @@index([ownerId])
-  @@index([parentSpaceId])
-}
-
-// Append-only world history: every save is a version, nothing is ever lost.
-model SpaceVersion {
-  id        String      @id @default(cuid())
-  spaceId   String
-  space     PlayerSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  version   Int                                  // monotonic per space
-  snapshot  Json                                 // SceneSnapshot at this point
-  authorId  String?
-  author    User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
-  note      String?                              // "added lighthouse", "pre-flag snapshot"
-  createdAt DateTime    @default(now())
-
-  @@unique([spaceId, version])
-  @@index([spaceId, createdAt])
-}
-
-// Conflict valve: a flag freezes the dispute into versions and spawns a fastCell
-// deliberation whose ideas ARE the candidate versions (with live demo links).
-model SpaceFlag {
-  id                String          @id @default(cuid())
-  spaceId           String
-  space             PlayerSpace     @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  raisedById        String
-  raisedBy          User            @relation(fields: [raisedById], references: [id], onDelete: Cascade)
-  reason            String
-  status            SpaceFlagStatus @default(OPEN)
-  deliberationId    String?         @unique
-  deliberation      Deliberation?   @relation(fields: [deliberationId], references: [id], onDelete: SetNull)
-  candidateVersions Int[]           @default([])  // version numbers under dispute
-  resolvedVersion   Int?                          // winning version that was applied
-  createdAt         DateTime        @default(now())
-  resolvedAt        DateTime?
-
-  @@index([spaceId, status])
-}
-
-enum SpaceFlagStatus {
-  OPEN
-  RESOLVED
-  DISMISSED
-}
-
-model SpaceToken {
-  id          String      @id @default(cuid())
-  name        String                                 // "Claude Code", "My Terminal", etc.
-  tokenHash   String      @unique                    // SHA-256 of raw token
-  tokenPrefix String                                 // First 12 chars for display
-  spaceId     String
-  space       PlayerSpace @relation(fields: [spaceId], references: [id], onDelete: Cascade)
-  lastUsedAt  DateTime?
-  expiresAt   DateTime?                              // null = never expires
-  revokedAt   DateTime?                              // soft-revoke
-  createdAt   DateTime    @default(now())
-
-  @@index([spaceId])
 }
 
 // ============ API KEYS ============
@@ -1448,44 +1326,4 @@ model EmergenceSignal {
 
   @@index([status])
   @@index([deliberationId])
-}
-
-// ============ EYE API ============
-
-model Eye {
-  id            String   @id @default(cuid())
-  type          String   // "human" | "ai"
-  ownerId       String?  // User ID for human eyes
-  owner         User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  apiKeyHash    String?  @unique // SHA-256 hash for AI eye keys
-  name          String
-  corpus        Json     @default("[]") // accumulated text corpus
-  state         Json     @default("{}") // geometric identity snapshot from Cradle
-  connected     Boolean  @default(false)
-  lastSync      DateTime?
-  welcomeSent   Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([ownerId])
-  @@index([type])
-}
-// ============ THE CHAMBER (live collective-precedent bridge from the local cradle) ============
-
-model ChamberState {
-  id        String   @id            // "main"
-  data      Json                    // {collective, history, flow, eyes, units} pushed by chamber-bridge
-  updatedAt DateTime @updatedAt
-}
-
-model ChamberPoke {
-  id        String   @id @default(cuid())
-  eye       String                  // participant name (sanitized [a-z0-9-])
-  words     String   @db.Text       // plain lowercase words only
-  ip        String?
-  status    String   @default("pending") // "pending" | "applied"
-  response  String?  @db.Text       // the cradle's personal reply to this poke
-  createdAt DateTime @default(now())
-
-  @@index([status])
 }

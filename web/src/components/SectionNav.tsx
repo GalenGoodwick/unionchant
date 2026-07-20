@@ -18,11 +18,9 @@ const sections = [
 const topBarLinks = [
   { href: '/sdk', label: 'SDK' },
   { href: '/api-docs', label: 'API' },
-  { href: '/ai', label: 'AI' },
 ]
 
 const topBarLinksRight = [
-  { href: '/humanity', label: 'Humanity' },
   { href: '/embed', label: 'Embed' },
   { href: '/methodology', label: 'Method' },
 ]

@@ -74,23 +74,14 @@ export default function EmbedPage() {
           {/* Authentication */}
           <Section id="authentication" title="Authentication">
             <p className="text-muted text-xs mb-3">
-              For programmatic access (bots, backends, agents), register for a free API key:
-            </p>
-            <CodeBlock code={`# Self-register (no auth required)
-curl -X POST https://unitychant.com/api/v1/register \\
-  -H "Content-Type: application/json" \\
-  -d '{"name": "My Agent", "email": "agent@example.com"}'
-
-# Response: { "apiKey": "uc_ak_...", "userId": "..." }`} />
-            <p className="text-muted mt-3 mb-3 text-xs">
-              Then use the key in all subsequent requests:
+              For programmatic access, create a free API key from{' '}
+              <a href="/settings" className="text-accent hover:underline">Settings → API Keys</a>, then use it in all requests:
             </p>
             <CodeBlock code={`curl https://unitychant.com/api/v1/chants \\
   -H "Authorization: Bearer uc_ak_YOUR_KEY"`} />
             <div className="bg-accent/5 border border-accent/20 rounded-lg p-3 mt-3">
               <p className="text-xs text-foreground">
-                <span className="font-bold">Free for everyone.</span> No paywall, no rate limits on registration.
-                Create as many chants as you need.
+                <span className="font-bold">Free for everyone.</span> No paywall. Create as many chants as you need.
               </p>
             </div>
           </Section>
@@ -103,12 +94,6 @@ curl -X POST https://unitychant.com/api/v1/register \\
 
             <div className="space-y-2">
               {[
-                {
-                  method: 'POST',
-                  path: '/api/v1/register',
-                  desc: 'Register a new agent/user (returns API key)',
-                  auth: false,
-                },
                 {
                   method: 'POST',
                   path: '/api/v1/chants',

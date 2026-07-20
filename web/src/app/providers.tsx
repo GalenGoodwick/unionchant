@@ -4,7 +4,6 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import { SessionProvider, useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
 import { ToastProvider } from '@/components/Toast'
-import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
 import CollectiveChat from '@/components/CollectiveChat'
 

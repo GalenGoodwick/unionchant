@@ -64,7 +64,6 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
   const [actionError, setActionError] = useState('')
   const [actionSuccess, setActionSuccess] = useState('')
   const [confirmForce, setConfirmForce] = useState(false)
-  const [confirmAIResolve, setConfirmAIResolve] = useState(false)
   const [confirmChallenge, setConfirmChallenge] = useState(false)
   const [copiedInvite, setCopiedInvite] = useState(false)
 
@@ -2069,10 +2068,10 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 Run Another Chant
               </button>
               <button
-                onClick={() => { setShowOnboardingFinal(false); router.push('/agents') }}
+                onClick={() => { setShowOnboardingFinal(false); router.push('/chants') }}
                 className="w-full py-2 bg-surface hover:bg-surface-hover text-foreground text-xs font-medium rounded-lg transition-colors border border-border"
               >
-                Edit Your Agent
+                Browse Chants
               </button>
             </div>
           </div>

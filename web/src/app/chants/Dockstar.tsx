@@ -159,11 +159,9 @@ export default function Dockstar({
       dragStartRef.current = null
 
       if (!hasDraggedRef.current) {
-        // When docked, tap undocks. When undocked, tap toggles spatial view.
+        // Tap while docked → undock. Undocked tap is a no-op (orb is a drag handle).
         if (dockedPostId) {
           onUndock()
-        } else if (onToggleSpatial) {
-          onToggleSpatial()
         }
         setDragPos(null)
         return

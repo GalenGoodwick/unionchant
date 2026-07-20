@@ -3,15 +3,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useSession, signIn, signOut } from 'next-auth/react'
-import Dockstar, { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
+import { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
 import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
 import ShareMenu from '@/components/ShareMenu'
 import { usePresence } from './usePresence'
 import { useUserspace } from './spatial/useUserspace'
-import SpatialCanvas, { type SpatialCanvasHandle } from './spatial/SpatialCanvas'
-import type { FieldSnapshot } from '@/app/engine/types'
-import SubspaceOverlay from './spatial/SubspaceOverlay'
 import { useChantsFeed } from './useChantsFeed'
 import { useChantDetail } from './useChantDetail'
 import type { Chant } from './useChantsFeed'
@@ -217,56 +214,6 @@ function ChantsPageContent() {
   const [dockstarRotation, setDockstarRotation] = useState(0)
   const [dockedUserspace, setDockedUserspace] = useState<{ userId: string; userName: string; userColor: string } | null>(null)
   const [spatialState, setSpatialState] = useState<{ mode: 'lobby' | 'list' | 'player'; listTab?: string | null; playerName?: string | null; canGoBack: boolean }>({ mode: 'lobby', canGoBack: false })
-  const spatialCanvasRef = useRef<SpatialCanvasHandle>(null)
-  const [savedFields, setSavedFields] = useState<FieldSnapshot[]>([])
-  const [fieldLibrary, setFieldLibrary] = useState<FieldSnapshot[]>([])
-
-  // Load saved backdrop + library when entering spatial mode
-  useEffect(() => {
-    if (viewMode !== 'spatial') return
-    // Load library from localStorage
-    try {
-      const stored = localStorage.getItem('fieldLibrary')
-      if (stored) {
-        const fields = JSON.parse(stored)
-        if (Array.isArray(fields)) {
-          setFieldLibrary(fields)
-        }
-      }
-    } catch { /* ignore */ }
-    // Always fetch active scene from engine (live state takes priority)
-    fetch('/api/engine/state')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data?.fields && Array.isArray(data.fields) && data.fields.length > 0) {
-          setSavedFields(data.fields)
-          localStorage.setItem('spatialFields', JSON.stringify(data.fields))
-        } else {
-          // Fall back to localStorage if engine has no fields
-          try {
-            const stored = localStorage.getItem('spatialFields')
-            if (stored) {
-              const fields = JSON.parse(stored)
-              if (Array.isArray(fields) && fields.length > 0) {
-                setSavedFields(fields)
-              }
-            }
-          } catch { /* ignore */ }
-        }
-      })
-      .catch(() => {
-        // Fetch failed — fall back to localStorage
-        try {
-          const stored = localStorage.getItem('spatialFields')
-          if (stored) {
-            const fields = JSON.parse(stored)
-            if (Array.isArray(fields) && fields.length > 0) {
-              setSavedFields(fields)
-            }
-          }
-        } catch { /* ignore */ }
-      })
-  }, [viewMode])
   const [followingIds, setFollowingIds] = useState<string[]>([])
 
   const [pendingInput, setPendingInput] = useState<string>('')
@@ -706,39 +653,10 @@ function ChantsPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostNavState])
 
-  // Host broadcast: when user navigates, tell their subspace visitors
-  useEffect(() => {
-    if (dockedUserspace) return // don't broadcast if visiting someone else
-    broadcastNavUpdate({ dockedPostId, activeSubspaceId, activeTab })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dockedPostId, activeSubspaceId, activeTab])
 
-  // Fetch following IDs for spatial canvas layout
-  useEffect(() => {
-    if (!session?.user?.id) return
-    fetch('/api/user/me/following')
-      .then(r => r.ok ? r.json() : { users: [] })
-      .then(data => {
-        if (data.users) setFollowingIds(data.users.map((u: { id: string }) => u.id))
-      })
-      .catch(() => {})
-  }, [session?.user?.id])
-
-  // Toggle spatial view — push browser history
-  const toggleSpatial = useCallback(() => {
-    setViewMode(prev => {
-      const next = prev === 'feed' ? 'spatial' : 'feed'
-      // Defer pushState to avoid setState-during-render from Next.js Router
-      queueMicrotask(() => {
-        if (next === 'spatial') {
-          window.history.pushState({ spatial: true }, '', '/chants?view=spatial')
-        } else {
-          window.history.pushState({ spatial: false }, '', '/chants')
-        }
-      })
-      return next
-    })
-  }, [])
+  // Spatial (game-world) view retired from the UI — entry point neutralized.
+  // The spatial code path remains dormant; this no-op keeps feed as the only mode.
+  const toggleSpatial = useCallback(() => {}, [])
 
   // Browser back button support for spatial view
   useEffect(() => {
@@ -1106,8 +1024,6 @@ function ChantsPageContent() {
   const handleDockPlayerFromSpatial = useCallback((id: string, name: string, color: string) => {
     setDockedUserspace({ userId: id, userName: name, userColor: color })
     enterUserspace(id)
-    // Trigger SpatialCanvas internal player mode transition
-    spatialCanvasRef.current?.enterPlayerMode(id, name, color)
   }, [enterUserspace])
 
   // Sync handleDockPlayerRef (can't be synced in render body — declared after handleDock)
@@ -1620,152 +1536,6 @@ function ChantsPageContent() {
       >
         <TransitionOverlay transitions={transitions} instanceRefs={instanceCanvasRefs} />
 
-        {/* SPATIAL UNIVERSE CANVAS */}
-        <SpatialCanvas
-          ref={spatialCanvasRef}
-          visible={viewMode === 'spatial'}
-          nodes={activeSubspaces.filter(n => n.userId !== presenceUserId && !spatialPlayers.some(p => p.id === n.userId))}
-          selfUserId={presenceUserId}
-          selfName={presenceName}
-          selfColor="#22d3ee"
-          followingIds={followingIds}
-          onEnterSubspace={handleEnterUserspace}
-          dropZoneRefs={dropZoneRefs}
-          onRotate={setDockstarRotation}
-          framePreviews={{
-            chants: chants.slice(0, 3).map(c => c.question),
-            podiums: podiums.slice(0, 3).map(p => p.title),
-            groups: groups.slice(0, 3).map(g => g.name),
-          }}
-          onDockFrame={handleDockFrame}
-          remotePlayers={spatialPlayers}
-          onCameraMove={handleSpatialCameraMove}
-          listItems={spatialListItems}
-          onDockItem={handleDockItem}
-          isDraggingDockstar={isDraggingDockstar}
-          dragPosition={dockstarDragPos}
-          onDockPlayer={handleDockPlayerFromSpatial}
-          hostNavState={hostNavState}
-          onFollowHost={handleFollowHost}
-          onBackFromSpatial={handleBackFromSpatial}
-          onSpatialStateChange={setSpatialState}
-          savedFields={savedFields}
-          isAdmin={isAdmin}
-          fieldLibrary={fieldLibrary}
-          onRemoveFromLibrary={(fieldId) => {
-            const updated = fieldLibrary.filter(f => f.id !== fieldId)
-            setFieldLibrary(updated)
-            localStorage.setItem('fieldLibrary', JSON.stringify(updated))
-          }}
-          onRemoveSavedField={(fieldId) => {
-            const updated = savedFields.filter(f => f.id !== fieldId)
-            setSavedFields(updated)
-            localStorage.setItem('spatialFields', JSON.stringify(updated))
-            // Clean up field layout entry
-            try {
-              const layoutStr = localStorage.getItem('spatialFieldLayout')
-              if (layoutStr) {
-                const layout = JSON.parse(layoutStr).filter((m: { fieldId: string }) => m.fieldId !== fieldId)
-                localStorage.setItem('spatialFieldLayout', JSON.stringify(layout))
-              }
-            } catch { /* ignore */ }
-          }}
-          onLoadFromLibrary={(fieldId) => {
-            const field = fieldLibrary.find(f => f.id === fieldId)
-            if (!field) return
-            // Collect field + all descendants recursively
-            const toLoad: FieldSnapshot[] = [field]
-            const collectChildren = (parentId: string) => {
-              for (const f of fieldLibrary) {
-                if (f.parentFieldId === parentId && !toLoad.some(t => t.id === f.id)) {
-                  toLoad.push(f)
-                  collectChildren(f.id)
-                }
-              }
-            }
-            collectChildren(fieldId)
-            const updated = [...savedFields]
-            for (const f of toLoad) {
-              if (!updated.some(s => s.id === f.id)) {
-                updated.push(f)
-              }
-            }
-            setSavedFields(updated)
-            localStorage.setItem('spatialFields', JSON.stringify(updated))
-          }}
-          onImportAllFields={() => {
-            fetch('/api/engine/state')
-              .then(r => r.ok ? r.json() : null)
-              .then(data => {
-                if (data?.fields) {
-                  // Save to library
-                  const existingLib = [...fieldLibrary]
-                  for (const f of data.fields) {
-                    const idx = existingLib.findIndex(e => e.id === f.id)
-                    if (idx >= 0) {
-                      existingLib[idx] = f  // Update existing with fresh data
-                    } else {
-                      existingLib.push(f)
-                    }
-                  }
-                  setFieldLibrary(existingLib)
-                  localStorage.setItem('fieldLibrary', JSON.stringify(existingLib))
-                  // Also load into active backdrop (merge, don't replace)
-                  const mergedBackdrop = [...savedFields]
-                  for (const f of data.fields) {
-                    const idx = mergedBackdrop.findIndex(s => s.id === f.id)
-                    if (idx >= 0) {
-                      mergedBackdrop[idx] = f
-                    } else {
-                      mergedBackdrop.push(f)
-                    }
-                  }
-                  setSavedFields(mergedBackdrop)
-                  localStorage.setItem('spatialFields', JSON.stringify(mergedBackdrop))
-                }
-              })
-              .catch(() => {})
-          }}
-        />
-
-        {/* SPATIAL DOCKSTAR — centered on canvas */}
-        {viewMode === 'spatial' && (
-          <div className="fixed inset-0 z-[9998] flex items-center justify-center pointer-events-none">
-            <div className="pointer-events-auto">
-              <Dockstar
-                userInitial="G"
-                dockedPostId={activeDockTarget}
-                dropZoneRefs={dropZoneRefs}
-                onDock={handleDock}
-                onUndock={handleUndock}
-                onUndockIdea={() => setDockedIdeaId(null)}
-                onDragStateChange={handleDragState}
-                onDragPositionChange={setDockstarDragPos}
-                flashDocks={flashDocks}
-                externalDragStart={externalDragStart}
-                onExternalDragHandled={() => setExternalDragStart(null)}
-                isSubspace={!!activeSubspaceId}
-                onExitSubspace={exitSubspace}
-                accentColor={tabAccentColor}
-                onToggleSpatial={toggleSpatial}
-                isSpatial={true}
-                spatialRotation={dockstarRotation}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* SUBSPACE OVERLAY — when visiting someone */}
-        {dockedUserspace && viewMode !== 'spatial' && (
-          <SubspaceOverlay
-            hostName={dockedUserspace.userName}
-            hostColor={dockedUserspace.userColor}
-            visitorCount={visitors.length}
-            onExit={handleExitUserspace}
-            spaceSlug={activeSubspaces.find(u => u.userId === dockedUserspace.userId)?.spaceSlug}
-          />
-        )}
-
         {/* UNIFIED HEADER — same container for all states */}
         <div className="sticky top-0 z-[60] bg-header border-b border-border/30">
           <div className="px-3 py-2.5 flex items-center gap-2.5 max-w-2xl mx-auto min-h-[52px]">
@@ -2065,32 +1835,6 @@ function ChantsPageContent() {
                   />
                 </div>
               </>
-            ) : viewMode === 'spatial' ? (
-              /* SPATIAL state — back button + location label + dockstar (dockstar hidden in player mode, rendered centered instead) */
-              <>
-                <button
-                  data-interactive
-                  onClick={() => {
-                    if (spatialState.canGoBack) {
-                      spatialCanvasRef.current?.back()
-                    } else {
-                      handleBackFromSpatial()
-                    }
-                  }}
-                  className="w-10 h-10 rounded-full border-2 border-border/50 bg-surface/50 flex items-center justify-center hover:border-foreground/30 transition-colors"
-                >
-                  <svg className="w-4 h-4 text-foreground/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                  </svg>
-                </button>
-                <div className="flex-1 min-w-0">
-                  <span className="text-[11px] font-mono text-muted-light/50 uppercase tracking-wider">
-                    {spatialState.mode === 'lobby' && 'Spatial Lobby'}
-                    {spatialState.mode === 'list' && spatialState.listTab && `${spatialState.listTab.charAt(0).toUpperCase() + spatialState.listTab.slice(1)}`}
-                    {spatialState.mode === 'player' && spatialState.playerName && `Following ${spatialState.playerName}`}
-                  </span>
-                </div>
-              </>
             ) : (
               /* FEED / CREATE state */
               <>
@@ -2178,25 +1922,27 @@ function ChantsPageContent() {
                     </button>
                   </>
                 )}
-                <Dockstar
-                  userInitial="G"
-                  dockedPostId={activeDockTarget}
-                  dropZoneRefs={dropZoneRefs}
-                  onDock={handleDock}
-                  onUndock={handleUndock}
-                  onUndockIdea={() => setDockedIdeaId(null)}
-                  onDragStateChange={handleDragState}
-                  onDragPositionChange={setDockstarDragPos}
-                  flashDocks={flashDocks}
-                  externalDragStart={externalDragStart}
-                  onExternalDragHandled={() => setExternalDragStart(null)}
-                  isSubspace={!!activeSubspaceId}
-                  onExitSubspace={exitSubspace}
-                  accentColor={tabAccentColor}
-                  onToggleSpatial={toggleSpatial}
-                  isSpatial={false}
-                  spatialRotation={dockstarRotation}
-                />
+                {!session?.user ? (
+                  <button
+                    data-interactive
+                    onClick={() => setAuthOverlayOpen(true)}
+                    className="shrink-0 px-3 py-1.5 rounded-full border border-accent/40 bg-accent/10 text-accent text-xs font-mono uppercase tracking-wider hover:bg-accent/20 transition-colors"
+                  >
+                    Sign in
+                  </button>
+                ) : (
+                  <a
+                    href={`/user/${session?.user?.id}`}
+                    data-interactive
+                    title="Your page"
+                    className="shrink-0 flex items-center gap-1.5 pl-1 pr-1 sm:pr-2.5 py-1 rounded-full border border-border bg-surface/50 hover:border-foreground/30 transition-colors"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[11px] font-bold text-accent">
+                      {(session?.user?.name || 'U').charAt(0).toUpperCase()}
+                    </span>
+                    <span className="hidden sm:inline text-xs font-mono text-muted max-w-[90px] truncate">{session?.user?.name || 'You'}</span>
+                  </a>
+                )}
               </>
             )}
           </div>

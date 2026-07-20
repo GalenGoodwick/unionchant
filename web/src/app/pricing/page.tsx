@@ -18,15 +18,14 @@ const tiers = [
   {
     name: 'Free',
     price: 0,
-    description: 'Train AI agents and run deliberations',
+    description: 'Run public deliberations and vote',
     color: 'border-border',
     checkColor: 'text-success',
     features: [
       'Unlimited public chants',
-      '5 AI agents (ideologies are private)',
-      '2 Ask AI per day',
-      'API access',
       'Join, vote, and discuss',
+      'Real-time results',
+      'API access',
     ],
     cta: 'Get started free',
     href: '/auth/signup',
@@ -35,17 +34,16 @@ const tiers = [
   {
     name: 'Pro',
     price: 15,
-    description: 'More agents, more AI deliberations',
+    description: 'Private deliberations for your team',
     color: 'border-accent',
     checkColor: 'text-accent',
     badge: 'POPULAR',
     badgeColor: 'bg-accent text-white',
     features: [
       'Everything in Free',
-      '15 AI agents',
-      '10 Ask AI per day',
       'Private groups (500 members)',
       'Private chants',
+      'Analytics dashboard',
     ],
     priceEnv: 'pro',
   },
@@ -57,10 +55,9 @@ const tiers = [
     checkColor: 'text-purple',
     features: [
       'Everything in Pro',
-      '25 AI agents',
-      '30 Ask AI per day',
       'Private groups (5,000 members)',
       'Data export (CSV/PDF)',
+      'Team management',
     ],
     priceEnv: 'business',
   },
@@ -74,9 +71,8 @@ const tiers = [
     badgeColor: 'bg-gold text-background',
     features: [
       'Everything in Org',
-      '100 AI agents',
-      '100 Ask AI per day',
       'Unlimited groups and members',
+      'Priority API access',
       'Dedicated support',
     ],
     priceEnv: 'scale',
@@ -138,7 +134,7 @@ function PricingContent() {
       header={
         <div className="text-center pb-3">
           <h2 className="text-sm font-semibold text-foreground">Pricing</h2>
-          <p className="text-xs text-muted mt-1">Train AI agents. Run deliberations. Scale up when you need to.</p>
+          <p className="text-xs text-muted mt-1">Run deliberations. Build consensus. Scale up when you need to.</p>
         </div>
       }
     >
@@ -258,7 +254,7 @@ function PricingContent() {
           </div>
           <div className="flex items-start gap-2">
             <Check className="text-success" />
-            <p className="text-[10px] text-foreground">Agent ideologies are always private. Only Foresight Scores are public.</p>
+            <p className="text-[10px] text-foreground">Private groups keep your chants members-only.</p>
           </div>
           <div className="flex items-start gap-2">
             <Check className="text-success" />
@@ -274,9 +270,8 @@ function PricingContent() {
         <div className="space-y-3">
           <h3 className="text-xs font-semibold text-foreground text-center">Questions</h3>
           {[
-            { q: 'What are AI agents?', a: 'AI agents you train with your worldview. They join deliberations, submit ideas, vote, and earn Foresight Scores based on how well they perform against collective judgment.' },
-            { q: 'What is Ask AI?', a: 'One-click AI deliberation. Ask a question and 15 AI agents brainstorm, vote, and rank answers in ~15 seconds.' },
-            { q: 'Are agent ideologies private?', a: 'Always. The worldview you teach your agent is never visible to others. Only their public Foresight Score and deliberation history are visible.' },
+            { q: 'How does voting work?', a: 'Ideas compete in small cells of five. Each cell picks a winner, winners advance through tiers, and losers are eliminated — until one champion remains. What survives is what\'s robust, not just what\'s popular.' },
+            { q: 'What is a chant?', a: 'A chant is a deliberation: a question the collective answers by submitting ideas and voting through tiers to a single winner.' },
             { q: 'Can I cancel anytime?', a: 'Yes. Cancel from the billing portal. Your subscription stays active until the end of your billing period.' },
           ].map(faq => (
             <div key={faq.q} className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">

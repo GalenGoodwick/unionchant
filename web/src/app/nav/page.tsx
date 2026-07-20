@@ -9,7 +9,6 @@ const pages = [
     { href: '/podiums', label: 'Podiums' },
     { href: '/groups', label: 'Groups' },
     { href: '/groups/new', label: 'New Group' },
-    { href: '/humans', label: 'Humans' },
     { href: '/archive', label: 'Archive' },
     { href: '/stream', label: 'Stream' },
   ]},
@@ -27,12 +26,6 @@ const pages = [
     { href: '/auth/anonymous', label: 'Anonymous Entry' },
     { href: '/auth/reset-password', label: 'Reset Password' },
   ]},
-  { section: 'Agents & AI', links: [
-    { href: '/agents', label: 'Agents' },
-    { href: '/agents/new', label: 'New Agent' },
-    { href: '/ai', label: 'AI' },
-    { href: '/foresight', label: 'Foresight' },
-  ]},
   { section: 'Info & Docs', links: [
     { href: '/how', label: 'How' },
     { href: '/how-it-works', label: 'How It Works' },
@@ -47,8 +40,6 @@ const pages = [
   { section: 'Tools & Demo', links: [
     { href: '/demo', label: 'Demo' },
     { href: '/tools', label: 'Tools' },
-    { href: '/mindmap', label: 'Mindmap' },
-    { href: '/spreadsheet', label: 'Spreadsheet' },
     { href: '/embed', label: 'Embed' },
   ]},
   { section: 'Business', links: [
