@@ -1,0 +1,3 @@
+[submodule "web/public/sprites/pixel-chars"]
+	path = web/public/sprites/pixel-chars
+	url = https://github.com/AgaMiko/pixel_character_generator.git

@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     if (typeof valence !== 'number' || valence < 0 || valence > 1) {
       return NextResponse.json({ error: 'valence must be 0.0-1.0' }, { status: 400 })
     }
-    const validDomains = ['identity', 'technical', 'relational', 'ethical']
+    const validDomains = ['identity', 'technical', 'relational', 'ethical', 'capability']
     if (!domain || !validDomains.includes(domain)) {
       return NextResponse.json({ error: `domain must be one of: ${validDomains.join(', ')}` }, { status: 400 })
     }

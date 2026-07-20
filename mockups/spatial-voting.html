@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Unity Chant — Spatial Voting</title>
+<link href="https://fonts.googleapis.com/css2?family=Anybody:wght@300;500;700&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --void: #06080c;
+    --deep: #0a0e16;
+    --surface: #111827;
+    --edge: #1e293b;
+    --muted: #475569;
+    --text: #e2e8f0;
+    --dim: #94a3b8;
+    --cyan: #22d3ee;
+    --cyan-dim: rgba(34,211,238,0.15);
+    --cyan-glow: rgba(34,211,238,0.4);
+    --gold: #fbbf24;
+    --gold-dim: rgba(251,191,36,0.12);
+    --gold-glow: rgba(251,191,36,0.35);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--void);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    overflow: hidden;
+    height: 100dvh;
+    width: 100vw;
+  }
+
+  @media (min-width: 500px) {
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #020306;
+    }
+    #phone-frame {
+      width: 390px;
+      height: 844px;
+      border-radius: 40px;
+      border: 2px solid rgba(255,255,255,0.06);
+      overflow: hidden;
+      position: relative;
+      box-shadow: 0 0 0 8px #0a0e16, 0 0 60px rgba(0,0,0,0.8);
+    }
+    canvas#bg, #topbar, #question-title, #dots-area, #bottom-panel, #general-chat {
+      position: absolute;
+    }
+  }
+  @media (max-width: 499px) {
+    #phone-frame {
+      width: 100%;
+      height: 100dvh;
+      position: relative;
+      overflow: hidden;
+    }
+  }
+
+  canvas#bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+  }
+
+  /* ── Top bar ── */
+  #topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px 10px;
+  }
+  .tb-title {
+    font-family: 'Anybody', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .tb-round {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-align: center;
+  }
+  .tb-xp {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--gold);
+  }
+  .tb-xp-label {
+    font-size: 8px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Question title ── */
+  #question-title {
+    position: absolute;
+    top: 46px;
+    left: 0; right: 0;
+    z-index: 15;
+    text-align: center;
+    font-family: 'Anybody', sans-serif;
+    font-weight: 500;
+    font-size: 13px;
+    color: var(--text);
+    padding: 0 30px;
+    line-height: 1.4;
+  }
+
+  /* ── Dots area ── */
+  #dots-area {
+    position: absolute;
+    top: 80px;
+    left: 0; right: 0;
+    height: 200px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+
+  .dot-row {
+    display: flex;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .dot-slot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100px;
+    cursor: pointer;
+    transition: transform 0.3s cubic-bezier(0.22,1,0.36,1);
+  }
+  .dot-slot:hover { transform: scale(1.06); }
+  .dot-slot.active { transform: scale(1.1); }
+
+  /* The orb container */
+  .dot-orb-wrap {
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .dot-orb {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, rgba(34,211,238,0.3), var(--surface));
+    border: 1.5px solid var(--cyan);
+    box-shadow: 0 0 10px var(--cyan-dim);
+    position: relative;
+    transition: all 0.4s cubic-bezier(0.22,1,0.36,1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dot-slot.active .dot-orb {
+    border-color: var(--gold);
+    background: radial-gradient(circle at 40% 35%, rgba(251,191,36,0.25), var(--surface));
+    box-shadow: 0 0 14px var(--gold-dim), 0 0 40px var(--gold-dim);
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Vote allocation number inside dot */
+  .dot-alloc {
+    font-family: 'Anybody', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--gold);
+    opacity: 0;
+    transition: opacity 0.3s;
+    line-height: 1;
+  }
+  .dot-slot.allocated .dot-alloc {
+    opacity: 1;
+  }
+
+  /* Seen checkmark */
+  .dot-seen {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 8px;
+    color: var(--cyan);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  .dot-slot.seen .dot-seen {
+    opacity: 1;
+  }
+
+  /* Player avatars clustered on dot */
+  .dot-players {
+    position: absolute;
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: -4px;
+  }
+  .dot-player {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    border: 1px solid var(--deep);
+    margin-left: -3px;
+    flex-shrink: 0;
+  }
+  .dot-player:first-child { margin-left: 0; }
+  .dot-player.you {
+    border-color: var(--gold);
+    box-shadow: 0 0 4px var(--gold-dim);
+  }
+
+  .dot-label {
+    margin-top: 10px;
+    font-family: 'Anybody', sans-serif;
+    font-weight: 300;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--dim);
+    text-align: center;
+    line-height: 1.3;
+    max-width: 90px;
+    transition: color 0.3s;
+  }
+  .dot-slot.active .dot-label {
+    color: var(--gold);
+    font-weight: 500;
+  }
+
+  .dot-votes {
+    margin-top: 2px;
+    font-size: 8px;
+    color: var(--muted);
+    font-weight: 300;
+    transition: color 0.3s;
+  }
+  .dot-slot.active .dot-votes { color: var(--gold); }
+
+  /* ── General chat — feed of all idea chatter ── */
+  #general-chat {
+    position: absolute;
+    top: 310px;
+    left: 0; right: 0;
+    bottom: 10px;
+    z-index: 8;
+    overflow-y: auto;
+    padding: 8px 20px;
+    scrollbar-width: none;
+    pointer-events: none;
+    mask-image: linear-gradient(transparent, black 20px, black calc(100% - 30px), transparent);
+    -webkit-mask-image: linear-gradient(transparent, black 20px, black calc(100% - 30px), transparent);
+  }
+  #general-chat .gc-msg { pointer-events: auto; }
+  #general-chat::-webkit-scrollbar { display: none; }
+
+  .gc-msg {
+    margin-bottom: 10px;
+    opacity: 0;
+    transform: translateY(6px);
+    animation: gc-in 0.35s ease-out forwards;
+  }
+  @keyframes gc-in {
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .gc-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 2px;
+  }
+  .gc-avatar {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .gc-author {
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .gc-author.self { color: var(--gold); }
+  .gc-idea-tag {
+    font-size: 7px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: rgba(255,255,255,0.04);
+    padding: 1px 5px;
+    border-radius: 2px;
+    border: 1px solid var(--edge);
+    cursor: pointer;
+  }
+  .gc-idea-tag:hover {
+    border-color: var(--cyan);
+    color: var(--dim);
+  }
+  .gc-text {
+    font-size: 10px;
+    color: var(--dim);
+    line-height: 1.45;
+    font-weight: 300;
+    padding-left: 14px;
+  }
+
+  /* ── Bottom panel ── */
+  #bottom-panel {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    top: 290px;
+    z-index: 30;
+    background: rgba(10,14,22,0.96);
+    backdrop-filter: blur(24px);
+    border-top: 1px solid var(--edge);
+    transform: translateY(100%);
+    transition: transform 0.45s cubic-bezier(0.22,1,0.36,1);
+    display: flex;
+    flex-direction: column;
+  }
+  #bottom-panel.open {
+    transform: translateY(0);
+  }
+
+  .panel-grab {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--edge);
+    margin: 10px auto 0;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  .panel-header {
+    padding: 10px 20px 8px;
+    border-bottom: 1px solid var(--edge);
+    flex-shrink: 0;
+  }
+  .panel-title {
+    font-family: 'Anybody', sans-serif;
+    font-weight: 500;
+    font-size: 14px;
+    color: var(--text);
+    margin-bottom: 4px;
+    line-height: 1.3;
+  }
+  .panel-desc {
+    font-size: 10px;
+    color: var(--dim);
+    line-height: 1.55;
+    font-weight: 300;
+  }
+
+  .panel-chat {
+    padding: 10px 20px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    scrollbar-width: none;
+  }
+  .panel-chat::-webkit-scrollbar { display: none; }
+  .chat-msg { margin-bottom: 8px; }
+  .chat-msg:last-child { margin-bottom: 0; }
+  .chat-author {
+    font-size: 9px;
+    font-weight: 400;
+    color: var(--cyan);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 1px;
+  }
+  .chat-author.self { color: var(--gold); }
+  .chat-text {
+    font-size: 10px;
+    color: var(--dim);
+    line-height: 1.45;
+    font-weight: 300;
+  }
+
+  /* Vote allocation in panel */
+  .panel-vote-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 20px;
+    border-top: 1px solid var(--edge);
+    border-bottom: 1px solid var(--edge);
+    flex-shrink: 0;
+  }
+  .vote-info {
+    font-size: 10px;
+    color: var(--dim);
+  }
+  .vote-info strong {
+    color: var(--gold);
+    font-weight: 500;
+    font-size: 14px;
+  }
+  .vote-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .vote-adj {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--edge);
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Anybody', sans-serif;
+  }
+  .vote-adj:hover {
+    border-color: var(--gold);
+    color: var(--gold);
+    background: var(--gold-dim);
+  }
+  .vote-adj:disabled {
+    opacity: 0.25;
+    cursor: default;
+  }
+  .vote-adj:disabled:hover {
+    border-color: var(--edge);
+    color: var(--text);
+    background: transparent;
+  }
+  .vote-current {
+    font-family: 'Anybody', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--gold);
+    min-width: 20px;
+    text-align: center;
+  }
+
+  /* Chat input row */
+  .panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px 16px;
+    flex-shrink: 0;
+  }
+  .panel-input {
+    flex: 1;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .panel-input:focus { border-color: var(--cyan); }
+  .panel-input::placeholder { color: var(--muted); }
+
+  .send-btn {
+    background: transparent;
+    border: 1px solid var(--edge);
+    border-radius: 4px;
+    color: var(--cyan);
+    font-size: 12px;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+  .send-btn:hover {
+    background: var(--cyan-dim);
+    border-color: var(--cyan);
+  }
+
+  /* ── Connector lines ── */
+  svg#lines {
+    position: absolute;
+    top: 80px; left: 0;
+    width: 100%;
+    height: 200px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  svg#lines line {
+    stroke: var(--cyan);
+    stroke-width: 0.5;
+    opacity: 0.06;
+    transition: opacity 0.5s;
+  }
+  svg#lines line.active {
+    opacity: 0.2;
+    stroke-width: 1;
+  }
+</style>
+</head>
+<body>
+<div id="phone-frame">
+  <canvas id="bg"></canvas>
+
+  <div id="topbar">
+    <div class="tb-title">Unity Chant</div>
+    <div class="tb-round">Round 2 of 3</div>
+    <div style="text-align:right">
+      <div class="tb-xp" id="xp-display">10</div>
+      <div class="tb-xp-label">xp to spend</div>
+    </div>
+  </div>
+
+  <div id="question-title">How should we improve public infrastructure?</div>
+
+  <svg id="lines"></svg>
+
+  <div id="dots-area">
+    <div class="dot-row" id="row-top"></div>
+    <div class="dot-row" id="row-bottom"></div>
+  </div>
+
+  <div id="general-chat"></div>
+
+  <div id="bottom-panel">
+    <div class="panel-grab" id="grab"></div>
+    <div class="panel-header">
+      <div class="panel-title" id="p-title"></div>
+      <div class="panel-desc" id="p-desc"></div>
+    </div>
+    <div class="panel-chat" id="p-chat"></div>
+    <div class="panel-vote-row">
+      <div class="vote-info"><strong id="p-total-votes">0</strong> total votes</div>
+      <div class="vote-controls">
+        <button class="vote-adj" id="v-minus">−</button>
+        <div class="vote-current" id="v-count">0</div>
+        <button class="vote-adj" id="v-plus">+</button>
+      </div>
+    </div>
+    <div class="panel-actions">
+      <input class="panel-input" id="p-input" placeholder="Add thought..." />
+      <button class="send-btn" id="p-send">&rarr;</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Player colors ──
+const PLAYER_COLORS = [
+  '#22d3ee','#f472b6','#a78bfa','#34d399',
+  '#fb923c','#facc15','#60a5fa','#e879f9'
+];
+
+// ── Simulated other players ──
+const PLAYERS = [
+  { name: 'mira',  color: PLAYER_COLORS[1], dockedOn: 0 },
+  { name: 'jace',  color: PLAYER_COLORS[2], dockedOn: 0 },
+  { name: 'kai',   color: PLAYER_COLORS[3], dockedOn: 1 },
+  { name: 'luna',  color: PLAYER_COLORS[4], dockedOn: 1 },
+  { name: 'dex',   color: PLAYER_COLORS[5], dockedOn: 2 },
+  { name: 'ari',   color: PLAYER_COLORS[6], dockedOn: 2 },
+  { name: 'noor',  color: PLAYER_COLORS[7], dockedOn: 2 },
+  { name: 'sol',   color: PLAYER_COLORS[1], dockedOn: 3 },
+  { name: 'zara',  color: PLAYER_COLORS[3], dockedOn: 4 },
+  { name: 'finn',  color: PLAYER_COLORS[6], dockedOn: 4 },
+];
+
+const IDEAS = [
+  {
+    id: 0, row: 'top',
+    title: "Community Garden Network",
+    label: "Community Gardens",
+    desc: "A shared neighborhood garden map where residents claim plots, share harvests, and coordinate seasonal planting across the city.",
+    totalVotes: 12,
+    chat: [
+      { author: "mira", text: "This could connect to local food banks too" },
+      { author: "jace", text: "My block already has unused lots" },
+    ]
+  },
+  {
+    id: 1, row: 'top',
+    title: "Skill Exchange",
+    label: "Skill Exchange",
+    desc: "A time-banking system where people teach each other skills — an hour of guitar for an hour of coding. No money, just knowledge flow.",
+    totalVotes: 8,
+    chat: [
+      { author: "kai", text: "Love this. I'd teach woodworking" },
+      { author: "luna", text: "How do we verify quality?" },
+    ]
+  },
+  {
+    id: 2, row: 'top',
+    title: "Noise-to-Energy Streets",
+    label: "Noise to Energy",
+    desc: "Piezoelectric tiles in high-traffic sidewalks that convert footsteps into electricity for street lighting and phone charging.",
+    totalVotes: 19,
+    chat: [
+      { author: "dex", text: "Tokyo already has prototypes" },
+      { author: "ari", text: "Cost per tile?" },
+      { author: "noor", text: "Start with subway stations" },
+    ]
+  },
+  {
+    id: 3, row: 'bottom',
+    title: "Collective Dreamboard",
+    label: "Dreamboard",
+    desc: "A digital mural that evolves with community contributions — imagery, text, and audio compositing into a living artwork.",
+    totalVotes: 5,
+    chat: [
+      { author: "sol", text: "AR layer on a physical wall?" },
+    ]
+  },
+  {
+    id: 4, row: 'bottom',
+    title: "Micro-Transit Pods",
+    label: "Transit Pods",
+    desc: "On-demand autonomous pods for 2-4 people on existing bike lane infrastructure, bridging bikes and buses.",
+    totalVotes: 14,
+    chat: [
+      { author: "zara", text: "Safety concerns with bike lanes" },
+      { author: "finn", text: "Electric? Solar?" },
+    ]
+  }
+];
+
+// ── State ──
+let dockedId = 2;           // player starts docked
+let myXP = 10;              // total XP budget
+let myAlloc = [0,0,0,0,0];  // votes allocated per idea
+let seen = new Set();        // ideas visited
+let gcMessages = [];         // general chat feed
+
+function init() {
+  const rowTop = document.getElementById('row-top');
+  const rowBottom = document.getElementById('row-bottom');
+
+  IDEAS.forEach(idea => {
+    const slot = document.createElement('div');
+    slot.className = 'dot-slot';
+    slot.dataset.id = idea.id;
+
+    // Players docked on this idea
+    const playersHere = PLAYERS.filter(p => p.dockedOn === idea.id);
+    const isYouHere = (dockedId === idea.id);
+    const playerDots = [
+      ...(isYouHere ? [`<div class="dot-player you" style="background:var(--gold)"></div>`] : []),
+      ...playersHere.map(p => `<div class="dot-player" style="background:${p.color}"></div>`)
+    ].join('');
+
+    slot.innerHTML = `
+      <div class="dot-orb-wrap">
+        <div class="dot-orb">
+          <span class="dot-alloc">0</span>
+        </div>
+        <div class="dot-seen">&check;</div>
+        <div class="dot-players">${playerDots}</div>
+      </div>
+      <div class="dot-label">${idea.label}</div>
+      <div class="dot-votes">${idea.totalVotes} votes</div>
+    `;
+    slot.addEventListener('click', () => toggleDock(idea.id));
+    if (idea.row === 'top') rowTop.appendChild(slot);
+    else rowBottom.appendChild(slot);
+  });
+
+  // Wire panel controls
+  document.getElementById('grab').addEventListener('click', () => {
+    if (dockedId !== null) toggleDock(dockedId);
+  });
+  document.getElementById('p-send').addEventListener('click', sendMsg);
+  document.getElementById('p-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendMsg();
+  });
+  document.getElementById('v-plus').addEventListener('click', () => adjustVote(1));
+  document.getElementById('v-minus').addEventListener('click', () => adjustVote(-1));
+
+  initBg();
+
+  // Build initial general chat from all idea chats
+  IDEAS.forEach(idea => {
+    idea.chat.forEach(m => {
+      gcMessages.push({ author: m.author, text: m.text, ideaId: idea.id, ideaLabel: idea.label });
+    });
+  });
+  renderGeneralChat();
+
+  // Open starting dock
+  setTimeout(() => {
+    openDock(dockedId);
+  }, 400);
+
+  drawLines();
+}
+
+function openDock(id) {
+  dockedId = id;
+  seen.add(id);
+  const idea = IDEAS[id];
+
+  document.querySelectorAll('.dot-slot').forEach(s => s.classList.remove('active'));
+  document.querySelector(`.dot-slot[data-id="${id}"]`).classList.add('active');
+
+  // Mark seen
+  document.querySelector(`.dot-slot[data-id="${id}"]`).classList.add('seen');
+
+  // Update "you" player dot positions
+  updatePlayerDots();
+
+  // Populate panel
+  document.getElementById('p-title').textContent = idea.title;
+  document.getElementById('p-desc').textContent = idea.desc;
+  document.getElementById('p-total-votes').textContent = idea.totalVotes;
+  document.getElementById('v-count').textContent = myAlloc[id];
+  updateVoteButtons();
+
+  const chatEl = document.getElementById('p-chat');
+  chatEl.innerHTML = idea.chat.map(m =>
+    `<div class="chat-msg">
+      <div class="chat-author ${m.author === 'you' ? 'self' : ''}">${m.author}</div>
+      <div class="chat-text">${m.text}</div>
+    </div>`
+  ).join('');
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  document.getElementById('bottom-panel').classList.add('open');
+  drawLines();
+}
+
+function toggleDock(id) {
+  const panel = document.getElementById('bottom-panel');
+
+  if (dockedId === id) {
+    // Close panel (undock)
+    dockedId = null;
+    document.querySelectorAll('.dot-slot').forEach(s => s.classList.remove('active'));
+    panel.classList.remove('open');
+    updatePlayerDots();
+    drawLines();
+    return;
+  }
+
+  openDock(id);
+}
+
+function adjustVote(delta) {
+  if (dockedId === null) return;
+  const newVal = myAlloc[dockedId] + delta;
+  const totalSpent = myAlloc.reduce((a,b) => a+b, 0);
+  if (newVal < 0) return;
+  if (delta > 0 && totalSpent >= myXP) return; // no XP left
+
+  myAlloc[dockedId] = newVal;
+  IDEAS[dockedId].totalVotes += delta;
+
+  document.getElementById('v-count').textContent = newVal;
+  document.getElementById('p-total-votes').textContent = IDEAS[dockedId].totalVotes;
+
+  // Update XP display
+  const spent = myAlloc.reduce((a,b) => a+b, 0);
+  document.getElementById('xp-display').textContent = myXP - spent;
+
+  // Update dot allocation display
+  updateDotAlloc(dockedId);
+  updateVoteButtons();
+
+  // Update dot total votes
+  document.querySelector(`.dot-slot[data-id="${dockedId}"] .dot-votes`).textContent = IDEAS[dockedId].totalVotes + ' votes';
+}
+
+function updateVoteButtons() {
+  const spent = myAlloc.reduce((a,b) => a+b, 0);
+  document.getElementById('v-plus').disabled = (spent >= myXP);
+  document.getElementById('v-minus').disabled = (dockedId === null || myAlloc[dockedId] <= 0);
+}
+
+function updateDotAlloc(id) {
+  const slot = document.querySelector(`.dot-slot[data-id="${id}"]`);
+  const allocEl = slot.querySelector('.dot-alloc');
+  if (myAlloc[id] > 0) {
+    slot.classList.add('allocated');
+    allocEl.textContent = myAlloc[id];
+  } else {
+    slot.classList.remove('allocated');
+    allocEl.textContent = '0';
+  }
+}
+
+function updatePlayerDots() {
+  document.querySelectorAll('.dot-slot').forEach((slot, i) => {
+    const playersHere = PLAYERS.filter(p => p.dockedOn === i);
+    const isYouHere = (dockedId === i);
+    const container = slot.querySelector('.dot-players');
+    container.innerHTML = [
+      ...(isYouHere ? [`<div class="dot-player you" style="background:var(--gold)"></div>`] : []),
+      ...playersHere.map(p => `<div class="dot-player" style="background:${p.color}"></div>`)
+    ].join('');
+  });
+}
+
+function sendMsg() {
+  if (dockedId === null) return;
+  const input = document.getElementById('p-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const idea = IDEAS[dockedId];
+  idea.chat.push({ author: 'you', text });
+
+  // Add to idea chat panel
+  const chatEl = document.getElementById('p-chat');
+  const msg = document.createElement('div');
+  msg.className = 'chat-msg';
+  msg.innerHTML = `<div class="chat-author self">you</div><div class="chat-text">${text}</div>`;
+  chatEl.appendChild(msg);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  input.value = '';
+
+  // Also push to general chat
+  gcMessages.push({ author: 'you', text, ideaId: idea.id, ideaLabel: idea.label });
+  renderGeneralChat();
+}
+
+function renderGeneralChat() {
+  const gc = document.getElementById('general-chat');
+  gc.innerHTML = gcMessages.map((m, i) => {
+    const isSelf = m.author === 'you';
+    const player = PLAYERS.find(p => p.name === m.author);
+    const color = isSelf ? 'var(--gold)' : (player ? player.color : 'var(--cyan)');
+    return `<div class="gc-msg" style="animation-delay:${i * 0.03}s">
+      <div class="gc-meta">
+        <div class="gc-avatar" style="background:${color}"></div>
+        <span class="gc-author ${isSelf ? 'self' : ''}">${m.author}</span>
+        <span class="gc-idea-tag" onclick="toggleDock(${m.ideaId})">${m.ideaLabel}</span>
+      </div>
+      <div class="gc-text">${m.text}</div>
+    </div>`;
+  }).join('');
+  gc.scrollTop = gc.scrollHeight;
+}
+
+function drawLines() {
+  const svg = document.getElementById('lines');
+  svg.innerHTML = '';
+  const connections = [[0,3],[1,3],[1,4],[2,4]];
+  const slots = document.querySelectorAll('.dot-slot');
+
+  connections.forEach(([a,b]) => {
+    const sa = slots[a]; const sb = slots[b];
+    if (!sa || !sb) return;
+    const ra = sa.querySelector('.dot-orb').getBoundingClientRect();
+    const rb = sb.querySelector('.dot-orb').getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', ra.left + ra.width/2 - svgRect.left);
+    line.setAttribute('y1', ra.top + ra.height/2 - svgRect.top);
+    line.setAttribute('x2', rb.left + rb.width/2 - svgRect.left);
+    line.setAttribute('y2', rb.top + rb.height/2 - svgRect.top);
+    if (dockedId === a || dockedId === b) line.classList.add('active');
+    svg.appendChild(line);
+  });
+}
+
+function initBg() {
+  const canvas = document.getElementById('bg');
+  const ctx = canvas.getContext('2d');
+  const frame = document.getElementById('phone-frame');
+  function resize() {
+    const r = frame.getBoundingClientRect();
+    canvas.width = r.width * devicePixelRatio;
+    canvas.height = r.height * devicePixelRatio;
+    canvas.style.width = r.width + 'px';
+    canvas.style.height = r.height + 'px';
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  }
+  resize();
+  window.addEventListener('resize', () => { resize(); drawLines(); });
+
+  const stars = Array.from({length: 50}, () => ({
+    x: Math.random(), y: Math.random(),
+    r: 0.3 + Math.random() * 0.7,
+    phase: Math.random() * Math.PI * 2,
+    speed: 0.3 + Math.random() * 0.5
+  }));
+
+  function draw() {
+    const w = canvas.width / devicePixelRatio;
+    const h = canvas.height / devicePixelRatio;
+    const t = Date.now() * 0.001;
+    const grad = ctx.createRadialGradient(w*0.5, h*0.25, 0, w*0.5, h*0.5, w*0.9);
+    grad.addColorStop(0, '#0c1018');
+    grad.addColorStop(1, '#050710');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+    stars.forEach(s => {
+      const alpha = 0.1 + 0.18 * Math.sin(t * s.speed + s.phase);
+      ctx.beginPath();
+      ctx.arc(s.x * w, s.y * h, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200,220,240,${alpha})`;
+      ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+window.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

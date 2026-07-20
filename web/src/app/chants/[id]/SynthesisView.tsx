@@ -41,6 +41,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
   const [showIdeas, setShowIdeas] = useState(false)
   const [showManage, setShowManage] = useState(false)
   const [showAudit, setShowAudit] = useState(false)
+  const [resuming, setResuming] = useState(false)
   const [auditMessages, setAuditMessages] = useState<AuditMessage[]>([])
   const [auditLoading, setAuditLoading] = useState(false)
   const auditEndRef = useRef<HTMLDivElement>(null)
@@ -81,6 +82,15 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
   }, [showAudit]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isCreator = userId && status.creator.id === session?.user?.id
+
+  // Auto-open audit stream for creator on first render
+  const autoOpenedRef = useRef(false)
+  useEffect(() => {
+    if (isCreator && !autoOpenedRef.current && status.phase !== 'SUBMISSION') {
+      setShowAudit(true)
+      autoOpenedRef.current = true
+    }
+  }, [isCreator, status.phase])
 
   // Use cells from status (public, no auth needed)
   useEffect(() => {
@@ -135,6 +145,29 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
           </span>
         </div>
       </div>
+
+      {/* ─── PHASE BANNER ─── */}
+      {status.phase === 'PAUSED' && (
+        <div className="mb-3 px-3 py-2 bg-warning/10 border border-warning/20 rounded-lg flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-warning" />
+          <span className="text-xs font-medium text-warning">Synthesis Paused</span>
+        </div>
+      )}
+      {status.phase === 'VOTING' && myCells.some(c => c.status === 'DELIBERATING') && (
+        <div className="mb-3 px-3 py-2 bg-accent/8 border border-accent/15 rounded-lg flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+          <span className="text-xs font-medium text-accent">Cells Deliberating</span>
+          <span className="text-[10px] text-muted ml-auto">
+            {myCells.filter(c => c.status === 'DELIBERATING').length} active · {myCells.filter(c => c.status === 'COMPLETED').length} done
+          </span>
+        </div>
+      )}
+      {status.phase === 'COMPLETED' && !status.champion && (
+        <div className="mb-3 px-3 py-2 bg-success/8 border border-success/15 rounded-lg flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-success" />
+          <span className="text-xs font-medium text-success">Synthesis Complete</span>
+        </div>
+      )}
 
       {/* ─── JOIN CTA ─── */}
       {!joined && (
@@ -245,6 +278,9 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
                     : 'bg-surface/50 text-muted hover:text-foreground border-border/50'
                 }`}
               >
+                {c.status === 'DELIBERATING' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse mr-1" />
+                )}
                 Cell {i + 1}
                 {c.status === 'COMPLETED' && <span className="ml-1 text-[10px] opacity-60">done</span>}
               </button>
@@ -364,6 +400,49 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
                 <p className="text-[10px] text-warning mt-1">Need at least 2 ideas.</p>
               )}
             </div>
+          )}
+
+          {/* Resume paused chant */}
+          {status.phase === 'PAUSED' && (
+            <button
+              onClick={async () => {
+                setResuming(true)
+                try {
+                  const res = await fetch(`/api/deliberations/${id}/manage`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phase: 'RESUME' }),
+                  })
+                  if (res.ok) fetchStatus()
+                } catch { /* silent */ }
+                finally { setResuming(false) }
+              }}
+              disabled={resuming}
+              className="w-full py-2 bg-warning hover:bg-warning/80 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              {resuming ? 'Resuming...' : 'Resume Synthesis'}
+            </button>
+          )}
+
+          {/* Re-drive existing cells after resume */}
+          {status.phase === 'VOTING' && myCells.some(c => c.status === 'DELIBERATING') && (
+            <button
+              onClick={async () => {
+                setResuming(true)
+                try {
+                  const res = await fetch(`/api/deliberations/${id}/resume-synthesis`, { method: 'POST' })
+                  if (res.ok) {
+                    fetchStatus()
+                    if (!showAudit) setShowAudit(true)
+                  }
+                } catch { /* silent */ }
+                finally { setResuming(false) }
+              }}
+              disabled={resuming}
+              className="w-full py-2 bg-accent hover:bg-accent-hover disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              {resuming ? 'Driving cells...' : 'Resume Cell Dialogue'}
+            </button>
           )}
 
           {status.inviteCode && (

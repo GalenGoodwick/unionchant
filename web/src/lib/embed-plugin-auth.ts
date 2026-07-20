@@ -103,28 +103,6 @@ export async function resolveEmbedPluginUser(
     return existing
   }
 
-  // Check for existing CG user (bridges CG → embed migration)
-  // CG users have cgId field and cg_{id}@plugin.unitychant.com emails
-  const cgUser = await prisma.user.findUnique({ where: { cgId: externalUserId } })
-  if (cgUser) {
-    // Link embed identity to existing CG account
-    await prisma.user.update({
-      where: { id: cgUser.id },
-      data: {
-        embedExternalId: `${externalUserId}:${communityId}`,
-        name: username,
-        image: imageUrl || cgUser.image,
-      },
-    })
-    // Ensure community membership
-    await prisma.communityMember.upsert({
-      where: { communityId_userId: { communityId, userId: cgUser.id } },
-      update: { lastActiveAt: new Date() },
-      create: { communityId, userId: cgUser.id, role: 'MEMBER' },
-    })
-    return cgUser
-  }
-
   // Create new synthetic user
   const now = new Date()
   try {

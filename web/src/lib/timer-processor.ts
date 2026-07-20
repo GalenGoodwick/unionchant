@@ -474,7 +474,6 @@ export async function purgeEmptyTalks(): Promise<string[]> {
       await prisma.deliberationUpvote.deleteMany({ where: { deliberationId: talk.id } })
       await prisma.notification.deleteMany({ where: { deliberationId: talk.id } })
       await prisma.watch.deleteMany({ where: { deliberationId: talk.id } })
-      await prisma.aIAgent.deleteMany({ where: { deliberationId: talk.id } })
       await prisma.deliberationMember.deleteMany({ where: { deliberationId: talk.id } })
       await prisma.deliberation.delete({ where: { id: talk.id } })
       purged.push(talk.id)

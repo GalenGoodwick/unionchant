@@ -79,7 +79,6 @@ export default function Header() {
               { href: '/stream', label: 'Stream' },
               { href: '/sdk', label: 'SDK' },
               { href: '/api-docs', label: 'API' },
-              { href: '/ai', label: 'AI' },
             ].map(link => (
               <Link
                 key={link.href}
@@ -96,7 +95,6 @@ export default function Header() {
             <span onClick={triggerChallenge} className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-500 hover:text-red-400 transition-colors cursor-pointer">Beta</span>
             {[
               { href: '/how', label: 'About' },
-              { href: '/humanity', label: 'Humanity' },
               { href: '/embed', label: 'Embed' },
               { href: '/methodology', label: 'Method' },
             ].map(link => (

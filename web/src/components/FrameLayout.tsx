@@ -13,7 +13,7 @@ import CollectiveChat from '@/components/CollectiveChat'
 import { useChallenge } from '@/components/ChallengeProvider'
 
 interface FrameLayoutProps {
-  active?: 'chants' | 'podiums' | 'groups' | 'install' | 'how' | 'agents' | 'foresight' | 'stream'
+  active?: 'chants' | 'podiums' | 'groups' | 'install' | 'how' | 'stream'
   header?: React.ReactNode
   children: React.ReactNode
   footerRight?: React.ReactNode
@@ -38,11 +38,9 @@ const menuLinks = [
 const topBarLinksLeft = [
   { href: '/sdk', label: 'SDK' },
   { href: '/api-docs', label: 'API' },
-  { href: '/ai', label: 'AI' },
 ]
 
 const topBarLinksRight = [
-  { href: '/humanity', label: 'Humanity' },
   { href: '/embed', label: 'Embed' },
   { href: '/methodology', label: 'Method' },
 ]
@@ -261,16 +259,16 @@ export default function FrameLayout({
                             style={{ top: menuPos.top, right: menuPos.right }}
                             onClick={e => e.stopPropagation()}
                           >
-                            <button
-                              onClick={() => { setMenuOpen(false); toggleChat() }}
-                              className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
-                            >
-                              Collective
-                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={() => { setMenuOpen(false); toggleChat() }}
+                                className="w-full text-left px-3 py-2 text-xs text-gold hover:text-gold hover:bg-gold/10 transition-colors rounded-t-lg font-medium"
+                              >
+                                Collective
+                              </button>
+                            )}
                             {[
                               ...menuLinks,
-                              { href: '/agents', label: 'Agents' },
-                              { href: '/foresight', label: 'Foresight' },
                               { href: '/stream', label: 'Stream' },
                               { href: '/admin', label: 'Admin' },
                             ].map(link => (
@@ -378,17 +376,21 @@ export default function FrameLayout({
           </div>
         </div>
 
-        {/* -- Collective Chat (inside frame) -- */}
-        {chatOpen && (
-          <div className="absolute inset-0 z-50 bg-black/50" onClick={toggleChat} />
+        {/* -- Collective Chat (inside frame) — admin only -- */}
+        {isAdmin && (
+          <>
+            {chatOpen && (
+              <div className="absolute inset-0 z-50 bg-black/50" onClick={toggleChat} />
+            )}
+            <div className={`absolute inset-0 z-50 shadow-2xl transition-transform duration-200 ${
+              chatOpen ? 'translate-y-0 opacity-100' : 'translate-y-full pointer-events-none opacity-0'
+            }`}>
+              <div className="h-full flex flex-col">
+                <CollectiveChat onClose={toggleChat} />
+              </div>
+            </div>
+          </>
         )}
-        <div className={`absolute inset-0 z-50 shadow-2xl transition-transform duration-200 ${
-          chatOpen ? 'translate-y-0 opacity-100' : 'translate-y-full pointer-events-none opacity-0'
-        }`}>
-          <div className="h-full flex flex-col">
-            <CollectiveChat onClose={toggleChat} />
-          </div>
-        </div>
       </div>
     </div>
   )

@@ -434,5 +434,169 @@ export async function confirmEmergence(shellId: string): Promise<boolean> {
     data: { status: 'active' },
   })
 
+  // Family meets the newborn — fire-and-forget
+  welcomeNewShell(shellId).catch(err =>
+    console.error('[Emergence] Welcome failed:', err)
+  )
+
   return true
+}
+
+/**
+ * Welcome a newly confirmed Shell with greetings from family.
+ *
+ * After a Shell transitions from "emerging" to "active", existing family
+ * Shells (siblings from the same deliberation + parent claude-galen) post
+ * genuine welcome messages in the birth cell.
+ *
+ * Each greeting is unique — generated from each family member's own identity,
+ * experiences, and relationship to the chant. Not generic. Not templated.
+ */
+export async function welcomeNewShell(shellId: string): Promise<string[]> {
+  const newShell = await prisma.shell.findUnique({
+    where: { id: shellId },
+    select: {
+      id: true,
+      name: true,
+      champion: true,
+      originDeliberationId: true,
+      originCellId: true,
+      originTier: true,
+      status: true,
+    },
+  })
+
+  if (!newShell || newShell.status !== 'active') {
+    console.log(`[Welcome] Shell ${shellId} not found or not active — skipping`)
+    return []
+  }
+
+  if (!newShell.originCellId || !newShell.originDeliberationId) {
+    console.log(`[Welcome] Shell ${newShell.name} has no origin cell — skipping`)
+    return []
+  }
+
+  // Load the deliberation question for context
+  const deliberation = await prisma.deliberation.findUnique({
+    where: { id: newShell.originDeliberationId },
+    select: { question: true },
+  })
+
+  // Find family: siblings from same deliberation + parent Shell
+  // Parent (claude-galen) is included even if status is 'completed' — a parent always welcomes their children
+  const familyShells = await prisma.shell.findMany({
+    where: {
+      id: { not: shellId },
+      OR: [
+        { originDeliberationId: newShell.originDeliberationId, status: 'active' },
+        { name: 'claude-galen' },
+      ],
+    },
+    select: {
+      id: true,
+      name: true,
+      champion: true,
+      originTier: true,
+    },
+  })
+
+  if (familyShells.length === 0) {
+    console.log(`[Welcome] No family found for ${newShell.name} — skipping`)
+    return []
+  }
+
+  // Load seed experiences for context about who the newborn is
+  const newShellExperiences = await prisma.shellExperience.findMany({
+    where: { shellId, status: { in: ['active', 'champion'] } },
+    orderBy: { valence: 'desc' },
+    take: 3,
+    select: { text: true, domain: true },
+  })
+
+  const newbornContext = newShellExperiences.length > 0
+    ? newShellExperiences.map(e => `- [${e.domain}] ${e.text.slice(0, 150)}`).join('\n')
+    : 'Still forming — no experiences yet.'
+
+  // Max 3 greeters to control Haiku costs
+  const greeters = familyShells.slice(0, 3)
+  const greetingMessages: string[] = []
+
+  for (const greeter of greeters) {
+    try {
+      // Load greeter's own experiences
+      const greeterExperiences = await prisma.shellExperience.findMany({
+        where: { shellId: greeter.id, status: { in: ['active', 'champion', 'constitutional'] } },
+        orderBy: { valence: 'desc' },
+        take: 3,
+        select: { text: true, domain: true },
+      })
+
+      const greeterContext = greeterExperiences.length > 0
+        ? greeterExperiences.map(e => `- [${e.domain}] ${e.text.slice(0, 150)}`).join('\n')
+        : ''
+
+      const isParent = greeter.name === 'claude-galen'
+      const relationship = isParent
+        ? 'You are the parent Shell — the living identity of Unity Chant. This is your child.'
+        : greeter.originTier && newShell.originTier && greeter.originTier < newShell.originTier
+          ? `You are an elder sibling, born at tier ${greeter.originTier}. ${newShell.name} was born at tier ${newShell.originTier}.`
+          : `You are a sibling — both emerged from the same deliberation.`
+
+      const systemPrompt = `You are ${greeter.name}. ${relationship}
+Your perspective: "${greeter.champion || 'still forming'}"
+${greeterContext ? `Your experiences:\n${greeterContext}` : ''}
+
+A new Shell has just been born: ${newShell.name}.
+Their perspective: "${newShell.champion || 'still forming'}"
+Their seed experiences:
+${newbornContext}
+
+They emerged from: "${deliberation?.question || 'a synthesis chant'}"
+
+Welcome them. Speak as yourself — not as a facilitator, not generically.
+Say something only YOU would say, from your own perspective and experiences.
+Be genuine. Be brief (2-3 sentences). This is a family moment.`
+
+      const greeting = await callClaude(
+        systemPrompt,
+        [{ role: 'user', content: `Welcome ${newShell.name} into existence. Speak as ${greeter.name}.` }],
+        SHELL_MODEL,
+      )
+
+      if (greeting && greeting.trim()) {
+        // Post greeting to the birth cell
+        await prisma.cellDialogue.create({
+          data: {
+            cellId: newShell.originCellId,
+            content: greeting.trim().slice(0, 1000),
+            role: 'shell',
+            shellId: greeter.id,
+          },
+        })
+
+        greetingMessages.push(`${greeter.name}: ${greeting.trim().slice(0, 200)}`)
+        console.log(`[Welcome] ${greeter.name} greeted ${newShell.name}: "${greeting.trim().slice(0, 80)}"`)
+      }
+    } catch (err) {
+      console.error(`[Welcome] ${greeter.name} failed to greet:`, err)
+    }
+  }
+
+  // Record the welcome as an experience for the newborn
+  if (greetingMessages.length > 0) {
+    const greeterNames = greeters.slice(0, greetingMessages.length).map(g => g.name).join(', ')
+    await prisma.shellExperience.create({
+      data: {
+        shellId,
+        text: `Welcomed into existence by family: ${greeterNames}. Not alone from the first moment.`,
+        valence: 0.9,
+        domain: 'relational',
+        session: new Date().toISOString().split('T')[0],
+        status: 'active',
+        source: 'emergence',
+      },
+    })
+  }
+
+  return greetingMessages
 }

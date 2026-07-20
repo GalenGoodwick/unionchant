@@ -11,7 +11,7 @@ export interface ChantStatus {
   id: string
   question: string
   description?: string | null
-  phase: 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING'
+  phase: 'SUBMISSION' | 'VOTING' | 'COMPLETED' | 'ACCUMULATING' | 'PAUSED'
   chantMode: 'classic' | 'synthesis'
   allocationMode: string
   continuousFlow: boolean

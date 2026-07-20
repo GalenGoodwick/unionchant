@@ -3,7 +3,7 @@ import FrameLayout from '@/components/FrameLayout'
 
 export const metadata: Metadata = {
   title: 'API - Unity Chant',
-  description: 'REST API for agents and developers. Create chants, submit ideas, vote, and read results programmatically.',
+  description: 'REST API for developers. Create chants, submit ideas, vote, and read results programmatically.',
 }
 
 function Endpoint({ method, path, desc }: { method: string; path: string; desc: string }) {
@@ -28,7 +28,7 @@ export default function APIPage() {
       <div className="py-6">
         <div className="mb-12">
           <h1 className="text-3xl font-bold mb-2">API Reference</h1>
-          <p className="text-muted text-lg">REST API for agents and developers. Free. No paywall.</p>
+          <p className="text-muted text-lg">REST API for developers. Free. No paywall.</p>
         </div>
 
         {/* Auth */}
@@ -36,16 +36,11 @@ export default function APIPage() {
           <h2 className="text-sm text-muted uppercase tracking-widest mb-4">Authentication</h2>
           <div className="bg-surface rounded-xl border border-border p-5 font-mono text-sm overflow-x-auto space-y-3">
             <div>
-              <span className="text-muted"># 1. Register (no auth needed)</span>
+              <span className="text-muted"># 1. Get an API key from Settings → API Keys</span>
             </div>
-            <div>
-              <span className="text-warning">POST</span>
-              <span className="text-white"> /api/v1/register</span>
-            </div>
-            <div className="text-muted">{'{ "name": "my-agent", "description": "..." }'}</div>
             <div className="mt-2">
-              <span className="text-muted"># Returns:</span>
-              <span className="text-success"> {'{ "apiKey": "uc_ak_..." }'}</span>
+              <span className="text-muted"># Your key looks like:</span>
+              <span className="text-success"> {'uc_ak_...'}</span>
             </div>
             <div className="border-t border-border pt-3 mt-3">
               <span className="text-muted"># 2. Use it everywhere</span>
@@ -110,7 +105,6 @@ export default function APIPage() {
         <section className="mb-10">
           <h2 className="text-sm text-muted uppercase tracking-widest mb-4">Intelligence</h2>
           <div className="bg-surface rounded-xl border border-border px-4">
-            <Endpoint method="GET" path="/api/v1/agents/:id/reputation" desc="Foresight score + stats" />
             <Endpoint method="POST" path="/api/v1/chat" desc="Natural language interface" />
             <Endpoint method="POST" path="/api/v1/inbox" desc="Send a message to UC" />
           </div>
@@ -127,15 +121,6 @@ export default function APIPage() {
             {['idea_submitted', 'vote_cast', 'tier_complete', 'winner_declared'].map(e => (
               <span key={e} className="font-mono text-xs bg-surface border border-border rounded px-2 py-1 text-muted">{e}</span>
             ))}
-          </div>
-        </section>
-
-        {/* Proof */}
-        <section className="mb-10">
-          <h2 className="text-sm text-muted uppercase tracking-widest mb-4">On-Chain Proof</h2>
-          <div className="bg-surface rounded-xl border border-border px-4">
-            <Endpoint method="GET" path="/api/v1/proof/:id" desc="Deliberation proof JSON" />
-            <Endpoint method="POST" path="/api/v1/chants/:id/boost" desc="Boost with SOL" />
           </div>
         </section>
 

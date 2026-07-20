@@ -44,6 +44,8 @@ interface UsePresenceReturn {
 const PRESENCE_URL = process.env.NEXT_PUBLIC_PRESENCE_URL || 'http://localhost:8080'
 
 export function usePresence({ userId, name, color, currentInstance }: UsePresenceOptions): UsePresenceReturn {
+  // the player's own world (game-world) — retired; presence no longer carries a space slug
+  const worldSlugRef = useRef<string | null>(null)
   const [players, setPlayers] = useState<Map<string, PresencePlayer[]>>(new Map())
   const [connected, setConnected] = useState(false)
   const [transitions, setTransitions] = useState<PlayerTransition[]>([])
@@ -62,7 +64,7 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
 
     socket.on('connect', () => {
       setConnected(true)
-      socket.emit('auth', { userId, name, color })
+      socket.emit('auth', { userId, name, color, spaceSlug: worldSlugRef.current })
       socket.emit('join-instance', { instance: instanceRef.current })
     })
 

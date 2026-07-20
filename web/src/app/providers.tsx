@@ -4,7 +4,6 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import { SessionProvider, useSession } from 'next-auth/react'
 import { usePathname } from 'next/navigation'
 import { ToastProvider } from '@/components/Toast'
-import Onboarding from '@/components/Onboarding'
 import UserGuide from '@/components/UserGuide'
 import CollectiveChat from '@/components/CollectiveChat'
 
@@ -12,9 +11,6 @@ import ChallengeProvider from '@/components/ChallengeProvider'
 import PasskeyPrompt from '@/components/PasskeyPrompt'
 import { useOnboarding } from '@/hooks/useOnboarding'
 import Header from '@/components/Header'
-import dynamic from 'next/dynamic'
-
-const WalletProvider = dynamic(() => import('@/components/crypto/WalletProvider'), { ssr: false })
 
 type OnboardingContextType = {
   needsOnboarding: boolean
@@ -221,13 +217,6 @@ function CollectiveChatGate({ children }: { children: React.ReactNode }) {
   )
 }
 
-const CRYPTO_ENABLED = process.env.NEXT_PUBLIC_FEATURE_CRYPTO === 'true'
-
-function MaybeWalletProvider({ children }: { children: React.ReactNode }) {
-  if (!CRYPTO_ENABLED) return <>{children}</>
-  return <WalletProvider>{children}</WalletProvider>
-}
-
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider>
@@ -238,9 +227,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
               <PasskeyPromptGate>
                 <CollectiveChatGate>
                   <ChallengeProvider>
-                    <MaybeWalletProvider>
-                      {children}
-                    </MaybeWalletProvider>
+                    {children}
                   </ChallengeProvider>
                 </CollectiveChatGate>
               </PasskeyPromptGate>

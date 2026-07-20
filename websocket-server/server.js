@@ -51,6 +51,7 @@ const httpServer = http.createServer((req, res) => {
       result[userId] = {
         hostName: info.hostName,
         hostColor: info.hostColor,
+        spaceSlug: info.spaceSlug || null,
         occupancy: userspaceRoom ? userspaceRoom.size : 0,
         currentChant: info.navState?.dockedPostId || null,
         activeTab: info.navState?.activeTab || 'chants',
@@ -106,11 +107,12 @@ io.on('connection', (socket) => {
   console.log(`Connected: ${socket.id}`)
 
   // Client sends auth with identity
-  socket.on('auth', ({ userId, name, color }) => {
+  socket.on('auth', ({ userId, name, color, spaceSlug }) => {
     const playerInfo = {
       userId,
       name,
       color,
+      spaceSlug: spaceSlug || null,   // the player's world, if they have one
       currentInstance: null,
     }
     sockets.set(socket.id, playerInfo)
@@ -209,6 +211,7 @@ io.on('connection', (socket) => {
     userspaces.set(playerInfo.userId, {
       hostName: playerInfo.name,
       hostColor: playerInfo.color,
+      spaceSlug: playerInfo.spaceSlug || null,
       navState: { dockedPostId, activeSubspaceId, activeTab },
     })
 

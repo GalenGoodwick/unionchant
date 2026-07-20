@@ -221,66 +221,8 @@ export default function IdeaSubspace({
         </div>
       )}
 
-      {/* CHAT AREA — eyes overlay + scrollable messages */}
-      <div
-        className="relative flex-1 overflow-hidden"
-        onClick={(e) => {
-          if (!onMovePosition) return
-          if ((e.target as HTMLElement).closest('[data-chat-msg], input, button, [data-interactive]')) return
-          const rect = e.currentTarget.getBoundingClientRect()
-          onMovePosition(
-            Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width)),
-            Math.max(0.05, Math.min(0.95, (e.clientY - rect.top) / rect.height))
-          )
-        }}
-        onPointerDown={(e) => {
-          if (!onMovePosition) return
-          if ((e.target as HTMLElement).closest('[data-chat-msg], input, button, [data-interactive]')) return
-          e.preventDefault()
-          const el = e.currentTarget
-          const onMove = (ev: PointerEvent) => {
-            const rect = el.getBoundingClientRect()
-            onMovePosition(
-              Math.max(0.05, Math.min(0.95, (ev.clientX - rect.left) / rect.width)),
-              Math.max(0.05, Math.min(0.95, (ev.clientY - rect.top) / rect.height))
-            )
-          }
-          const onUp = () => {
-            window.removeEventListener('pointermove', onMove)
-            window.removeEventListener('pointerup', onUp)
-          }
-          window.addEventListener('pointermove', onMove)
-          window.addEventListener('pointerup', onUp)
-        }}
-      >
-        {/* Player eyes */}
-        {players.map(p => {
-          const color = p.isSelf ? '#22d3ee' : nameColor(p.name)
-          const x = (p.rx ?? 0.5) * 100
-          const y = (p.ry ?? 0.5) * 100
-          return (
-            <div
-              key={`eye-${p.id}`}
-              className="absolute pointer-events-none"
-              style={{
-                left: `${x}%`,
-                top: `${y}%`,
-                transform: 'translate(-50%, -50%)',
-                transition: p.isSelf ? 'none' : 'left 0.15s linear, top 0.15s linear',
-                filter: `drop-shadow(0 0 4px ${color}80)`,
-                zIndex: p.isSelf ? 10 : 5,
-              }}
-              title={p.name}
-            >
-              <svg width="14" height="10" viewBox="0 0 20 14" fill="none">
-                <path d="M10 0C4 0 0 7 0 7s4 7 10 7 10-7 10-7S16 0 10 0z" fill="#e2e8f0" stroke={color} strokeWidth="1.5" />
-                <ellipse cx="10" cy="7" rx="3.5" ry="3.5" fill={color} />
-                <ellipse cx="10" cy="7" rx="1.5" ry="1.5" fill="#020617" />
-              </svg>
-            </div>
-          )
-        })}
-
+      {/* CHAT AREA — scrollable messages */}
+      <div className="relative flex-1 overflow-hidden">
         {/* Scrollable chat messages */}
         <div className="absolute inset-0 overflow-y-auto px-3 py-3 space-y-3 z-0">
           {comments.length === 0 && !loading && (

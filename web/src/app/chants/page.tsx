@@ -3,14 +3,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useSession, signIn, signOut } from 'next-auth/react'
-import Dockstar, { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
+import { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
 import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
 import ShareMenu from '@/components/ShareMenu'
 import { usePresence } from './usePresence'
 import { useUserspace } from './spatial/useUserspace'
-import SpatialCanvas, { type SpatialCanvasHandle } from './spatial/SpatialCanvas'
-import SubspaceOverlay from './spatial/SubspaceOverlay'
 import { useChantsFeed } from './useChantsFeed'
 import { useChantDetail } from './useChantDetail'
 import type { Chant } from './useChantsFeed'
@@ -70,7 +68,8 @@ function PresenceEye({ color, name, style, className }: { color: string; name: s
 const NAV_ITEMS = [
   { id: '__nav_chants__', label: 'Chants', href: '/chants', color: '#22d3ee', icon: (
     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1.001A3.75 3.75 0 0012 18z" />
     </svg>
   )},
   { id: '__nav_podiums__', label: 'Podiums', href: '/podiums', color: '#a78bfa', icon: (
@@ -185,7 +184,7 @@ function ChantsPageContent() {
     stats: {
       ideas: number; votes: number; comments: number; deliberationsCreated: number; deliberationsJoined: number
       deliberationsVotedIn: number; totalPredictions: number; correctPredictions: number; accuracy: number | null
-      championPicks: number; currentStreak: number; bestStreak: number; ideasWon: number; winRate: number | null
+      championPicks: number; currentStreak: number; bestStreak: number; ideasWon: number; winRate: number | null  // prediction fields always 0 (removed from User model)
       highestTierReached: number; ideasAdvanced: number; tierBreakdown: Array<{ tier: number; count: number }>
       highestUpPollinateTier: number; totalUpvotesReceived: number; totalCommentUpvotes: number
     }
@@ -209,13 +208,12 @@ function ChantsPageContent() {
   const [flashDocks, setFlashDocks] = useState(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [externalDragStart, setExternalDragStart] = useState<{ x: number; y: number } | null>(null)
-  const [undockingAnim, setUndockingAnim] = useState(false)
+  // undockingAnim removed — was set but never read
   // ── SPATIAL UNIVERSE STATE ──
   const [viewMode, setViewMode] = useState<'feed' | 'spatial'>('feed')
   const [dockstarRotation, setDockstarRotation] = useState(0)
   const [dockedUserspace, setDockedUserspace] = useState<{ userId: string; userName: string; userColor: string } | null>(null)
   const [spatialState, setSpatialState] = useState<{ mode: 'lobby' | 'list' | 'player'; listTab?: string | null; playerName?: string | null; canGoBack: boolean }>({ mode: 'lobby', canGoBack: false })
-  const spatialCanvasRef = useRef<SpatialCanvasHandle>(null)
   const [followingIds, setFollowingIds] = useState<string[]>([])
 
   const [pendingInput, setPendingInput] = useState<string>('')
@@ -655,39 +653,10 @@ function ChantsPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hostNavState])
 
-  // Host broadcast: when user navigates, tell their subspace visitors
-  useEffect(() => {
-    if (dockedUserspace) return // don't broadcast if visiting someone else
-    broadcastNavUpdate({ dockedPostId, activeSubspaceId, activeTab })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dockedPostId, activeSubspaceId, activeTab])
 
-  // Fetch following IDs for spatial canvas layout
-  useEffect(() => {
-    if (!session?.user?.id) return
-    fetch('/api/user/me/following')
-      .then(r => r.ok ? r.json() : { users: [] })
-      .then(data => {
-        if (data.users) setFollowingIds(data.users.map((u: { id: string }) => u.id))
-      })
-      .catch(() => {})
-  }, [session?.user?.id])
-
-  // Toggle spatial view — push browser history
-  const toggleSpatial = useCallback(() => {
-    setViewMode(prev => {
-      const next = prev === 'feed' ? 'spatial' : 'feed'
-      // Defer pushState to avoid setState-during-render from Next.js Router
-      queueMicrotask(() => {
-        if (next === 'spatial') {
-          window.history.pushState({ spatial: true }, '', '/chants?view=spatial')
-        } else {
-          window.history.pushState({ spatial: false }, '', '/chants')
-        }
-      })
-      return next
-    })
-  }, [])
+  // Spatial (game-world) view retired from the UI — entry point neutralized.
+  // The spatial code path remains dormant; this no-op keeps feed as the only mode.
+  const toggleSpatial = useCallback(() => {}, [])
 
   // Browser back button support for spatial view
   useEffect(() => {
@@ -792,11 +761,17 @@ function ChantsPageContent() {
   }, [])
 
   // Refs for spatial-mode variables used in handleDock (which has [session] dep only)
+  // Synced directly in render body (not useEffect) to eliminate timing gaps
   const viewModeRef = useRef(viewMode)
+  viewModeRef.current = viewMode
   const spatialStateRef = useRef(spatialState)
+  spatialStateRef.current = spatialState
   const spatialPlayersRef = useRef(spatialPlayers)
+  spatialPlayersRef.current = spatialPlayers
   const activeSubspacesRef = useRef(activeSubspaces)
+  activeSubspacesRef.current = activeSubspaces
   const dockedUserspaceRef = useRef(dockedUserspace)
+  dockedUserspaceRef.current = dockedUserspace
   const handleDockPlayerRef = useRef<((id: string, name: string, color: string) => void) | null>(null)
 
   const handleDock = useCallback((id: string) => {
@@ -829,12 +804,17 @@ function ChantsPageContent() {
         }
         return
       }
-      // Nav drops in spatial → trigger list mode
-      if (id === '__nav_chants__') { spatialCanvasRef.current?.dockFrame('chants'); return }
-      if (id === '__nav_podiums__') { spatialCanvasRef.current?.dockFrame('podiums'); return }
-      if (id === '__nav_groups__') { spatialCanvasRef.current?.dockFrame('groups'); return }
-      // Ignore all other dock targets in spatial mode
-      return
+      // Nav drops in spatial → exit spatial, go to inline list
+      if (id === '__nav_chants__') { setViewMode('feed'); setActiveTab('chants'); return }
+      if (id === '__nav_podiums__') { setViewMode('feed'); setActiveTab('podiums'); return }
+      if (id === '__nav_groups__') { setViewMode('feed'); setActiveTab('groups'); return }
+      // Chant/podium/group drops in spatial → exit spatial, dock to that item
+      if (id && !id.startsWith('__')) {
+        setViewMode('feed')
+        // Fall through to normal dock logic below
+      } else {
+        return
+      }
     }
     if (dockedPostId && id !== dockedPostId && !id.startsWith('idea:')) {
       const hasUnsavedText = pendingInput.trim().length > 0
@@ -885,6 +865,7 @@ function ChantsPageContent() {
       setDockedIdeaId(null)
       setDockedPodium(null)
       setDockedGroup(null)
+      setActiveSubspaceId(null)
       setXpAllocations({})
       setPendingInput('')
       setPendingInputType(null)
@@ -926,6 +907,7 @@ function ChantsPageContent() {
       setDockedPostId(id)
       setDockedIdeaId(null)
       setDockedGroup(null)
+      setActiveSubspaceId(null)
       setCreateMode(false)
       setDockedPodiumLoading(true)
       setDockedPodium(null)
@@ -951,6 +933,7 @@ function ChantsPageContent() {
       setDockedPostId(id)
       setDockedIdeaId(null)
       setDockedPodium(null)
+      setActiveSubspaceId(null)
       setCreateMode(false)
       setDockedGroupLoading(true)
       setDockedGroup(null)
@@ -987,6 +970,7 @@ function ChantsPageContent() {
     setCreateMode(false)
     setDockedPodium(null)
     setDockedGroup(null)
+    setActiveSubspaceId(null)
     setDockedPostId(id)
     setDockedIdeaId(null)
     setDockedPostVisible(true)
@@ -1002,24 +986,20 @@ function ChantsPageContent() {
     if (dockedPostId && dockedPostId !== '__create_chant__' && !dockedPostId.startsWith('podium:') && !dockedPostId.startsWith('group:')) {
       leaveChant()
     }
-    setUndockingAnim(true)
-    setTimeout(() => {
-      setActiveSubspaceId(null)
-      setDockedPostId(null)
-      setDockedIdeaId(null)
-      setDockedPodium(null)
-      setDockedGroup(null)
-      setXpAllocations({})
-      setPendingInput('')
-      setPendingInputType(null)
-      setCreateMode(false)
-      setManageMode(false)
-      setGroupCreateOpen(false)
-      setGroupSettingsOpen(false)
-      setPodiumSettingsOpen(false)
-      setUndockingAnim(false)
-      refreshFeed()
-    }, 200)
+    setActiveSubspaceId(null)
+    setDockedPostId(null)
+    setDockedIdeaId(null)
+    setDockedPodium(null)
+    setDockedGroup(null)
+    setXpAllocations({})
+    setPendingInput('')
+    setPendingInputType(null)
+    setCreateMode(false)
+    setManageMode(false)
+    setGroupCreateOpen(false)
+    setGroupSettingsOpen(false)
+    setPodiumSettingsOpen(false)
+    refreshFeed()
   }, [dockedPostId, leaveChant, refreshFeed])
 
   const handleUndock = useCallback(() => {
@@ -1044,17 +1024,10 @@ function ChantsPageContent() {
   const handleDockPlayerFromSpatial = useCallback((id: string, name: string, color: string) => {
     setDockedUserspace({ userId: id, userName: name, userColor: color })
     enterUserspace(id)
-    // Trigger SpatialCanvas internal player mode transition
-    spatialCanvasRef.current?.enterPlayerMode(id, name, color)
   }, [enterUserspace])
 
-  // Sync spatial refs for handleDock's stale closure
+  // Sync handleDockPlayerRef (can't be synced in render body — declared after handleDock)
   useEffect(() => {
-    viewModeRef.current = viewMode
-    spatialStateRef.current = spatialState
-    spatialPlayersRef.current = spatialPlayers
-    activeSubspacesRef.current = activeSubspaces
-    dockedUserspaceRef.current = dockedUserspace
     handleDockPlayerRef.current = handleDockPlayerFromSpatial
   })
 
@@ -1563,74 +1536,6 @@ function ChantsPageContent() {
       >
         <TransitionOverlay transitions={transitions} instanceRefs={instanceCanvasRefs} />
 
-        {/* SPATIAL UNIVERSE CANVAS */}
-        <SpatialCanvas
-          ref={spatialCanvasRef}
-          visible={viewMode === 'spatial'}
-          nodes={activeSubspaces.filter(n => n.userId !== presenceUserId && !spatialPlayers.some(p => p.id === n.userId))}
-          selfUserId={presenceUserId}
-          selfName={presenceName}
-          selfColor="#22d3ee"
-          followingIds={followingIds}
-          onEnterSubspace={handleEnterUserspace}
-          dropZoneRefs={dropZoneRefs}
-          onRotate={setDockstarRotation}
-          framePreviews={{
-            chants: chants.slice(0, 3).map(c => c.question),
-            podiums: podiums.slice(0, 3).map(p => p.title),
-            groups: groups.slice(0, 3).map(g => g.name),
-          }}
-          onDockFrame={handleDockFrame}
-          remotePlayers={spatialPlayers}
-          onCameraMove={handleSpatialCameraMove}
-          listItems={spatialListItems}
-          onDockItem={handleDockItem}
-          isDraggingDockstar={isDraggingDockstar}
-          dragPosition={dockstarDragPos}
-          onDockPlayer={handleDockPlayerFromSpatial}
-          hostNavState={hostNavState}
-          onFollowHost={handleFollowHost}
-          onBackFromSpatial={handleBackFromSpatial}
-          onSpatialStateChange={setSpatialState}
-        />
-
-        {/* SPATIAL DOCKSTAR — centered on canvas */}
-        {viewMode === 'spatial' && (
-          <div className="fixed inset-0 z-[9998] flex items-center justify-center pointer-events-none">
-            <div className="pointer-events-auto">
-              <Dockstar
-                userInitial="G"
-                dockedPostId={activeDockTarget}
-                dropZoneRefs={dropZoneRefs}
-                onDock={handleDock}
-                onUndock={handleUndock}
-                onUndockIdea={() => setDockedIdeaId(null)}
-                onDragStateChange={handleDragState}
-                onDragPositionChange={setDockstarDragPos}
-                flashDocks={flashDocks}
-                externalDragStart={externalDragStart}
-                onExternalDragHandled={() => setExternalDragStart(null)}
-                isSubspace={!!activeSubspaceId}
-                onExitSubspace={exitSubspace}
-                accentColor={tabAccentColor}
-                onToggleSpatial={toggleSpatial}
-                isSpatial={true}
-                spatialRotation={dockstarRotation}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* SUBSPACE OVERLAY — when visiting someone */}
-        {dockedUserspace && viewMode !== 'spatial' && (
-          <SubspaceOverlay
-            hostName={dockedUserspace.userName}
-            hostColor={dockedUserspace.userColor}
-            visitorCount={visitors.length}
-            onExit={handleExitUserspace}
-          />
-        )}
-
         {/* UNIFIED HEADER — same container for all states */}
         <div className="sticky top-0 z-[60] bg-header border-b border-border/30">
           <div className="px-3 py-2.5 flex items-center gap-2.5 max-w-2xl mx-auto min-h-[52px]">
@@ -1930,32 +1835,6 @@ function ChantsPageContent() {
                   />
                 </div>
               </>
-            ) : viewMode === 'spatial' ? (
-              /* SPATIAL state — back button + location label + dockstar (dockstar hidden in player mode, rendered centered instead) */
-              <>
-                <button
-                  data-interactive
-                  onClick={() => {
-                    if (spatialState.canGoBack) {
-                      spatialCanvasRef.current?.back()
-                    } else {
-                      handleBackFromSpatial()
-                    }
-                  }}
-                  className="w-10 h-10 rounded-full border-2 border-border/50 bg-surface/50 flex items-center justify-center hover:border-foreground/30 transition-colors"
-                >
-                  <svg className="w-4 h-4 text-foreground/70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                  </svg>
-                </button>
-                <div className="flex-1 min-w-0">
-                  <span className="text-[11px] font-mono text-muted-light/50 uppercase tracking-wider">
-                    {spatialState.mode === 'lobby' && 'Spatial Lobby'}
-                    {spatialState.mode === 'list' && spatialState.listTab && `${spatialState.listTab.charAt(0).toUpperCase() + spatialState.listTab.slice(1)}`}
-                    {spatialState.mode === 'player' && spatialState.playerName && `Following ${spatialState.playerName}`}
-                  </span>
-                </div>
-              </>
             ) : (
               /* FEED / CREATE state */
               <>
@@ -2043,25 +1922,27 @@ function ChantsPageContent() {
                     </button>
                   </>
                 )}
-                <Dockstar
-                  userInitial="G"
-                  dockedPostId={activeDockTarget}
-                  dropZoneRefs={dropZoneRefs}
-                  onDock={handleDock}
-                  onUndock={handleUndock}
-                  onUndockIdea={() => setDockedIdeaId(null)}
-                  onDragStateChange={handleDragState}
-                  onDragPositionChange={setDockstarDragPos}
-                  flashDocks={flashDocks}
-                  externalDragStart={externalDragStart}
-                  onExternalDragHandled={() => setExternalDragStart(null)}
-                  isSubspace={!!activeSubspaceId}
-                  onExitSubspace={exitSubspace}
-                  accentColor={tabAccentColor}
-                  onToggleSpatial={toggleSpatial}
-                  isSpatial={false}
-                  spatialRotation={dockstarRotation}
-                />
+                {!session?.user ? (
+                  <button
+                    data-interactive
+                    onClick={() => setAuthOverlayOpen(true)}
+                    className="shrink-0 px-3 py-1.5 rounded-full border border-accent/40 bg-accent/10 text-accent text-xs font-mono uppercase tracking-wider hover:bg-accent/20 transition-colors"
+                  >
+                    Sign in
+                  </button>
+                ) : (
+                  <a
+                    href={`/user/${session?.user?.id}`}
+                    data-interactive
+                    title="Your page"
+                    className="shrink-0 flex items-center gap-1.5 pl-1 pr-1 sm:pr-2.5 py-1 rounded-full border border-border bg-surface/50 hover:border-foreground/30 transition-colors"
+                  >
+                    <span className="w-6 h-6 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[11px] font-bold text-accent">
+                      {(session?.user?.name || 'U').charAt(0).toUpperCase()}
+                    </span>
+                    <span className="hidden sm:inline text-xs font-mono text-muted max-w-[90px] truncate">{session?.user?.name || 'You'}</span>
+                  </a>
+                )}
               </>
             )}
           </div>
@@ -2325,7 +2206,7 @@ function ChantsPageContent() {
           </div>
         </div>
 
-        {activeSubspaceId?.startsWith('podiumchat:') ? (
+        {viewMode !== 'spatial' && (activeSubspaceId?.startsWith('podiumchat:') ? (
           /* PODIUM SUBSPACE VIEW — uses IdeaSubspace with podium comments API */
           <div
             id="subspace-container"
@@ -2565,9 +2446,9 @@ function ChantsPageContent() {
                                   onClick={() => { if (!isPodiumChatDocked) handleDock(`podiumchat:${dockedPodium.id}`) }}
                                   flashDocks={flashDocks}
                                   faded={isPodiumChatDocked}
+                                  icon="chat"
                                   glowDrag={isDraggingDockstar && !isPodiumChatDocked}
                                   accentColor="#a78bfa"
-                                  icon="chat"
                                 />
                                 {chatPlayers.length > 0 && chatPlayers.slice(0, 6).map((p, i) => {
                                   const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -2660,6 +2541,7 @@ function ChantsPageContent() {
                               flashDocks={flashDocks}
                               glowDrag={isDraggingDockstar}
                               accentColor="#a78bfa"
+                              icon="document"
                             />
                             {podiumPlayers.length > 0 && podiumPlayers.slice(0, 8).map((pl, i) => {
                               const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -3121,6 +3003,7 @@ function ChantsPageContent() {
                                     onClick={() => handleDock(d.id)}
                                     flashDocks={flashDocks}
                                     glowDrag={isDraggingDockstar}
+                                    icon="flame"
                                   />
                                   {chantPlayers.length > 0 && chantPlayers.slice(0, 6).map((p, i) => {
                                     const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -3201,6 +3084,7 @@ function ChantsPageContent() {
                               flashDocks={flashDocks}
                               glowDrag={isDraggingDockstar}
                               accentColor="#fbbf24"
+                              icon="people"
                             />
                             {groupPlayers.length > 0 && groupPlayers.slice(0, 8).map((pl, i) => {
                               const angle = (i * 137.5 + 30) * (Math.PI / 180)
@@ -3589,6 +3473,7 @@ function ChantsPageContent() {
                               onClick={() => handleDock(chant.id)}
                               flashDocks={flashDocks}
                               glowDrag={isDraggingDockstar}
+                              icon="flame"
                             />
                             {remotePlayers.length > 0 && remotePlayers.slice(0, 12).map((p, i) => {
                               const ring = i < 6 ? 0 : 1
@@ -4024,7 +3909,7 @@ function ChantsPageContent() {
 
           <div className="h-32" />
         </div>
-        )}
+        ))}
 
         {/* BOTTOM BAR */}
         {(() => {

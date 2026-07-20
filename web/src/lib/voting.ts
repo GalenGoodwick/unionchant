@@ -4,7 +4,6 @@ import { sendPushToDeliberation, notifications } from './push'
 import { updateAgreementScores } from './agreement'
 import { fireWebhookEvent } from './webhooks'
 
-import { notifyAgentOwner, notifyVotedForWinner } from './agent-notifications'
 
 const DEFAULT_CELL_SIZE = 5
 const IDEAS_PER_CELL = 5
@@ -124,7 +123,7 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
   // Get all predictions for this cell
   const predictions = await prisma.prediction.findMany({
     where: { cellId },
-    include: { user: { select: { id: true, currentStreak: true, bestStreak: true } } },
+    include: { user: { select: { id: true } } },
   })
 
   if (predictions.length === 0) return
@@ -142,27 +141,8 @@ async function resolveCellPredictions(cellId: string, winnerIds: string[]) {
       })
     )
 
-    if (prediction.user) {
-      if (won) {
-        ops.push(
-          prisma.user.update({
-            where: { id: prediction.userId },
-            data: {
-              correctPredictions: { increment: 1 },
-              currentStreak: { increment: 1 },
-              bestStreak: Math.max(prediction.user.bestStreak, prediction.user.currentStreak + 1),
-            },
-          })
-        )
-      } else {
-        ops.push(
-          prisma.user.update({
-            where: { id: prediction.userId },
-            data: { currentStreak: 0 },
-          })
-        )
-      }
-    }
+    // User stat fields (correctPredictions, currentStreak, bestStreak) removed from model.
+    // Prediction records are still updated above; user-level denormalized stats skipped.
   }
 
   await prisma.$transaction(ops)
@@ -201,12 +181,7 @@ export async function resolveChampionPredictions(deliberationId: string, champio
         data: { ideaBecameChampion: true, ideaFinalTier: champion.tier },
       })
     )
-    ops.push(
-      prisma.user.update({
-        where: { id: prediction.userId },
-        data: { championPicks: { increment: 1 } },
-      })
-    )
+    // championPicks field removed from User model; skipping user stat update
   }
 
   // Mark non-champion predictions with final tier info
@@ -279,8 +254,6 @@ export async function startVotingPhase(deliberationId: string) {
     fireWebhookEvent('winner_declared', {
       deliberationId, winnerId: winningIdea.id, winnerText: winningIdea.text, totalTiers: 0,
     })
-    notifyAgentOwner({ type: 'idea_won', ideaId: winningIdea.id, deliberationId })
-    notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: winningIdea.text })
 
     return {
       success: true,
@@ -861,9 +834,6 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         fastCell: true,
       })
       await resolveChampionPredictions(cell.deliberationId, fastWinnerId)
-      notifyAgentOwner({ type: 'idea_won', ideaId: fastWinnerId, deliberationId: cell.deliberationId })
-      notifyAgentOwner({ type: 'chant_concluded', deliberationId: cell.deliberationId, question: cell.deliberation.question, winnerText: winnerIdea?.text || '' })
-      notifyVotedForWinner(cell.deliberationId, fastWinnerId)
       console.log(`fastCell: winner declared! Idea ${fastWinnerId} in deliberation ${cell.deliberationId}`)
     }
     return { winnerIds, loserIds }
@@ -1292,9 +1262,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     fireWebhookEvent('winner_declared', {
       deliberationId, winnerId, winnerText: winnerForHook?.text || '', totalTiers: tier,
     })
-    notifyAgentOwner({ type: 'idea_won', ideaId: winnerId, deliberationId })
-    notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: winnerForHook?.text || '' })
-    notifyVotedForWinner(deliberationId, winnerId)
 
     return // Final showdown complete — champion declared
   }
@@ -1350,9 +1317,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
     fireWebhookEvent('winner_declared', {
       deliberationId, winnerId, winnerText: advancingIdeas[0]?.text || '', totalTiers: tier,
     })
-    notifyAgentOwner({ type: 'idea_won', ideaId: winnerId, deliberationId })
-    notifyAgentOwner({ type: 'chant_concluded', deliberationId, question: deliberation.question, winnerText: advancingIdeas[0]?.text || '' })
-    notifyVotedForWinner(deliberationId, winnerId)
   } else {
     // Need another tier - create new cells with advancing ideas
     const nextTier = tier + 1
@@ -1407,8 +1371,6 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       advancingCount: advancingIdeas.length,
     })
 
-    // Notify agent owners of advancing ideas
-    notifyAgentOwner({ type: 'idea_advanced', ideaIds: advancingIdeas.map(i => i.id), deliberationId, tier: nextTier })
 
     // No backfill — winners advance, losers stay eliminated.
     // The tournament is the tournament.

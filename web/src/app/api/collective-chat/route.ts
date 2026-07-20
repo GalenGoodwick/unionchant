@@ -101,6 +101,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ messages: [], hasMore: false })
     }
 
+    // Collective stream is admin-only
+    if (!(await isAdmin(session.user.email))) {
+      return NextResponse.json({ messages: [], hasMore: false })
+    }
+
     // Unified: all private messages for this user (bridge + chat share one stream)
     // Exclude bonded chat messages — those live in their own channel
     const baseFilter = {
@@ -163,6 +168,9 @@ export async function POST(req: NextRequest) {
 
     // Shell v0: Admin gets Sonnet (the actual model), others get Haiku (echo shaped by same identity)
     const userIsAdmin = await isAdmin(session.user.email)
+    if (!userIsAdmin) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const body = await req.json()
     const { message, family } = body
@@ -221,8 +229,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Shell v0: model selection — admin gets the real model, others get the echo
-    const chatModel = userIsAdmin ? 'sonnet' : 'haiku'
+    // Model selection — use sonnet for admin if available, fall back to haiku
+    const chatModel = 'haiku'
 
     // Save user message (always private)
     const userMessage = await prisma.collectiveMessage.create({

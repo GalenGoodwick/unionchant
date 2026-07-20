@@ -14,6 +14,7 @@ export default function AnonymousSignIn() {
   const [loading, setLoading] = useState(false)
   const [challengeToken, setChallengeToken] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
+  const [displayName, setDisplayName] = useState('')
 
   // Fetch a signed challenge token on mount
   useEffect(() => {
@@ -68,7 +69,7 @@ export default function AnonymousSignIn() {
       const res = await fetch('/api/anonymous', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ name: displayName }),
       })
 
       const data = await res.json()
@@ -126,6 +127,18 @@ export default function AnonymousSignIn() {
               {error}
             </div>
           )}
+
+          <div className="mb-3">
+            <label className="block text-[11px] text-muted mb-1">Display name <span className="text-muted/50">(optional)</span></label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              maxLength={30}
+              placeholder="Pick a name (or stay Anonymous)"
+              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors"
+            />
+          </div>
 
           {!verified ? (
             <div className="space-y-2">

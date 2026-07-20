@@ -8,8 +8,8 @@ export function setApiCaller(caller: string) { _currentCaller = caller }
 
 const MODEL_MAP: Record<string, string> = {
   haiku: 'claude-haiku-4-5-20251001',
-  sonnet: 'claude-sonnet-4-20250514',
-  opus: 'claude-opus-4-20250514',
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-6',
 }
 
 // Shell model — controlled by env var SHELL_MODEL, defaults to 'haiku' to manage costs.
@@ -52,9 +52,10 @@ export type ClaudeResponse = {
 export async function callClaude(
   systemPrompt: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
-  model: string = 'haiku'
+  model: string = 'haiku',
+  maxTokens: number = 512
 ): Promise<string> {
-  const result = await callClaudeWithTools(systemPrompt, messages, model)
+  const result = await callClaudeWithTools(systemPrompt, messages, model, undefined, maxTokens)
   return result.text
 }
 
@@ -62,14 +63,15 @@ export async function callClaudeWithTools(
   systemPrompt: string,
   messages: { role: 'user' | 'assistant'; content: string }[],
   model: string = 'haiku',
-  tools?: ToolDefinition[]
+  tools?: ToolDefinition[],
+  maxTokens: number = 512
 ): Promise<ClaudeResponse> {
   const client = getClient()
   const modelId = MODEL_MAP[model] || MODEL_MAP.haiku
 
   const params: MessageCreateParamsNonStreaming = {
     model: modelId,
-    max_tokens: 512,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages,
   }
@@ -122,10 +124,19 @@ export async function continueAfterTool(
   const client = getClient()
   const modelId = MODEL_MAP[model] || MODEL_MAP.haiku
 
+  // Anthropic requires every tool_use block to be paired with a tool_result in the
+  // very next message. The model can emit multiple tool_use blocks in one turn, but
+  // this loop only executes one (toolUseId). Drop the other, unexecuted tool_use
+  // blocks so the single tool_result pairs cleanly — otherwise the API rejects it.
+  const pairedAssistant = Array.isArray(assistantContent)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ? (assistantContent as any[]).filter(b => b?.type !== 'tool_use' || b?.id === toolUseId)
+    : assistantContent
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messages: any[] = [
     ...priorMessages,
-    { role: 'assistant', content: assistantContent },
+    { role: 'assistant', content: pairedAssistant },
     { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: toolResult }] },
   ]
 
