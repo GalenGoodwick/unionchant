@@ -195,7 +195,7 @@ export async function GET(
       totalXP: i.totalXP,
       losses: i.losses,
       isChampion: i.isChampion,
-      author: i.author?.name || 'Anonymous',
+      author: i.author?.name || 'Member',
       perTier: ideaXPMap.get(i.id) || [],
     }))
 
@@ -362,7 +362,7 @@ export async function GET(
             ? Math.round((new Date(cell.completedAt).getTime() - new Date(cell.createdAt).getTime()) / 60000)
             : null,
           participants: cellDetail.participants.map(p => ({
-            name: p.user?.name || 'Anonymous',
+            name: p.user?.name || 'Member',
             zip: p.user?.zipCode || null,
             status: p.status,
           })),
@@ -373,7 +373,7 @@ export async function GET(
             xp: votesByIdea.get(ci.idea.id)?.xp || 0,
           })).sort((a, b) => b.xp - a.xp),
           dialogue: cellDetail.comments.map(c => ({
-            speaker: c.user?.name || 'Anonymous',
+            speaker: c.user?.name || 'Member',
             text: c.text,
             time: c.createdAt.toISOString(),
           })),
@@ -444,7 +444,7 @@ export async function GET(
       representation,
       viralComments: viralComments.map(c => ({
         text: c.text,
-        author: c.user?.name || 'Anonymous',
+        author: c.user?.name || 'Member',
         cellId: c.cell?.id,
         cellTier: c.cell?.tier ?? 0,
         spreadCount: c.spreadCount,

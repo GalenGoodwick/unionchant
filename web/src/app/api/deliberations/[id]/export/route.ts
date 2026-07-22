@@ -113,7 +113,7 @@ export async function GET(
         completedAt: deliberation.completedAt,
         currentTier: deliberation.currentTier,
         challengeRound: deliberation.challengeRound,
-        creator: deliberation.creator.name || 'Anonymous',
+        creator: deliberation.creator.name || 'Member',
       },
       statistics: {
         totalParticipants: deliberation.members.length,
@@ -124,14 +124,14 @@ export async function GET(
       champion: deliberation.ideas.find(i => i.status === 'WINNER')
         ? {
             text: deliberation.ideas.find(i => i.status === 'WINNER')!.text,
-            author: deliberation.ideas.find(i => i.status === 'WINNER')!.author.name || 'Anonymous',
+            author: deliberation.ideas.find(i => i.status === 'WINNER')!.author.name || 'Member',
             totalVotes: deliberation.ideas.find(i => i.status === 'WINNER')!.totalVotes,
           }
         : null,
       ideas: deliberation.ideas.map(idea => ({
         id: idea.id,
         text: idea.text,
-        author: idea.author.name || 'Anonymous',
+        author: idea.author.name || 'Member',
         status: idea.status,
         totalVotes: idea.totalVotes,
         losses: idea.losses,
@@ -142,11 +142,11 @@ export async function GET(
         status: cell.status,
         startedAt: cell.createdAt,
         completedAt: cell.completedAt,
-        participants: cell.participants.map(p => p.user.name || 'Anonymous'),
+        participants: cell.participants.map(p => p.user.name || 'Member'),
         ideas: cell.ideas.map(ci => ci.idea.text),
         voteCount: cell._count.votes,
         discussion: cell.comments.map(c => ({
-          author: c.user.name || 'Anonymous',
+          author: c.user.name || 'Member',
           message: c.text,
           timestamp: c.createdAt,
         })),

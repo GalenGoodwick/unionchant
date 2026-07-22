@@ -157,7 +157,7 @@ export async function GET(
     return NextResponse.json({
       user: {
         id: user.id,
-        name: user.name || 'Anonymous',
+        name: user.name || 'Member',
         image: user.image,
         bio: (user as any).bio || null,
         joinedAt: user.createdAt,

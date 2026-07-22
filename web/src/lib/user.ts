@@ -11,7 +11,7 @@ interface UserForDisplay {
  * Returns display name for a user, handling deleted/banned states
  * Shows "[deleted]" for deleted users and "[banned]" for banned users
  */
-export function getDisplayName(user: UserForDisplay, fallback = 'Anonymous'): string {
+export function getDisplayName(user: UserForDisplay, fallback = 'Member'): string {
   if (user.status === 'DELETED') {
     return '[deleted]'
   }

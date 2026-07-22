@@ -69,12 +69,12 @@ export function useChantDetail(chantId: string | null, skipAutoJoin = false) {
         currentTier: data.currentTier ?? 0,
         memberCount: data.memberCount ?? 0,
         ideaCount: data.ideaCount ?? 0,
-        creator: data.creator || { id: '', name: 'Anonymous' },
+        creator: data.creator || { id: '', name: 'Member' },
         champion: data.champion || null,
         ideas: (data.ideas || []).map((i: any) => ({
           id: i.id,
           text: i.text,
-          author: i.author || { id: '', name: 'Anonymous' },
+          author: i.author || { id: '', name: 'Member' },
           totalXP: i.totalXP ?? 0,
           totalVotes: i.totalVotes ?? 0,
           status: i.status,
@@ -88,7 +88,7 @@ export function useChantDetail(chantId: string | null, skipAutoJoin = false) {
           ideas: (c.ideas || []).map((i: any) => ({
             id: i.id,
             text: i.text,
-            author: i.author || { id: '', name: 'Anonymous' },
+            author: i.author || { id: '', name: 'Member' },
             totalXP: i.totalXP ?? 0,
             totalVotes: i.totalVotes ?? 0,
             status: i.status || '',

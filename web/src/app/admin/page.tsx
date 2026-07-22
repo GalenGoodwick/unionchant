@@ -900,7 +900,7 @@ export default function AdminPage() {
                             <UserAvatar image={u.image} name={u.name} />
                             <div className="min-w-0">
                               <Link href={`/user/${u.id}`} className="text-foreground hover:text-accent font-medium text-sm">
-                                {u.name || 'Anonymous'}
+                                {u.name || 'Member'}
                               </Link>
                               <div className="text-muted text-xs">{u.email}</div>
                               <div className="text-muted text-xs font-mono">
@@ -955,7 +955,7 @@ export default function AdminPage() {
                             <UserAvatar image={u.image} name={u.name} />
                             <div className="min-w-0">
                               <Link href={`/user/${u.id}`} className="text-foreground hover:text-accent font-medium text-sm">
-                                {u.name || 'Anonymous'}
+                                {u.name || 'Member'}
                               </Link>
                               <div className="text-muted text-xs">{u.email}</div>
                               {u.banReason && <div className="text-error text-xs mt-0.5">{u.banReason}</div>}
@@ -1160,7 +1160,7 @@ export default function AdminPage() {
                         <td className="p-4">
                           <Link href={`/user/${p.author.id}`} className="flex items-center gap-2 text-sm text-muted hover:text-accent">
                             <UserAvatar image={p.author.image} name={p.author.name} />
-                            <span>{p.author.name || 'Anonymous'}</span>
+                            <span>{p.author.name || 'Member'}</span>
                             {p.author.isAI && <span className="text-[10px] font-semibold text-purple border border-purple/30 px-1 py-0.5 rounded">AI</span>}
                           </Link>
                         </td>

@@ -568,7 +568,7 @@ export default function AdminDeliberationPage() {
                         <span>{comment.upvoteCount} upvotes</span>
                       </div>
                       <p className="text-xs text-foreground">{comment.text}</p>
-                      <p className="text-[10px] text-muted mt-0.5">-- {comment.user.name || 'Anonymous'}</p>
+                      <p className="text-[10px] text-muted mt-0.5">-- {comment.user.name || 'Member'}</p>
                     </div>
                   ))}
                 </div>

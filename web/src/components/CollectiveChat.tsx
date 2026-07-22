@@ -1949,7 +1949,7 @@ export default function CollectiveChat({ onClose }: { onClose?: () => void }) {
                   </div>
                 ) : msg.role === 'user' ? (
                   <div className="text-[10px] text-muted mb-0.5 font-mono">
-                    {msg.userName || 'Anonymous'}
+                    {msg.userName || 'Member'}
                   </div>
                 ) : (
                   <div className="text-[10px] text-gold mb-0.5 font-mono">

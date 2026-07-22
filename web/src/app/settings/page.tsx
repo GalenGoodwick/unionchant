@@ -195,7 +195,7 @@ export default function SettingsPage() {
               <div className="flex items-start gap-3">
                 {session.user?.image && <img src={session.user.image} alt="" className="w-10 h-10 rounded-full" />}
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-foreground">{session.user?.name || 'Anonymous'}</div>
+                  <div className="text-sm font-medium text-foreground">{session.user?.name || 'Member'}</div>
                   <div className="text-xs text-muted">{session.user?.email}</div>
                   {currentBio && <p className="text-xs text-muted mt-1">{currentBio}</p>}
                 </div>

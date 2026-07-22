@@ -87,7 +87,7 @@ export async function GET(
         ideas: cell.ideas.map(ci => ({
           id: ci.idea.id,
           text: ci.idea.text,
-          author: ci.idea.author.name || 'Anonymous',
+          author: ci.idea.author.name || 'Member',
           votes: voteCounts[ci.ideaId] || 0,
           isWinner: winnerIds.includes(ci.ideaId),
           status: ci.idea.status,

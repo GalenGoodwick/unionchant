@@ -21,7 +21,6 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
   const [nameStep, setNameStep] = useState(false)
   const [name, setName] = useState('')
   const [nameLoading, setNameLoading] = useState(false)
-  const [anonUpgrading, setAnonUpgrading] = useState(false)
 
   const completeAuth = useCallback(async () => {
     // Merge temp account memberships into the real account
@@ -71,9 +70,6 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
     onAuthSuccess()
   }
 
-  const handleSkipName = () => {
-    onAuthSuccess()
-  }
 
   const handlePasskeySignup = async () => {
     setError('')
@@ -162,7 +158,7 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
 
   if (!open) return null
 
-  const anyLoading = passkeyLoading || passkeySignupLoading || anonUpgrading
+  const anyLoading = passkeyLoading || passkeySignupLoading
 
   return (
     <div
@@ -201,12 +197,6 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
             >
               {nameLoading ? 'Saving...' : 'Continue'}
             </button>
-            <button
-              onClick={handleSkipName}
-              className="w-full text-xs text-muted hover:text-foreground transition-colors py-1"
-            >
-              Skip for now
-            </button>
           </>
         ) : (
           <>
@@ -220,42 +210,6 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
             )}
 
             <div className="space-y-2.5">
-              <button
-                onClick={async () => {
-                  setError('')
-                  setAnonUpgrading(true)
-                  try {
-                    // Upgrade the temp account to a full anonymous account
-                    const res = await fetch('/api/user/upgrade-temp', { method: 'POST' })
-                    if (!res.ok) {
-                      // Fallback: create new anonymous account
-                      const anonRes = await fetch('/api/anonymous', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({}),
-                      })
-                      if (!anonRes.ok) throw new Error('Failed to create account')
-                      const { email, password } = await anonRes.json()
-                      const result = await signIn('credentials', { email, password, redirect: false })
-                      if (result?.error) throw new Error('Sign in failed')
-                    }
-                    await completeAuth()
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : 'Failed')
-                  } finally {
-                    setAnonUpgrading(false)
-                  }
-                }}
-                disabled={anyLoading || anonUpgrading}
-                className="w-full py-2.5 px-4 rounded-lg flex items-center justify-center gap-2.5 text-sm font-semibold text-white transition-colors disabled:opacity-50"
-                style={{ backgroundColor: '#0891b2' }}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                {anonUpgrading ? 'Entering...' : 'Enter Anonymously'}
-              </button>
-
               <button
                 onClick={handlePasskeySignup}
                 disabled={anyLoading}

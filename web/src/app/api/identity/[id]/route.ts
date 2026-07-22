@@ -57,7 +57,7 @@ export async function GET(
     return NextResponse.json({
       type: user.isAI ? 'agent' : 'human',
       id: user.id,
-      name: user.name || 'Anonymous',
+      name: user.name || 'Member',
       persona: user.aiPersonality,
       ideology: user.ideology,
       status: user.agentStatus,

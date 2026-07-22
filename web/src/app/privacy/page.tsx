@@ -63,11 +63,14 @@ export default function PrivacyPage() {
               the decision-making process.
             </p>
 
-            <h3 className="text-lg font-medium text-foreground mt-4 mb-2">Anonymous Participation</h3>
+            <h3 className="text-lg font-medium text-foreground mt-4 mb-2">Private Sign-Up (No Personal Data Required)</h3>
             <p className="text-subtle mb-4">
-              You can participate in Unity Chant without providing any personal information. Anonymous
-              accounts are created with randomly generated identifiers. We actively strip IP headers
-              from anonymous account creation requests before processing.
+              An account is required to take part — to vote, submit ideas, comment, or create
+              deliberations, you must be signed in. You can still create an account without handing over
+              personal information: sign up with a passkey (your device&apos;s Touch ID or Face ID) and a
+              display name of your choosing — no email address, phone number, or real name required. If
+              you instead sign up with email or a provider like Google, we use only the email and name
+              that method provides.
             </p>
           </section>
 

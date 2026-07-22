@@ -231,7 +231,7 @@ export default function IdeaSubspace({
             </div>
           )}
           {comments.map(comment => {
-            const authorName = comment.user?.name || 'Anonymous'
+            const authorName = comment.user?.name || 'Member'
             const color = nameColor(authorName)
             return (
               <div key={comment.id} data-chat-msg>

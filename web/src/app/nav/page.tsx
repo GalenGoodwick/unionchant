@@ -23,7 +23,6 @@ const pages = [
   { section: 'Auth', links: [
     { href: '/auth/signin', label: 'Sign In' },
     { href: '/auth/signup', label: 'Sign Up' },
-    { href: '/auth/anonymous', label: 'Anonymous Entry' },
     { href: '/auth/reset-password', label: 'Reset Password' },
   ]},
   { section: 'Info & Docs', links: [

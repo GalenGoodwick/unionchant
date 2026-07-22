@@ -293,7 +293,7 @@ async function getUserContext(email: string): Promise<UserContext | null> {
     const c = cp.cell
     const votedUserIds = new Set(c.votes.map((v: any) => v.userId))
     const latestComment = (c as any).comments?.[0]
-      ? { text: (c as any).comments[0].text, authorName: (c as any).comments[0].user?.name || 'Anonymous' }
+      ? { text: (c as any).comments[0].text, authorName: (c as any).comments[0].user?.name || 'Member' }
       : null
 
     cellsByDelib.set(c.deliberationId, {
@@ -306,10 +306,10 @@ async function getUserContext(email: string): Promise<UserContext | null> {
       ideas: c.ideas.map((ci: any) => ({
         id: ci.idea.id,
         text: ci.idea.text,
-        authorName: ci.idea.author?.name || 'Anonymous',
+        authorName: ci.idea.author?.name || 'Member',
       })),
       members: c.participants.map((p: any) => ({
-        name: p.user?.name || 'Anonymous',
+        name: p.user?.name || 'Member',
         image: p.user?.image || null,
         voted: votedUserIds.has(p.userId),
       })),
@@ -405,7 +405,7 @@ async function buildYourTurnFeed(
     const cell = userCtx?.cellsByDelib.get(d.id)
     const myIdea = userCtx?.ideaByDelib.get(d.id)
     const champion = d.ideas[0]
-      ? { text: d.ideas[0].text, authorName: d.ideas[0].author?.name || 'Anonymous' }
+      ? { text: d.ideas[0].text, authorName: d.ideas[0].author?.name || 'Member' }
       : undefined
 
     const base = {
@@ -527,7 +527,7 @@ async function buildYourTurnFeed(
     podiums: podiums.slice(0, 5).map((p: any) => ({
       id: p.id,
       title: p.title,
-      authorName: p.author?.name || 'Anonymous',
+      authorName: p.author?.name || 'Member',
       isAI: p.author?.isAI || false,
       createdAt: p.createdAt.toISOString(),
       deliberationId: p.deliberationId || null,
@@ -737,7 +737,7 @@ async function buildResultsFeed(userCtx: UserContext | null): Promise<FeedRespon
 
   const entries: FeedEntry[] = completedDelibs.map((d) => {
     const champion = d.ideas[0]
-      ? { text: d.ideas[0].text, authorName: d.ideas[0].author?.name || 'Anonymous' }
+      ? { text: d.ideas[0].text, authorName: d.ideas[0].author?.name || 'Member' }
       : undefined
     const myIdea = userCtx?.ideaByDelib.get(d.id)
 

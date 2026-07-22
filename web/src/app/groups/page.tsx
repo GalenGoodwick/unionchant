@@ -159,7 +159,7 @@ export default function CommunitiesPage() {
                 <span className="text-border-strong">&middot;</span>
                 <span>{c._count.deliberations} chants</span>
                 <span className="text-border-strong">&middot;</span>
-                <span>by {c.creator.name || 'Anonymous'}</span>
+                <span>by {c.creator.name || 'Member'}</span>
               </div>
             </Link>
           ))}

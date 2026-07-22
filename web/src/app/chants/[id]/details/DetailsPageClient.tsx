@@ -97,7 +97,7 @@ export default function DetailsPageClient() {
         <div className="mb-4">
           <h1 className="text-sm font-bold text-foreground leading-tight mb-1.5">{delib.question}</h1>
           <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
-            <span>by {delib.creator?.name || 'Anonymous'}</span>
+            <span>by {delib.creator?.name || 'Member'}</span>
             <span>&middot;</span>
             <span>{timeAgo(delib.createdAt)}</span>
             {delib.organization && (
@@ -453,7 +453,7 @@ function MembersContent({ data }: { data: MemberData[] }) {
               {(member.name || 'A')[0].toUpperCase()}
             </span>
           )}
-          <span className="text-sm text-foreground flex-1">{member.name || 'Anonymous'}</span>
+          <span className="text-sm text-foreground flex-1">{member.name || 'Member'}</span>
           {member.role !== 'MEMBER' && (
             <span className="text-[10px] text-muted uppercase">{member.role}</span>
           )}

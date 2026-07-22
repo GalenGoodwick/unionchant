@@ -154,7 +154,7 @@ export async function GET(
             return winnerIdea ? {
               id: winnerIdea.id,
               text: winnerIdea.text,
-              author: winnerIdea.author?.name || 'Anonymous',
+              author: winnerIdea.author?.name || 'Member',
             } : undefined
           })()
         : undefined

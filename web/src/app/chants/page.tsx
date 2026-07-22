@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useSession, signIn, signOut } from 'next-auth/react'
+import { useSession, signOut } from 'next-auth/react'
 import { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
 import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
@@ -139,35 +139,16 @@ function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onCl
 
 function ChantsPageContent() {
   // ── Data hooks ──
-  const { data: session, status: sessionStatus, update: updateSession } = useSession()
+  const { data: session, update: updateSession } = useSession()
   const { isAdmin } = useAdmin()
   const searchParams = useSearchParams()
   const { chants, loading: feedLoading, error: feedError, refresh: refreshFeed, prepend: prependChant } = useChantsFeed()
   const [dockedPostId, setDockedPostId] = useState<string | null>(searchParams.get('dock'))
   const chantDetailId = dockedPostId === '__create_chant__' || dockedPostId?.startsWith('podium:') || dockedPostId?.startsWith('group:') ? null : dockedPostId
   const { detail, loading: detailLoading, error: detailError, refresh: refreshDetail, submitVote, submitIdea, joinChant, leaveChant } = useChantDetail(chantDetailId, !session?.user)
-  const autoAnonRef = useRef(false)
-
-  // ── Auto-anonymous: create temp account so unauthenticated users can browse/dock ──
-  useEffect(() => {
-    if (sessionStatus !== 'unauthenticated' || autoAnonRef.current) return
-    autoAnonRef.current = true
-    ;(async () => {
-      try {
-        const res = await fetch('/api/anonymous', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ auto: true }),
-        })
-        if (!res.ok) { autoAnonRef.current = false; return }
-        const { email, password } = await res.json()
-        const result = await signIn('credentials', { email, password, redirect: false })
-        if (result?.error) autoAnonRef.current = false
-      } catch {
-        autoAnonRef.current = false
-      }
-    })()
-  }, [sessionStatus])
+  // Auto-anonymous account creation was removed: logged-out visitors stay signed
+  // out and hit a sign-in wall for actions, instead of silently becoming an
+  // "Anonymous_xxxx" account that then owned anything they created.
 
   // ── Feed state ──
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
@@ -1549,7 +1530,7 @@ function ChantsPageContent() {
                   <div className="flex items-center gap-1.5 text-xs mt-0.5">
                     <span className="font-mono" style={{ color: '#a78bfa99' }}>Podium</span>
                     <span className="text-muted-light/50">/</span>
-                    <span className="text-muted-light">{dockedPodium.author?.name || 'Anonymous'}</span>
+                    <span className="text-muted-light">{dockedPodium.author?.name || 'Member'}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -1622,7 +1603,7 @@ function ChantsPageContent() {
                     <div className="flex items-center gap-1.5 text-xs mt-0.5">
                       <span className="font-mono text-accent">Chant</span>
                       <span className="text-muted-light/50">/</span>
-                      <span className="text-muted-light">{detail.creator?.name || 'Anonymous'}</span>
+                      <span className="text-muted-light">{detail.creator?.name || 'Member'}</span>
                     </div>
                   )}
                 </div>
@@ -1720,7 +1701,7 @@ function ChantsPageContent() {
                     {dockedPodium.title}
                   </h3>
                   <div className="flex items-center gap-1.5 text-xs mt-0.5">
-                    <span style={{ color: '#a78bfa99' }}>{dockedPodium.author?.name || 'Anonymous'}</span>
+                    <span style={{ color: '#a78bfa99' }}>{dockedPodium.author?.name || 'Member'}</span>
                     <span className="text-muted-light/40">&middot;</span>
                     <span className="text-muted-light">{fmt(dockedPodium.views)} views</span>
                   </div>
@@ -1786,7 +1767,7 @@ function ChantsPageContent() {
                     {dockedGroup.name}
                   </h3>
                   <div className="flex items-center gap-1.5 text-xs mt-0.5">
-                    <span style={{ color: '#fbbf2499' }}>{dockedGroup.creator?.name || 'Anonymous'}</span>
+                    <span style={{ color: '#fbbf2499' }}>{dockedGroup.creator?.name || 'Member'}</span>
                     <span className="text-muted-light/40">&middot;</span>
                     <span className="text-muted-light">{fmt(dockedGroup._count.members)} members</span>
                   </div>
@@ -2500,7 +2481,7 @@ function ChantsPageContent() {
                           <div className="flex-1 min-w-0">
                             <h3 className="text-base font-serif text-foreground leading-snug mb-0.5">{p.title}</h3>
                             <div className="flex items-center gap-1.5 text-xs mb-1">
-                              <span style={{ color: '#a78bfab3' }}>{p.author?.name || 'Anonymous'}</span>
+                              <span style={{ color: '#a78bfab3' }}>{p.author?.name || 'Member'}</span>
                               <span className="text-muted-light/40">&middot;</span>
                               <span className="text-muted-light">{fmt(p.views)} views</span>
                               {p.pinned && <span className="text-accent text-[10px] font-mono">PINNED</span>}
@@ -3068,7 +3049,7 @@ function ChantsPageContent() {
                               <span className="text-muted-light/40">&middot;</span>
                               <span>{fmt(g._count.deliberations)} chants</span>
                               <span className="text-muted-light/40">&middot;</span>
-                              <span style={{ color: '#a78bfa99' }}>{g.creator?.name || 'Anonymous'}</span>
+                              <span style={{ color: '#a78bfa99' }}>{g.creator?.name || 'Member'}</span>
                             </div>
                           </div>
                           <div className="relative pt-1 self-center flex items-center gap-2">
@@ -3143,7 +3124,7 @@ function ChantsPageContent() {
                         </div>
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-foreground truncate">{friend.name || 'Anonymous'}</div>
+                        <div className="text-sm font-semibold text-foreground truncate">{friend.name || 'Member'}</div>
                         {friend.bio && <div className="text-xs text-muted truncate">{friend.bio}</div>}
                       </div>
                     </button>
@@ -3369,7 +3350,7 @@ function ChantsPageContent() {
               if (detail) return [{
                 id: detail.id, question: detail.question, description: detail.description, phase: detail.phase,
                 tier: detail.currentTier, participants: detail.memberCount, ideas: detail.ideaCount, cells: 0,
-                upvotes: 0, community: 'Public', creator: detail.creator?.name || 'Anonymous',
+                upvotes: 0, community: 'Public', creator: detail.creator?.name || 'Member',
                 createdAt: '', createdAtRaw: new Date().toISOString(), champion: detail.champion ? { text: detail.champion.text } : null,
                 userHasUpvoted: false, isMember: detail.isMember, isCreator: false, hasSubmittedIdea: !!detail.myIdea,
                 hasVoted: detail.hasVoted, viewerCount: 0, voteCount: 0, isPinned: false, tags: [] as string[],
@@ -3640,7 +3621,7 @@ function ChantsPageContent() {
                                         <div className="flex items-start gap-2 mb-1.5">
                                           <div className="flex-1 min-w-0">
                                             <div className={`text-sm font-serif leading-snug ${isIdeaDocked ? 'text-purple' : 'text-purple'}`}>{idea.text}</div>
-                                            <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Anonymous'}</div>
+                                            <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Member'}</div>
                                           </div>
                                           <span className={`text-2xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
                                         </div>
@@ -3754,7 +3735,7 @@ function ChantsPageContent() {
                                         <div className="flex items-start gap-2">
                                           <div className="flex-1 min-w-0">
                                             <div className="text-sm font-serif text-purple leading-snug">{idea.text}</div>
-                                            <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Anonymous'}</div>
+                                            <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Member'}</div>
                                           </div>
                                           <div className="flex items-center gap-2 shrink-0">
                                             <span className={`text-lg font-mono font-bold ${idea.totalXP > 0 ? 'text-accent/60' : 'text-muted-light/20'}`}>{idea.totalXP}</span>
@@ -3801,7 +3782,7 @@ function ChantsPageContent() {
                                       <div className="flex-1 min-w-0">
                                         {isChampion && <div className="text-[9px] font-mono text-gold/50 uppercase tracking-wider mb-0.5">Winner</div>}
                                         <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple')}`}>{idea.text}</div>
-                                        <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/70'}`}>{idea.author?.name || 'Anonymous'} &middot; {idea.totalXP}xp</div>
+                                        <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/70'}`}>{idea.author?.name || 'Member'} &middot; {idea.totalXP}xp</div>
                                       </div>
                                       <div className="flex flex-col items-center gap-0.5 shrink-0 relative">
                                         <DropCircle

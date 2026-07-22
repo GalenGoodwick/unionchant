@@ -75,7 +75,7 @@ export default function ChampionBox({ winner, phase, ideas, creatorId, currentUs
                 <div className="flex-1 min-w-0">
                   <span className="text-foreground">{idea.text}</span>
                   <span className="text-muted text-xs ml-1.5">
-                    {idea.author ? getDisplayName(idea.author) : 'Anonymous'} · {idea.totalXP || idea.totalVotes} VP
+                    {idea.author ? getDisplayName(idea.author) : 'Member'} · {idea.totalXP || idea.totalVotes} VP
                   </span>
                 </div>
               </div>

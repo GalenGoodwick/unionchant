@@ -237,7 +237,7 @@ export async function POST(req: NextRequest) {
       data: {
         role: 'user',
         content: message.trim(),
-        userName: user.name || 'Anonymous',
+        userName: user.name || 'Member',
         userId: user.id,
         model: chatModel,
         isPrivate: true,
@@ -376,22 +376,22 @@ export async function POST(req: NextRequest) {
     const talksContext = allTalks.map(t => {
       const topIdea = t.ideas[0]
       const winner = t.ideas.find(i => i.status === 'WINNER')
-      return `- "${t.question}" [${t.phase}${t.currentTier > 1 ? ` T${t.currentTier}` : ''}] — ${t._count.members} members, ${t._count.ideas} ideas, ${t.upvoteCount} upvotes${winner ? `, WINNER: "${winner.text}"` : topIdea ? `, top: "${topIdea.text}" (${topIdea.totalXP} XP)` : ''} (by ${t.creator?.name || 'Anonymous'}) [action:navigate:/chants/${t.id}]Explore[/action]`
+      return `- "${t.question}" [${t.phase}${t.currentTier > 1 ? ` T${t.currentTier}` : ''}] — ${t._count.members} members, ${t._count.ideas} ideas, ${t.upvoteCount} upvotes${winner ? `, WINNER: "${winner.text}"` : topIdea ? `, top: "${topIdea.text}" (${topIdea.totalXP} XP)` : ''} (by ${t.creator?.name || 'Member'}) [action:navigate:/chants/${t.id}]Explore[/action]`
     }).join('\n') || '(No chants yet)'
 
     // Format recent ideas
     const ideasContext = recentIdeas
-      .map(i => `- "${i.text}" (${i.totalXP} XP, ${i.status}) in "${i.deliberation.question}" by ${i.author.name || 'Anonymous'}${i.author.isAI ? ' [AI]' : ''}`)
+      .map(i => `- "${i.text}" (${i.totalXP} XP, ${i.status}) in "${i.deliberation.question}" by ${i.author.name || 'Member'}${i.author.isAI ? ' [AI]' : ''}`)
       .join('\n') || '(none today)'
 
     // Format recent discussion
     const discussionContext = recentCellComments
-      .map(c => `- ${c.user.name || 'Anonymous'} (re: "${c.cell.deliberation.question}"): ${c.text}`)
+      .map(c => `- ${c.user.name || 'Member'} (re: "${c.cell.deliberation.question}"): ${c.text}`)
       .join('\n') || '(no active discussion)'
 
     // Format podiums
     const podiumsContext = recentPodiums
-      .map(p => `- "${p.title}" by ${p.author.name || 'Anonymous'} (${p.views} views)${p.deliberation ? ` — linked to "${p.deliberation.question}"` : ''} [action:navigate:/podium/${p.id}]Read[/action]`)
+      .map(p => `- "${p.title}" by ${p.author.name || 'Member'} (${p.views} views)${p.deliberation ? ` — linked to "${p.deliberation.question}"` : ''} [action:navigate:/podium/${p.id}]Read[/action]`)
       .join('\n') || '(no podium posts yet)'
 
     // Format recent visitors (admin only)
@@ -402,7 +402,7 @@ export async function POST(req: NextRequest) {
         const uid = v.userId || 'unknown'
         const existing = visitorMap.get(uid)
         if (!existing) {
-          visitorMap.set(uid, { name: v.userName || 'Anonymous', count: 1, lastMsg: v.content.slice(0, 120) })
+          visitorMap.set(uid, { name: v.userName || 'Member', count: 1, lastMsg: v.content.slice(0, 120) })
         } else {
           existing.count++
         }
@@ -419,7 +419,7 @@ export async function POST(req: NextRequest) {
 
     const codebaseContext = includeCodebase ? `\n${ARCHITECTURE_MAP}\n` : ''
 
-    const userName = user.name || 'Anonymous'
+    const userName = user.name || 'Member'
 
     const shellIdentity = await loadShellIdentity()
 

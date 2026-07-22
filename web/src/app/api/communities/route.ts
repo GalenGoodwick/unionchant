@@ -67,6 +67,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
+    // Anonymous accounts cannot create groups — sign in with a full account first
+    if (user.isAnonymous) {
+      return NextResponse.json(
+        { error: 'Sign in with a full account to create a group', code: 'ANON_FORBIDDEN' },
+        { status: 403 },
+      )
+    }
+
     const body = await req.json()
     const { name, slug, description, isPublic = true } = body
 

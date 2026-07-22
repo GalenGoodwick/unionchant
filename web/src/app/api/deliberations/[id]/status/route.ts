@@ -141,7 +141,7 @@ export async function GET(
           currentCellIdeas: currentCell?.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
-            author: { id: ci.idea.author.id, name: ci.idea.author.name || 'Anonymous' },
+            author: { id: ci.idea.author.id, name: ci.idea.author.name || 'Member' },
           })),
         }
       }

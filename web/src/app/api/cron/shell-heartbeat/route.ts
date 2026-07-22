@@ -205,7 +205,7 @@ export async function GET(req: NextRequest) {
         if (!d.userId || bondedUserIds.has(d.userId) || humanMap.has(d.userId)) continue
         humanMap.set(d.userId, {
           id: d.userId,
-          name: d.user?.name || 'Anonymous',
+          name: d.user?.name || 'Member',
           message: d.content.slice(0, 200),
         })
       }
@@ -1120,7 +1120,7 @@ async function gatherShellState() {
     const existing = userChatSummary.get(msg.userId!)
     if (!existing) {
       userChatSummary.set(msg.userId!, {
-        name: msg.userName || 'Anonymous',
+        name: msg.userName || 'Member',
         messageCount: 1,
         lastMessage: msg.content.slice(0, 150),
         lastAt: msg.createdAt,

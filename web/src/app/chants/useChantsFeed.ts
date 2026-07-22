@@ -71,7 +71,7 @@ export function useChantsFeed() {
         cells: d._count?.cells ?? 0,
         upvotes: d.upvoteCount ?? 0,
         community: d.community?.name || 'Public',
-        creator: d.creator?.name || 'Anonymous',
+        creator: d.creator?.name || 'Member',
         createdAt: relativeTime(d.createdAt),
         createdAtRaw: d.createdAt,
         champion: d.champion ? { text: d.champion.text } : null,

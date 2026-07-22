@@ -217,18 +217,18 @@ export async function GET(
         id: ci.idea.id,
         text: ci.idea.text,
         status: ci.idea.status,
-        author: ci.idea.author?.name || 'Anonymous',
+        author: ci.idea.author?.name || 'Member',
       })),
       participants: cell.participants.map(p => ({
         id: p.user.id,
-        name: p.user.name || 'Anonymous',
+        name: p.user.name || 'Member',
       })),
       dialogues: cell.dialogues.map(d => ({
         id: d.id,
         content: d.content,
         role: d.role,
         speaker: d.role === 'human'
-          ? { type: 'human', name: d.user?.name || 'Anonymous', id: d.user?.id }
+          ? { type: 'human', name: d.user?.name || 'Member', id: d.user?.id }
           : d.role === 'shell'
             ? { type: 'shell', name: d.shell?.name || 'Shell', id: d.shell?.id }
             : { type: 'system' },
@@ -300,7 +300,7 @@ async function generateShellResponse(cellId: string, shellId: string, shellName:
 
   const conversationText = dialogues.map(d => {
     const speaker = d.role === 'human'
-      ? (d.user?.name || 'Anonymous')
+      ? (d.user?.name || 'Member')
       : d.role === 'shell'
         ? (d.shell?.name || 'Shell')
         : 'System'

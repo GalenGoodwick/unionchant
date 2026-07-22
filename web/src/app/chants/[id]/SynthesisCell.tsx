@@ -360,7 +360,7 @@ function DialogueMessage({
               } ${isShell ? 'text-accent' : 'text-muted'}`}
             >
               {isShell && <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent mr-1 align-middle" />}
-              {message.speaker.name || (isShell ? 'Shell' : 'Anonymous')}
+              {message.speaker.name || (isShell ? 'Shell' : 'Member')}
             </button>
             {showIdentity && speakerId && (
               <div className="absolute left-0 top-5 z-50">

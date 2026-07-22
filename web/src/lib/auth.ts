@@ -126,6 +126,7 @@ export const authOptions: NextAuthOptions = {
         if (token.picture) session.user.image = token.picture as string
         if (token.name) session.user.name = token.name as string
         if (token.isTemp) session.user.isTemp = true
+        session.user.isAnonymous = !!token.isAnonymous
       }
       return session
     },
@@ -142,6 +143,7 @@ export const authOptions: NextAuthOptions = {
           select: { isAnonymous: true, lastChallengePassedAt: true },
         })
         token.isTemp = !!(dbUser?.isAnonymous && !dbUser.lastChallengePassedAt)
+        token.isAnonymous = !!dbUser?.isAnonymous
       }
 
       // When session is updated (e.g. onboarding name change, account upgrade), persist to token
@@ -149,7 +151,7 @@ export const authOptions: NextAuthOptions = {
         if (session.name) token.name = session.name
         if (session.image) token.picture = session.image
         // Allow clearing isTemp when account is upgraded
-        if (session.isTemp === false) token.isTemp = false
+        if (session.isTemp === false) { token.isTemp = false; token.isAnonymous = false }
       }
       return token
     },

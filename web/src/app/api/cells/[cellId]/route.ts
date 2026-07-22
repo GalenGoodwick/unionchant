@@ -115,7 +115,7 @@ export async function GET(
           winner = {
             id: winnerIdea.id,
             text: winnerIdea.text,
-            author: winnerIdea.author?.name || 'Anonymous',
+            author: winnerIdea.author?.name || 'Member',
           }
         }
       }
@@ -137,7 +137,7 @@ export async function GET(
         champion = {
           id: championIdea.id,
           text: championIdea.text,
-          author: championIdea.author?.name || 'Anonymous',
+          author: championIdea.author?.name || 'Member',
         }
       }
     }

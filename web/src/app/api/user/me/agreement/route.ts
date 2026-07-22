@@ -55,7 +55,7 @@ export async function GET() {
           : 0
 
         return {
-          user: { id: otherUser.id, name: otherUser.name || 'Anonymous', image: otherUser.image },
+          user: { id: otherUser.id, name: otherUser.name || 'Member', image: otherUser.image },
           agreeCount: s.agreeCount,
           disagreeCount: s.disagreeCount,
           totalCells: s.totalCells,

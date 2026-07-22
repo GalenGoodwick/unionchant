@@ -204,7 +204,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
                         }`}
                       >
                         <p className="text-foreground truncate">{idea.text}</p>
-                        <p className="text-muted text-xs">{idea.author?.name || 'Anonymous'}</p>
+                        <p className="text-muted text-xs">{idea.author?.name || 'Member'}</p>
                       </div>
                     ))}
                   </div>
@@ -223,7 +223,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
                   }`}
                 >
                   <p className="text-foreground truncate">{idea.text}</p>
-                  <p className="text-muted text-xs">{idea.author?.name || 'Anonymous'}</p>
+                  <p className="text-muted text-xs">{idea.author?.name || 'Member'}</p>
                 </div>
               ))}
             </div>
@@ -265,7 +265,7 @@ export default function TierProgressPanel({ deliberationId, currentTier, onRefre
                     }`}>
                       <p className="text-foreground text-sm">{idea.text}</p>
                       <div className="flex justify-between text-xs text-muted mt-1">
-                        <span>by {idea.author?.name || 'Anonymous'}</span>
+                        <span>by {idea.author?.name || 'Member'}</span>
                         {idea.voteCount !== undefined && <span>{idea.voteCount} VP</span>}
                       </div>
                     </div>

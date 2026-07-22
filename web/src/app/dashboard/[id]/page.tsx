@@ -873,7 +873,7 @@ export default function DashboardDetailPage() {
                       <p className="text-xs text-accent mb-0.5 truncate">Re: {comment.idea.text}</p>
                     )}
                     <p className="text-xs text-foreground">{comment.text}</p>
-                    <p className="text-xs text-muted mt-0.5">-- {comment.user.name || 'Anonymous'}</p>
+                    <p className="text-xs text-muted mt-0.5">-- {comment.user.name || 'Member'}</p>
                   </div>
                 ))}
               </div>
@@ -1025,7 +1025,7 @@ export default function DashboardDetailPage() {
                           <h3 className="text-foreground font-medium text-xs truncate">{p.title}</h3>
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-muted">
-                          <span>by {p.author.name || 'Anonymous'}</span>
+                          <span>by {p.author.name || 'Member'}</span>
                           <span>{p.views} views</span>
                           <span>{new Date(p.createdAt).toLocaleDateString()}</span>
                         </div>

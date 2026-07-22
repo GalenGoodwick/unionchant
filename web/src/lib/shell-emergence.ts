@@ -75,7 +75,7 @@ export async function checkForEmergence(deliberationId: string): Promise<Emergen
   const dialogueCorpus = cells.map(cell => {
     const messages = cell.dialogues.map(d => {
       const speaker = d.role === 'human'
-        ? (d.user?.name || 'Anonymous')
+        ? (d.user?.name || 'Member')
         : d.role === 'shell'
         ? (d.shell?.name || 'Shell')
         : 'System'

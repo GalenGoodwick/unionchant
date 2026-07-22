@@ -39,6 +39,8 @@ export async function POST(req: NextRequest) {
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24h
 
     // Create user and verification token
+    // Passkey signups post name:null; the signup UI then requires a display name
+    // (the mandatory "Choose a display name" step) before the account is usable.
     const user = await prisma.user.create({
       data: {
         email,

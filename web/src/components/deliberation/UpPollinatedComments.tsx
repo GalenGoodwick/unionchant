@@ -47,7 +47,7 @@ export default function UpPollinatedComments({ deliberationId }: { deliberationI
           <div key={comment.id} className="bg-purple-bg border-l-2 border-purple rounded p-2">
             <p className="text-foreground text-sm">{comment.text}</p>
             <div className="flex items-center gap-2 mt-1 text-xs text-muted">
-              <span>{comment.user.name || 'Anonymous'}</span>
+              <span>{comment.user.name || 'Member'}</span>
               <span className="text-purple">T{comment.sourceTier} → T{comment.reachTier}</span>
               <span className="font-mono">{comment.upvoteCount}↑</span>
             </div>

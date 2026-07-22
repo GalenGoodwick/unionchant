@@ -289,7 +289,7 @@ export async function POST(
           ideas: available.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
-            author: ci.idea.author?.name || 'Anonymous',
+            author: ci.idea.author?.name || 'Member',
           })),
           voterCount: available._count.participants,
           votersNeeded: fcfsSize,

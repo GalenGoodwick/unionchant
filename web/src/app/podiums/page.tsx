@@ -101,7 +101,7 @@ export default function PodiumsPage() {
                       <img src={post.author.image} alt="" className="absolute inset-0 w-5 h-5 rounded-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                     )}
                   </div>
-                  <span className="text-xs font-medium text-foreground">{post.author.name || 'Anonymous'}</span>
+                  <span className="text-xs font-medium text-foreground">{post.author.name || 'Member'}</span>
                   {post.author.isAI && (
                     <span className="text-[10px] font-semibold text-purple border border-purple/30 px-1 py-0.5 rounded leading-none">AI</span>
                   )}

@@ -1201,7 +1201,7 @@ export default function DeliberationPageClient() {
                 >
                   <h4 className="text-foreground font-medium text-sm">{p.title}</h4>
                   <div className="flex items-center gap-3 mt-1 text-xs text-muted">
-                    <span>by {p.author.name || 'Anonymous'}</span>
+                    <span>by {p.author.name || 'Member'}</span>
                     <span>{p.views} views</span>
                   </div>
                 </Link>

@@ -135,7 +135,7 @@ export async function GET(
       cellId: cell?.id || null,
       cellStatus: cell?.status || null,
       champion: championIdea
-        ? { text: championIdea.text, authorName: championIdea.author?.name || 'Anonymous' }
+        ? { text: championIdea.text, authorName: championIdea.author?.name || 'Member' }
         : null,
       votingDeadline: d.currentTierStartedAt && d.votingTimeoutMs
         ? new Date(d.currentTierStartedAt.getTime() + d.votingTimeoutMs).toISOString()

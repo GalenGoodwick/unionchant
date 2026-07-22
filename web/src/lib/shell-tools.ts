@@ -636,7 +636,7 @@ export async function executeShellTool(
         messageCount: cell.dialogues.length,
         outcome: cell.outcome ? { action: cell.outcome.action, result: cell.outcome.resultText.slice(0, 200) } : null,
         recentMessages: cell.dialogues.slice(-10).map(d => ({
-          speaker: d.role === 'human' ? (d.user?.name || 'Anonymous') : d.role === 'shell' ? (d.shell?.name || 'Shell') : 'System',
+          speaker: d.role === 'human' ? (d.user?.name || 'Member') : d.role === 'shell' ? (d.shell?.name || 'Shell') : 'System',
           role: d.role,
           content: d.content.slice(0, 300),
         })),
@@ -1085,7 +1085,7 @@ export async function executeShellTool(
         const notReady: string[] = []
         const revise: string[] = []
         for (const r of responsesSince) {
-          const speaker = r.role === 'human' ? (r.user?.name || 'Anonymous') : (r.shell?.name || 'Agent')
+          const speaker = r.role === 'human' ? (r.user?.name || 'Member') : (r.shell?.name || 'Agent')
           const lower = r.content.toLowerCase()
           if (lower.includes('ready') || lower.includes('yes') || lower.includes('agree') || lower.includes('conclude') || lower.includes('finalize')) {
             ready.push(speaker)
@@ -1729,7 +1729,7 @@ IMPORTANT: Keep your response to 2-3 sentences. You are one voice in a chain —
         if (!d.user || d.user.bondedShell) continue
         const uid = d.user.id
         if (!humanMap.has(uid)) {
-          humanMap.set(uid, { id: uid, name: d.user.name || 'Anonymous', messages: [] })
+          humanMap.set(uid, { id: uid, name: d.user.name || 'Member', messages: [] })
         }
         const entry = humanMap.get(uid)!
         if (entry.messages.length < 3) {

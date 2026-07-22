@@ -239,7 +239,7 @@ function GroupChat({ slug, members, isOwnerOrAdmin }: { slug: string; members: M
                     </Link>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-1.5">
-                        <Link href={`/user/${msg.user.id}`} className="text-[11px] font-medium text-foreground hover:text-accent transition-colors">{msg.user.name || 'Anonymous'}</Link>
+                        <Link href={`/user/${msg.user.id}`} className="text-[11px] font-medium text-foreground hover:text-accent transition-colors">{msg.user.name || 'Member'}</Link>
                         {(role === 'OWNER' || role === 'ADMIN') && (
                           <span className="text-[9px] px-1 rounded bg-accent/10 text-accent">
                             {role === 'OWNER' ? 'Owner' : 'Admin'}

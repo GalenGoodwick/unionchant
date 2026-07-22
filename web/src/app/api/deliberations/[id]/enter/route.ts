@@ -202,7 +202,7 @@ export async function POST(
           ideas: p.cell.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
-            author: ci.idea.author?.name || 'Anonymous',
+            author: ci.idea.author?.name || 'Member',
           })),
           voterCount: p.cell._count.participants,
           votersNeeded: FCFS_CELL_SIZE,
@@ -213,7 +213,7 @@ export async function POST(
           ideas: c.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
-            author: ci.idea.author?.name || 'Anonymous',
+            author: ci.idea.author?.name || 'Member',
           })),
           voterCount: c._count.participants + 1,
           votersNeeded: FCFS_CELL_SIZE,
@@ -249,7 +249,7 @@ export async function POST(
           ideas: activeParticipation.cell.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
-            author: ci.idea.author?.name || 'Anonymous',
+            author: ci.idea.author?.name || 'Member',
           })),
           ...(isFCFS ? {
             voterCount: activeParticipation.cell._count.participants,
@@ -324,7 +324,7 @@ export async function POST(
           ideas: cellToJoin.ideas.map(ci => ({
             id: ci.idea.id,
             text: ci.idea.text,
-            author: ci.idea.author?.name || 'Anonymous',
+            author: ci.idea.author?.name || 'Member',
           })),
           voterCount: cellToJoin._count.participants + 1,
           votersNeeded: FCFS_CELL_SIZE,
@@ -457,7 +457,7 @@ export async function POST(
         ideas: cellToJoin.ideas.map(ci => ({
           id: ci.idea.id,
           text: ci.idea.text,
-          author: ci.idea.author?.name || 'Anonymous',
+          author: ci.idea.author?.name || 'Member',
         })),
       },
     })

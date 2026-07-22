@@ -58,7 +58,8 @@ export default function NewCommunityPage() {
     )
   }
 
-  if (!session) {
+  // Anonymous/temp accounts cannot create groups — send them to sign in with a full account
+  if (!session || session.user?.isAnonymous || session.user?.isTemp) {
     router.push('/auth/signin')
     return null
   }

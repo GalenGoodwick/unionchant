@@ -248,13 +248,13 @@ export async function interpretCellIntent(cellId: string, birthNudge: boolean = 
 
   // Format ideas for the prompt
   const ideasText = cell.ideas.map((ci, i) =>
-    `Idea ${i + 1} [${ci.idea.id}]: "${ci.idea.text}" (by ${ci.idea.author?.name || 'Anonymous'})`
+    `Idea ${i + 1} [${ci.idea.id}]: "${ci.idea.text}" (by ${ci.idea.author?.name || 'Member'})`
   ).join('\n')
 
   // Format dialogue for the prompt
   const dialogueText = cell.dialogues.map(d => {
     const speaker = d.role === 'human'
-      ? (d.user?.name || 'Anonymous')
+      ? (d.user?.name || 'Member')
       : d.role === 'shell'
         ? (d.shell?.name || 'Shell')
         : 'System'

@@ -53,7 +53,7 @@ export default function CommentsPanel({ deliberationId }: { deliberationId: stri
                   <div className="flex-1">
                     <p className="text-foreground text-sm">{comment.text}</p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-muted">
-                      <span>{comment.user.name || 'Anonymous'}</span>
+                      <span>{comment.user.name || 'Member'}</span>
                       <span>from Tier {comment.sourceTier}</span>
                       <span className="text-purple">reached Tier {comment.reachTier}</span>
                       <span>{comment.upvoteCount} upvotes</span>
@@ -84,7 +84,7 @@ export default function CommentsPanel({ deliberationId }: { deliberationId: stri
                     }`}>
                       <p className="text-foreground">{comment.text}</p>
                       <div className="flex items-center gap-2 mt-1 text-xs text-muted">
-                        <span>{comment.user.name || 'Anonymous'}</span>
+                        <span>{comment.user.name || 'Member'}</span>
                         {comment.upvoteCount > 0 && (
                           <span className="text-orange">{comment.upvoteCount} upvotes</span>
                         )}

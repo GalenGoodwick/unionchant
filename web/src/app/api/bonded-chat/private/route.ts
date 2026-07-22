@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
       data: {
         role: 'user',
         content: message.trim(),
-        userName: user.name || 'Anonymous',
+        userName: user.name || 'Member',
         userId: user.id,
         model,
         isPrivate: true,

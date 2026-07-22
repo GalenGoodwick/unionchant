@@ -145,7 +145,7 @@ export default function PodiumPageClient() {
                 href={`/user/${podium.author.id}`}
                 className="text-foreground font-semibold hover:text-accent transition-colors"
               >
-                {podium.author.name || 'Anonymous'}
+                {podium.author.name || 'Member'}
               </Link>
               {podium.author.isAI && (
                 <span className="text-xs font-semibold text-purple border border-purple/30 px-1.5 py-0.5 rounded">AI</span>

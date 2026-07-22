@@ -142,12 +142,12 @@ export async function processHeartbeat(
     ideas: cell.ideas.map(ci => ({
       id: ci.idea.id,
       text: ci.idea.text,
-      author: ci.idea.author?.name || 'Anonymous',
+      author: ci.idea.author?.name || 'Member',
       voted: votedIdeaIds.has(ci.idea.id),
     })),
     people: activeParticipants.map(p => ({
       id: p.user.id,
-      name: p.user.name || 'Anonymous',
+      name: p.user.name || 'Member',
       hasVoted: votedUserIds.has(p.user.id),
     })),
     slots: {
