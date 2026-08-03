@@ -9,6 +9,8 @@ import CollectiveChat from '@/components/CollectiveChat'
 
 import ChallengeProvider from '@/components/ChallengeProvider'
 import PasskeyPrompt from '@/components/PasskeyPrompt'
+import NotificationPrompt from '@/components/NotificationPrompt'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 import Header from '@/components/Header'
 
 type OnboardingContextType = {
@@ -173,6 +175,50 @@ function PasskeyPromptGate({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Notification Prompt ───────────────────────────────────────
+// Asks for push-notification permission ONCE, only after a real account
+// exists — never for anonymous/first-time browsers, and never automatically
+// (the browser prompt fires only if the user clicks "Enable" in the modal).
+
+const NOTIF_PROMPT_SEEN_KEY = 'notifPromptSeen'
+
+function NotificationPromptGate({ children }: { children: React.ReactNode }) {
+  const { data: session, status } = useSession()
+  const { isSupported, isSubscribed, isLoading, permission } = usePushNotifications()
+  const [show, setShow] = useState(false)
+
+  // Real, registered accounts only — skip anonymous/temporary browsing users.
+  const email = session?.user?.email || ''
+  const isRealAccount = !!email && !email.includes('@temporary.unitychant.com')
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (status !== 'authenticated' || !isRealAccount) return
+    if (isLoading || !isSupported) return
+    if (isSubscribed) return
+    if (permission !== 'default') return // already granted or blocked — don't nag
+    if (localStorage.getItem(NOTIF_PROMPT_SEEN_KEY) === 'true') return
+
+    // Brief delay so it lands after the post-signup redirect settles.
+    const t = setTimeout(() => setShow(true), 1500)
+    return () => clearTimeout(t)
+  }, [status, isRealAccount, isSupported, isSubscribed, isLoading, permission])
+
+  const handleClose = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(NOTIF_PROMPT_SEEN_KEY, 'true')
+    }
+    setShow(false)
+  }, [])
+
+  return (
+    <>
+      {children}
+      {show && <NotificationPrompt onClose={handleClose} />}
+    </>
+  )
+}
+
 // ── Collective Chat ───────────────────────────────────────────
 
 type CollectiveChatContextType = {
@@ -224,11 +270,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <GuideGate>
             <OnboardingGate>
               <PasskeyPromptGate>
-                <CollectiveChatGate>
-                  <ChallengeProvider>
-                    {children}
-                  </ChallengeProvider>
-                </CollectiveChatGate>
+                <NotificationPromptGate>
+                  <CollectiveChatGate>
+                    <ChallengeProvider>
+                      {children}
+                    </ChallengeProvider>
+                  </CollectiveChatGate>
+                </NotificationPromptGate>
               </PasskeyPromptGate>
             </OnboardingGate>
           </GuideGate>
