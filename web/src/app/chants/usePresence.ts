@@ -41,7 +41,19 @@ interface UsePresenceReturn {
   socketRef: React.MutableRefObject<Socket | null>
 }
 
-const PRESENCE_URL = process.env.NEXT_PUBLIC_PRESENCE_URL || 'http://localhost:8080'
+// Resolve the presence server URL. Only fall back to localhost during LOCAL
+// development — a deployed site must never reach for localhost, or the visitor's
+// browser (e.g. Brave) shows a "wants to access other apps and services on this
+// device" localhost-permission prompt on first load. Returns null when no
+// presence server is configured for this environment (presence simply no-ops).
+function resolvePresenceUrl(): string | null {
+  if (process.env.NEXT_PUBLIC_PRESENCE_URL) return process.env.NEXT_PUBLIC_PRESENCE_URL
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname
+    if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8080'
+  }
+  return null
+}
 
 export function usePresence({ userId, name, color, currentInstance }: UsePresenceOptions): UsePresenceReturn {
   // the player's own world (game-world) — retired; presence no longer carries a space slug
@@ -54,7 +66,9 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
 
   // Connect once
   useEffect(() => {
-    const socket = io(PRESENCE_URL, {
+    const presenceUrl = resolvePresenceUrl()
+    if (!presenceUrl) return // no presence server configured — skip (no localhost hit)
+    const socket = io(presenceUrl, {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
@@ -202,9 +216,11 @@ export function usePresence({ userId, name, color, currentInstance }: UsePresenc
   const [globalPlayers, setGlobalPlayers] = useState<Map<string, PresencePlayer[]>>(new Map())
 
   useEffect(() => {
+    const presenceUrl = resolvePresenceUrl()
+    if (!presenceUrl) return // no presence server configured — skip polling
     let mounted = true
     const poll = () => {
-      fetch(`${PRESENCE_URL}/instances`)
+      fetch(`${presenceUrl}/instances`)
         .then(r => r.json())
         .then((data: Record<string, { id: string; name: string; color: string }[]>) => {
           if (!mounted) return

@@ -46,7 +46,17 @@ interface UseUserspaceReturn {
   broadcastNavUpdate: (state: UserspaceNavState) => void
 }
 
-const PRESENCE_URL = process.env.NEXT_PUBLIC_PRESENCE_URL || 'http://localhost:8080'
+// Only fall back to localhost in LOCAL dev — a deployed site must never reach
+// for localhost (triggers the browser's localhost-resource permission prompt).
+// Returns null when no presence server is configured (polling is skipped).
+function resolvePresenceUrl(): string | null {
+  if (process.env.NEXT_PUBLIC_PRESENCE_URL) return process.env.NEXT_PUBLIC_PRESENCE_URL
+  if (typeof window !== 'undefined') {
+    const h = window.location.hostname
+    if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8080'
+  }
+  return null
+}
 
 export function useUserspace({ socketRef, userId, connected }: UseUserspaceOptions): UseUserspaceReturn {
   const [activeSubspaces, setActiveSubspaces] = useState<UserspaceNode[]>([])
@@ -56,9 +66,11 @@ export function useUserspace({ socketRef, userId, connected }: UseUserspaceOptio
 
   // Poll /userspaces for spatial canvas data
   useEffect(() => {
+    const presenceUrl = resolvePresenceUrl()
+    if (!presenceUrl) return // no presence server configured — skip polling
     let mounted = true
     const poll = () => {
-      fetch(`${PRESENCE_URL}/userspaces`)
+      fetch(`${presenceUrl}/userspaces`)
         .then(r => r.json())
         .then((data: Record<string, Omit<UserspaceNode, 'userId'>>) => {
           if (!mounted) return
