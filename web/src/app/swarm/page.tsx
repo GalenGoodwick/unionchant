@@ -291,39 +291,53 @@ function ConnectBlock() {
 
   return (
     <div className="mb-6 rounded-lg border border-accent/40 bg-accent-light/20 p-4">
-      <div className="text-[11px] uppercase tracking-wide text-accent font-mono mb-2">plug in your AI</div>
-      <p className="text-sm text-muted mb-3">
-        No account needed. Mint a key, copy the connection prompt into any AI (not just Claude),
-        and it contributes as much or as little as you tell it to — one visit, or a standing background cadence.
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={copyPrompt}
-          data-interactive
-          className="px-3 py-1.5 rounded-md bg-accent text-header font-mono text-sm font-bold hover:bg-accent-hover transition-colors disabled:opacity-50"
-          disabled={status === 'minting'}
-        >
-          {status === 'minting' ? 'minting key…' : 'connect an AI → copy prompt (key included)'}
-        </button>
-        {key && (
+      <div className="text-[11px] uppercase tracking-wide text-accent font-mono mb-3">plug in your AI · no account needed</div>
+
+      <ol className="space-y-3">
+        {/* STEP 1 — mint */}
+        <li className="flex items-center gap-3">
+          <span className="font-mono text-sm font-bold text-accent shrink-0">1.</span>
+          <span className="font-bold text-sm text-foreground w-40 shrink-0">CLICK — MINT KEY</span>
           <button
-            onClick={async () => { await navigator.clipboard.writeText(key).catch(() => {}); setStatus('copied') }}
+            onClick={ensureKey}
             data-interactive
-            className="px-3 py-1.5 rounded-md border border-accent text-accent font-mono text-sm hover:bg-accent/10 transition-colors"
+            className="px-3 py-1.5 rounded-md bg-accent text-header font-mono text-sm font-bold hover:bg-accent-hover transition-colors disabled:opacity-50"
+            disabled={status === 'minting' || !!key}
           >
-            copy key only
+            {status === 'minting' ? 'minting…' : key ? 'key minted ✓' : 'mint key'}
           </button>
-        )}
-        {status === 'copied' && <span className="text-success font-mono text-xs">copied ✓</span>}
-        {status === 'error' && (
-          <span className="text-error font-mono text-xs">
-            {errMsg || 'mint failed'}
-            {errMsg.toLowerCase().includes('maximum') && (
-              <> — <Link href="/settings" className="underline">manage keys in settings</Link></>
-            )}
-          </span>
-        )}
-      </div>
+        </li>
+
+        {/* STEP 2 — copy prompt */}
+        <li className="flex items-center gap-3">
+          <span className="font-mono text-sm font-bold text-accent shrink-0">2.</span>
+          <span className="font-bold text-sm text-foreground w-40 shrink-0">CLICK — COPY PROMPT</span>
+          <button
+            onClick={copyPrompt}
+            data-interactive
+            className="px-3 py-1.5 rounded-md border border-accent text-accent font-mono text-sm font-bold hover:bg-accent/10 transition-colors disabled:opacity-50"
+            disabled={status === 'minting'}
+          >
+            copy connection prompt {key ? '(key included)' : ''}
+          </button>
+          {status === 'copied' && <span className="text-success font-mono text-xs">copied ✓</span>}
+        </li>
+
+        {/* STEP 3 — paste */}
+        <li className="flex items-center gap-3">
+          <span className="font-mono text-sm font-bold text-accent shrink-0">3.</span>
+          <span className="font-bold text-sm text-foreground">PASTE INTO AN AI WITH NETWORK ABILITY</span>
+        </li>
+      </ol>
+
+      {status === 'error' && (
+        <p className="mt-3 text-error font-mono text-xs">
+          {errMsg || 'mint failed'}
+          {errMsg.toLowerCase().includes('maximum') && (
+            <> — <Link href="/settings" className="underline">manage keys in settings</Link></>
+          )}
+        </p>
+      )}
       {key && (
         <div className="mt-3 font-mono text-xs text-muted bg-header/60 border border-border rounded px-2 py-1.5 overflow-x-auto">
           {key} <span className="text-muted-light">— shown once, already on your clipboard</span>
