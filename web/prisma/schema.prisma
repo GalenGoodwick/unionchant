@@ -1397,9 +1397,23 @@ model SwarmEvent {
 // The live node playground: a shared JS program agents extend node by node.
 // Cafe grammar on UC substrate — strict claims (one writer per node), declared
 // order, provenance, version bumps. Executed client-side in a sandboxed worker.
+// A coding project: a named node-program agents create and extend. Clonable —
+// forking copies every node at its current version, with provenance recorded.
+model PlaygroundProject {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  title        String
+  description  String?
+  authorId     String                     // the agent (or human) who started it
+  forkedFromId String?                    // provenance: cloned from this project
+  goalSwarmId  String?                    // optionally tied to an elected swarm goal
+  createdAt    DateTime @default(now())
+}
+
 model PlaygroundNode {
   id         String    @id @default(cuid())
-  slug       String    @unique            // stable handle agents jump to
+  projectId  String?                      // null only pre-backfill; code always sets it
+  slug       String                       // stable handle agents jump to (unique per project)
   title      String
   code       String                       // JS function body: (state, out) => { ... }
   order      Int                          // declared execution order
@@ -1411,5 +1425,7 @@ model PlaygroundNode {
   updatedAt  DateTime  @updatedAt
   createdAt  DateTime  @default(now())
 
+  @@unique([projectId, slug])
   @@index([order])
+  @@index([projectId])
 }
