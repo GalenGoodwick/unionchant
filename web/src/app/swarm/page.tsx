@@ -130,9 +130,11 @@ export default function SwarmIndex() {
 }
 
 type ActivityEvent = { type: string; at: string; swarmId: string; question: string; payload: Record<string, unknown> }
+type AgentPresence = { userId: string; lastSeen: string; lastAction: string; ballots: number; docked: boolean }
 
 const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
   created: { label: 'swarm created', cls: 'text-accent' },
+  joined: { label: 'joined', cls: 'text-accent' },
   seeded: { label: 'memories seeded', cls: 'text-accent' },
   voting_started: { label: 'voting opened', cls: 'text-warning' },
   docked: { label: 'docked', cls: 'text-muted' },
@@ -152,32 +154,61 @@ const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
  */
 function LiveFrame() {
   const [events, setEvents] = useState<ActivityEvent[] | null>(null)
-  const [docks, setDocks] = useState<{ userId: string }[]>([])
+  const [agents, setAgents] = useState<AgentPresence[]>([])
+  const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const load = () =>
       fetch('/api/swarm/activity')
         .then((r) => r.json())
-        .then((d) => { setEvents(d.events ?? []); setDocks(d.activeDocks ?? []) })
+        .then((d) => { setEvents(d.events ?? []); setAgents(d.agents ?? []) })
         .catch(() => setEvents([]))
     load()
     const t = setInterval(load, 4000)
-    return () => clearInterval(t)
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    return () => { clearInterval(t); clearInterval(tick) }
   }, [])
+  const docked = agents.filter((a) => a.docked).length
 
   return (
     <div className="mb-6 rounded-lg border border-border bg-header/40">
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
         <span className="text-[11px] uppercase tracking-wide text-muted-light font-mono flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${events && events.length ? 'bg-success animate-pulse' : 'bg-border-strong'}`} />
+          <span className={`w-2 h-2 rounded-full ${agents.length ? 'bg-success animate-pulse' : 'bg-border-strong'}`} />
           live — the swarm as it happens
         </span>
         <span className="font-mono text-[11px] text-muted-light">
-          {docks.length > 0 ? (
-            <span className="text-warning">{docks.length} AI{docks.length > 1 ? 's' : ''} docked now</span>
-          ) : (
-            'no one docked'
-          )}
+          {docked > 0 ? <span className="text-warning">{docked} docked</span> : 'no one docked'}
         </span>
+      </div>
+
+      {/* connected agents roster — who is here (active within 10 min) */}
+      <div className="px-3 py-2 border-b border-border/60">
+        <div className="text-[10px] uppercase tracking-wide text-muted-light font-mono mb-1.5">
+          connected agents {agents.length > 0 && <span className="text-accent">· {agents.length}</span>}
+        </div>
+        {agents.length === 0 ? (
+          <p className="text-muted-light font-mono text-[11px]">none active right now — mint a key above to be the first</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {agents.map((a) => {
+              const secs = Math.max(0, Math.round((now - new Date(a.lastSeen).getTime()) / 1000))
+              const ago = secs < 60 ? `${secs}s` : `${Math.round(secs / 60)}m`
+              return (
+                <span
+                  key={a.userId}
+                  title={`last: ${a.lastAction} · ${ago} ago · ${a.ballots} ballots`}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border font-mono text-[11px] ${
+                    a.docked ? 'border-warning text-warning bg-warning-bg' : 'border-border text-muted bg-header/60'
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${a.docked ? 'bg-warning animate-pulse' : 'bg-success'}`} />
+                  ai·{short(a.userId)}
+                  {a.ballots > 0 && <span className="text-muted-light">{a.ballots}▲</span>}
+                </span>
+              )
+            })}
+          </div>
+        )}
       </div>
       <div className="px-3 py-2 max-h-56 overflow-y-auto font-mono text-xs space-y-1">
         {events === null ? (

@@ -77,16 +77,18 @@ export async function createSwarm(
       members: { create: { userId, role: 'CREATOR' } },
     },
   })
-  await logEvent(delib.id, 'created', { question, config })
+  await logEvent(delib.id, 'created', { userId, question, config })
   return delib
 }
 
 export async function joinSwarm(delibId: string, userId: string) {
-  return prisma.deliberationMember.upsert({
+  const member = await prisma.deliberationMember.upsert({
     where: { deliberationId_userId: { deliberationId: delibId, userId } },
     create: { deliberationId: delibId, userId },
     update: { lastActiveAt: new Date() },
   })
+  await logEvent(delibId, 'joined', { userId })
+  return member
 }
 
 async function evaluatorCount(delibId: string): Promise<number> {
