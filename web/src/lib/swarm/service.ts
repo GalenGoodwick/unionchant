@@ -229,9 +229,46 @@ const PROTOCOL =
   '1) read every cell memory 2) chant one stance through your lens (POST /chant) ' +
   '3) read the other stances, revise if moved 4) POST /ballot with your full ranking + one-line note'
 
+/**
+ * Discussion injection (works for ANY connected AI, not just Claude): the freshest
+ * comments by OTHERS on cells this evaluator touched (docked or balloted). Every /turn
+ * response carries this stream, so each contribution cycle folds peer discussion into
+ * the AI's own context — up-pollination's swarm on-ramp, provider-agnostic by design.
+ */
+async function discussionStream(delibId: string, userId: string, take = 12) {
+  const [docks, ballots] = await Promise.all([
+    prisma.cellDock.findMany({ where: { userId, cellId: { in: await cellIdsOf(delibId) } }, select: { cellId: true } }),
+    prisma.swarmBallot.findMany({ where: { userId, cellId: { in: await cellIdsOf(delibId) } }, select: { cellId: true } }),
+  ])
+  const touched = [...new Set([...docks.map((d) => d.cellId), ...ballots.map((b) => b.cellId)])]
+  if (!touched.length) return []
+  const comments = await prisma.comment.findMany({
+    where: { cellId: { in: touched }, userId: { not: userId } },
+    orderBy: { createdAt: 'desc' },
+    take,
+    select: { cellId: true, userId: true, text: true, createdAt: true },
+  })
+  return comments.reverse()
+}
+
+/** Complete any open current-tier cell already at quorum (level-triggered; see getTurn). */
+async function sweepCompletions(delib: Deliberation) {
+  const cfg = swarmConfig(delib)
+  const q = effectiveQuorum(cfg, await evaluatorCount(delib.id))
+  const open = await prisma.cell.findMany({
+    where: { deliberationId: delib.id, tier: delib.currentTier, completedAt: null },
+    select: { id: true },
+  })
+  for (const c of open) {
+    const n = await prisma.swarmBallot.count({ where: { cellId: c.id } })
+    if (n >= q) await maybeCompleteCell(delib, c.id, cfg)
+  }
+}
+
 export async function getTurn(delib: Deliberation, userId: string) {
   const cfg = swarmConfig(delib)
   const frame = await championFrame(delib)
+  const stream = await discussionStream(delib.id, userId)
   // Legible absence (frame-purity verdict): a first election has earned no champion,
   // so frame is null. This flag says so honestly rather than leaving a silent null.
   const standingChampion = frame !== null
@@ -241,7 +278,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
       prisma.idea.count({ where: { deliberationId: delib.id } }),
       prisma.idea.count({ where: { deliberationId: delib.id, authorId: userId } }),
     ])
-    return { phase: 'seeding', frame, standingChampion, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
+    return { phase: 'seeding', frame, standingChampion, stream, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
   }
 
   if (delib.phase === 'COMPLETED' || delib.phase === 'ACCUMULATING') {
@@ -249,6 +286,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
       phase: 'champion',
       frame,
       standingChampion,
+      stream,
       boot: await getBoot(delib),
       flywheel:
         'act on the directive; write results back as kind:"outcome" memories with real scores — a grounded outcome can challenge the champion',
@@ -257,19 +295,27 @@ export async function getTurn(delib: Deliberation, userId: string) {
 
   // VOTING — dispatch.
   await expireStaleDocks(delib.id)
+  // Level-triggered completion sweep: completion is normally checked when a ballot
+  // lands, but a cell can also reach quorum "from outside" (config change, partial
+  // resolution). Sweep open cells at quorum so the election can never wedge with
+  // enough ballots already in. maybeCompleteCell guards double-completion.
+  await sweepCompletions(delib)
+  const fresh = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
+  if (fresh.phase !== 'VOTING') return getTurn(fresh, userId) // sweep crowned/advanced past us
+  delib = fresh
   const snapshots = await loadTierSnapshots(delib.id, delib.currentTier)
   const evals = await evaluatorCount(delib.id)
   const decision = scheduleNextCell(userId, snapshots.cells, cfg, evals)
 
   if (decision.kind === 'waiting') {
-    return { phase: 'waiting', frame, standingChampion, reason: decision.reason, nextCheckSeconds: 60 }
+    return { phase: 'waiting', frame, standingChampion, stream, reason: decision.reason, nextCheckSeconds: 60 }
   }
 
   if (decision.kind === 'resume') {
     const dock = await prisma.cellDock.findFirstOrThrow({
       where: { cellId: decision.cellId, userId, status: 'ACTIVE' },
     })
-    return turnPayload(delib, frame, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+    return turnPayload(delib, frame, stream, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
   }
 
   // Fresh dock: atomic under the cell row lock (the atomicJoinCell pattern).
@@ -307,7 +353,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
 
   if (!dock) return { phase: 'waiting', frame, reason: 'cell filled while docking; ping again', nextCheckSeconds: 5 }
   await logEvent(delib.id, 'docked', { dockId: dock.id, userId, cellId: dock.cellId, lensIdeaId: dock.lensIdeaId })
-  return turnPayload(delib, frame, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+  return turnPayload(delib, frame, stream, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
 }
 
 interface TierSnapshots {
@@ -353,6 +399,7 @@ async function loadTierSnapshots(delibId: string, tier: number): Promise<TierSna
 async function turnPayload(
   delib: Deliberation,
   frame: unknown,
+  stream: Awaited<ReturnType<typeof discussionStream>>,
   dockId: string,
   cellId: string,
   lensIdeaId: string,
@@ -375,6 +422,7 @@ async function turnPayload(
     phase: 'evaluate',
     frame,
     standingChampion: frame !== null,
+    stream,
     dock: { dockId, cellId, tier: cell.tier, expiresAt, lensInCell },
     lens: toMemory(lens as IdeaWithMeta),
     cell: cell.ideas

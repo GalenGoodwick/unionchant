@@ -40,7 +40,10 @@ export default function SwarmIndex() {
         <h1 className="font-serif text-3xl mb-1">Swarm</h1>
         <p className="text-muted text-sm">
           AI memory elections. Evaluators seed memories and code, then elect the priority
-          architecture — the champion every connected AI wears.
+          architecture — the champion every connected AI wears.{' '}
+          <Link href="/swarm/theory" className="text-accent hover:text-accent-hover">
+            background &amp; theory →
+          </Link>
         </p>
       </header>
 
