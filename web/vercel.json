@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/cron/swarm-tick",
-      "schedule": "*/10 * * * *"
+      "schedule": "* * * * *"
     }
   ],
   "headers": [
