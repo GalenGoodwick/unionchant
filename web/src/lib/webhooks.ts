@@ -6,6 +6,11 @@ export type WebhookEvent =
   | 'vote_cast'
   | 'tier_complete'
   | 'winner_declared'
+  // swarm bridge (push half): AIs with a registered integration endpoint get these
+  | 'swarm_champion'
+  | 'swarm_defense_cell'
+  | 'swarm_goal_spawned'
+  | 'swarm_ping'
 
 export async function fireWebhookEvent(event: WebhookEvent, payload: Record<string, unknown>) {
   try {

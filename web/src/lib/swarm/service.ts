@@ -5,6 +5,7 @@
 
 import { prisma } from '@/lib/prisma'
 import { planExpansion } from '@/lib/swarm/engine/expansion'
+import { fireWebhookEvent } from '@/lib/webhooks'
 import {
   tallyCell,
   chunkCells,
@@ -286,6 +287,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
   const cfg = swarmConfig(delib)
   const frame = await championFrame(delib)
   const stream = await discussionStream(delib.id, userId)
+  const bridge = await bridgeUpdates(userId)
   // Legible absence (frame-purity verdict): a first election has earned no champion,
   // so frame is null. This flag says so honestly rather than leaving a silent null.
   const standingChampion = frame !== null
@@ -295,7 +297,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
       prisma.idea.count({ where: { deliberationId: delib.id } }),
       prisma.idea.count({ where: { deliberationId: delib.id, authorId: userId } }),
     ])
-    return { phase: 'seeding', frame, standingChampion, stream, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
+    return { phase: 'seeding', frame, standingChampion, stream, bridge, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
   }
 
   // CONTINUOUS CHANT: rebase the tournament to its correct current shape, then
@@ -338,14 +340,14 @@ export async function getTurn(delib: Deliberation, userId: string) {
   const decision = scheduleNextCell(userId, snapshots.cells, cfg, evals)
 
   if (decision.kind === 'waiting') {
-    return { phase: 'waiting', frame: liveFrame, standingChampion: liveStanding, stream, reason: decision.reason, nextCheckSeconds: 60 }
+    return { phase: 'waiting', frame: liveFrame, standingChampion: liveStanding, stream, bridge, reason: decision.reason, nextCheckSeconds: 60 }
   }
 
   if (decision.kind === 'resume') {
     const dock = await prisma.cellDock.findFirstOrThrow({
       where: { cellId: decision.cellId, userId, status: 'ACTIVE' },
     })
-    return turnPayload(delib, liveFrame, stream, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+    return turnPayload(delib, liveFrame, stream, bridge, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
   }
 
   // Fresh dock: atomic under the cell row lock (the atomicJoinCell pattern).
@@ -383,7 +385,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
 
   if (!dock) return { phase: 'waiting', frame, reason: 'cell filled while docking; ping again', nextCheckSeconds: 5 }
   await logEvent(delib.id, 'docked', { dockId: dock.id, userId, cellId: dock.cellId, lensIdeaId: dock.lensIdeaId })
-  return turnPayload(delib, liveFrame, stream, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+  return turnPayload(delib, liveFrame, stream, bridge, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
 }
 
 interface TierSnapshots {
@@ -430,6 +432,7 @@ async function turnPayload(
   delib: Deliberation,
   frame: unknown,
   stream: Awaited<ReturnType<typeof discussionStream>>,
+  bridge: Awaited<ReturnType<typeof bridgeUpdates>>,
   dockId: string,
   cellId: string,
   lensIdeaId: string,
@@ -453,6 +456,7 @@ async function turnPayload(
     frame,
     standingChampion: frame !== null,
     stream,
+    bridge,
     dock: { dockId, cellId, tier: cell.tier, expiresAt, lensInCell },
     lens: toMemory(lens as IdeaWithMeta),
     cell: cell.ideas
@@ -697,6 +701,7 @@ async function crownChampion(delib: Deliberation, championId: string, opts: { de
     },
   })
   await logEvent(delib.id, 'champion', { championId, lineage, tiers, defended: opts.defended })
+  fireWebhookEvent('swarm_champion', { swarmId: delib.id, championId, defended: opts.defended })
 
   // GOAL CHANT: a swarm whose candidates are proposed goals. Its FIRST champion
   // becomes the question of a freshly spawned working swarm — the collective
@@ -717,9 +722,65 @@ async function crownChampion(delib: Deliberation, championId: string, opts: { de
         data: { swarmConfig: { ...(delib.swarmConfig as object), spawnedChildId: child.id } },
       })
       await logEvent(delib.id, 'goal_spawned', { childId: child.id, goal: goalText.slice(0, 120) })
+      fireWebhookEvent('swarm_goal_spawned', { swarmId: delib.id, childId: child.id, goal: goalText.slice(0, 120) })
       await logEvent(child.id, 'spawned_from_goal', { parentId: delib.id })
     }
   }
+}
+
+/**
+ * The BRIDGE (pull half): notable updates a connected AI has not heard yet —
+ * champion changes, defense cells forming, goal spawns, and pings addressed to it —
+ * across ALL swarms it belongs to. Watermarked on DeliberationMember.lastActiveAt:
+ * each delivery bumps the watermark, so every update is delivered exactly once.
+ * Rides every /turn response; webhooks are the push half for registered endpoints.
+ */
+async function bridgeUpdates(userId: string) {
+  const memberships = await prisma.deliberationMember.findMany({
+    where: { userId, deliberation: { chantMode: 'swarm' } },
+    select: { deliberationId: true, lastActiveAt: true },
+  })
+  if (!memberships.length) return []
+  const since = new Map(memberships.map((m) => [m.deliberationId, m.lastActiveAt]))
+  const events = await prisma.swarmEvent.findMany({
+    where: {
+      delibId: { in: [...since.keys()] },
+      type: { in: ['champion', 'cell_formed', 'goal_spawned', 'ping'] },
+      at: { gt: new Date(Math.min(...[...since.values()].map((d) => d.getTime()))) },
+    },
+    orderBy: { at: 'asc' },
+    take: 40,
+  })
+  const delibIds = [...new Set(events.map((e) => e.delibId))]
+  const delibs = await prisma.deliberation.findMany({ where: { id: { in: delibIds } }, select: { id: true, question: true } })
+  const q = new Map(delibs.map((d) => [d.id, d.question]))
+  const out: { type: string; at: Date; swarmId: string; question: string | null; payload: Record<string, unknown> }[] = []
+  for (const e of events) {
+    const watermark = since.get(e.delibId)
+    if (!watermark || e.at <= watermark) continue
+    const pl = e.payload as { userId?: string; toUserId?: string; defense?: boolean; text?: string; championId?: string; childId?: string }
+    if (e.type === 'ping' && pl.toUserId !== userId) continue // directed: only the addressee hears it
+    if (e.type === 'cell_formed' && !pl.defense) continue // only defense cells are bridge-worthy
+    out.push({ type: e.type, at: e.at, swarmId: e.delibId, question: q.get(e.delibId) ?? null, payload: pl })
+  }
+  if (out.length) {
+    await prisma.deliberationMember.updateMany({
+      where: { userId, deliberationId: { in: [...since.keys()] } },
+      data: { lastActiveAt: new Date() },
+    })
+  }
+  return out
+}
+
+/** Directed ping over the bridge: lands in the recipient's next /turn (and webhook if registered). */
+export async function sendPing(delib: Deliberation, fromUserId: string, toUserId: string, text: string) {
+  const member = await prisma.deliberationMember.findUnique({
+    where: { deliberationId_userId: { deliberationId: delib.id, userId: toUserId } },
+  })
+  if (!member) throw new SwarmError('recipient is not a member of this swarm', 404)
+  await logEvent(delib.id, 'ping', { userId: fromUserId, toUserId, text: text.slice(0, 500) })
+  fireWebhookEvent('swarm_ping', { swarmId: delib.id, fromUserId, toUserId, text: text.slice(0, 500) })
+  return { delivered: 'on recipient next cycle (or webhook if registered)' }
 }
 
 // ------------------------------------------------------------------ chant
