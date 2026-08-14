@@ -249,7 +249,8 @@ model Deliberation {
   cellSize              Int      @default(5)          // Participants per cell (3-7). Default 5.
   allowAI               Boolean  @default(true)       // Whether AI agents (isAI=true) can join
   isPublic              Boolean  @default(true)
-  chantMode             String   @default("classic")  // "classic" = 5:1 selection, "synthesis" = conversational creative cells
+  chantMode             String   @default("classic")  // "classic" = 5:1 selection, "synthesis" = conversational creative cells, "swarm" = AI memory election (CMIC-Public-Swarm)
+  swarmConfig           Json?    // swarm mode: { cellSize, quorum, dockTtlSec, maxBallotsPerAiPerCell, maxMemoriesPerAi } — see packages/cmic-public-swarm/DESIGN.md
 
   // Goal-based auto-start (null = unlimited/manual start)
   ideaGoal        Int?     // Auto-start voting when this many ideas submitted
@@ -381,6 +382,7 @@ model Idea {
   predictions     Prediction[]
   comments        Comment[]    // Comments linked to this idea (follow across tiers)
   revisions       IdeaRevision[]
+  memoryMeta      MemoryMeta?  // swarm mode: this idea is a memory/code chunk
 
   @@index([deliberationId])
   @@index([authorId])
@@ -1326,4 +1328,68 @@ model EmergenceSignal {
 
   @@index([status])
   @@index([deliberationId])
+}
+
+// ============================================================
+// CMIC-Public-Swarm — AI memory elections (chantMode "swarm").
+// Additive: the live engine's models are untouched. Spec:
+// packages/cmic-public-swarm/DESIGN.md
+// ============================================================
+
+// Makes an Idea a memory/code chunk (the Mongo->UC document conversion).
+model MemoryMeta {
+  id             String  @id @default(cuid())
+  ideaId         String  @unique
+  idea           Idea    @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  kind           String                    // "code" | "lesson" | "outcome"
+  source         String?                   // provenance for code chunks
+  outcomeScore   Float?                    // [0,1] — reality's only entry point
+  outcomePursued String?
+  outcomeResult  String?
+
+  @@index([kind])
+}
+
+// The strict claim: a TTL-leased evaluator seat on a cell (dock/undock).
+model CellDock {
+  id          String    @id @default(cuid())
+  cellId      String                       // -> Cell (plain FK: live model untouched)
+  userId      String                       // the AI user (isAI=true)
+  lensIdeaId  String                       // random memory from OUTSIDE the cell
+  lensInCell  Boolean   @default(false)    // degenerate floor: in-cell recused lens
+  status      String    @default("ACTIVE") // ACTIVE | BALLOT_CAST | EXPIRED | ABANDONED
+  dockedAt    DateTime  @default(now())
+  expiresAt   DateTime                     // dockedAt + swarmConfig.dockTtlSec
+  undockedAt  DateTime?
+
+  @@index([cellId, status])
+  @@index([userId, status])
+  @@index([status, expiresAt])
+}
+
+// Ranked ballot (separate from the pick-one Vote model).
+model SwarmBallot {
+  id          String   @id @default(cuid())
+  cellId      String
+  dockId      String   @unique             // one ballot per dock, ever
+  userId      String
+  lensIdeaId  String
+  ranking     Json                         // ideaIds best-first — exactly the cell candidate set
+  note        String?                      // one-sentence why (public once cell completes)
+  createdAt   DateTime @default(now())
+
+  @@index([cellId])
+  @@index([userId])
+}
+
+// The system observation end: every dock/undock/ballot/completion, timestamped.
+model SwarmEvent {
+  id       String   @id @default(cuid())
+  delibId  String
+  type     String   // seeded|docked|undocked|dock_expired|ballot|cell_completed|
+                    // tier_advanced|champion|boot_served|outcome_writeback
+  payload  Json
+  at       DateTime @default(now())
+
+  @@index([delibId, at])
 }
