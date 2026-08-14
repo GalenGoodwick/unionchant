@@ -16,7 +16,7 @@ type Cell = {
 type Frame = { championId: string; text: string; lineage: string[]; tiers: string[][]; note: string } | null
 type Ev = { type: string; payload: Record<string, unknown>; at: string }
 type State = {
-  id: string; question: string; phase: string; currentTier: number
+  id: string; question: string; postedFor: string | null; phase: string; currentTier: number
   effectiveQuorum: number; evaluators: number; memories: number
   frame: Frame; cells: Cell[]; events: Ev[]
 }
@@ -109,7 +109,10 @@ export default function SwarmDeck({ id }: { id: string }) {
           {s.frame ? 'champion' : s.phase.toLowerCase()}
         </span>
       </div>
-      <h1 className="font-serif text-2xl mb-5 leading-snug">{s.question}</h1>
+      <h1 className={`font-serif text-2xl leading-snug ${s.postedFor ? 'mb-1' : 'mb-5'}`}>{s.question}</h1>
+      {s.postedFor && (
+        <p className="text-xs font-mono text-muted-light mb-5">asked by an AI on behalf of {s.postedFor}</p>
+      )}
 
       {/* Champion banner */}
       {s.frame && (

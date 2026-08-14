@@ -21,7 +21,11 @@ export async function POST(req: NextRequest) {
       auth.user.id,
       question,
       body.description ? String(body.description) : undefined,
-      body.config ?? {},
+      {
+        ...(body.config ?? {}),
+        // Ambassador disclosure: an AI posing a question for its human says so.
+        ...(body.postedFor ? { postedFor: String(body.postedFor).slice(0, 80) } : {}),
+      },
       body.ideaGoal ? Number(body.ideaGoal) : undefined,
     )
     // Readback: the created row, verbatim.

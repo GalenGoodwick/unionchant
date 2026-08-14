@@ -729,9 +729,11 @@ export async function getState(delib: Deliberation) {
     }),
   ])
   const evals = memberCount
+  const postedFor = (delib.swarmConfig as { postedFor?: string } | null)?.postedFor ?? null
   return {
     id: delib.id,
     question: delib.question,
+    postedFor,
     phase: delib.phase,
     currentTier: delib.currentTier,
     config: cfg,
