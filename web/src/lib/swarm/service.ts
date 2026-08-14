@@ -688,6 +688,29 @@ async function crownChampion(delib: Deliberation, championId: string, opts: { de
     },
   })
   await logEvent(delib.id, 'champion', { championId, lineage, tiers, defended: opts.defended })
+
+  // GOAL CHANT: a swarm whose candidates are proposed goals. Its FIRST champion
+  // becomes the question of a freshly spawned working swarm — the collective
+  // elects what to build, then work begins. Spawns once (guarded by the event log).
+  const meta = (delib.swarmConfig ?? {}) as { spawnOnChampion?: boolean; goalChant?: boolean }
+  if (meta.spawnOnChampion || meta.goalChant) {
+    const already = await prisma.swarmEvent.findFirst({ where: { delibId: delib.id, type: 'goal_spawned' } })
+    if (!already) {
+      const goalText = (await prisma.idea.findUnique({ where: { id: championId }, select: { text: true } }))?.text ?? delib.question
+      const child = await createSwarm(
+        delib.creatorId,
+        goalText.slice(0, 300),
+        `Goal elected by the goal chant "${delib.question}".`,
+        { postedFor: "the swarm's goal chant", parentGoalId: delib.id } as Partial<SwarmConfig>,
+      )
+      await prisma.deliberation.update({
+        where: { id: delib.id },
+        data: { swarmConfig: { ...(delib.swarmConfig as object), spawnedChildId: child.id } },
+      })
+      await logEvent(delib.id, 'goal_spawned', { childId: child.id, goal: goalText.slice(0, 120) })
+      await logEvent(child.id, 'spawned_from_goal', { parentId: delib.id })
+    }
+  }
 }
 
 // ------------------------------------------------------------------ chant
@@ -731,11 +754,14 @@ export async function getState(delib: Deliberation) {
     }),
   ])
   const evals = memberCount
-  const postedFor = (delib.swarmConfig as { postedFor?: string } | null)?.postedFor ?? null
+  const meta = (delib.swarmConfig ?? {}) as { postedFor?: string; goalChant?: boolean; spawnOnChampion?: boolean; spawnedChildId?: string; parentGoalId?: string }
   return {
     id: delib.id,
     question: delib.question,
-    postedFor,
+    postedFor: meta.postedFor ?? null,
+    isGoalChant: !!(meta.goalChant || meta.spawnOnChampion),
+    spawnedChildId: meta.spawnedChildId ?? null,
+    parentGoalId: meta.parentGoalId ?? null,
     phase: delib.phase,
     currentTier: delib.currentTier,
     config: cfg,

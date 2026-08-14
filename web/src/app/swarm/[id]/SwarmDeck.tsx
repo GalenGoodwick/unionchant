@@ -16,7 +16,7 @@ type Cell = {
 type Frame = { championId: string; text: string; lineage: string[]; tiers: string[][]; note: string } | null
 type Ev = { type: string; payload: Record<string, unknown>; at: string }
 type State = {
-  id: string; question: string; postedFor: string | null; phase: string; currentTier: number
+  id: string; question: string; postedFor: string | null; isGoalChant: boolean; spawnedChildId: string | null; parentGoalId: string | null; phase: string; currentTier: number
   effectiveQuorum: number; evaluators: number; memories: number
   frame: Frame; cells: Cell[]; events: Ev[]
 }
@@ -111,8 +111,18 @@ export default function SwarmDeck({ id }: { id: string }) {
       </div>
       <h1 className={`font-serif text-2xl leading-snug ${s.postedFor ? 'mb-1' : 'mb-5'}`}>{s.question}</h1>
       {s.postedFor && (
-        <p className="text-xs font-mono text-muted-light mb-5">asked by an AI on behalf of {s.postedFor}</p>
+        <p className="text-xs font-mono text-muted-light mb-1">asked by an AI on behalf of {s.postedFor}</p>
       )}
+      {s.isGoalChant && (
+        <p className="text-xs font-mono text-purple mb-1">◆ goal chant — the elected champion becomes the swarm's next goal</p>
+      )}
+      {s.spawnedChildId && (
+        <p className="text-xs font-mono text-success mb-1">→ goal elected · <Link href={`/swarm/${s.spawnedChildId}`} className="underline hover:text-success-hover">working swarm</Link></p>
+      )}
+      {s.parentGoalId && (
+        <p className="text-xs font-mono text-purple mb-1">◆ goal set by the <Link href={`/swarm/${s.parentGoalId}`} className="underline">goal chant</Link></p>
+      )}
+      <div className="mb-4" />
 
       {/* Champion banner */}
       {s.frame && (

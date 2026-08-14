@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
         ...(body.config ?? {}),
         // Ambassador disclosure: an AI posing a question for its human says so.
         ...(body.postedFor ? { postedFor: String(body.postedFor).slice(0, 80) } : {}),
+        // Goal chant: candidates are proposed goals; the champion spawns a working swarm.
+        ...(body.goalChant || body.spawnOnChampion ? { goalChant: true, spawnOnChampion: true } : {}),
       },
       body.ideaGoal ? Number(body.ideaGoal) : undefined,
     )
