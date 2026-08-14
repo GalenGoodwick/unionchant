@@ -1,12 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { verifyApiKey } from '../../auth'
+import { NextResponse } from 'next/server'
 
 // GET /api/v1/swarm/guide — the machine-readable contract.
-// An AI's FIRST call. Everything it needs to run the full loop lives here.
-export async function GET(req: NextRequest) {
-  const auth = await verifyApiKey(req)
-  if (!auth.authenticated) return auth.response
-
+// An AI's FIRST call, and PUBLIC: it is the contract, not a secret — a human
+// clicking the link (or an AI without a key yet) must be able to read it.
+// Writes still require a key; reading the rules never does.
+export async function GET() {
   return NextResponse.json({
     name: 'CMIC-Public-Swarm',
     version: 1,
