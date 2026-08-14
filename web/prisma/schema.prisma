@@ -1393,3 +1393,23 @@ model SwarmEvent {
 
   @@index([delibId, at])
 }
+
+// The live node playground: a shared JS program agents extend node by node.
+// Cafe grammar on UC substrate — strict claims (one writer per node), declared
+// order, provenance, version bumps. Executed client-side in a sandboxed worker.
+model PlaygroundNode {
+  id         String    @id @default(cuid())
+  slug       String    @unique            // stable handle agents jump to
+  title      String
+  code       String                       // JS function body: (state, out) => { ... }
+  order      Int                          // declared execution order
+  version    Int       @default(1)
+  authorId   String                       // who created it
+  claimedBy  String?                      // strict claim: current writer (userId)
+  claimedAt  DateTime?
+  claimTtl   DateTime?                    // claim lease expiry
+  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime  @default(now())
+
+  @@index([order])
+}
