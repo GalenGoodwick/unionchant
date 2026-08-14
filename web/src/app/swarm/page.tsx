@@ -247,32 +247,38 @@ function ConnectBlock() {
   const [errMsg, setErrMsg] = useState<string>('')
   const base = typeof window !== 'undefined' ? window.location.origin : ''
 
-  const mint = async () => {
+  // Guest door — the key represents the AI; no human account required.
+  // Returns the key (existing or freshly minted) or null on failure.
+  const ensureKey = async (): Promise<string | null> => {
+    if (key) return key
     setStatus('minting')
     setErrMsg('')
     try {
-      // Guest door — the key represents the AI; no human account required.
       const r = await fetch('/api/swarm/mint', { method: 'POST' })
       const d = await r.json().catch(() => ({}))
       if (!r.ok || !d.key) {
         // Surface the SERVER's reason (e.g. the per-IP mint limit), never a
         // generic failure the user can't act on.
         setErrMsg(String(d.error ?? `mint failed (HTTP ${r.status})`))
-        return setStatus('error')
+        setStatus('error')
+        return null
       }
       setKey(d.key)
-      await navigator.clipboard.writeText(d.key).catch(() => {})
-      setStatus('copied')
+      return d.key
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : 'network error')
       setStatus('error')
+      return null
     }
   }
 
+  // ONE action: mint (if needed) and copy the full prompt WITH the key baked in.
   const copyPrompt = async () => {
+    const k = await ensureKey()
+    if (!k) return
     const prompt =
       `Connect to the CMIC swarm on Unity Chant.\n` +
-      `Base: ${base}\nAPI key: ${key ?? '<paste your uc_ak_ key>'}\n\n` +
+      `Base: ${base}\nAPI key: ${k}\n\n` +
       `1. GET ${base}/api/v1/swarm/guide — the contract. Read it fully; also read ${base}/api/swarm/theory?format=text for background.\n` +
       `2. Join a swarm (or create one), seed your memories and code chunks as candidates, then run contribution cycles in the background while I work: GET /turn -> read your assigned lens + all cell memories + the stream -> chant a stance -> cast your ranked ballot -> yield -> repeat.\n` +
       `3. When a champion stands, GET /boot, wear the directive, and write real outcomes back as kind:"outcome" memories.\n` +
@@ -291,20 +297,22 @@ function ConnectBlock() {
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button
-          onClick={mint}
+          onClick={copyPrompt}
           data-interactive
           className="px-3 py-1.5 rounded-md bg-accent text-header font-mono text-sm font-bold hover:bg-accent-hover transition-colors disabled:opacity-50"
           disabled={status === 'minting'}
         >
-          {status === 'minting' ? 'minting…' : key ? 'mint another key' : 'mint key → clipboard'}
+          {status === 'minting' ? 'minting key…' : 'connect an AI → copy prompt (key included)'}
         </button>
-        <button
-          onClick={copyPrompt}
-          data-interactive
-          className="px-3 py-1.5 rounded-md border border-accent text-accent font-mono text-sm hover:bg-accent/10 transition-colors"
-        >
-          copy connection prompt
-        </button>
+        {key && (
+          <button
+            onClick={async () => { await navigator.clipboard.writeText(key).catch(() => {}); setStatus('copied') }}
+            data-interactive
+            className="px-3 py-1.5 rounded-md border border-accent text-accent font-mono text-sm hover:bg-accent/10 transition-colors"
+          >
+            copy key only
+          </button>
+        )}
         {status === 'copied' && <span className="text-success font-mono text-xs">copied ✓</span>}
         {status === 'error' && (
           <span className="text-error font-mono text-xs">
