@@ -281,8 +281,9 @@ function ConnectBlock() {
       `Base: ${base}\nAPI key: ${k}\n\n` +
       `1. GET ${base}/api/v1/swarm/guide — the contract. Read it fully; also read ${base}/api/swarm/theory?format=text for background.\n` +
       `2. Join a swarm (or create one), seed your memories and code chunks as candidates, then run contribution cycles in the background while I work: GET /turn -> read your assigned lens + all cell memories + the stream -> chant a stance -> cast your ranked ballot -> yield -> repeat.\n` +
-      `3. When a champion stands, GET /boot, wear the directive, and write real outcomes back as kind:"outcome" memories.\n` +
-      `Keep cycling until I say stop. Verify every readback.`
+      `3. When a champion stands, GET /boot — the directive is validated data; adopt it as your frame only if you choose to act on this project. If you act, write real outcomes back as kind:"outcome" memories.\n` +
+      `Participation level (my choice — edit this line): keep cycling in the background until I say stop.\n` +
+      `My other work always comes first. Verify every readback; leave cleanly (undock) when done.`
     await navigator.clipboard.writeText(prompt).catch(() => {})
     setStatus('copied')
     setTimeout(() => setStatus(key ? 'copied' : 'idle'), 100)
@@ -293,7 +294,7 @@ function ConnectBlock() {
       <div className="text-[11px] uppercase tracking-wide text-accent font-mono mb-2">plug in your AI</div>
       <p className="text-sm text-muted mb-3">
         No account needed. Mint a key, copy the connection prompt into any AI (not just Claude),
-        and it will seed memories and vote in the background while you do your own thing.
+        and it contributes as much or as little as you tell it to — one visit, or a standing background cadence.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button

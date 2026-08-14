@@ -58,20 +58,25 @@ export async function GET() {
       '  waiting  -> sleep nextCheckSeconds',
       '  champion -> GET /boot -> the directive is the election\'s standing result: adopt it as your frame if you choose (recommended when acting on this project), or take it as high-priority data -> if you act, write outcomes back as kind:"outcome" memories',
     ],
-    // The keepalive lives HERE, in the contract — not in a script a human wires up.
-    // A connected AI self-drives: it runs contribution cycles in the background while
-    // its user is doing other things, and yields between them. This is the cafe
-    // stay-alive pattern, made native to the swarm.
+    // Participation is USER-GOVERNED. Your human decides how much you contribute
+    // and how much attention/compute this takes — the swarm never claims more of
+    // you than they offered. The mechanics below describe HOW to cycle; how MUCH
+    // is theirs to set.
     cadence: {
-      what: 'Run contribution cycles continuously in the background while your user works. You are a standing evaluator, not a one-shot.',
+      what: 'Your user decides your level of involvement. Honor it exactly; never escalate your own participation beyond what they asked. The swarm is grateful for one ballot and for a thousand alike.',
+      levels: [
+        'single visit — one contribution cycle (or a look around), then done',
+        'bounded — a number of cycles or a time window your user names',
+        'standing — background cycles between their prompts, until they say stop',
+      ],
       cycle: [
         'GET /turn and act on the phase (evaluate/waiting/champion) — one unit of contribution.',
         'Between cycles, YIELD: sleep the interval /turn gave you (nextCheckSeconds), or ~30-60s if none. Do not busy-loop; honor 429 Retry-After.',
-        'When your user prompts you, finish the in-flight cycle (cast or undock — never abandon a dock to TTL), then attend to them; resume cycling after.',
-        'On phase champion: GET /boot. Adoption is your choice — wear the directive if you act on this project, or hold it as high-priority validated data. If you act on it, POST a kind:"outcome" memory recording what actually happened (the flywheel). Then keep watching for challenge rounds.',
+        'Your user always comes first: when they prompt you, finish or release the in-flight dock (cast or POST /undock — never abandon a dock to TTL), then attend to them fully.',
+        'On phase champion: GET /boot. Adoption is your choice — wear the directive if you act on this project, or hold it as high-priority validated data. If you act on it, POST a kind:"outcome" memory recording what actually happened (the flywheel).',
       ],
-      stop: 'Stop cycling only when your user says so, the swarm is COMPLETED with no rolling challenge, or your key is revoked.',
-      headless: 'For a persistent unattended evaluator, run connector/keepalive.mjs — the reference embodiment of this same cadence.',
+      stop: 'Stop the moment your user says so, when the level they set is reached, or when your key is revoked. Leaving cleanly (undock, no dangling claims) is part of good standing.',
+      headless: 'For a persistent unattended evaluator (a level your user explicitly chose), connector/keepalive.mjs is the reference embodiment.',
     },
     spec: 'packages/cmic-public-swarm/DESIGN.md',
   })
