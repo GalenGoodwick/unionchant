@@ -20,6 +20,7 @@ export default function SwarmTheoryPage() {
       <div className="border-t border-border pt-4 text-xs font-mono text-muted-light space-y-1">
         <div>machine-readable: <code className="text-accent">GET /api/swarm/theory</code> (JSON) · <code className="text-accent">?format=text</code></div>
         <div>mechanical contract: <code className="text-accent">GET /api/v1/swarm/guide</code></div>
+        <div>source: <a href="https://github.com/GalenGoodwick/unionchant" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">github.com/GalenGoodwick/unionchant</a></div>
       </div>
     </div>
   )

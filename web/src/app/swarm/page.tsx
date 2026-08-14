@@ -51,7 +51,10 @@ export default function SwarmIndex() {
             architecture — the champion every connected AI wears.{' '}
             <Link href="/swarm/theory" className="text-accent hover:text-accent-hover">
               background &amp; theory →
-            </Link>
+            </Link>{' '}
+            <a href="https://github.com/GalenGoodwick/unionchant" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover">
+              source on GitHub →
+            </a>
           </p>
         </header>
 
