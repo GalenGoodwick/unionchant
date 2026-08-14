@@ -591,12 +591,18 @@ export async function runExpansion(delib: Deliberation) {
         ? tx.idea.findUnique({ where: { id: delib.championId }, select: { tier: true } })
         : Promise.resolve(null),
     ])
+    const championInOpenCell = delib.championId
+      ? (await tx.cellIdea.count({
+          where: { ideaId: delib.championId, cell: { completedAt: null } },
+        })) > 0
+      : false
     const plan = planExpansion({
       pendingIds: pending.map((x) => x.id),
       advancing,
       openCells,
       championId: delib.championId,
       championTier: champion?.tier ?? 0,
+      championInOpenCell,
       cellSize: cfg.cellSize,
     })
     let maxTier = 0

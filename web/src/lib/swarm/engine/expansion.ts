@@ -7,7 +7,10 @@
 //
 // One rule set, applied after every completion / seed / sweep:
 //   E1  pool of cellSize PENDING memories        -> new tier-1 cell (oldest first)
-//   E2  cellSize winners stranded at one tier    -> cell at tier+1 (oldest first)
+//   E2  cellSize winners stranded at one tier    -> cell at tier+1 (oldest first).
+//       If that cell rises ABOVE the standing champion's tier, the champion is
+//       SEATED in it (one open seat at most): no crown outranks the structure —
+//       a higher tier coming means the champion contests it, immediately.
 //   E3  chant converged (nothing open, pool starved, nothing else planned):
 //         - no champion, >=2 climbers            -> final cell from climbers (cap 7,
 //                                                   highest tier first), tier = max+1
@@ -31,6 +34,8 @@ export interface ExpansionInput {
   championId: string | null
   /** The tier of the champion's last victory (0 if unknown). */
   championTier: number
+  /** True when the champion is already a candidate in some open cell. */
+  championInOpenCell: boolean
   cellSize: number
 }
 
@@ -59,17 +64,23 @@ export function planExpansion(input: ExpansionInput): ExpansionPlan {
     newCells.push({ tier: 1, candidateIds: pending.splice(0, cellSize), includesChampion: false })
   }
 
-  // E2 — full groups of same-tier winners climb.
+  // E2 — full groups of same-tier winners climb. The champion holds at most ONE
+  // open seat: it is placed into the first cell that rises above its tier; any
+  // sibling cells at that height resolve into climbers who meet it next round.
+  let championSeated = input.championInOpenCell
   const byTier = new Map<number, { id: string; tier: number }[]>()
   for (const a of input.advancing) byTier.set(a.tier, [...(byTier.get(a.tier) ?? []), a])
   const climbers: { id: string; tier: number }[] = []
   for (const tier of [...byTier.keys()].sort((a, b) => a - b)) {
     const group = byTier.get(tier)!
     while (group.length >= cellSize) {
+      const members = group.splice(0, cellSize).map((x) => x.id)
+      const seatChampion = !!championId && !championSeated && tier + 1 > championTier
+      if (seatChampion) championSeated = true
       newCells.push({
         tier: tier + 1,
-        candidateIds: group.splice(0, cellSize).map((x) => x.id),
-        includesChampion: false,
+        candidateIds: seatChampion ? [championId!, ...members] : members,
+        includesChampion: seatChampion,
       })
     }
     climbers.push(...group) // leftovers (< cellSize per tier)
@@ -80,7 +91,7 @@ export function planExpansion(input: ExpansionInput): ExpansionPlan {
     // Highest tier first: the closest to the crown lead the final cell.
     climbers.sort((a, b) => b.tier - a.tier)
     if (championId) {
-      if (climbers.length >= DEFENSE_MIN_CHALLENGERS) {
+      if (!championSeated && climbers.length >= DEFENSE_MIN_CHALLENGERS) {
         const seat = climbers.slice(0, FINAL_CELL_CAP - 1)
         newCells.push({
           tier: Math.max(championTier, ...seat.map((c) => c.tier)) + 1,

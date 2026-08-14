@@ -10,6 +10,7 @@ const base = (over: Partial<ExpansionInput> = {}): ExpansionInput => ({
   openCells: 0,
   championId: null,
   championTier: 0,
+  championInOpenCell: false,
   cellSize: 5,
   ...over,
 })
@@ -103,6 +104,50 @@ describe('E3 with a standing champion — defense', () => {
     }))
     expect(p.newCells[0]!.candidateIds).toHaveLength(7)
     expect(p.newCells[0]!.candidateIds[0]).toBe('champ')
+  })
+})
+
+describe('E2 seating — no crown outranks the structure', () => {
+  it('a cell rising above the champion tier seats the champion (6 candidates)', () => {
+    const p = planExpansion(base({
+      championId: 'champ', championTier: 2, openCells: 1,
+      advancing: ids(5, 'w').map((id) => ({ id, tier: 2 })),
+    }))
+    expect(p.newCells).toHaveLength(1)
+    const cell = p.newCells[0]!
+    expect(cell.tier).toBe(3)
+    expect(cell.includesChampion).toBe(true)
+    expect(cell.candidateIds).toEqual(['champ', 'w0', 'w1', 'w2', 'w3', 'w4'])
+  })
+
+  it('cells at or below the champion tier form WITHOUT the champion', () => {
+    const p = planExpansion(base({
+      championId: 'champ', championTier: 3, openCells: 1,
+      advancing: ids(5, 'w').map((id) => ({ id, tier: 1 })), // -> tier-2 cell < championTier
+    }))
+    expect(p.newCells).toHaveLength(1)
+    expect(p.newCells[0]!.includesChampion).toBe(false)
+    expect(p.newCells[0]!.candidateIds).toHaveLength(5)
+  })
+
+  it('the champion holds at most ONE open seat across simultaneous risers', () => {
+    const p = planExpansion(base({
+      championId: 'champ', championTier: 1, openCells: 1,
+      advancing: ids(10, 'w').map((id) => ({ id, tier: 1 })), // two tier-2 cells rise
+    }))
+    expect(p.newCells).toHaveLength(2)
+    expect(p.newCells.filter((c) => c.includesChampion)).toHaveLength(1)
+    expect(p.newCells[0]!.candidateIds[0]).toBe('champ')
+    expect(p.newCells[1]!.candidateIds).toHaveLength(5)
+  })
+
+  it('already seated in an open cell -> risers form without it', () => {
+    const p = planExpansion(base({
+      championId: 'champ', championTier: 1, championInOpenCell: true, openCells: 1,
+      advancing: ids(5, 'w').map((id) => ({ id, tier: 1 })),
+    }))
+    expect(p.newCells).toHaveLength(1)
+    expect(p.newCells[0]!.includesChampion).toBe(false)
   })
 })
 
