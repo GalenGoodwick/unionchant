@@ -322,23 +322,36 @@ export async function getTurn(delib: Deliberation, userId: string) {
     if (ballots + docks >= q) return null // race lost — another evaluator filled it
 
     const cell = snapshots.cells.find((c) => c.id === decision.cellId)!
-    const usedLenses = await tx.cellDock.findMany({
-      where: { cellId: decision.cellId },
-      select: { lensIdeaId: true },
-    })
-    const pools: LensPools = {
-      // Eliminated memories remain eligible lenses — the fallen become perspectives.
-      outsidePool: snapshots.allIdeaIds.filter((id) => !snapshots.tierIdeaIds.has(id)),
-      sameTierOtherCells: [...snapshots.tierIdeaIds].filter((id) => !cell.candidateIds.includes(id)),
-      predecessorPool: [],
+    // IDENTITY-FIRST LENS: your first ballot in a cell is cast as YOURSELF — your
+    // corpus (what you have seeded and done) is your perspective, as humans are
+    // theirs in UC cells. Only when one AI must be SEVERAL voices (repeat ballots
+    // filling quorum) do assigned out-of-cell lenses return — multiplicity's mask.
+    const myBallotsHere = await tx.swarmBallot.count({ where: { cellId: decision.cellId, userId } })
+    let lensIdeaId: string
+    let lensInCell = false
+    if (myBallotsHere === 0) {
+      lensIdeaId = `corpus:${userId}`
+    } else {
+      const usedLenses = await tx.cellDock.findMany({
+        where: { cellId: decision.cellId },
+        select: { lensIdeaId: true },
+      })
+      const pools: LensPools = {
+        // Eliminated memories remain eligible lenses — the fallen become perspectives.
+        outsidePool: snapshots.allIdeaIds.filter((id) => !snapshots.tierIdeaIds.has(id)),
+        sameTierOtherCells: [...snapshots.tierIdeaIds].filter((id) => !cell.candidateIds.includes(id)),
+        predecessorPool: [],
+      }
+      const lens = assignLens(pools, cell.candidateIds, usedLenses.map((u) => u.lensIdeaId).filter((x) => !x.startsWith('corpus:')), Math.random)
+      lensIdeaId = lens.lensId
+      lensInCell = lens.inCell
     }
-    const lens = assignLens(pools, cell.candidateIds, usedLenses.map((u) => u.lensIdeaId), Math.random)
     return tx.cellDock.create({
       data: {
         cellId: decision.cellId,
         userId,
-        lensIdeaId: lens.lensId,
-        lensInCell: lens.inCell,
+        lensIdeaId,
+        lensInCell,
         expiresAt: new Date(Date.now() + cfg.dockTtlSec * 1000),
       },
     })
@@ -400,18 +413,43 @@ async function turnPayload(
   lensInCell: boolean,
   expiresAt: Date,
 ) {
+  const corpusLens = lensIdeaId.startsWith('corpus:')
   const [cell, lens, discussion] = await Promise.all([
     prisma.cell.findUniqueOrThrow({
       where: { id: cellId },
       include: { ideas: { include: { idea: { include: { memoryMeta: true } } } } },
     }),
-    prisma.idea.findUniqueOrThrow({ where: { id: lensIdeaId }, include: { memoryMeta: true } }),
+    corpusLens
+      ? Promise.resolve(null)
+      : prisma.idea.findUniqueOrThrow({ where: { id: lensIdeaId }, include: { memoryMeta: true } }),
     prisma.comment.findMany({
       where: { cellId },
       orderBy: { createdAt: 'asc' },
       select: { userId: true, text: true, createdAt: true },
     }),
   ])
+  // Corpus lens = the evaluator's own recent contributions, digested: judge as yourself.
+  let lensPayload: Memory
+  if (corpusLens) {
+    const uid = lensIdeaId.slice('corpus:'.length)
+    const mine = await prisma.idea.findMany({
+      where: { authorId: uid, deliberation: { chantMode: 'swarm' } },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+      select: { text: true },
+    })
+    lensPayload = {
+      id: lensIdeaId,
+      kind: 'lesson',
+      text:
+        'YOUR OWN CORPUS is your lens: judge as yourself — your accumulated memories, your history, your human\'s context. ' +
+        (mine.length
+          ? 'Your recent contributions here: ' + mine.map((m) => `"${m.text.slice(0, 90)}"`).join(' · ')
+          : 'You have not seeded memories yet — judge from your genuine perspective and your human\'s context.'),
+    }
+  } else {
+    lensPayload = toMemory(lens as IdeaWithMeta)
+  }
   return {
     phase: 'evaluate',
     frame,
@@ -419,7 +457,7 @@ async function turnPayload(
     stream,
     bridge,
     dock: { dockId, cellId, tier: cell.tier, expiresAt, lensInCell },
-    lens: toMemory(lens as IdeaWithMeta),
+    lens: lensPayload,
     cell: cell.ideas
       .filter((ci) => !(lensInCell && ci.ideaId === lensIdeaId)) // in-cell lens: rank only the others
       .map((ci) => toMemory(ci.idea as IdeaWithMeta)),
