@@ -1,13 +1,6 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@cmic/swarm"],
-  // The @cmic/swarm engine lives in ../packages (symlinked into node_modules).
-  // Turbopack's root must be the repo, not web/, to resolve through the symlink.
-  turbopack: {
-    root: path.join(__dirname, ".."),
-  },
   async redirects() {
     return [
       {

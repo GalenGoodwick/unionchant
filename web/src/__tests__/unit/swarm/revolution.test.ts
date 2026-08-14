@@ -4,8 +4,8 @@
 
 import { describe, it, expect } from 'vitest'
 import { runSimulatedElection } from './sim'
-import { buildDirective } from '@cmic/swarm'
-import { DEFAULT_SWARM_CONFIG, type Memory, type SwarmConfig } from '@cmic/swarm'
+import { buildDirective } from '@/lib/swarm/engine'
+import { DEFAULT_SWARM_CONFIG, type Memory, type SwarmConfig } from '@/lib/swarm/engine'
 
 const mem = (id: string, score?: number): Memory => ({
   id,

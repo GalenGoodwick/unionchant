@@ -22,7 +22,7 @@ import {
   type Champion,
   type SwarmConfig,
   type LensPools,
-} from '@cmic/swarm'
+} from '@/lib/swarm/engine'
 
 function overlap(a: string, b: string): number {
   const toks = (s: string) => new Set(s.toLowerCase().match(/[a-z0-9]+/g) ?? [])

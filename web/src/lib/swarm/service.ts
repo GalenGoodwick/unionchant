@@ -18,7 +18,7 @@ import {
   type SwarmConfig,
   type Champion,
   type LensPools,
-} from '@cmic/swarm'
+} from '@/lib/swarm/engine'
 import type { Deliberation, Idea, MemoryMeta } from '@prisma/client'
 
 type IdeaWithMeta = Idea & { memoryMeta: MemoryMeta | null }

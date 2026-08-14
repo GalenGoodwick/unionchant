@@ -1,7 +1,7 @@
 // lens.test.ts — the assigned perspective (new math: tested before ship).
 
 import { describe, it, expect } from 'vitest'
-import { drawLens, assignLens, mulberry32, type LensPools } from '@cmic/swarm'
+import { drawLens, assignLens, mulberry32, type LensPools } from '@/lib/swarm/engine'
 
 const pools = (over: Partial<LensPools> = {}): LensPools => ({
   outsidePool: [],

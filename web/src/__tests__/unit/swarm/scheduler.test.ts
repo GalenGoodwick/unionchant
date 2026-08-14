@@ -6,8 +6,8 @@ import {
   cellComplete,
   scheduleNextCell,
   chunkCells,
-} from '@cmic/swarm'
-import { DEFAULT_SWARM_CONFIG, type CellSnapshot, type SwarmConfig } from '@cmic/swarm'
+} from '@/lib/swarm/engine'
+import { DEFAULT_SWARM_CONFIG, type CellSnapshot, type SwarmConfig } from '@/lib/swarm/engine'
 
 const cfg = (over: Partial<SwarmConfig> = {}): SwarmConfig => ({ ...DEFAULT_SWARM_CONFIG, ...over })
 

@@ -19,7 +19,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.72.1",
     "@auth/prisma-adapter": "^2.11.1",
-    "@cmic/swarm": "file:../packages/cmic-public-swarm",
     "@common-ground-dao/cg-plugin-lib": "^0.9.15",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",

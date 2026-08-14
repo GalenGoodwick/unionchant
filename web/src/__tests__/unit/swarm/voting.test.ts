@@ -2,8 +2,8 @@
 // Adapted: Ballot carries evaluatorId; Memory no longer tracks tier/status (UC does).
 
 import { describe, it, expect } from 'vitest'
-import { outcomeWeight, bordaPoints, tallyCell } from '@cmic/swarm'
-import type { Memory, Ballot } from '@cmic/swarm'
+import { outcomeWeight, bordaPoints, tallyCell } from '@/lib/swarm/engine'
+import type { Memory, Ballot } from '@/lib/swarm/engine'
 
 const mem = (id: string, score?: number): Memory => ({
   id,
