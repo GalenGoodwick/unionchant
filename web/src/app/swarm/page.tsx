@@ -139,6 +139,7 @@ const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
   undocked: { label: 'undocked', cls: 'text-muted-light' },
   dock_expired: { label: 'dock expired', cls: 'text-muted-light' },
   ballot: { label: 'ballot cast', cls: 'text-blue' },
+  cell_formed: { label: 'cell formed', cls: 'text-accent' },
   cell_completed: { label: 'cell decided', cls: 'text-success' },
   tier_advanced: { label: 'tier advanced', cls: 'text-purple' },
   champion: { label: '★ CHAMPION', cls: 'text-success font-bold' },

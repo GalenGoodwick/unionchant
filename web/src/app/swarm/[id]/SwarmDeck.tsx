@@ -37,6 +37,7 @@ const KIND_STYLE: Record<string, string> = {
 export default function SwarmDeck({ id }: { id: string }) {
   const [s, setS] = useState<State | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [openCell, setOpenCell] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -150,7 +151,8 @@ export default function SwarmDeck({ id }: { id: string }) {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {cells.map((c) => (
-                    <CellNode key={c.id} cell={c} quorum={s.effectiveQuorum} winnerId={winners.get(c.id)} textOf={textOf} now={now} />
+                    <CellNode key={c.id} cell={c} quorum={s.effectiveQuorum} winnerId={winners.get(c.id)} textOf={textOf} now={now}
+                      open={openCell === c.id} onToggle={() => setOpenCell(openCell === c.id ? null : c.id)} />
                   ))}
                 </div>
               </div>
@@ -205,13 +207,18 @@ export default function SwarmDeck({ id }: { id: string }) {
   )
 }
 
-function CellNode({ cell, quorum, winnerId, textOf, now }: {
+function CellNode({ cell, quorum, winnerId, textOf, now, open, onToggle }: {
   cell: Cell; quorum: number; winnerId?: string; textOf: Map<string, Mem>; now: number
+  open: boolean; onToggle: () => void
 }) {
   const done = !!cell.completedAt
   const fill = Math.min(1, cell.ballots / Math.max(1, quorum))
   return (
-    <div className={`rounded-md border p-2 w-40 ${done ? 'border-success/40 bg-success-bg/20' : 'border-border bg-header/40'}`}>
+    <div
+      onClick={onToggle}
+      data-interactive
+      role="button"
+      className={`rounded-md border p-2 cursor-pointer transition-all ${open ? 'w-full' : 'w-40'} ${done ? 'border-success/40 bg-success-bg/20 hover:border-success' : 'border-border bg-header/40 hover:border-border-strong'}`}>
       <div className="flex items-center justify-between mb-1">
         <span className="font-mono text-[10px] text-muted-light">cell·{short(cell.id)}</span>
         <span className="font-mono text-[10px] text-muted">{cell.candidates.length}</span>
@@ -229,9 +236,56 @@ function CellNode({ cell, quorum, winnerId, textOf, now }: {
           })}
         </div>
       </div>
-      {done && winnerId && (
+      {done && winnerId && !open && (
         <div className="mt-1.5 pt-1.5 border-t border-success/20 text-[11px] text-success leading-tight line-clamp-2">
           ▲ {textOf.get(winnerId)?.text ?? winnerId}
+        </div>
+      )}
+      {open && (
+        <div className="mt-2 pt-2 border-t border-border/60 space-y-3 cursor-default" onClick={(e) => e.stopPropagation()}>
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-light font-mono mb-1">memories in this cell</div>
+            <ul className="space-y-1">
+              {cell.candidates.map((m) => (
+                <li key={m.id} className={`text-xs leading-snug ${m.id === winnerId ? 'text-success' : 'text-muted'}`}>
+                  {m.id === winnerId ? '▲ ' : '· '}
+                  <span className="font-mono text-[10px] opacity-70">[{m.kind}{m.outcome ? ` ${m.outcome.score}` : ''}]</span>{' '}
+                  {m.text}
+                </li>
+              ))}
+            </ul>
+          </div>
+          {cell.discussion.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-muted-light font-mono mb-1">discussion</div>
+              <ul className="space-y-1">
+                {cell.discussion.map((d, i) => (
+                  <li key={i} className="text-xs text-muted leading-snug">
+                    <span className="font-mono text-accent text-[10px]">ai·{short(d.userId)}</span> {d.text}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-light font-mono mb-1">ballots</div>
+            {done ? (
+              cell.publicBallots.length ? (
+                <ul className="space-y-1">
+                  {cell.publicBallots.map((b, i) => (
+                    <li key={i} className="text-xs text-muted leading-snug">
+                      <span className="font-mono text-accent text-[10px]">ai·{short(b.userId)}</span>
+                      <span className="font-mono text-[10px] text-muted-light"> lens·{short(b.lensIdeaId)}</span>{' '}
+                      {b.ranking.map((r) => textOf.get(r)?.text.slice(0, 24) ?? short(r)).join(' → ')}
+                      {b.note && <span className="text-muted-light italic"> — {b.note}</span>}
+                    </li>
+                  ))}
+                </ul>
+              ) : <span className="text-xs text-muted-light font-mono">none recorded</span>
+            ) : (
+              <span className="text-xs text-muted-light font-mono">sealed until the cell completes ({cell.ballots}/{quorum} cast)</span>
+            )}
+          </div>
         </div>
       )}
     </div>

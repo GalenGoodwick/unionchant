@@ -4,6 +4,7 @@
 // swarm chants are chantMode "swarm" and orchestrate their own Cell/CellIdea rows.
 
 import { prisma } from '@/lib/prisma'
+import { planExpansion } from '@/lib/swarm/engine/expansion'
 import {
   tallyCell,
   chunkCells,
@@ -132,10 +133,12 @@ export async function seedMemories(delib: Deliberation, userId: string, mems: Se
   await logEvent(delib.id, 'seeded', { userId, count: created.length })
 
   // Goal-based auto-start (the dogfood path: seed to the goal, voting opens itself).
-  if (delib.ideaGoal) {
+  if (delib.phase === 'SUBMISSION' && delib.ideaGoal) {
     const total = await prisma.idea.count({ where: { deliberationId: delib.id } })
     if (total >= delib.ideaGoal) await startSwarmVoting(delib.id)
   }
+  // Continuous chant: memories seeded mid-flight form new cells immediately.
+  if (delib.phase !== 'SUBMISSION') await runExpansion(delib)
   return created
 }
 
@@ -256,7 +259,7 @@ async function sweepCompletions(delib: Deliberation) {
   const cfg = swarmConfig(delib)
   const q = effectiveQuorum(cfg, await evaluatorCount(delib.id))
   const open = await prisma.cell.findMany({
-    where: { deliberationId: delib.id, tier: delib.currentTier, completedAt: null },
+    where: { deliberationId: delib.id, completedAt: null }, // all tiers — the chant is continuous
     select: { id: true },
   })
   for (const c of open) {
@@ -281,41 +284,57 @@ export async function getTurn(delib: Deliberation, userId: string) {
     return { phase: 'seeding', frame, standingChampion, stream, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
   }
 
-  if (delib.phase === 'COMPLETED' || delib.phase === 'ACCUMULATING') {
+  // CONTINUOUS CHANT: sweep completions, expand (new cells from pool/climbers/
+  // defense), then dispatch into whatever is open — regardless of phase. The
+  // election never closes; a standing champion means ACCUMULATING, not done.
+  await expireStaleDocks(delib.id)
+  await sweepCompletions(delib)
+  await runExpansion(delib)
+  delib = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
+  const liveFrame = await championFrame(delib) // may have just been crowned/unseated
+  const liveStanding = liveFrame !== null
+
+  const openCells = await prisma.cell.count({ where: { deliberationId: delib.id, completedAt: null } })
+  if (openCells === 0) {
+    if (delib.championId) {
+      return {
+        phase: 'champion',
+        frame: liveFrame,
+        standingChampion: liveStanding,
+        stream,
+        boot: await getBoot(delib),
+        flywheel:
+          'act on the directive; write results back as kind:"outcome" memories with real scores. ' +
+          'The chant is continuous: seeded memories form new cells, their winners become challengers, ' +
+          'and the champion must defend its crown in every final cell.',
+      }
+    }
+    const pool = await prisma.idea.count({
+      where: { deliberationId: delib.id, status: { in: ['PENDING', 'SUBMITTED'] } },
+    })
     return {
-      phase: 'champion',
-      frame,
-      standingChampion,
+      phase: 'waiting',
+      frame: liveFrame,
+      standingChampion: liveStanding,
       stream,
-      boot: await getBoot(delib),
-      flywheel:
-        'act on the directive; write results back as kind:"outcome" memories with real scores — a grounded outcome can challenge the champion',
+      reason: `pool building: ${pool}/${cfg.cellSize} memories toward the next cell — seed more`,
+      nextCheckSeconds: 60,
     }
   }
 
-  // VOTING — dispatch.
-  await expireStaleDocks(delib.id)
-  // Level-triggered completion sweep: completion is normally checked when a ballot
-  // lands, but a cell can also reach quorum "from outside" (config change, partial
-  // resolution). Sweep open cells at quorum so the election can never wedge with
-  // enough ballots already in. maybeCompleteCell guards double-completion.
-  await sweepCompletions(delib)
-  const fresh = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
-  if (fresh.phase !== 'VOTING') return getTurn(fresh, userId) // sweep crowned/advanced past us
-  delib = fresh
-  const snapshots = await loadTierSnapshots(delib.id, delib.currentTier)
+  const snapshots = await loadOpenSnapshots(delib.id)
   const evals = await evaluatorCount(delib.id)
   const decision = scheduleNextCell(userId, snapshots.cells, cfg, evals)
 
   if (decision.kind === 'waiting') {
-    return { phase: 'waiting', frame, standingChampion, stream, reason: decision.reason, nextCheckSeconds: 60 }
+    return { phase: 'waiting', frame: liveFrame, standingChampion: liveStanding, stream, reason: decision.reason, nextCheckSeconds: 60 }
   }
 
   if (decision.kind === 'resume') {
     const dock = await prisma.cellDock.findFirstOrThrow({
       where: { cellId: decision.cellId, userId, status: 'ACTIVE' },
     })
-    return turnPayload(delib, frame, stream, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+    return turnPayload(delib, liveFrame, stream, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
   }
 
   // Fresh dock: atomic under the cell row lock (the atomicJoinCell pattern).
@@ -353,7 +372,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
 
   if (!dock) return { phase: 'waiting', frame, reason: 'cell filled while docking; ping again', nextCheckSeconds: 5 }
   await logEvent(delib.id, 'docked', { dockId: dock.id, userId, cellId: dock.cellId, lensIdeaId: dock.lensIdeaId })
-  return turnPayload(delib, frame, stream, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+  return turnPayload(delib, liveFrame, stream, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
 }
 
 interface TierSnapshots {
@@ -362,9 +381,9 @@ interface TierSnapshots {
   allIdeaIds: string[]
 }
 
-async function loadTierSnapshots(delibId: string, tier: number): Promise<TierSnapshots> {
+async function loadOpenSnapshots(delibId: string): Promise<TierSnapshots> {
   const cells = await prisma.cell.findMany({
-    where: { deliberationId: delibId, tier, completedAt: null },
+    where: { deliberationId: delibId, completedAt: null },
     orderBy: { createdAt: 'asc' },
     include: { ideas: { select: { ideaId: true } } },
   })
@@ -379,7 +398,7 @@ async function loadTierSnapshots(delibId: string, tier: number): Promise<TierSna
     }),
     prisma.idea.findMany({ where: { deliberationId: delibId }, select: { id: true } }),
     prisma.cellIdea.findMany({
-      where: { cell: { deliberationId: delibId, tier } },
+      where: { cell: { deliberationId: delibId, completedAt: null } },
       select: { ideaId: true },
     }),
   ])
@@ -522,41 +541,109 @@ async function maybeCompleteCell(delib: Deliberation, cellId: string, cfg: Swarm
   }))
   const result = tallyCell(candidates, ballots2)
 
-  await prisma.idea.update({ where: { id: result.winnerId }, data: { status: 'ADVANCING' } })
+  const championSeated = !!delib.championId && result.candidateIds.includes(delib.championId)
+  await prisma.idea.update({
+    where: { id: result.winnerId },
+    data: { status: championSeated ? 'WINNER' : 'ADVANCING' },
+  })
   await prisma.idea.updateMany({
     where: { id: { in: result.candidateIds.filter((id) => id !== result.winnerId) } },
     data: { status: 'ELIMINATED' },
   })
   await logEvent(delib.id, 'cell_completed', { cellId, standings: result.standings, winnerId: result.winnerId })
 
-  await maybeAdvanceTier(delib, cfg)
+  // E4 — a cell that seated the champion crowns its winner: defend or unseat.
+  if (championSeated) {
+    const defended = delib.championId === result.winnerId
+    if (!defended) {
+      await prisma.idea.update({ where: { id: delib.championId! }, data: { isChampion: false } })
+    }
+    await crownChampion(delib, result.winnerId, { defended })
+    delib = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
+  }
+
+  await runExpansion(delib)
 }
 
-async function maybeAdvanceTier(delib: Deliberation, cfg: SwarmConfig) {
-  const fresh = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
-  const open = await prisma.cell.count({
-    where: { deliberationId: delib.id, tier: fresh.currentTier, completedAt: null },
+/**
+ * The continuous chant's heartbeat: plan and apply expansion (new tier-1 cells
+ * from the pool, climb cells from stranded winners, defense cells seating the
+ * champion, lone-climber crowning). Serialized under the deliberation row lock
+ * so concurrent turns can never double-plan the same cells.
+ */
+export async function runExpansion(delib: Deliberation) {
+  const cfg = swarmConfig(delib)
+  const crowned = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Deliberation" WHERE id = ${delib.id} FOR UPDATE`
+    const [pending, advancing, openCells, champion] = await Promise.all([
+      tx.idea.findMany({
+        where: { deliberationId: delib.id, status: { in: ['PENDING', 'SUBMITTED'] } },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      }),
+      tx.idea.findMany({
+        where: { deliberationId: delib.id, status: 'ADVANCING' },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, tier: true },
+      }),
+      tx.cell.count({ where: { deliberationId: delib.id, completedAt: null } }),
+      delib.championId
+        ? tx.idea.findUnique({ where: { id: delib.championId }, select: { tier: true } })
+        : Promise.resolve(null),
+    ])
+    const plan = planExpansion({
+      pendingIds: pending.map((x) => x.id),
+      advancing,
+      openCells,
+      championId: delib.championId,
+      championTier: champion?.tier ?? 0,
+      cellSize: cfg.cellSize,
+    })
+    let maxTier = 0
+    for (const c of plan.newCells) {
+      const cell = await tx.cell.create({
+        data: {
+          deliberationId: delib.id,
+          tier: c.tier,
+          status: 'VOTING',
+          votingStartedAt: new Date(),
+          ideas: { create: c.candidateIds.map((ideaId) => ({ ideaId })) },
+        },
+      })
+      await tx.idea.updateMany({
+        where: { id: { in: c.candidateIds.filter((id) => id !== delib.championId) } },
+        data: { status: 'IN_VOTING', tier: c.tier },
+      })
+      if (c.includesChampion && delib.championId) {
+        await tx.idea.update({ where: { id: delib.championId }, data: { status: 'DEFENDING', tier: c.tier } })
+      }
+      await tx.swarmEvent.create({
+        data: {
+          delibId: delib.id,
+          type: 'cell_formed',
+          payload: { cellId: cell.id, tier: c.tier, memories: c.candidateIds.length, defense: c.includesChampion },
+        },
+      })
+      maxTier = Math.max(maxTier, c.tier)
+    }
+    if (plan.newCells.length) {
+      await tx.deliberation.update({
+        where: { id: delib.id },
+        data: {
+          phase: 'VOTING',
+          ...(maxTier > delib.currentTier ? { currentTier: maxTier, currentTierStartedAt: new Date() } : {}),
+        },
+      })
+    }
+    return plan.crownId
   })
-  if (open > 0) return
-
-  const winners = await prisma.idea.findMany({
-    where: { deliberationId: delib.id, status: 'ADVANCING' },
-    orderBy: { createdAt: 'asc' },
-  })
-
-  if (winners.length === 1) return crownChampion(fresh, winners[0]!.id)
-  if (winners.length === 0) throw new SwarmError('tier completed with no advancing ideas', 500)
-
-  const nextTier = fresh.currentTier + 1
-  await createTierCells(delib.id, nextTier, winners.map((w) => w.id), cfg)
-  await prisma.deliberation.update({
-    where: { id: delib.id },
-    data: { currentTier: nextTier, currentTierStartedAt: new Date() },
-  })
-  await logEvent(delib.id, 'tier_advanced', { tier: nextTier, survivors: winners.map((w) => w.id) })
+  if (crowned && !delib.championId) {
+    await prisma.idea.update({ where: { id: crowned }, data: { status: 'WINNER' } })
+    await crownChampion(delib, crowned, { defended: false })
+  }
 }
 
-async function crownChampion(delib: Deliberation, championId: string) {
+async function crownChampion(delib: Deliberation, championId: string, opts: { defended: boolean }) {
   // Priority spine = the final cell's standings, champion first.
   const finalCell = await prisma.swarmEvent.findFirst({
     where: { delibId: delib.id, type: 'cell_completed' },
@@ -586,11 +673,13 @@ async function crownChampion(delib: Deliberation, championId: string) {
     where: { id: delib.id },
     data: {
       championId,
-      phase: delib.accumulationEnabled ? 'ACCUMULATING' : 'COMPLETED',
+      // The chant is continuous: a crowned champion means ACCUMULATING (standing,
+      // contestable), never COMPLETED. completedAt records the latest crowning.
+      phase: 'ACCUMULATING',
       completedAt: new Date(),
     },
   })
-  await logEvent(delib.id, 'champion', { championId, lineage, tiers })
+  await logEvent(delib.id, 'champion', { championId, lineage, tiers, defended: opts.defended })
 }
 
 // ------------------------------------------------------------------ chant
