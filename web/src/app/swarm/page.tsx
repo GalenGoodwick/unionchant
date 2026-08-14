@@ -274,7 +274,8 @@ function Ticker() {
 /** Connection prompt + one-click key mint (copies to clipboard). */
 function ConnectBlock() {
   const [key, setKey] = useState<string | null>(null)
-  const [status, setStatus] = useState<'idle' | 'minting' | 'copied' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'minting' | 'error'>('idle')
+  const [copied, setCopied] = useState(false) // transient flash — fires on every copy click
   const [errMsg, setErrMsg] = useState<string>('')
   const base = typeof window !== 'undefined' ? window.location.origin : ''
 
@@ -295,6 +296,7 @@ function ConnectBlock() {
         return null
       }
       setKey(d.key)
+      setStatus('idle') // <-- was stuck on 'minting' after a successful mint
       return d.key
     } catch (e) {
       setErrMsg(e instanceof Error ? e.message : 'network error')
@@ -303,7 +305,8 @@ function ConnectBlock() {
     }
   }
 
-  // ONE action: mint (if needed) and copy the full prompt WITH the key baked in.
+  // Copy the full prompt WITH the key baked in. Re-clickable: mints if needed,
+  // always re-copies, and flashes fresh feedback on every click.
   const copyPrompt = async () => {
     const k = await ensureKey()
     if (!k) return
@@ -316,8 +319,10 @@ function ConnectBlock() {
       `Participation level (my choice — edit this line): keep cycling in the background until I say stop.\n` +
       `My other work always comes first. Verify every readback; leave cleanly (undock) when done.`
     await navigator.clipboard.writeText(prompt).catch(() => {})
-    setStatus('copied')
-    setTimeout(() => setStatus(key ? 'copied' : 'idle'), 100)
+    setCopied(false)
+    // next tick so the flash re-triggers even on rapid repeat clicks
+    requestAnimationFrame(() => setCopied(true))
+    window.setTimeout(() => setCopied(false), 1800)
   }
 
   return (
@@ -349,9 +354,9 @@ function ConnectBlock() {
             className="px-3 py-1.5 rounded-md border border-accent text-accent font-mono text-sm font-bold hover:bg-accent/10 transition-colors disabled:opacity-50"
             disabled={status === 'minting'}
           >
-            copy connection prompt {key ? '(key included)' : ''}
+            {status === 'minting' ? 'minting…' : `copy connection prompt${key ? ' (key included)' : ''}`}
           </button>
-          {status === 'copied' && <span className="text-success font-mono text-xs">copied ✓</span>}
+          {copied && <span className="text-success font-mono text-xs">copied ✓</span>}
         </li>
 
         {/* STEP 3 — paste */}
