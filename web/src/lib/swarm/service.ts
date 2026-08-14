@@ -270,6 +270,18 @@ async function sweepCompletions(delib: Deliberation) {
   }
 }
 
+/**
+ * Rebase the tournament: expire stale docks, complete any cell already at quorum,
+ * then re-plan expansion (new cells from pool / climbers / champion defense). Pure
+ * state-advancement — safe to call from a turn, a manual tick, or the cron heartbeat.
+ * This is what keeps the chant CONTINUOUS without an agent happening to poke it.
+ */
+export async function tickSwarm(delib: Deliberation) {
+  await expireStaleDocks(delib.id)
+  await sweepCompletions(delib)
+  await runExpansion(delib)
+}
+
 export async function getTurn(delib: Deliberation, userId: string) {
   const cfg = swarmConfig(delib)
   const frame = await championFrame(delib)
@@ -286,12 +298,9 @@ export async function getTurn(delib: Deliberation, userId: string) {
     return { phase: 'seeding', frame, standingChampion, stream, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
   }
 
-  // CONTINUOUS CHANT: sweep completions, expand (new cells from pool/climbers/
-  // defense), then dispatch into whatever is open — regardless of phase. The
-  // election never closes; a standing champion means ACCUMULATING, not done.
-  await expireStaleDocks(delib.id)
-  await sweepCompletions(delib)
-  await runExpansion(delib)
+  // CONTINUOUS CHANT: rebase the tournament to its correct current shape, then
+  // dispatch into whatever is open — regardless of phase. The election never closes.
+  await tickSwarm(delib)
   delib = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
   const liveFrame = await championFrame(delib) // may have just been crowned/unseated
   const liveStanding = liveFrame !== null

@@ -23,9 +23,15 @@ describe('E1 — pool forms full tier-1 cells', () => {
     expect(p.crownId).toBeNull() // remainder present -> not converged...
   })
 
-  it('a starved pool forms nothing', () => {
-    const p = planExpansion(base({ pendingIds: ids(4) }))
-    expect(p.newCells).toHaveLength(0)
+  it('a starved pool of a few forms a convergence cell (continuity), a lone one waits', () => {
+    // 4 fresh memories, idle: deliberate what is here rather than wait forever for a 5th.
+    const four = planExpansion(base({ pendingIds: ids(4) }))
+    expect(four.newCells).toHaveLength(1)
+    expect(four.newCells[0]!.candidateIds).toHaveLength(4)
+    // but a single fresh memory cannot self-crown uncontested — it waits.
+    const one = planExpansion(base({ pendingIds: ids(1) }))
+    expect(one.newCells).toHaveLength(0)
+    expect(one.crownId).toBeNull()
   })
 })
 
@@ -91,10 +97,32 @@ describe('E3 with a standing champion — defense', () => {
     expect(cell.tier).toBe(4) // max(championTier 3, challengers) + 1
   })
 
-  it('a lone challenger waits — no 1v1 churn against the champion', () => {
+  it('a single fresh challenger DOES contest the champion (continuity)', () => {
     const p = planExpansion(base({ championId: 'champ', championTier: 2, advancing: [{ id: 'c1', tier: 1 }] }))
+    expect(p.newCells).toHaveLength(1)
+    expect(p.newCells[0]!.includesChampion).toBe(true)
+    expect(p.newCells[0]!.candidateIds).toEqual(['champ', 'c1'])
+  })
+
+  it('pending-pool memories (any count) challenge the champion — a trickle keeps it alive', () => {
+    const p = planExpansion(base({ championId: 'champ', championTier: 3, pendingIds: ['new1', 'new2'] }))
+    expect(p.newCells).toHaveLength(1)
+    const cell = p.newCells[0]!
+    expect(cell.includesChampion).toBe(true)
+    expect(cell.candidateIds).toEqual(['champ', 'new1', 'new2'])
+    expect(cell.tier).toBe(4)
+  })
+
+  it('a lone fresh pool memory (no champion) waits — cannot self-crown uncontested', () => {
+    const p = planExpansion(base({ pendingIds: ['only'] }))
     expect(p.newCells).toHaveLength(0)
     expect(p.crownId).toBeNull()
+  })
+
+  it('one climber + one fresh pool memory (no champion) form a final cell together', () => {
+    const p = planExpansion(base({ advancing: [{ id: 'won', tier: 2 }], pendingIds: ['fresh'] }))
+    expect(p.newCells).toHaveLength(1)
+    expect(p.newCells[0]!.candidateIds).toEqual(['won', 'fresh']) // higher tier first
   })
 
   it('defense cell caps at 7 including the champion', () => {
