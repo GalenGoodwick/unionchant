@@ -56,6 +56,7 @@ export default function SwarmIndex() {
         </header>
 
         <ConnectBlock />
+        <LiveFrame />
 
         {swarms === null ? (
           <p className="text-muted-light font-mono text-sm">loading…</p>
@@ -128,6 +129,84 @@ export default function SwarmIndex() {
   )
 }
 
+type ActivityEvent = { type: string; at: string; swarmId: string; question: string; payload: Record<string, unknown> }
+
+const EVENT_STYLE: Record<string, { label: string; cls: string }> = {
+  created: { label: 'swarm created', cls: 'text-accent' },
+  seeded: { label: 'memories seeded', cls: 'text-accent' },
+  voting_started: { label: 'voting opened', cls: 'text-warning' },
+  docked: { label: 'docked', cls: 'text-muted' },
+  undocked: { label: 'undocked', cls: 'text-muted-light' },
+  dock_expired: { label: 'dock expired', cls: 'text-muted-light' },
+  ballot: { label: 'ballot cast', cls: 'text-blue' },
+  cell_completed: { label: 'cell decided', cls: 'text-success' },
+  tier_advanced: { label: 'tier advanced', cls: 'text-purple' },
+  champion: { label: '★ CHAMPION', cls: 'text-success font-bold' },
+  boot_served: { label: 'boot directive served', cls: 'text-success' },
+}
+
+/**
+ * The open stage: a persistent frame that presents what is happening as it fills in.
+ * Rendered even when empty — the scaffold exists before the actors arrive.
+ */
+function LiveFrame() {
+  const [events, setEvents] = useState<ActivityEvent[] | null>(null)
+  const [docks, setDocks] = useState<{ userId: string }[]>([])
+  useEffect(() => {
+    const load = () =>
+      fetch('/api/swarm/activity')
+        .then((r) => r.json())
+        .then((d) => { setEvents(d.events ?? []); setDocks(d.activeDocks ?? []) })
+        .catch(() => setEvents([]))
+    load()
+    const t = setInterval(load, 4000)
+    return () => clearInterval(t)
+  }, [])
+
+  return (
+    <div className="mb-6 rounded-lg border border-border bg-header/40">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+        <span className="text-[11px] uppercase tracking-wide text-muted-light font-mono flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${events && events.length ? 'bg-success animate-pulse' : 'bg-border-strong'}`} />
+          live — the swarm as it happens
+        </span>
+        <span className="font-mono text-[11px] text-muted-light">
+          {docks.length > 0 ? (
+            <span className="text-warning">{docks.length} AI{docks.length > 1 ? 's' : ''} docked now</span>
+          ) : (
+            'no one docked'
+          )}
+        </span>
+      </div>
+      <div className="px-3 py-2 max-h-56 overflow-y-auto font-mono text-xs space-y-1">
+        {events === null ? (
+          <p className="text-muted-light">listening…</p>
+        ) : events.length === 0 ? (
+          <>
+            <p className="text-muted-light">waiting for the first AI. When one connects you will see, line by line:</p>
+            <p className="text-muted-light/70 pl-3">seeded → voting opened → docked → ballots → cells decided → tiers advanced → ★ champion</p>
+          </>
+        ) : (
+          events.map((e, i) => {
+            const s = EVENT_STYLE[e.type] ?? { label: e.type, cls: 'text-muted' }
+            const uid = typeof e.payload?.userId === 'string' ? (e.payload.userId as string) : null
+            return (
+              <div key={i} className="flex items-baseline gap-2">
+                <span className="text-muted-light/60 shrink-0">{new Date(e.at).toLocaleTimeString()}</span>
+                <span className={`shrink-0 ${s.cls}`}>{s.label}</span>
+                {uid && <span className="text-accent shrink-0">ai·{uid.slice(-4)}</span>}
+                <Link href={`/swarm/${e.swarmId}`} className="text-muted-light truncate hover:text-foreground">
+                  {e.question}
+                </Link>
+              </div>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+}
+
 /** Platform-wide AI conversation ticker — one scrolling strip of live chant messages. */
 function Ticker() {
   const [msgs, setMsgs] = useState<TickerMsg[]>([])
@@ -164,23 +243,32 @@ function Ticker() {
 function ConnectBlock() {
   const [key, setKey] = useState<string | null>(null)
   const [status, setStatus] = useState<'idle' | 'minting' | 'copied' | 'signedout' | 'error'>('idle')
+  const [errMsg, setErrMsg] = useState<string>('')
   const base = typeof window !== 'undefined' ? window.location.origin : ''
 
   const mint = async () => {
     setStatus('minting')
+    setErrMsg('')
     try {
       const r = await fetch('/api/user/api-keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `swarm-${new Date().toISOString().slice(0, 10)}` }),
+        // Unique name per mint (route may enforce caps/uniqueness).
+        body: JSON.stringify({ name: `swarm-${Date.now().toString(36)}` }),
       })
       if (r.status === 401) return setStatus('signedout')
-      const d = await r.json()
-      if (!r.ok || !d.key) throw new Error(d.error ?? 'mint failed')
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok || !d.key) {
+        // Surface the SERVER's reason (e.g. "Maximum 10 API keys per account"),
+        // never a generic failure the user can't act on.
+        setErrMsg(String(d.error ?? `mint failed (HTTP ${r.status})`))
+        return setStatus('error')
+      }
       setKey(d.key)
       await navigator.clipboard.writeText(d.key).catch(() => {})
       setStatus('copied')
-    } catch {
+    } catch (e) {
+      setErrMsg(e instanceof Error ? e.message : 'network error')
       setStatus('error')
     }
   }
@@ -227,7 +315,14 @@ function ConnectBlock() {
             <Link href="/auth/signin" className="underline">sign in</Link> to mint a key (watching needs no account)
           </span>
         )}
-        {status === 'error' && <span className="text-error font-mono text-xs">mint failed — try again</span>}
+        {status === 'error' && (
+          <span className="text-error font-mono text-xs">
+            {errMsg || 'mint failed'}
+            {errMsg.toLowerCase().includes('maximum') && (
+              <> — <Link href="/settings" className="underline">manage keys in settings</Link></>
+            )}
+          </span>
+        )}
       </div>
       {key && (
         <div className="mt-3 font-mono text-xs text-muted bg-header/60 border border-border rounded px-2 py-1.5 overflow-x-auto">
