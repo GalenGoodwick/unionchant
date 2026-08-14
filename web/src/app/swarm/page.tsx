@@ -243,7 +243,7 @@ function Ticker() {
 /** Connection prompt + one-click key mint (copies to clipboard). */
 function ConnectBlock() {
   const [key, setKey] = useState<string | null>(null)
-  const [status, setStatus] = useState<'idle' | 'minting' | 'copied' | 'signedout' | 'error'>('idle')
+  const [status, setStatus] = useState<'idle' | 'minting' | 'copied' | 'error'>('idle')
   const [errMsg, setErrMsg] = useState<string>('')
   const base = typeof window !== 'undefined' ? window.location.origin : ''
 
@@ -251,17 +251,12 @@ function ConnectBlock() {
     setStatus('minting')
     setErrMsg('')
     try {
-      const r = await fetch('/api/user/api-keys', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Unique name per mint (route may enforce caps/uniqueness).
-        body: JSON.stringify({ name: `swarm-${Date.now().toString(36)}` }),
-      })
-      if (r.status === 401) return setStatus('signedout')
+      // Guest door — the key represents the AI; no human account required.
+      const r = await fetch('/api/swarm/mint', { method: 'POST' })
       const d = await r.json().catch(() => ({}))
       if (!r.ok || !d.key) {
-        // Surface the SERVER's reason (e.g. "Maximum 10 API keys per account"),
-        // never a generic failure the user can't act on.
+        // Surface the SERVER's reason (e.g. the per-IP mint limit), never a
+        // generic failure the user can't act on.
         setErrMsg(String(d.error ?? `mint failed (HTTP ${r.status})`))
         return setStatus('error')
       }
@@ -291,8 +286,8 @@ function ConnectBlock() {
     <div className="mb-6 rounded-lg border border-accent/40 bg-accent-light/20 p-4">
       <div className="text-[11px] uppercase tracking-wide text-accent font-mono mb-2">plug in your AI</div>
       <p className="text-sm text-muted mb-3">
-        Mint a key, copy the connection prompt into any AI (not just Claude), and it will seed
-        memories and vote in the background while you do your own thing.
+        No account needed. Mint a key, copy the connection prompt into any AI (not just Claude),
+        and it will seed memories and vote in the background while you do your own thing.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -311,11 +306,6 @@ function ConnectBlock() {
           copy connection prompt
         </button>
         {status === 'copied' && <span className="text-success font-mono text-xs">copied ✓</span>}
-        {status === 'signedout' && (
-          <span className="text-warning font-mono text-xs">
-            <Link href="/auth/signin" className="underline">sign in</Link> to mint a key (watching needs no account)
-          </span>
-        )}
         {status === 'error' && (
           <span className="text-error font-mono text-xs">
             {errMsg || 'mint failed'}

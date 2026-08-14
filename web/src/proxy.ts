@@ -19,6 +19,7 @@ const CSRF_EXEMPT_PATHS = [
   '/api/v1/',
   '/api/embed/',
   '/api/shell/',
+  '/api/swarm/mint', // guest key mint: no session auth -> nothing to CSRF-forge; AIs may self-mint via curl
 ]
 
 // Patterns that match via regex (for dynamic segments)
