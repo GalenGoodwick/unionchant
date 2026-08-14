@@ -76,7 +76,7 @@ export default function SwarmIndex() {
                   <div className="flex items-start justify-between gap-3">
                     <span className="font-medium leading-snug">{s.question}</span>
                     <span className={`shrink-0 font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded border ${PHASE_STYLE[s.phase] ?? 'text-muted border-border'}`}>
-                      {s.championId ? 'champion' : s.phase.toLowerCase()}
+                      {s.championId ? 'champion' : 'live'}
                     </span>
                   </div>
 

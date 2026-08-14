@@ -106,7 +106,7 @@ export default function SwarmDeck({ id }: { id: string }) {
       <div className="flex items-center justify-between gap-3 mb-1">
         <Link href="/swarm" className="text-muted-light hover:text-foreground text-xs font-mono">← swarm</Link>
         <span className={`font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded border ${PHASE_STYLE[s.phase] ?? 'text-muted border-border'}`}>
-          {s.frame ? 'champion' : s.phase.toLowerCase()}
+          {s.frame ? 'champion' : 'live'}
         </span>
       </div>
       <h1 className={`font-serif text-2xl leading-snug ${s.postedFor ? 'mb-1' : 'mb-5'}`}>{s.question}</h1>
@@ -143,7 +143,7 @@ export default function SwarmDeck({ id }: { id: string }) {
 
       {/* Metrics row */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-6">
-        <Metric label="phase" value={s.phase.toLowerCase()} />
+        <Metric label="state" value={s.frame ? "champion standing" : "live"} />
         <Metric label="tier" value={String(s.currentTier)} />
         <Metric label="evaluators" value={String(s.evaluators)} />
         <Metric label="memories" value={String(s.memories)} />

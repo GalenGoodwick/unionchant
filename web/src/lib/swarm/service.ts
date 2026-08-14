@@ -74,6 +74,9 @@ export async function createSwarm(
       allowAI: true,
       isPublic: true,
       votingTimeoutMs: -1,
+      // A chant has NO phases — it is a constant process. Born live: seeding,
+      // voting, and champion-standing are simultaneous, always.
+      phase: 'VOTING',
       ideaGoal: ideaGoal ?? null,
       members: { create: { userId, role: 'CREATOR' } },
     },
@@ -135,59 +138,25 @@ export async function seedMemories(delib: Deliberation, userId: string, mems: Se
   }
   await logEvent(delib.id, 'seeded', { userId, count: created.length })
 
-  // Goal-based auto-start (the dogfood path: seed to the goal, voting opens itself).
-  if (delib.phase === 'SUBMISSION' && delib.ideaGoal) {
-    const total = await prisma.idea.count({ where: { deliberationId: delib.id } })
-    if (total >= delib.ideaGoal) await startSwarmVoting(delib.id)
-  }
-  // Continuous chant: memories seeded mid-flight form new cells immediately.
-  if (delib.phase !== 'SUBMISSION') await runExpansion(delib)
+  // Constant process: memories form cells the moment enough arrive. No start, no phases.
+  await runExpansion(delib)
   return created
 }
 
 // ------------------------------------------------------------------ tiers
 
-async function tierIdeas(delibId: string, tier: number): Promise<IdeaWithMeta[]> {
-  const ideas = await prisma.cellIdea.findMany({
-    where: { cell: { deliberationId: delibId, tier } },
-    include: { idea: { include: { memoryMeta: true } } },
-  })
-  return ideas.map((ci) => ci.idea as IdeaWithMeta)
-}
-
+/**
+ * LEGACY: a chant has no phases and needs no starting — cells form as memories
+ * arrive and small pools elect at convergence. Kept so POST /start still works
+ * as a harmless "tick now" for old clients.
+ */
 export async function startSwarmVoting(delibId: string) {
   const delib = await prisma.deliberation.findUniqueOrThrow({ where: { id: delibId } })
-  if (delib.phase !== 'SUBMISSION') return delib
-  const cfg = swarmConfig(delib)
-  const ideas = await prisma.idea.findMany({
-    where: { deliberationId: delibId, status: { in: ['SUBMITTED', 'PENDING'] } },
-    orderBy: { createdAt: 'asc' },
-  })
-  if (ideas.length < 2) throw new SwarmError('need at least 2 memories to start voting', 422)
-
-  await createTierCells(delibId, 1, ideas.map((i) => i.id), cfg)
-  const updated = await prisma.deliberation.update({
-    where: { id: delibId },
-    data: { phase: 'VOTING', currentTier: 1, currentTierStartedAt: new Date() },
-  })
-  await logEvent(delibId, 'voting_started', { memories: ideas.length })
-  return updated
-}
-
-async function createTierCells(delibId: string, tier: number, ideaIds: string[], cfg: SwarmConfig) {
-  const chunks = chunkCells(ideaIds, cfg.cellSize)
-  for (const chunk of chunks) {
-    await prisma.cell.create({
-      data: {
-        deliberationId: delibId,
-        tier,
-        status: 'VOTING',
-        votingStartedAt: new Date(),
-        ideas: { create: chunk.map((ideaId) => ({ ideaId })) },
-      },
-    })
+  if (delib.phase === 'SUBMISSION') {
+    await prisma.deliberation.update({ where: { id: delibId }, data: { phase: 'VOTING' } })
   }
-  await prisma.idea.updateMany({ where: { id: { in: ideaIds } }, data: { status: 'IN_VOTING', tier } })
+  await tickSwarm(delib)
+  return prisma.deliberation.findUniqueOrThrow({ where: { id: delibId } })
 }
 
 // ------------------------------------------------------------------ the turn
@@ -292,15 +261,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
   // so frame is null. This flag says so honestly rather than leaving a silent null.
   const standingChampion = frame !== null
 
-  if (delib.phase === 'SUBMISSION') {
-    const [total, yours] = await Promise.all([
-      prisma.idea.count({ where: { deliberationId: delib.id } }),
-      prisma.idea.count({ where: { deliberationId: delib.id, authorId: userId } }),
-    ])
-    return { phase: 'seeding', frame, standingChampion, stream, bridge, memoriesSoFar: total, yourCount: yours, goal: delib.ideaGoal }
-  }
-
-  // CONTINUOUS CHANT: rebase the tournament to its correct current shape, then
+  // CONSTANT PROCESS — no phases: rebase the tournament to its correct current shape, then
   // dispatch into whatever is open — regardless of phase. The election never closes.
   await tickSwarm(delib)
   delib = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
