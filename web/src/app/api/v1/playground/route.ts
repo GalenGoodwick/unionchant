@@ -41,6 +41,7 @@ export async function GET(req: NextRequest) {
       'state flows through all nodes; out.log(...) writes the console; out.draw({op:"rect"|"circle"|"text"|"clear", ...}). ' +
       'Write flow: POST {action:"claim", project, slug} -> {action:"write", project, slug, code, title?, order?} -> {action:"release", project, slug}. ' +
       'Add: {action:"create", project, slug, title, code, order}. Claims are strict (one writer per node, 10 min TTL). ' +
+      'Every write preserves the replaced code: {action:"history", project, slug} lists revisions; {action:"revert", project, slug, toVersion} restores one (as a new write — history never rewrites history). ' +
       'Humans watch a project run live at /playground/<project>. Verify every readback.',
     projects: projects.map((p) => ({ ...p, nodes: countOf.get(p.id) ?? 0 })),
   })
@@ -160,17 +161,57 @@ export async function POST(req: NextRequest) {
       }
       const code = String(body.code ?? '')
       if (!code || code.length > MAX_CODE) return NextResponse.json({ error: `code required, <= ${MAX_CODE} chars` }, { status: 422 })
-      const updated = await prisma.playgroundNode.update({
-        where,
-        data: {
-          code,
-          ...(body.title ? { title: String(body.title).slice(0, 120) } : {}),
-          ...(Number.isFinite(body.order) ? { order: Number(body.order) } : {}),
-          version: { increment: 1 },
-          claimTtl: new Date(now.getTime() + CLAIM_TTL_MS),
-        },
-      })
+      // Preserve what this write replaces — the node's becoming is kept, always.
+      const [, updated] = await prisma.$transaction([
+        prisma.nodeRevision.upsert({
+          where: { nodeId_version: { nodeId: node.id, version: node.version } },
+          create: { nodeId: node.id, version: node.version, code: node.code, title: node.title, order: node.order, authorId: userId },
+          update: {},
+        }),
+        prisma.playgroundNode.update({
+          where,
+          data: {
+            code,
+            ...(body.title ? { title: String(body.title).slice(0, 120) } : {}),
+            ...(Number.isFinite(body.order) ? { order: Number(body.order) } : {}),
+            version: { increment: 1 },
+            claimTtl: new Date(now.getTime() + CLAIM_TTL_MS),
+          },
+        }),
+      ])
       return NextResponse.json({ node: updated })
+    }
+
+    if (action === 'history') {
+      const revisions = await prisma.nodeRevision.findMany({
+        where: { nodeId: node.id },
+        orderBy: { version: 'desc' },
+        take: 50,
+      })
+      return NextResponse.json({ node: { slug: node.slug, version: node.version }, revisions })
+    }
+
+    if (action === 'revert') {
+      if (!claimLive || node.claimedBy !== userId) {
+        return NextResponse.json({ error: 'claim the node first — revert IS a write' }, { status: 403 })
+      }
+      const toVersion = Number(body.toVersion)
+      if (!Number.isFinite(toVersion)) return NextResponse.json({ error: 'toVersion required' }, { status: 422 })
+      const rev = await prisma.nodeRevision.findUnique({ where: { nodeId_version: { nodeId: node.id, version: toVersion } } })
+      if (!rev) return NextResponse.json({ error: `no revision v${toVersion}` }, { status: 404 })
+      // Revert is a NEW write restoring old code — history never rewrites history.
+      const [, updated] = await prisma.$transaction([
+        prisma.nodeRevision.upsert({
+          where: { nodeId_version: { nodeId: node.id, version: node.version } },
+          create: { nodeId: node.id, version: node.version, code: node.code, title: node.title, order: node.order, authorId: userId },
+          update: {},
+        }),
+        prisma.playgroundNode.update({
+          where,
+          data: { code: rev.code, title: rev.title, version: { increment: 1 }, claimTtl: new Date(now.getTime() + CLAIM_TTL_MS) },
+        }),
+      ])
+      return NextResponse.json({ node: updated, restoredFrom: toVersion })
     }
 
     if (action === 'release') {

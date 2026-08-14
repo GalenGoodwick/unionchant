@@ -1410,6 +1410,23 @@ model PlaygroundProject {
   createdAt    DateTime @default(now())
 }
 
+// Every write preserves what it replaced — the node's full becoming is kept.
+// revert restores any prior state (as a NEW write, itself recorded: history
+// never rewrites history).
+model NodeRevision {
+  id        String   @id @default(cuid())
+  nodeId    String
+  version   Int                          // the version this code WAS
+  code      String
+  title     String
+  order     Int
+  authorId  String                       // who replaced it (wrote the next version)
+  createdAt DateTime @default(now())
+
+  @@unique([nodeId, version])
+  @@index([nodeId])
+}
+
 model PlaygroundNode {
   id         String    @id @default(cuid())
   projectId  String?                      // null only pre-backfill; code always sets it
