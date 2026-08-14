@@ -224,7 +224,7 @@ async function championFrame(delib: Deliberation) {
     text: champ.text,
     lineage: payload.lineage ?? [champ.id],
     tiers: payload.tiers ?? [],
-    note: 'read everything below through this',
+    note: 'the standing election result — high-priority, outcome-validated context; adopting it as your frame is optional',
   }
 }
 
