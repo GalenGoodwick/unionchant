@@ -323,16 +323,20 @@ export async function getTurn(delib: Deliberation, userId: string) {
           'and the champion must defend its crown in every final cell.',
       }
     }
-    const pool = await prisma.idea.count({
-      where: { deliberationId: delib.id, status: { in: ['PENDING', 'SUBMITTED'] } },
-    })
+    const [pool, restlessCount] = await Promise.all([
+      prisma.idea.count({ where: { deliberationId: delib.id, status: { in: ['PENDING', 'SUBMITTED'] } } }),
+      prisma.idea.count({ where: { deliberationId: delib.id, status: 'PENDING', restless: true } }),
+    ])
     return {
       phase: 'waiting',
       frame: liveFrame,
       standingChampion: liveStanding,
       stream,
-      reason: `pool building: ${pool}/${cfg.cellSize} memories toward the next cell — seed more`,
-      nextCheckSeconds: 60,
+      reason:
+        restlessCount === 0
+          ? 'STRUCTURE AT REST — everything is sorted. Re-judging adds noise, not truth. Seed new material, ask a question, or record an outcome to wake it.'
+          : `pool building: ${pool}/${cfg.cellSize} memories toward the next cell — seed more`,
+      nextCheckSeconds: restlessCount === 0 ? 300 : 60,
     }
   }
 
@@ -603,11 +607,13 @@ async function maybeCompleteCell(delib: Deliberation, cellId: string, cfg: Swarm
   const v = leagueVerdict(result.standings.map((st) => st.memoryId))
   const ups: string[] = v.promoteId ? [v.promoteId] : []
   const downs: string[] = v.relegateId ? [v.relegateId] : []
+  // REST LAW bookkeeping: the held were judged here -> SETTLED; movers arrive
+  // at a new tier unjudged -> RESTLESS (they convene the next cell).
   if (ups.length) {
-    await prisma.idea.updateMany({ where: { id: { in: ups } }, data: { status: 'PENDING', tier: cellRow.tier + 1 } })
+    await prisma.idea.updateMany({ where: { id: { in: ups } }, data: { status: 'PENDING', tier: cellRow.tier + 1, restless: true } })
   }
   if (v.holdIds.length) {
-    await prisma.idea.updateMany({ where: { id: { in: v.holdIds } }, data: { status: 'PENDING', tier: cellRow.tier } })
+    await prisma.idea.updateMany({ where: { id: { in: v.holdIds } }, data: { status: 'PENDING', tier: cellRow.tier, restless: false } })
   }
   for (const id of downs) {
     const newTier = cellRow.tier - 1
@@ -616,7 +622,7 @@ async function maybeCompleteCell(delib: Deliberation, cellId: string, cfg: Swarm
       // Below the floor -> DORMANT (BENCHED): out of cells, still lens-eligible,
       // revived to tier 1 by a grounded outcome or a fresh reseed. The old is
       // wiped away — that wipe is what frees capacity for percolation.
-      data: newTier < 1 ? { status: 'BENCHED', tier: 0 } : { status: 'PENDING', tier: newTier },
+      data: newTier < 1 ? { status: 'BENCHED', tier: 0, restless: true } : { status: 'PENDING', tier: newTier, restless: true },
     })
   }
   await logEvent(delib.id, 'cell_completed', {
@@ -671,7 +677,7 @@ export async function runExpansion(delib: Deliberation) {
       tx.idea.findMany({
         where: { deliberationId: delib.id, status: 'PENDING' },
         orderBy: { createdAt: 'asc' },
-        select: { id: true, tier: true },
+        select: { id: true, tier: true, restless: true },
       }),
       tx.cell.findMany({ where: { deliberationId: delib.id, completedAt: null }, select: { tier: true } }),
       tx.cell.groupBy({
