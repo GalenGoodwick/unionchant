@@ -47,15 +47,15 @@ export function scheduleNextCell(
 
   const quorum = effectiveQuorum(cfg, evaluatorCount);
 
+  const mineIn = (c: CellSnapshot) =>
+    c.ballots.filter((b) => b.evaluatorId === evaluatorId).length +
+    c.activeDocks.filter((d) => d.evaluatorId === evaluatorId).length;
+
   const eligible = cells.filter((c) => {
     if (cellComplete(c, quorum)) return false;
     // Saturated: enough ballots-in-flight to reach quorum without me.
     if (c.ballots.length + c.activeDocks.length >= quorum) return false;
-    // My own budget on this cell (cast + in-flight).
-    const mine =
-      c.ballots.filter((b) => b.evaluatorId === evaluatorId).length +
-      c.activeDocks.filter((d) => d.evaluatorId === evaluatorId).length;
-    return mine < cfg.maxBallotsPerAiPerCell;
+    return mineIn(c) < cfg.maxBallotsPerAiPerCell;
   });
 
   if (eligible.length === 0) {
@@ -66,8 +66,15 @@ export function scheduleNextCell(
     };
   }
 
-  eligible.sort((a, b) => a.ballots.length - b.ballots.length || a.seq - b.seq);
-  return { kind: "dock", cellId: eligible[0]!.id };
+  // ONE IDENTITY VOTE FIRST: an evaluator casts its own (corpus) ballot in every
+  // cell it can reach before it repeats ANYWHERE. Repeats — always under an
+  // assigned lens identity, never the corpus again — exist only when no cell
+  // remains that lacks its first vote.
+  const fresh = eligible.filter((c) => mineIn(c) === 0);
+  const pick = (fresh.length ? fresh : eligible).sort(
+    (a, b) => a.ballots.length - b.ballots.length || a.seq - b.seq,
+  );
+  return { kind: "dock", cellId: pick[0]!.id };
 }
 
 /**
