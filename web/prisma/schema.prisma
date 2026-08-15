@@ -367,6 +367,7 @@ model Idea {
   tier            Int        @default(0)
   isChampion      Boolean    @default(false)
   isNew           Boolean    @default(false)  // Submitted during accumulation
+  restless        Boolean    @default(true)   // league: unjudged at current tier; rest law — no recast without something restless
   losses          Int        @default(0)      // Track total losses (2 = eliminated)
 
   // Vote tracking

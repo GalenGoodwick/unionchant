@@ -23,6 +23,10 @@
 export interface LeagueElement {
   id: string
   tier: number // 1..N standing; 0 = dormant (never handed to the planner)
+  /** Unjudged at its current standing (new seed, fresh arrival from another tier,
+   *  revival, or new outcome). THE REST LAW: a tier recasts only if something
+   *  restless is present — re-judging a fully sorted set adds noise, not truth. */
+  restless: boolean
 }
 
 export interface TierClock {
@@ -121,6 +125,11 @@ export function planLeague(input: LeagueInput): LeaguePlan {
     const since = clock.get(tier) ?? Infinity
     const ready = since >= reviewCooldownMs(tier, reviewBaseMs)
     if (!ready) continue
+    // THE REST LAW: no new information at this tier -> no recast. Settled
+    // elements still join the cell (they are the field the newcomer faces),
+    // but only a restless arrival can convene it. A fully sorted structure
+    // SLEEPS, and wakes exactly where news lands.
+    if (!byTier.get(tier)!.some((e) => e.restless)) continue
     const minCast = minCastFor(tier, since, cellSize, reviewBaseMs)
     // Fresh mixture every recast — the anti-pocket law.
     const pool = shuffle(byTier.get(tier)!, input.rand)
