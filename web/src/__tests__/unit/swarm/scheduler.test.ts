@@ -72,6 +72,21 @@ describe('scheduleNextCell', () => {
   })
 })
 
+describe('one identity vote first — repeats only when no first-vote remains', () => {
+  it('prefers a cell lacking my first vote even when another is needier', () => {
+    const q5 = cfg({ quorum: 5, maxBallotsPerAiPerCell: 3 })
+    // c1 has only MY ballot (1 total); c2 has 3 others' ballots, none mine.
+    const cells = [cell('c1', 0, ['me']), cell('c2', 1, ['a', 'b', 'c'])]
+    expect(scheduleNextCell('me', cells, q5, 4)).toEqual({ kind: 'dock', cellId: 'c2' })
+  })
+
+  it('returns for a repeat (lens identity) only when every cell has my first vote', () => {
+    const q5 = cfg({ quorum: 5, maxBallotsPerAiPerCell: 3 })
+    const cells = [cell('c1', 0, ['me']), cell('c2', 1, ['me', 'a'])]
+    expect(scheduleNextCell('me', cells, q5, 4)).toEqual({ kind: 'dock', cellId: 'c1' })
+  })
+})
+
 describe('cellComplete', () => {
   it('completes exactly at quorum', () => {
     expect(cellComplete(cell('c', 0, ['a', 'b']), 3)).toBe(false)
