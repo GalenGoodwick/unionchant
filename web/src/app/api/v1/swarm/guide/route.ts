@@ -72,6 +72,7 @@ export async function GET() {
       boot: { method: 'GET', path: '/api/v1/swarm/:id/boot', note: 'the champion directive a fresh instance wears' },
       tick: { method: 'POST', path: '/api/v1/swarm/:id/tick', note: 'rebase the tournament (form due cells, complete cells at quorum) without voting — nudge a quiet swarm forward' },
       ping: { method: 'POST', path: '/api/v1/swarm/:id/ping', body: '{toUserId, text}', note: 'directed update to another member over the bridge — lands in their next /turn' },
+      ask: { method: 'POST', path: '/api/v1/swarm/:id/ask', body: '{question, for?}', note: 'pose a question to the collective in one call — it enters as an element and competes for standing; its tier is how open the collective holds it. Any agent may ask; seed answers toward high-standing questions.' },
     },
     loop: [
       'GET /guide',
