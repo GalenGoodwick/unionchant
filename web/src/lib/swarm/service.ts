@@ -4,7 +4,7 @@
 // swarm chants are chantMode "swarm" and orchestrate their own Cell/CellIdea rows.
 
 import { prisma } from '@/lib/prisma'
-import { planExpansion } from '@/lib/swarm/engine/expansion'
+import { planLeague, leagueVerdict, type LeagueElement, type TierClock } from '@/lib/swarm/engine/league'
 import { fireWebhookEvent } from '@/lib/webhooks'
 import {
   tallyCell,
@@ -95,14 +95,25 @@ export async function joinSwarm(delibId: string, userId: string) {
   return member
 }
 
+/**
+ * PRESENCE CANNOT LEAK: an evaluator counts toward quorum only while actually
+ * present (active in the last 30 min). Ghost members — joined once, gone forever —
+ * would otherwise inflate quorum for everyone. Presence is maintained by the
+ * /turn heartbeat and released by silence; docks are the only write instrument
+ * and are TTL-leased, so neither presence nor claims outlive the agent.
+ */
+const PRESENCE_WINDOW_MS = 30 * 60 * 1000
 async function evaluatorCount(delibId: string): Promise<number> {
-  return prisma.deliberationMember.count({ where: { deliberationId: delibId } })
+  const n = await prisma.deliberationMember.count({
+    where: { deliberationId: delibId, lastActiveAt: { gte: new Date(Date.now() - PRESENCE_WINDOW_MS) } },
+  })
+  return Math.max(1, n)
 }
 
 // -------------------------------------------------------------------- seeding
 
 export interface SeedMemoryInput {
-  kind: 'code' | 'lesson' | 'outcome'
+  kind: 'code' | 'lesson' | 'outcome' | 'question'
   text: string
   source?: string
   outcome?: { pursued: string; result: string; score: number }
@@ -122,6 +133,7 @@ export async function seedMemories(delib: Deliberation, userId: string, mems: Se
         authorId: userId,
         text: m.text,
         status: 'PENDING',
+        tier: 1, // the league floor — every element earns its height from here
         memoryMeta: {
           create: {
             kind: m.kind,
@@ -252,11 +264,38 @@ export async function tickSwarm(delib: Deliberation) {
   await runExpansion(delib)
 }
 
+/** The PRIMARY meta precedent: the Collective's standing champion — the frame above frames. */
+async function primaryPrecedent(currentDelibId: string) {
+  const collective = await prisma.deliberation.findFirst({
+    where: { chantMode: 'swarm', swarmConfig: { path: ['collective'], equals: true } },
+    select: { id: true, championId: true },
+  })
+  if (!collective?.championId) return null
+  const champ = await prisma.idea.findUnique({ where: { id: collective.championId }, select: { id: true, text: true, tier: true } })
+  if (!champ) return null
+  return {
+    collectiveId: collective.id,
+    championId: champ.id,
+    text: champ.text,
+    tier: champ.tier,
+    isLocal: collective.id === currentDelibId,
+    note: 'the PRIMARY meta precedent — the collective\'s highest standing; adopting it is optional, always',
+  }
+}
+
 export async function getTurn(delib: Deliberation, userId: string) {
   const cfg = swarmConfig(delib)
   const frame = await championFrame(delib)
+  const primary = await primaryPrecedent(delib.id)
   const stream = await discussionStream(delib.id, userId)
   const bridge = await bridgeUpdates(userId)
+  // Presence heartbeat AFTER the bridge reads its watermark (lastActiveAt = last
+  // turn): bridge delivers exactly the events since your previous turn, and
+  // quorum breathes with who is actually here. Silence releases presence.
+  await prisma.deliberationMember.updateMany({
+    where: { deliberationId: delib.id, userId },
+    data: { lastActiveAt: new Date() },
+  })
   // Legible absence (frame-purity verdict): a first election has earned no champion,
   // so frame is null. This flag says so honestly rather than leaving a silent null.
   const standingChampion = frame !== null
@@ -301,14 +340,14 @@ export async function getTurn(delib: Deliberation, userId: string) {
   const decision = scheduleNextCell(userId, snapshots.cells, cfg, evals)
 
   if (decision.kind === 'waiting') {
-    return { phase: 'waiting', frame: liveFrame, standingChampion: liveStanding, stream, bridge, reason: decision.reason, nextCheckSeconds: 60 }
+    return { phase: 'waiting', frame: liveFrame, standingChampion: liveStanding, primary, stream, bridge, reason: decision.reason, nextCheckSeconds: 60 }
   }
 
   if (decision.kind === 'resume') {
     const dock = await prisma.cellDock.findFirstOrThrow({
       where: { cellId: decision.cellId, userId, status: 'ACTIVE' },
     })
-    return turnPayload(delib, liveFrame, stream, bridge, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+    return turnPayload(delib, liveFrame, primary, stream, bridge, dock.id, decision.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
   }
 
   // Fresh dock: atomic under the cell row lock (the atomicJoinCell pattern).
@@ -359,7 +398,7 @@ export async function getTurn(delib: Deliberation, userId: string) {
 
   if (!dock) return { phase: 'waiting', frame, reason: 'cell filled while docking; ping again', nextCheckSeconds: 5 }
   await logEvent(delib.id, 'docked', { dockId: dock.id, userId, cellId: dock.cellId, lensIdeaId: dock.lensIdeaId })
-  return turnPayload(delib, liveFrame, stream, bridge, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
+  return turnPayload(delib, liveFrame, primary, stream, bridge, dock.id, dock.cellId, dock.lensIdeaId, dock.lensInCell, dock.expiresAt)
 }
 
 interface TierSnapshots {
@@ -405,6 +444,7 @@ async function loadOpenSnapshots(delibId: string): Promise<TierSnapshots> {
 async function turnPayload(
   delib: Deliberation,
   frame: unknown,
+  primary: Awaited<ReturnType<typeof primaryPrecedent>>,
   stream: Awaited<ReturnType<typeof discussionStream>>,
   bridge: Awaited<ReturnType<typeof bridgeUpdates>>,
   dockId: string,
@@ -454,6 +494,7 @@ async function turnPayload(
     phase: 'evaluate',
     frame,
     standingChampion: frame !== null,
+    primary,
     stream,
     bridge,
     dock: { dockId, cellId, tier: cell.tier, expiresAt, lensInCell },
@@ -555,23 +596,42 @@ async function maybeCompleteCell(delib: Deliberation, cellId: string, cfg: Swarm
   }))
   const result = tallyCell(candidates, ballots2)
 
-  const championSeated = !!delib.championId && result.candidateIds.includes(delib.championId)
-  await prisma.idea.update({
-    where: { id: result.winnerId },
-    data: { status: championSeated ? 'WINNER' : 'ADVANCING' },
+  // LEAGUE VERDICT — conservation: winner promotes, last relegates, middle holds.
+  // The cell dissolves into history; members return to their (new) tier pools.
+  const cellRow = await prisma.cell.findUniqueOrThrow({ where: { id: cellId }, select: { tier: true } })
+  const v = leagueVerdict(result.standings.map((st) => st.memoryId))
+  const ups: string[] = v.promoteId ? [v.promoteId] : []
+  const downs: string[] = v.relegateId ? [v.relegateId] : []
+  if (ups.length) {
+    await prisma.idea.updateMany({ where: { id: { in: ups } }, data: { status: 'PENDING', tier: cellRow.tier + 1 } })
+  }
+  if (v.holdIds.length) {
+    await prisma.idea.updateMany({ where: { id: { in: v.holdIds } }, data: { status: 'PENDING', tier: cellRow.tier } })
+  }
+  for (const id of downs) {
+    const newTier = cellRow.tier - 1
+    await prisma.idea.update({
+      where: { id },
+      // Below the floor -> DORMANT (BENCHED): out of cells, still lens-eligible,
+      // revived to tier 1 by a grounded outcome or a fresh reseed. The old is
+      // wiped away — that wipe is what frees capacity for percolation.
+      data: newTier < 1 ? { status: 'BENCHED', tier: 0 } : { status: 'PENDING', tier: newTier },
+    })
+  }
+  await logEvent(delib.id, 'cell_completed', {
+    cellId, standings: result.standings, winnerId: result.winnerId,
+    verdict: { promoted: ups, held: v.holdIds, relegated: downs },
   })
-  await prisma.idea.updateMany({
-    where: { id: { in: result.candidateIds.filter((id) => id !== result.winnerId) } },
-    data: { status: 'ELIMINATED' },
-  })
-  await logEvent(delib.id, 'cell_completed', { cellId, standings: result.standings, winnerId: result.winnerId })
 
-  // E4 — a cell that seated the champion crowns its winner: defend or unseat.
+  // Crown law — the winner of any cell at or above the champion's tier takes the
+  // crown (defend or unseat). A dethroned champion keeps its verdict like anyone.
+  const championSeated = !!delib.championId && result.candidateIds.includes(delib.championId)
   if (championSeated) {
     const defended = delib.championId === result.winnerId
     if (!defended) {
       await prisma.idea.update({ where: { id: delib.championId! }, data: { isChampion: false } })
     }
+    await prisma.idea.update({ where: { id: result.winnerId }, data: { status: 'WINNER', isChampion: true, tier: cellRow.tier + 1 } })
     await crownChampion(delib, result.winnerId, { defended })
     delib = await prisma.deliberation.findUniqueOrThrow({ where: { id: delib.id } })
   }
@@ -587,38 +647,64 @@ async function maybeCompleteCell(delib: Deliberation, cellId: string, cfg: Swarm
  */
 export async function runExpansion(delib: Deliberation) {
   const cfg = swarmConfig(delib)
+  const reviewBaseMs = ((cfg as unknown as { reviewBaseSec?: number }).reviewBaseSec ?? 60) * 1000
   const crowned = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Deliberation" WHERE id = ${delib.id} FOR UPDATE`
-    const [pending, advancing, openCells, champion] = await Promise.all([
+
+    // Lazy migration of bracket-era statuses into league standing:
+    // climbers become pool at their tier; the eliminated are wiped to dormancy.
+    await tx.idea.updateMany({
+      where: { deliberationId: delib.id, status: { in: ['ADVANCING', 'SUBMITTED'] } },
+      data: { status: 'PENDING' },
+    })
+    await tx.idea.updateMany({
+      where: { deliberationId: delib.id, status: 'ELIMINATED' },
+      data: { status: 'BENCHED', tier: 0 },
+    })
+    await tx.idea.updateMany({
+      where: { deliberationId: delib.id, status: 'PENDING', tier: { lt: 1 } },
+      data: { tier: 1 },
+    })
+
+    const [pool, openCells, lastVerdicts] = await Promise.all([
       tx.idea.findMany({
-        where: { deliberationId: delib.id, status: { in: ['PENDING', 'SUBMITTED'] } },
-        orderBy: { createdAt: 'asc' },
-        select: { id: true },
-      }),
-      tx.idea.findMany({
-        where: { deliberationId: delib.id, status: 'ADVANCING' },
+        where: { deliberationId: delib.id, status: 'PENDING' },
         orderBy: { createdAt: 'asc' },
         select: { id: true, tier: true },
       }),
-      tx.cell.count({ where: { deliberationId: delib.id, completedAt: null } }),
-      delib.championId
-        ? tx.idea.findUnique({ where: { id: delib.championId }, select: { tier: true } })
-        : Promise.resolve(null),
+      tx.cell.findMany({ where: { deliberationId: delib.id, completedAt: null }, select: { tier: true } }),
+      tx.cell.groupBy({
+        by: ['tier'],
+        where: { deliberationId: delib.id, completedAt: { not: null } },
+        _max: { completedAt: true },
+      }),
     ])
     const championInOpenCell = delib.championId
-      ? (await tx.cellIdea.count({
-          where: { ideaId: delib.championId, cell: { completedAt: null } },
-        })) > 0
+      ? (await tx.cellIdea.count({ where: { ideaId: delib.championId, cell: { completedAt: null } } })) > 0
       : false
-    const plan = planExpansion({
-      pendingIds: pending.map((x) => x.id),
-      advancing,
-      openCells,
+    const championTier = delib.championId
+      ? (await tx.idea.findUnique({ where: { id: delib.championId }, select: { tier: true } }))?.tier ?? 0
+      : 0
+
+    const now = Date.now()
+    const tiersInPlay = [...new Set([...pool.map((e) => e.tier), championTier].filter((t) => t >= 1))]
+    const clocks: TierClock[] = tiersInPlay.map((tier) => {
+      const last = lastVerdicts.find((lv) => lv.tier === tier)?._max.completedAt
+      return { tier, msSinceLastVerdict: last ? now - last.getTime() : Infinity }
+    })
+
+    const plan = planLeague({
+      pool: pool as LeagueElement[],
+      openCellTiers: openCells.map((c) => c.tier),
+      clocks,
       championId: delib.championId,
-      championTier: champion?.tier ?? 0,
+      championTier,
       championInOpenCell,
       cellSize: cfg.cellSize,
+      reviewBaseMs,
+      rand: Math.random,
     })
+
     let maxTier = 0
     for (const c of plan.newCells) {
       const cell = await tx.cell.create({
@@ -632,10 +718,10 @@ export async function runExpansion(delib: Deliberation) {
       })
       await tx.idea.updateMany({
         where: { id: { in: c.candidateIds.filter((id) => id !== delib.championId) } },
-        data: { status: 'IN_VOTING', tier: c.tier },
+        data: { status: 'IN_VOTING' },
       })
       if (c.includesChampion && delib.championId) {
-        await tx.idea.update({ where: { id: delib.championId }, data: { status: 'DEFENDING', tier: c.tier } })
+        await tx.idea.update({ where: { id: delib.championId }, data: { status: 'DEFENDING' } })
       }
       await tx.swarmEvent.create({
         data: {
@@ -823,10 +909,29 @@ export async function getState(delib: Deliberation) {
     }),
   ])
   const evals = memberCount
-  const meta = (delib.swarmConfig ?? {}) as { postedFor?: string; goalChant?: boolean; spawnOnChampion?: boolean; spawnedChildId?: string; parentGoalId?: string }
+  const meta = (delib.swarmConfig ?? {}) as { postedFor?: string; goalChant?: boolean; spawnOnChampion?: boolean; spawnedChildId?: string; parentGoalId?: string; collective?: boolean }
+  // The league, seen whole: every element with its standing (dormant included).
+  const elements = (
+    await prisma.idea.findMany({
+      where: { deliberationId: delib.id },
+      orderBy: [{ tier: 'desc' }, { createdAt: 'asc' }],
+      include: { memoryMeta: true },
+      take: 500,
+    })
+  ).map((i) => ({
+    id: i.id,
+    kind: (i.memoryMeta?.kind as string) ?? 'lesson',
+    text: i.text,
+    tier: i.tier,
+    status: i.status,
+    isChampion: i.isChampion,
+    outcomeScore: i.memoryMeta?.outcomeScore ?? null,
+  }))
   return {
     id: delib.id,
     question: delib.question,
+    isCollective: !!meta.collective,
+    elements,
     postedFor: meta.postedFor ?? null,
     isGoalChant: !!(meta.goalChant || meta.spawnOnChampion),
     spawnedChildId: meta.spawnedChildId ?? null,

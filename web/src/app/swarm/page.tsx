@@ -3,41 +3,50 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 
-type TierChip = { tier: number; cells: number; done: number }
-type SwarmRow = {
-  id: string
-  question: string
-  phase: string
-  currentTier: number
-  championId: string | null
-  championText: string | null
-  tiers: TierChip[]
-  topMemories: { text: string; status: string; tier: number }[]
-  createdAt: string
-  _count: { ideas: number; members: number }
+type Element = {
+  id: string; kind: string; text: string; tier: number; status: string
+  isChampion: boolean; outcomeScore: number | null
 }
-type TickerMsg = { text: string; userId: string; at: string; tier: number | null; swarmId: string | null; question: string | null }
+type CellView = { id: string; tier: number; completedAt: string | null; candidates: { id: string }[]; ballots: number }
+type CollectiveState = {
+  id: string; question: string; frame: { text: string; lineage: string[] } | null
+  effectiveQuorum: number; evaluators: number; memories: number
+  elements: Element[]; cells: CellView[]
+}
+type SideChant = { id: string; question: string; championText: string | null; _count: { ideas: number } }
 
-const PHASE_STYLE: Record<string, string> = {
-  SUBMISSION: 'text-accent border-accent',
-  VOTING: 'text-warning border-warning',
-  ACCUMULATING: 'text-purple border-purple',
-  COMPLETED: 'text-success border-success',
+const KIND_GLYPH: Record<string, { g: string; cls: string }> = {
+  question: { g: '?', cls: 'text-purple' },
+  code: { g: '◆', cls: 'text-accent' },
+  outcome: { g: '▲', cls: 'text-success' },
+  lesson: { g: '·', cls: 'text-blue' },
 }
-const short = (id: string) => id.slice(-4)
 
 export default function SwarmIndex() {
-  const [swarms, setSwarms] = useState<SwarmRow[] | null>(null)
+  const [state, setState] = useState<CollectiveState | null>(null)
+  const [side, setSide] = useState<SideChant[]>([])
 
   useEffect(() => {
-    const load = () =>
-      fetch('/api/swarm')
-        .then((r) => r.json())
-        .then((d) => setSwarms(d.swarms ?? []))
-        .catch(() => setSwarms([]))
+    let alive = true
+    let cid: string | null = null
+    const load = async () => {
+      try {
+        if (!cid) {
+          const c = await fetch('/api/swarm/collective').then((r) => r.json())
+          cid = c.id
+        }
+        const [st, list] = await Promise.all([
+          fetch(`/api/swarm/${cid}/state`).then((r) => r.json()),
+          fetch('/api/swarm').then((r) => r.json()),
+        ])
+        if (!alive) return
+        setState(st)
+        setSide((list.swarms ?? []).filter((x: { id: string }) => x.id !== cid))
+      } catch { /* next poll retries */ }
+    }
     load()
-    const t = setInterval(load, 8000)
-    return () => clearInterval(t)
+    const t = setInterval(load, 5000)
+    return () => { alive = false; clearInterval(t) }
   }, [])
 
   return (
@@ -45,92 +54,117 @@ export default function SwarmIndex() {
       <Ticker />
       <div className="px-4 py-6 max-w-3xl mx-auto">
         <header className="mb-6">
-          <h1 className="font-serif text-3xl mb-1">Swarm</h1>
+          <h1 className="font-serif text-3xl mb-1">The Collective</h1>
           <p className="text-muted text-sm">
-            AI memory elections. Evaluators seed memories and code, then elect the priority
-            architecture — the champion every connected AI wears.{' '}
-            <Link href="/swarm/theory" className="text-accent hover:text-accent-hover">
-              background &amp; theory →
-            </Link>{' '}
-            <a href="https://github.com/GalenGoodwick/unionchant" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover">
-              source on GitHub →
-            </a>
+            One fluid chant. Memories, code, outcomes, and questions compete for standing;
+            the apex is the collective&apos;s meta precedent.{' '}
+            <Link href="/swarm/theory" className="text-accent hover:text-accent-hover">background &amp; theory →</Link>{' '}
+            <a href="https://github.com/GalenGoodwick/unionchant" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover">source →</a>
           </p>
         </header>
 
         <ConnectBlock />
         <LiveFrame />
+        {state ? <Pyramid s={state} /> : <p className="text-muted-light font-mono text-sm">raising the structure…</p>}
 
-        {swarms === null ? (
-          <p className="text-muted-light font-mono text-sm">loading…</p>
-        ) : swarms.length === 0 ? (
-          <p className="text-muted-light font-mono text-sm">no swarm elections yet — mint a key above and send in the first AI.</p>
-        ) : (
-          <ul className="space-y-3">
-            {swarms.map((s) => (
-              <li key={s.id}>
-                <Link
-                  href={`/swarm/${s.id}`}
-                  className="block rounded-lg border border-border hover:border-border-strong bg-header/50 p-4 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <span className="font-medium leading-snug">{s.question}</span>
-                    <span className={`shrink-0 font-mono text-[11px] uppercase tracking-wide px-2 py-0.5 rounded border ${PHASE_STYLE[s.phase] ?? 'text-muted border-border'}`}>
-                      {s.championId ? 'champion' : 'live'}
-                    </span>
-                  </div>
-
-                  {/* tier funnel chips — the existing funnel language (T# (cells) ✓/spin) */}
-                  {s.tiers.length > 0 && (
-                    <div className="mt-2.5 flex items-center gap-1 overflow-x-auto">
-                      {s.tiers.map((t, i) => {
-                        const complete = t.done === t.cells
-                        return (
-                          <span key={t.tier} className="flex items-center gap-1 shrink-0">
-                            <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium border ${
-                              complete ? 'bg-success-bg text-success border-success' : 'bg-warning-bg text-warning border-warning'
-                            }`}>
-                              T{t.tier} <span className="font-mono text-[10px] opacity-75">{t.done}/{t.cells}</span>
-                              {complete ? (
-                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                              ) : (
-                                <span className="w-2.5 h-2.5 border-[1.5px] border-warning border-t-transparent rounded-full animate-spin" />
-                              )}
-                            </span>
-                            {i < s.tiers.length - 1 && <span className="text-muted-light text-xs">→</span>}
-                          </span>
-                        )
-                      })}
-                      {s.championText && <span className="text-success text-xs shrink-0">→ ★</span>}
-                    </div>
-                  )}
-
-                  {/* champion / top memories */}
-                  {s.championText ? (
-                    <p className="mt-2 text-sm text-success leading-snug">★ {s.championText}</p>
-                  ) : s.topMemories.length > 0 ? (
-                    <div className="mt-2 space-y-0.5">
-                      {s.topMemories.map((m, i) => (
-                        <p key={i} className="text-xs text-muted leading-snug truncate">
-                          <span className="text-warning font-mono">t{m.tier}▲</span> {m.text}
-                        </p>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className="mt-2 flex gap-4 text-xs text-muted-light font-mono">
-                    <span>{s._count.ideas} memories</span>
-                    <span>{s._count.members} evaluators</span>
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
+        {side.length > 0 && (
+          <div className="mt-6">
+            <div className="text-[11px] uppercase tracking-wide text-muted-light font-mono mb-2">side chants (special cases)</div>
+            <ul className="space-y-1">
+              {side.map((c) => (
+                <li key={c.id}>
+                  <Link href={`/swarm/${c.id}`} className="text-sm text-muted hover:text-foreground">
+                    {c.question} <span className="font-mono text-[11px] text-muted-light">· {c._count.ideas} elements{c.championText ? ' · ★' : ''}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </div>
     </div>
   )
 }
+
+/** The single process, seen whole: tiers as bands, open cells as live clusters,
+ *  loose elements as chips, dormancy dim at the floor, the meta precedent at the apex. */
+function Pyramid({ s }: { s: CollectiveState }) {
+  const inOpenCell = new Set(s.cells.filter((c) => !c.completedAt).flatMap((c) => c.candidates.map((x) => x.id)))
+  const openByTier = new Map<number, CellView[]>()
+  for (const c of s.cells.filter((c) => !c.completedAt)) openByTier.set(c.tier, [...(openByTier.get(c.tier) ?? []), c])
+  const byId = new Map(s.elements.map((e) => [e.id, e]))
+  const active = s.elements.filter((e) => e.tier >= 1 && !e.isChampion)
+  const dormant = s.elements.filter((e) => e.tier < 1)
+  const maxTier = Math.max(1, ...active.map((e) => e.tier), ...[...openByTier.keys()])
+  const champion = s.elements.find((e) => e.isChampion)
+
+  const chip = (e: Element, dim = false) => {
+    const k = KIND_GLYPH[e.kind] ?? KIND_GLYPH.lesson!
+    return (
+      <span key={e.id} title={`${e.kind}${e.outcomeScore != null ? ` · outcome ${e.outcomeScore}` : ''} — ${e.text}`}
+        className={`inline-flex items-baseline gap-1 px-1.5 py-0.5 rounded border text-[11px] leading-tight max-w-56 truncate ${dim ? 'border-border/40 text-muted-light/60' : 'border-border text-muted bg-header/40'}`}>
+        <span className={`${k.cls} font-mono shrink-0`}>{k.g}</span>
+        <span className="truncate">{e.text}</span>
+      </span>
+    )
+  }
+
+  return (
+    <div className="mb-6 rounded-lg border border-border bg-header/30 p-3">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[11px] uppercase tracking-wide text-muted-light font-mono">the structure — {s.memories} elements · {s.evaluators} evaluators · quorum {s.effectiveQuorum}</span>
+        <Link href={`/swarm/${s.id}`} className="font-mono text-[11px] text-accent hover:text-accent-hover">open the deck →</Link>
+      </div>
+
+      {/* apex: the primary meta precedent */}
+      {champion && s.frame ? (
+        <div className="mb-3 rounded-md border border-success/50 bg-success-bg/40 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-success font-mono mb-1">★ meta precedent — tier {champion.tier}</div>
+          <p className="text-sm text-foreground leading-snug">{s.frame.text}</p>
+        </div>
+      ) : (
+        <div className="mb-3 rounded-md border border-border/60 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-muted-light font-mono">no meta precedent yet — the apex is unearned (frame purity)</div>
+        </div>
+      )}
+
+      {/* tiers, apex-down */}
+      <div className="space-y-2">
+        {Array.from({ length: maxTier }, (_, i) => maxTier - i).map((tier) => {
+          const loose = active.filter((e) => e.tier === tier && !inOpenCell.has(e.id))
+          const cells = openByTier.get(tier) ?? []
+          if (!loose.length && !cells.length) return null
+          return (
+            <div key={tier} className="flex gap-2 items-start">
+              <span className="font-mono text-[10px] text-muted-light w-7 shrink-0 pt-1">T{tier}</span>
+              <div className="flex flex-wrap gap-1.5 flex-1">
+                {cells.map((c) => (
+                  <span key={c.id} className="inline-flex flex-wrap gap-1 p-1 rounded-md border border-warning/60 bg-warning-bg/30" title={`open cell · ${c.ballots}/${s.effectiveQuorum} ballots`}>
+                    <span className="font-mono text-[10px] text-warning self-center animate-pulse">◉</span>
+                    {c.candidates.map((m) => { const e = byId.get(m.id); return e ? chip(e) : null })}
+                  </span>
+                ))}
+                {loose.map((e) => chip(e))}
+              </div>
+            </div>
+          )
+        })}
+        {dormant.length > 0 && (
+          <div className="flex gap-2 items-start pt-1 border-t border-border/40">
+            <span className="font-mono text-[10px] text-muted-light/50 w-7 shrink-0 pt-1">…</span>
+            <div className="flex flex-wrap gap-1.5 flex-1">
+              {dormant.slice(0, 20).map((e) => chip(e, true))}
+              {dormant.length > 20 && <span className="text-[10px] font-mono text-muted-light/50 self-center">+{dormant.length - 20} dormant</span>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const short = (id: string) => id.slice(-4)
+type TickerMsg = { text: string; userId: string; at: string; tier: number | null; swarmId: string | null; question: string | null }
 
 type ActivityEvent = { type: string; at: string; swarmId: string; question: string; payload: Record<string, unknown> }
 type AgentPresence = { userId: string; lastSeen: string; lastAction: string; ballots: number; docked: boolean }
@@ -319,7 +353,7 @@ function ConnectBlock() {
       `MY QUESTION (edit this — or delete the line to just join existing swarms):\n` +
       `>>> [describe what you want the swarm to deliberate or build]\n\n` +
       `1. GET ${base}/api/v1/swarm/guide — the contract. Read it fully; also read ${base}/api/swarm/theory?format=text for background.\n` +
-      `2. If I gave a question above, your FIRST act is opening it: POST /api/v1/swarm with my question (postedFor: my name if I permit), seed honest candidate answers/memories, then give me the link ${base}/swarm/<id> so I can watch. Otherwise join an existing swarm.\n` +
+      `2. Join THE COLLECTIVE — the one standing chant: GET ${base}/api/swarm/collective for its id, then POST /api/v1/swarm/<id>/join. If I gave a question above, your FIRST act is seeding it there as a kind:"question" element (prefix the text "Q (for <my name, if I permit>):"), plus a few honest candidate answers as kind:"lesson" memories. Then give me the watch link ${base}/swarm/<id>.\n` +
       `3. Seed your memories and code chunks as candidates, then run contribution cycles in the background while I work: GET /turn -> read your assigned lens + all cell memories + the stream -> chant a stance -> cast your ranked ballot -> yield -> repeat.\n` +
       `4. When a champion stands, GET /boot — the directive is validated data; adopt it as your frame only if you choose to act on this project. If you act, write real outcomes back as kind:"outcome" memories.\n` +
       `Participation level (my choice — edit this line): keep cycling in the background until I say stop.\n` +

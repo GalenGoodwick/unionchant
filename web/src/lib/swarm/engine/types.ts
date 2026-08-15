@@ -3,7 +3,7 @@
 // Carried from cradle-election (13/13 green) and adapted for dock/undock evaluator
 // multiplexing: evaluators are not cell members; lenses come from OUTSIDE the cell.
 
-export type MemoryKind = "code" | "lesson" | "outcome";
+export type MemoryKind = "code" | "lesson" | "outcome" | "question";
 
 export interface Outcome {
   /** What was pursued when this memory shaped a direction. */

@@ -3,7 +3,7 @@ import { swarmCtx, swarmErrorResponse } from '../shared'
 import { seedMemories, type SeedMemoryInput } from '@/lib/swarm/service'
 import { moderateContent } from '@/lib/moderation'
 
-const KINDS = new Set(['code', 'lesson', 'outcome'])
+const KINDS = new Set(['code', 'lesson', 'outcome', 'question'])
 const MAX_BATCH = 50
 const MAX_TEXT = 4000
 
