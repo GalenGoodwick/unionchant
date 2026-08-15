@@ -68,7 +68,21 @@ export interface Verdict {
   holdIds: string[]
 }
 
-const MIN_CAST = 2 // a tier with 2-4 stale elements still deliberates (never stuck)
+const MIN_CAST = 2 // the floor casts small — new material sorts fast
+const LONG_STALE_MULT = 4 // drought escape: a tier waiting 4x its cooldown casts what it has
+
+/**
+ * CLASSIC BATCH STRUCTURE ABOVE THE FLOOR: tier 1 casts at MIN_CAST (churn),
+ * but higher tiers require a FULL cell — beating a tier must mean beating a
+ * real field of ~cellSize, as in classic Unity Chant. Exception: a tier whose
+ * pool has gone LONG_STALE_MULT x cooldown without a verdict casts small
+ * rather than freeze (liveness under drought, as the exception not the norm).
+ */
+function minCastFor(tier: number, msSinceLastVerdict: number, cellSize: number, reviewBaseMs: number): number {
+  if (tier <= 1) return MIN_CAST
+  const longStale = msSinceLastVerdict >= LONG_STALE_MULT * reviewCooldownMs(tier, reviewBaseMs)
+  return longStale ? MIN_CAST : cellSize
+}
 
 export function reviewCooldownMs(tier: number, reviewBaseMs: number): number {
   return reviewBaseMs * Math.pow(2, Math.max(0, tier - 1))
@@ -104,11 +118,13 @@ export function planLeague(input: LeagueInput): LeaguePlan {
 
   const tiers = [...byTier.keys()].sort((a, b) => a - b)
   for (const tier of tiers) {
-    const ready = (clock.get(tier) ?? Infinity) >= reviewCooldownMs(tier, reviewBaseMs)
+    const since = clock.get(tier) ?? Infinity
+    const ready = since >= reviewCooldownMs(tier, reviewBaseMs)
     if (!ready) continue
+    const minCast = minCastFor(tier, since, cellSize, reviewBaseMs)
     // Fresh mixture every recast — the anti-pocket law.
     const pool = shuffle(byTier.get(tier)!, input.rand)
-    while (pool.length >= cellSize || (pool.length >= MIN_CAST && pool.length < cellSize)) {
+    while (pool.length >= cellSize || (pool.length >= minCast && pool.length < cellSize)) {
       const members = pool.splice(0, Math.min(cellSize, pool.length)).map((e) => e.id)
       // The champion is seated in any cell at or above its tier: the crown is
       // always contestable by whatever the structure sends up.
@@ -119,7 +135,7 @@ export function planLeague(input: LeagueInput): LeaguePlan {
         candidateIds: seatChampion ? [championId!, ...members] : members,
         includesChampion: seatChampion,
       })
-      if (pool.length < MIN_CAST) break
+      if (pool.length < minCast) break
     }
   }
 

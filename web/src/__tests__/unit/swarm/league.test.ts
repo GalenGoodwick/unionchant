@@ -48,10 +48,28 @@ describe('recast — ephemeral cells, fresh mixtures', () => {
     expect(p.newCells.every((c) => c.tier === 1)).toBe(true)
   })
 
-  it('a stale pair still deliberates (never stuck below cellSize)', () => {
-    const p = planLeague(base({ pool: els(2, 3), clocks: [ready(3)] }))
+  it('T2+ waits for a FULL classic batch — a ready pair does not cast', () => {
+    // tier 3 cooldown = 4000ms; ready but not long-stale (< 4x)
+    const p = planLeague(base({ pool: els(2, 3), clocks: [cold(3, 5000)] }))
+    expect(p.newCells).toHaveLength(0)
+  })
+
+  it('T2+ casts a full cell of 5 the moment the batch exists', () => {
+    const p = planLeague(base({ pool: els(5, 2), clocks: [ready(2)] }))
+    expect(p.newCells).toHaveLength(1)
+    expect(p.newCells[0]!.candidateIds).toHaveLength(5)
+  })
+
+  it('drought escape: a LONG-stale higher tier casts what it has', () => {
+    // tier 3 cooldown 4000ms; 4x = 16000ms — waited 20000ms
+    const p = planLeague(base({ pool: els(2, 3), clocks: [cold(3, 20000)] }))
     expect(p.newCells).toHaveLength(1)
     expect(p.newCells[0]!.candidateIds).toHaveLength(2)
+  })
+
+  it('the floor (T1) still casts small — churn is its job', () => {
+    const p = planLeague(base({ pool: els(2, 1), clocks: [ready(1)] }))
+    expect(p.newCells).toHaveLength(1)
   })
 
   it('a lone element cannot form a cell', () => {
