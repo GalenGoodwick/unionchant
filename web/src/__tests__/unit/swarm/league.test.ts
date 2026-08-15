@@ -101,21 +101,33 @@ describe('champion seating — the crown is always contestable', () => {
   })
 })
 
-describe('crown rule — sole apex above a living structure', () => {
+describe('crown rule — sole apex above a living structure, immediately', () => {
   it('crowns a lone element standing strictly above the rest', () => {
     const p = planLeague(base({ pool: [{ id: 'apex', tier: 3 }, ...els(3, 1)], clocks: [cold(1, 0)] }))
     expect(p.crownId).toBe('apex')
   })
 
-  it('no crown while cells are open or planned', () => {
+  it('crowns EVEN WHILE lower tiers churn — the floor never blocks the throne', () => {
     const open = planLeague(base({ pool: [{ id: 'apex', tier: 3 }, ...els(3, 1)], openCellTiers: [1], clocks: [cold(1, 0)] }))
-    expect(open.crownId).toBeNull()
+    expect(open.crownId).toBe('apex')
+    // recasts planned at T1 in the same tick: crown still lands, cells still form
     const planned = planLeague(base({ pool: [{ id: 'apex', tier: 3 }, ...els(5, 1)], clocks: [ready(1)] }))
-    expect(planned.crownId).toBeNull()
+    expect(planned.newCells.length).toBeGreaterThan(0)
+    expect(planned.crownId).toBe('apex')
   })
 
-  it('no crown when the top tier is contested', () => {
+  it('no crown when an open cell reaches the apex height (contested from below)', () => {
+    const p = planLeague(base({ pool: [{ id: 'apex', tier: 3 }], openCellTiers: [3], clocks: [] }))
+    expect(p.crownId).toBeNull()
+  })
+
+  it('no crown when the top tier is contested in the pool', () => {
     const p = planLeague(base({ pool: [{ id: 'a', tier: 3 }, { id: 'b', tier: 3 }], clocks: [cold(3, 0)] }))
+    expect(p.crownId).toBeNull()
+  })
+
+  it('a lone element with NO structure beneath is not crowned (nothing was won)', () => {
+    const p = planLeague(base({ pool: [{ id: 'only', tier: 1 }], clocks: [] }))
     expect(p.crownId).toBeNull()
   })
 })

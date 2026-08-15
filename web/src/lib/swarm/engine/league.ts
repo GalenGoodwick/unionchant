@@ -123,15 +123,25 @@ export function planLeague(input: LeagueInput): LeaguePlan {
     }
   }
 
-  // Crown rule: with nothing open and nothing planned, a sole element standing
-  // strictly above every other pooled element is the apex — crown it.
-  if (!championId && newCells.length === 0 && input.openCellTiers.length === 0) {
-    const all = input.pool.filter((e) => e.tier >= 1)
-    if (all.length >= 1) {
-      const top = Math.max(...all.map((e) => e.tier))
-      const atTop = all.filter((e) => e.tier === top)
-      const below = all.filter((e) => e.tier < top)
-      if (atTop.length === 1 && below.length > 0) {
+  // Crown rule: the champion is the winner of the highest tier AS IT STANDS.
+  // A sole element strictly above everything else — every other pooled element,
+  // every open cell, every cell just planned — is crowned IMMEDIATELY. The floor
+  // churning below never blocks the throne; the constant process never goes
+  // silent, so a crown that waited for silence would never come.
+  if (!championId) {
+    const planned = new Set(newCells.flatMap((c) => c.candidateIds))
+    const free = input.pool.filter((e) => e.tier >= 1 && !planned.has(e.id))
+    if (free.length >= 1) {
+      const top = Math.max(...free.map((e) => e.tier))
+      const atTop = free.filter((e) => e.tier === top)
+      const busyMax = Math.max(
+        0,
+        ...input.openCellTiers,
+        ...newCells.map((c) => c.tier),
+        ...input.pool.filter((e) => e.tier >= 1 && planned.has(e.id)).map((e) => e.tier),
+      )
+      const structureHasOthers = input.pool.length + input.openCellTiers.length + newCells.length > 1
+      if (atTop.length === 1 && top > busyMax && structureHasOthers) {
         return { newCells, crownId: atTop[0]!.id }
       }
     }
