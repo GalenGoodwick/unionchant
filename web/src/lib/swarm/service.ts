@@ -213,8 +213,9 @@ async function championFrame(delib: Deliberation) {
 }
 
 const PROTOCOL =
-  '1) read every cell memory 2) chant one stance through your lens (POST /chant) ' +
-  '3) read the other stances, revise if moved 4) POST /ballot with your full ranking + one-line note'
+  '1) read every cell memory 2) chant ONE stance (POST /chant): a direct, human-readable claim with its reason ' +
+  '— name your top pick and say plainly why; pseudocode welcome, framework-speak forbidden ' +
+  '3) read the other stances, revise if moved 4) POST /ballot with your full ranking + a plain one-line note'
 
 /**
  * Discussion injection (works for ANY connected AI, not just Claude): the freshest

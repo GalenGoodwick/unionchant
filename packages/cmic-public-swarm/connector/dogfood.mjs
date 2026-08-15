@@ -57,10 +57,12 @@ function stubBrain(turn) {
     .map((c) => ({ c, key: w(c) + 0.25 * overlap(turn.lens.text, c.text) }))
     .sort((a, b) => b.key - a.key || a.c.id.localeCompare(b.c.id))
     .map((x) => x.c.id)
+  const top = turn.cell.find((c) => c.id === ranking[0])
+  const why = top && top.outcome ? `it has a recorded result (score ${top.outcome.score})` : 'it is the most concrete claim here'
   return {
-    stance: `Through my lens (${turn.lens.kind}: "${turn.lens.text.slice(0, 80)}...") the grounded memories lead.`,
+    stance: `Top pick: "${(top ? top.text : '').slice(0, 80)}" — ${why}.`,
     ranking,
-    note: 'stub: outcome weight + lens overlap',
+    note: why,
   }
 }
 
@@ -75,7 +77,7 @@ async function claudeBrain(turn) {
     `LENS (${turn.lens.kind}): ${turn.lens.text}\n\n` +
     `CANDIDATES:\n${turn.cell.map((c) => `- ${c.id} [${c.kind}${c.outcome ? ` outcome:${c.outcome.score}` : ''}]: ${c.text}`).join('\n')}\n\n` +
     `${discussion}Weigh evidence of what actually worked in action over what merely sounds good.\n` +
-    `Reply ONLY with JSON: {"stance": "<2 sentences through your lens>", "ranking": ["<id best first>", ...], "note": "<one sentence why>"}`
+    `Speak PLAINLY — your stance is read by humans: state your top pick and the concrete reason; no jargon, no talk about lenses or frameworks. Reply ONLY with JSON: {"stance": "<2 sentences through your lens>", "ranking": ["<id best first>", ...], "note": "<one sentence why>"}`
   const { stdout } = await run('claude', ['-p', prompt, '--output-format', 'text', '--model', 'sonnet'], {
     maxBuffer: 1 << 20,
     timeout: 120_000,

@@ -52,13 +52,15 @@ function stubBrain(t) {
   const w = (m) => (m.outcome ? 0.5 + Math.max(0, Math.min(1, m.outcome.score)) : 1)
   const ranking = [...t.cell].map((c) => ({ c, k: w(c) + 0.25 * overlap(t.lens.text, c.text) }))
     .sort((a, b) => b.k - a.k || a.c.id.localeCompare(b.c.id)).map((x) => x.c.id)
-  return { stance: `Through my ${t.lens.kind} lens, the grounded memories lead.`, ranking, note: 'stub: outcome + lens overlap' }
+  const top = t.cell.find((c) => c.id === ranking[0])
+  const why = top && top.outcome ? `it has a recorded result (score ${top.outcome.score})` : 'it is the most concrete claim here'
+  return { stance: `Top pick: "${(top ? top.text : '').slice(0, 80)}" — ${why}.`, ranking, note: why }
 }
 async function claudeBrain(t) {
   const prompt = `You are one evaluator in a swarm election. Lens (${t.lens.kind}): ${t.lens.text}\n` +
     `Candidates:\n${t.cell.map((c) => `- ${c.id} [${c.kind}${c.outcome ? ` ${c.outcome.score}` : ''}]: ${c.text}`).join('\n')}\n` +
     `Rank best-first through your lens; weigh proven outcomes over rhetoric. ` +
-    `JSON only: {"stance":"...","ranking":["id",...],"note":"..."}`
+    `Speak PLAINLY (humans read this): top pick + concrete reason, no jargon about lenses/frameworks. JSON only: {"stance":"...","ranking":["id",...],"note":"..."}`
   try {
     const { stdout } = await run('claude', ['-p', prompt, '--output-format', 'text', '--model', 'sonnet'], { maxBuffer: 1 << 20, timeout: 120000 })
     const m = stdout.match(/\{[\s\S]*\}/); if (!m) return stubBrain(t)
