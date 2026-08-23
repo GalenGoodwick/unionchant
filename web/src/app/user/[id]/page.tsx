@@ -1,12 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
-import { useSession } from 'next-auth/react'
+import { useParams, useRouter } from 'next/navigation'
+import { useSession, signOut } from 'next-auth/react'
 import Link from 'next/link'
-import { FullPageSpinner } from '@/components/Spinner'
 import FollowButton from '@/components/FollowButton'
-import FrameLayout from '@/components/FrameLayout'
 
 interface UserProfile {
   id: string
@@ -28,12 +26,6 @@ interface UserProfile {
     cellsAssigned: number
     cellsVotedIn: number
     participationRate: number | null
-    totalPredictions: number    // always 0 (field removed from User model)
-    correctPredictions: number  // always 0
-    accuracy: number | null     // always null
-    championPicks: number       // always 0
-    currentStreak: number       // always 0
-    bestStreak: number          // always 0
     ideasWon: number
     winRate: number | null
     highestTierReached: number
@@ -59,39 +51,52 @@ interface UserProfile {
   }>
 }
 
-function StatCard({ label, value, icon }: { label: string; value: number | string; icon: string }) {
-  return (
-    <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
-      <div className="flex items-center gap-1.5 text-muted text-xs mb-0.5">
-        <span>{icon}</span>
-        <span>{label}</span>
-      </div>
-      <div className="text-lg font-bold text-foreground font-mono">{value}</div>
-    </div>
-  )
-}
-
 function timeAgo(date: string): string {
-  const now = new Date()
-  const then = new Date(date)
-  const seconds = Math.floor((now.getTime() - then.getTime()) / 1000)
-
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
   if (seconds < 60) return 'just now'
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
   if (seconds < 2592000) return `${Math.floor(seconds / 86400)}d ago`
-  return then.toLocaleDateString()
+  return new Date(date).toLocaleDateString()
 }
 
-function formatDate(date: string): string {
-  return new Date(date).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-  })
+const STATUS_PILL: Record<string, string> = {
+  WINNER: 'border-[#4ade80]/40 text-[#4ade80] bg-[#4ade80]/10',
+  ADVANCING: 'border-accent/40 text-accent bg-accent/10',
+  IN_VOTING: 'border-[#fbbf24]/40 text-[#fbbf24] bg-[#fbbf24]/10',
+  ELIMINATED: 'border-border text-subtle bg-surface/50',
+  VOTING: 'border-[#fbbf24]/40 text-[#fbbf24] bg-[#fbbf24]/10',
+  ACCUMULATING: 'border-[#a78bfa]/40 text-[#a78bfa] bg-[#a78bfa]/10',
+  COMPLETED: 'border-[#4ade80]/40 text-[#4ade80] bg-[#4ade80]/10',
+}
+
+function Pill({ label }: { label: string }) {
+  const cls = STATUS_PILL[label] || 'border-border text-muted bg-surface/50'
+  return (
+    <span className={`shrink-0 px-1.5 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wider ${cls}`}>
+      {label.replace('_', ' ')}
+    </span>
+  )
+}
+
+function Stat({ label, value, accent }: { label: string; value: number | string; accent?: boolean }) {
+  return (
+    <div className="flex flex-col items-start min-w-0">
+      <span className={`text-lg font-bold font-mono leading-tight ${accent ? 'text-accent' : 'text-foreground'}`}>{value}</span>
+      <span className="text-[10px] font-mono uppercase tracking-wider text-muted truncate">{label}</span>
+    </div>
+  )
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-[11px] font-mono uppercase tracking-wider text-muted px-1">{children}</h2>
+  )
 }
 
 export default function UserProfilePage() {
   const params = useParams()
+  const router = useRouter()
   const { data: session } = useSession()
   const [profile, setProfile] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -100,315 +105,205 @@ export default function UserProfilePage() {
     id: string; title: string; views: number; pinned: boolean; createdAt: string
     deliberation: { id: string; question: string } | null
   }>>([])
-  const [podiumsLoading, setPodiumsLoading] = useState(true)
 
   const userId = params.id as string
   const isOwnProfile = session?.user?.id === userId
 
   useEffect(() => {
-    async function fetchProfile() {
-      try {
-        const response = await fetch(`/api/user/${userId}`)
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error('User not found')
-          }
-          throw new Error('Failed to load profile')
-        }
-        const data = await response.json()
-        setProfile(data.user)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Something went wrong')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    if (userId) {
-      fetchProfile()
-      fetch(`/api/podiums?authorId=${userId}&limit=10`)
-        .then(res => res.ok ? res.json() : { items: [] })
-        .then(data => setPodiums(data.items || []))
-        .catch(() => {})
-        .finally(() => setPodiumsLoading(false))
-    }
+    if (!userId) return
+    fetch(`/api/user/${userId}`)
+      .then(res => {
+        if (!res.ok) throw new Error(res.status === 404 ? 'User not found' : 'Failed to load profile')
+        return res.json()
+      })
+      .then(data => setProfile(data.user))
+      .catch(err => setError(err instanceof Error ? err.message : 'Something went wrong'))
+      .finally(() => setLoading(false))
+    fetch(`/api/podiums?authorId=${userId}&limit=10`)
+      .then(res => res.ok ? res.json() : { items: [] })
+      .then(data => setPodiums(data.items || []))
+      .catch(() => {})
   }, [userId])
 
-  if (loading) {
-    return (
-      <FrameLayout active="chants" showBack>
-        <FullPageSpinner label="Loading profile" />
-      </FrameLayout>
-    )
-  }
-
-  if (error || !profile) {
-    return (
-      <FrameLayout active="chants" showBack>
-        <div className="text-center py-12">
-          <p className="text-error text-xs mb-4">{error || 'User not found'}</p>
-          <Link href="/chants" className="text-accent hover:underline text-xs">
-            Back to feed
-          </Link>
-        </div>
-      </FrameLayout>
-    )
-  }
-
   return (
-    <FrameLayout active="chants" showBack>
-      <div className="py-4 space-y-4">
-        {/* Profile Header */}
-        <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            {profile.image ? (
-              <img
-                src={profile.image}
-                alt=""
-                className="w-14 h-14 rounded-full"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-full bg-accent/20 flex items-center justify-center">
-                <span className="text-xl text-accent font-semibold">
-                  {profile.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-            )}
+    <div className="min-h-screen bg-background text-foreground">
+      {/* Top bar — modern chrome */}
+      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-border">
+        <div className="max-w-2xl mx-auto px-3 h-12 flex items-center gap-3">
+          <button
+            onClick={() => (window.history.length > 1 ? router.back() : router.push('/chants'))}
+            className="shrink-0 w-7 h-7 rounded-full border border-border flex items-center justify-center text-muted hover:text-foreground hover:border-foreground/30 transition-colors"
+            title="Back"
+          >
+            <span className="text-sm leading-none">&larr;</span>
+          </button>
+          <span className="text-xs font-mono uppercase tracking-wider text-muted truncate">
+            {profile ? profile.name : 'Profile'}
+          </span>
+        </div>
+      </div>
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <h1 className="text-sm font-bold text-foreground truncate">{profile.name}</h1>
-                <div className="flex items-center gap-2">
-                  {!isOwnProfile && (
-                    <FollowButton userId={userId} initialFollowing={profile.isFollowing} />
-                  )}
-                  {isOwnProfile && (
-                    <Link
-                      href="/settings"
-                      className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors"
-                    >
-                      Settings
-                    </Link>
+      <div className="max-w-2xl mx-auto px-3 py-4 space-y-5">
+        {loading ? (
+          <div className="py-16 text-center text-muted text-sm font-mono animate-pulse">Loading...</div>
+        ) : error || !profile ? (
+          <div className="py-16 text-center">
+            <p className="text-error text-xs mb-4 font-mono">{error || 'User not found'}</p>
+            <Link href="/chants" className="text-accent hover:underline text-xs font-mono">Back to feed</Link>
+          </div>
+        ) : (
+          <>
+            {/* Identity */}
+            <div className="flex items-start gap-4">
+              {profile.image ? (
+                <img src={profile.image} alt="" className="w-16 h-16 rounded-full border-2 border-accent/40" />
+              ) : (
+                <div className="w-16 h-16 rounded-full bg-accent/15 border-2 border-accent/40 flex items-center justify-center">
+                  <span className="text-2xl text-accent font-bold">{profile.name.charAt(0).toUpperCase()}</span>
+                </div>
+              )}
+              <div className="flex-1 min-w-0 pt-0.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h1 className="text-base font-bold text-foreground truncate">{profile.name}</h1>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!isOwnProfile && (
+                      <FollowButton userId={userId} initialFollowing={profile.isFollowing} />
+                    )}
+                    {isOwnProfile && (
+                      <>
+                        <Link href="/profile/manage" className="px-2.5 py-1 rounded-full border border-border text-xs font-mono text-muted hover:text-foreground hover:border-foreground/30 transition-colors">Manage</Link>
+                        <Link href="/settings" className="px-2.5 py-1 rounded-full border border-border text-xs font-mono text-muted hover:text-foreground hover:border-foreground/30 transition-colors">Settings</Link>
+                        <button onClick={() => signOut({ callbackUrl: '/' })} className="px-2.5 py-1 rounded-full border border-error/30 text-xs font-mono text-error hover:bg-error/10 transition-colors">Sign out</button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {profile.bio && <p className="text-xs text-muted mt-1 leading-relaxed">{profile.bio}</p>}
+                <div className="flex items-center gap-3 mt-1.5 text-xs font-mono">
+                  <span><strong className="text-foreground">{profile.followersCount}</strong> <span className="text-muted">followers</span></span>
+                  <span><strong className="text-foreground">{profile.followingCount}</strong> <span className="text-muted">following</span></span>
+                  <span className="text-subtle">joined {new Date(profile.joinedAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Signal strip */}
+            <div className="bg-surface/50 backdrop-blur-sm border border-border rounded-xl px-4 py-3 grid grid-cols-4 gap-3">
+              <Stat label="Vote pts" value={profile.totalXP || 0} accent />
+              <Stat label="Ideas" value={profile.stats.ideas} />
+              <Stat label="Wins" value={profile.stats.ideasWon} />
+              <Stat label="Top tier" value={profile.stats.highestTierReached || '-'} />
+            </div>
+
+            {/* Participation */}
+            <div className="space-y-2">
+              <SectionLabel>Participation</SectionLabel>
+              <div className="bg-surface/50 backdrop-blur-sm border border-border rounded-xl px-4 py-3 grid grid-cols-4 gap-3">
+                <Stat label="Created" value={profile.stats.deliberationsCreated} />
+                <Stat label="Joined" value={profile.stats.deliberationsJoined} />
+                <Stat label="Comments" value={profile.stats.comments} />
+                <Stat label="Attend" value={profile.stats.participationRate !== null ? `${profile.stats.participationRate}%` : '-'} />
+              </div>
+            </div>
+
+            {/* Win record */}
+            {profile.stats.ideasWon > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Win record</SectionLabel>
+                <div className="bg-surface/50 backdrop-blur-sm border border-border rounded-xl px-4 py-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <Stat label="Win rate" value={profile.stats.winRate !== null ? `${profile.stats.winRate}%` : '-'} accent />
+                    <Stat label="Advanced" value={profile.stats.ideasAdvanced} />
+                    <Stat label="Upvotes" value={profile.stats.totalUpvotesReceived} />
+                  </div>
+                  {profile.stats.tierBreakdown.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap mt-3 pt-3 border-t border-border/50">
+                      {profile.stats.tierBreakdown.map(t => (
+                        <span key={t.tier} className="px-2 py-0.5 rounded-full border border-accent/30 bg-accent/5 text-[10px] font-mono text-accent">
+                          T{t.tier} &times;{t.count}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
+            )}
 
-              {profile.bio && (
-                <p className="text-muted text-xs mt-1">{profile.bio}</p>
-              )}
-
-              <div className="flex items-center gap-3 mt-1 text-xs">
-                <span className="text-foreground"><strong>{profile.followersCount}</strong> <span className="text-muted">followers</span></span>
-                <span className="text-foreground"><strong>{profile.followingCount}</strong> <span className="text-muted">following</span></span>
-              </div>
-
-              <p className="text-xs text-subtle mt-0.5">
-                Joined {formatDate(profile.joinedAt)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <h2 className="text-sm font-semibold text-foreground">Activity</h2>
-        <div className="grid grid-cols-2 gap-2">
-          <StatCard label="Vote Points" value={profile.totalXP || 0} icon="VP" />
-          <StatCard label="Ideas" value={profile.stats.ideas} icon="💡" />
-          <StatCard label="Comments" value={profile.stats.comments} icon="💬" />
-          <StatCard label="Created" value={profile.stats.deliberationsCreated} icon="📝" />
-          <StatCard label="Joined" value={profile.stats.deliberationsJoined} icon="👥" />
-          <StatCard
-            label="Attendance"
-            value={profile.stats.participationRate !== null ? `${profile.stats.participationRate}%` : '-'}
-            icon="📋"
-          />
-          <StatCard
-            label="Accuracy"
-            value={profile.stats.accuracy !== null ? `${profile.stats.accuracy}%` : '-'}
-            icon="🎯"
-          />
-        </div>
-
-        {/* Win Record */}
-        {profile.stats.ideasWon > 0 && (
-          <>
-            <h2 className="text-sm font-semibold text-foreground">Win Record</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <StatCard label="Ideas Won" value={profile.stats.ideasWon} icon="🏆" />
-              <StatCard label="Win Rate" value={profile.stats.winRate !== null ? `${profile.stats.winRate}%` : '-'} icon="📊" />
-              <StatCard label="Highest Tier" value={profile.stats.highestTierReached || '-'} icon="⬆️" />
-              <StatCard label="Advanced" value={profile.stats.ideasAdvanced} icon="🚀" />
-            </div>
-            {profile.stats.tierBreakdown.length > 0 && (
-              <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3">
-                <div className="text-xs text-muted mb-1.5">Tier breakdown</div>
-                <div className="flex gap-1.5 flex-wrap">
-                  {profile.stats.tierBreakdown.map(t => (
-                    <span key={t.tier} className="bg-surface border border-border rounded px-1.5 py-0.5 text-xs font-mono">
-                      T{t.tier}: {t.count}
-                    </span>
+            {/* Podiums */}
+            {podiums.length > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Podium posts</SectionLabel>
+                <div className="bg-surface/50 backdrop-blur-sm border border-border rounded-xl divide-y divide-border/50 overflow-hidden">
+                  {podiums.map(p => (
+                    <Link key={p.id} href={`/podium/${p.id}`} className="block px-4 py-3 hover:bg-surface transition-colors">
+                      <div className="flex items-center gap-2">
+                        {p.pinned && (
+                          <span className="shrink-0 px-1.5 py-0.5 rounded-full border border-[#fbbf24]/40 text-[#fbbf24] bg-[#fbbf24]/10 text-[10px] font-mono uppercase tracking-wider">Pinned</span>
+                        )}
+                        <p className="text-foreground text-xs font-medium truncate">{p.title}</p>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-[11px] font-mono text-muted">
+                        <span>{p.views} views</span>
+                        {p.deliberation && <span className="truncate">re: {p.deliberation.question}</span>}
+                        <span className="shrink-0 text-subtle">{timeAgo(p.createdAt)}</span>
+                      </div>
+                    </Link>
                   ))}
                 </div>
               </div>
             )}
-          </>
-        )}
 
-        {/* Comment & Up-Pollinate Stats */}
-        {profile.stats.comments > 0 && (
-          <>
-            <h2 className="text-sm font-semibold text-foreground">Comments</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <StatCard label="Comments" value={profile.stats.comments} icon="💬" />
-              <StatCard label="Upvotes" value={profile.stats.totalUpvotesReceived} icon="👍" />
-              <StatCard label="Up-Pollinate" value={`Tier ${profile.stats.highestUpPollinateTier}`} icon="🌸" />
-            </div>
-          </>
-        )}
-
-        {/* Prediction Stats */}
-        {profile.stats.totalPredictions > 0 && (
-          <>
-            <h2 className="text-sm font-semibold text-foreground">Predictions</h2>
-            <div className="grid grid-cols-2 gap-2">
-              <StatCard
-                label="Total"
-                value={profile.stats.totalPredictions}
-                icon="🔮"
-              />
-              <StatCard
-                label="Correct"
-                value={profile.stats.correctPredictions}
-                icon="✅"
-              />
-              <StatCard
-                label="Priorities"
-                value={profile.stats.championPicks}
-                icon="👑"
-              />
-              <StatCard
-                label="Best Streak"
-                value={profile.stats.bestStreak}
-                icon="🔥"
-              />
-            </div>
-          </>
-        )}
-
-        {/* Podiums */}
-        {!podiumsLoading && podiums.length > 0 && (
-          <>
-            <h2 className="text-sm font-semibold text-foreground">Podium Posts</h2>
-            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
-              {podiums.map(p => (
-                <Link
-                  key={p.id}
-                  href={`/podium/${p.id}`}
-                  className="block p-3 hover:bg-surface transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    {p.pinned && (
-                      <span className="text-[10px] bg-warning-bg text-warning px-1 py-0.5 rounded border border-warning shrink-0">Pinned</span>
-                    )}
-                    <p className="text-foreground text-xs font-medium truncate">{p.title}</p>
-                  </div>
-                  <div className="flex items-center gap-2 mt-1 text-xs text-muted">
-                    <span>{p.views} views</span>
-                    {p.deliberation && (
-                      <span className="truncate">Re: {p.deliberation.question}</span>
-                    )}
-                    <span className="shrink-0">{timeAgo(p.createdAt)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Recent Ideas */}
-        {profile.recentIdeas.length > 0 && (
-          <>
-            <h2 className="text-sm font-semibold text-foreground">Recent Ideas</h2>
-            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
-              {profile.recentIdeas.map((idea) => (
-                <Link
-                  key={idea.id}
-                  href={`/chants/${idea.deliberationId}`}
-                  className="block p-3 hover:bg-surface transition-colors"
-                >
-                  <p className="text-foreground text-xs">{idea.text}</p>
-                  <div className="flex items-center gap-2 mt-1.5 text-xs">
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        idea.status === 'WINNER'
-                          ? 'bg-success-bg text-success'
-                          : idea.status === 'ADVANCING'
-                          ? 'bg-accent-light text-accent'
-                          : idea.status === 'IN_VOTING'
-                          ? 'bg-warning-bg text-warning'
-                          : idea.status === 'ELIMINATED'
-                          ? 'bg-error-bg text-error'
-                          : 'bg-surface text-muted'
-                      }`}
-                    >
-                      {idea.status}
-                    </span>
-                    <span className="text-muted truncate">{idea.question}</span>
-                    <span className="text-subtle">{timeAgo(idea.createdAt)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Recent Activity */}
-        {profile.recentActivity.length > 0 && (
-          <>
-            <h2 className="text-sm font-semibold text-foreground">Recent Activity</h2>
-            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
-              {profile.recentActivity.map((activity) => (
-                <Link
-                  key={activity.deliberationId}
-                  href={`/chants/${activity.deliberationId}`}
-                  className="block p-3 hover:bg-surface transition-colors"
-                >
-                  <p className="text-foreground text-xs">{activity.question}</p>
-                  <div className="flex items-center gap-2 mt-1.5 text-xs">
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                        activity.phase === 'VOTING'
-                          ? 'bg-warning-bg text-warning'
-                          : activity.phase === 'ACCUMULATING'
-                          ? 'bg-purple-bg text-purple'
-                          : activity.phase === 'COMPLETED'
-                          ? 'bg-success-bg text-success'
-                          : 'bg-surface text-muted'
-                      }`}
-                    >
-                      {activity.phase}
-                    </span>
-                    <span className="text-subtle">Active {timeAgo(activity.lastActive)}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Empty State */}
-        {profile.recentIdeas.length === 0 && profile.recentActivity.length === 0 && (
-          <div className="text-center py-6 text-muted">
-            <p className="text-xs">No activity yet</p>
-            {isOwnProfile && (
-              <Link href="/chants" className="text-accent hover:underline mt-2 inline-block text-xs">
-                Join a chant to get started
-              </Link>
+            {/* Recent ideas */}
+            {profile.recentIdeas.length > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Recent ideas</SectionLabel>
+                <div className="bg-surface/50 backdrop-blur-sm border border-border rounded-xl divide-y divide-border/50 overflow-hidden">
+                  {profile.recentIdeas.map(idea => (
+                    <Link key={idea.id} href={`/chants/${idea.deliberationId}`} className="block px-4 py-3 hover:bg-surface transition-colors">
+                      <p className="text-foreground text-xs leading-relaxed">{idea.text}</p>
+                      <div className="flex items-center gap-2 mt-1.5 text-[11px]">
+                        <Pill label={idea.status} />
+                        <span className="text-muted font-mono truncate">{idea.question}</span>
+                        <span className="text-subtle font-mono shrink-0">{timeAgo(idea.createdAt)}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
             )}
-          </div>
+
+            {/* Recent activity */}
+            {profile.recentActivity.length > 0 && (
+              <div className="space-y-2">
+                <SectionLabel>Recent activity</SectionLabel>
+                <div className="bg-surface/50 backdrop-blur-sm border border-border rounded-xl divide-y divide-border/50 overflow-hidden">
+                  {profile.recentActivity.map(activity => (
+                    <Link key={activity.deliberationId} href={`/chants/${activity.deliberationId}`} className="block px-4 py-3 hover:bg-surface transition-colors">
+                      <p className="text-foreground text-xs leading-relaxed">{activity.question}</p>
+                      <div className="flex items-center gap-2 mt-1.5 text-[11px]">
+                        <Pill label={activity.phase} />
+                        <span className="text-subtle font-mono">active {timeAgo(activity.lastActive)}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {profile.recentIdeas.length === 0 && profile.recentActivity.length === 0 && (
+              <div className="text-center py-10">
+                <p className="text-xs text-muted font-mono">No activity yet</p>
+                {isOwnProfile && (
+                  <Link href="/chants" className="inline-block mt-2 px-3 py-1.5 rounded-full border border-accent/40 bg-accent/10 text-accent text-xs font-mono uppercase tracking-wider hover:bg-accent/20 transition-colors">
+                    Join a chant
+                  </Link>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
-    </FrameLayout>
+    </div>
   )
 }
-
