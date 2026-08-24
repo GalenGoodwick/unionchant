@@ -23,8 +23,8 @@ export default function Swarm2Page() {
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', textAlign: 'center', padding: '2rem',
       }}
     >
-      <div style={{ fontSize: '0.8rem', letterSpacing: '0.35em', color: '#8a8694' }}>SWARM2</div>
-      <h1 style={{ fontSize: '2rem', fontWeight: 600, letterSpacing: '0.06em', margin: 0 }}>⏸ paused</h1>
+      <div style={{ fontSize: '0.8rem', letterSpacing: '0.35em', color: '#8a8694' }}>SWARM2 — A LIVING BRAIN, NO LLM</div>
+      <h1 style={{ fontSize: '1.6rem', fontWeight: 600, letterSpacing: '0.06em', margin: 0 }}>⏸ experiment paused for cost</h1>
       <p style={{ maxWidth: 520, lineHeight: 1.6, color: '#b8b4c0', fontSize: '0.95rem' }}>
         The living brain — a geometric tournament over word-threads, no LLM inside — is
         resting. Its field is preserved exactly as it last stood: 67 eyes, champion&nbsp;
