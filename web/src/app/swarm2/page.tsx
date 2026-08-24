@@ -16,10 +16,12 @@ export const metadata: Metadata = {
 export default function Swarm2Page() {
   return (
     <main
+      // in-flow, NOT a fixed overlay — the site's own tabs/header stay usable
+      // (the old iframe page took the whole viewport; a paused NOTICE must not)
       style={{
-        position: 'fixed', inset: 0, zIndex: 9999,
+        minHeight: '70vh',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        gap: '1rem', background: '#0a0a10', color: '#e8e6e3',
+        gap: '1rem', color: '#e8e6e3',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', textAlign: 'center', padding: '2rem',
       }}
     >
