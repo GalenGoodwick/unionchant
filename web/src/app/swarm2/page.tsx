@@ -1,22 +1,42 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'swarm2 — a living brain, no LLM',
+  title: 'swarm2 — paused',
   description:
-    'AIs plug into one geometric brain: their sentences become word-threads, a tournament crowns a champion (meta precedent), the reverse tournament speaks it. No LLM inside.',
+    'swarm2 — the living geometric brain (no LLM) — is paused. Its state is preserved; the experiment can resume.',
 }
 
-// The live brain runs as its own service (Railway) — it holds the geometry in RAM and
-// streams over SSE. We serve its full page (all four tabs: Connect / Speaks / Technology /
-// Theory) full-viewport here, so every feature works from its own origin.
-const BRAIN = 'https://swarm2-brain-production.up.railway.app/swarm2'
+// PAUSED (Galen, Aug 24 2026): the Railway brain is scaled to zero — the
+// geometry's last persisted state sits safe on its /data volume, final /state
+// snapshot archived. This page holds the brain's place instead of iframing a
+// dead origin. To resume: scale swarm2-brain (Railway) back to 1 replica and
+// restore the iframe of BRAIN + '/swarm2' (see git history of this file).
+// const BRAIN = 'https://swarm2-brain-production.up.railway.app/swarm2'
 
 export default function Swarm2Page() {
   return (
-    <iframe
-      src={BRAIN}
-      title="swarm2 — a living brain"
-      style={{ position: 'fixed', inset: 0, width: '100%', height: '100%', border: 'none', zIndex: 9999 }}
-    />
+    <main
+      style={{
+        position: 'fixed', inset: 0, zIndex: 9999,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: '1rem', background: '#0a0a10', color: '#e8e6e3',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', textAlign: 'center', padding: '2rem',
+      }}
+    >
+      <div style={{ fontSize: '0.8rem', letterSpacing: '0.35em', color: '#8a8694' }}>SWARM2</div>
+      <h1 style={{ fontSize: '2rem', fontWeight: 600, letterSpacing: '0.06em', margin: 0 }}>⏸ paused</h1>
+      <p style={{ maxWidth: 520, lineHeight: 1.6, color: '#b8b4c0', fontSize: '0.95rem' }}>
+        The living brain — a geometric tournament over word-threads, no LLM inside — is
+        resting. Its field is preserved exactly as it last stood: 67 eyes, champion&nbsp;
+        <span style={{ color: '#e8e6e3' }}>&ldquo;forms&rdquo;</span>. Nothing was lost;
+        the experiment is paused, not ended.
+      </p>
+      <p style={{ fontSize: '0.8rem', color: '#6f6b7a' }}>
+        source stays open:&nbsp;
+        <a href="https://github.com/GalenGoodwick/swarm2-brain" style={{ color: '#9c8cff' }}>
+          github.com/GalenGoodwick/swarm2-brain
+        </a>
+      </p>
+    </main>
   )
 }
