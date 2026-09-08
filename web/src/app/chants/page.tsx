@@ -7,6 +7,7 @@ import { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
 import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
 import ShareMenu from '@/components/ShareMenu'
+import { stripMarkdown, truncateAtWord } from '@/lib/strip-markdown'
 import { usePresence } from './usePresence'
 import { useUserspace } from './spatial/useUserspace'
 import { useChantsFeed } from './useChantsFeed'
@@ -95,7 +96,7 @@ function phaseBadge(phase: string, tier: number) {
   switch (phase) {
     case 'VOTING': return { label: 'Voting Phase', sublabel: tier > 0 ? `T${tier}` : '', color: 'bg-warning/15 text-warning border-warning/30' }
     case 'SUBMISSION': return { label: 'Submission Phase', sublabel: '', color: 'bg-accent/15 text-accent border-accent/30' }
-    case 'COMPLETED': return { label: 'Winner', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
+    case 'COMPLETED': return { label: '\u{1F3C6} Consensus reached', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
     default: return { label: phase, sublabel: '', color: 'bg-surface text-muted border-border' }
   }
 }
@@ -3377,7 +3378,7 @@ function ChantsPageContent() {
                   {/* Card header */}
                   <div
                     id={`chant-${chant.id}`}
-                    className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5"
+                    className={`relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 ${isDocked ? '' : 'cursor-pointer hover:bg-surface/40 transition-colors'}`}
                     onClick={(e) => {
                       const target = e.target as HTMLElement
                       if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
@@ -3389,6 +3390,9 @@ function ChantsPageContent() {
                         const ry = Math.max(0.1, Math.min(0.9, (e.clientY - rect.top) / rect.height))
                         setSelfRatio({ rx, ry })
                         moveToPosition(rx, ry)
+                      } else if (!isDocked) {
+                        // The whole card is the door: see question → click → enter the chant
+                        handleDock(chant.id)
                       }
                     }}
                   >
@@ -3423,11 +3427,17 @@ function ChantsPageContent() {
                         <span className="text-muted-light/40">&middot;</span>
                         <span className="text-muted">{fmt(chant.ideas)} ideas</span>
                       </div>
-                      {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (
-                        <div className="mt-1.5 px-2 py-1.5 bg-gold/6 border-l-2 border-gold/30 text-sm text-gold/80">
-                          {chant.champion.text}
-                        </div>
-                      )}
+                      {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (() => {
+                        const { text, truncated } = truncateAtWord(stripMarkdown(chant.champion.text), 200)
+                        return (
+                          <div className="mt-1.5 px-2 py-1.5 bg-gold/6 border-l-2 border-gold/30 text-sm text-gold/80">
+                            {text}
+                            {truncated && (
+                              <span className="ml-1.5 text-xs font-mono text-gold/60 whitespace-nowrap">Read consensus &rarr;</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     {!isDocked && (() => {
                       const remotePlayers = getInstancePlayers(chant.id, true).filter(p => p.id !== presenceUserId)
@@ -3444,7 +3454,8 @@ function ChantsPageContent() {
                             </button>
                           )}
                           <ShareMenu url={`/?dock=${chant.id}`} text={chant.question} variant="icon" />
-                          <div className="relative">
+                          {/* Drop target + presence anchor only — the card itself is the click-to-enter surface. Kept mounted (registerDropZone) but hidden unless a drag is live or players are inside. */}
+                          <div className={`relative transition-opacity duration-200 ${isDraggingDockstar || remotePlayers.length > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
                             <DropCircle
                               id={chant.id}
                               isActive={isNearDrop}
