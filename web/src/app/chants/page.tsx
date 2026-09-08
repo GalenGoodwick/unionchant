@@ -106,6 +106,16 @@ function fmt(n: number): string {
   return n.toString()
 }
 
+// True when a card-body click should count as "open this" — false for clicks
+// on nested controls or while the user is selecting text.
+function isPlainCardClick(e: React.MouseEvent): boolean {
+  const target = e.target as HTMLElement
+  if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return false
+  const sel = window.getSelection()
+  if (sel && sel.toString().length > 0) return false
+  return true
+}
+
 // ── CREATE DROP ZONE — orb-sized circle, drop target + tappable ──
 
 function CreateDropZone({ id, isActive, isDocked, userInitial, registerRef, onClick, glowDrag, accentColor }: { id: string; isActive: boolean; isDocked?: boolean; userInitial?: string; registerRef: (id: string, el: HTMLElement | null) => void; onClick: () => void; glowDrag: boolean; accentColor?: string }) {
@@ -2878,10 +2888,9 @@ function ChantsPageContent() {
                           return (
                             <div
                               key={d.id}
-                              className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-200"
+                              className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-200 cursor-pointer hover:bg-surface/40"
                               onClick={(e) => {
-                                const target = e.target as HTMLElement
-                                if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
+                                if (!isPlainCardClick(e)) return
                                 handleDock(d.id)
                               }}
                             >
@@ -3316,10 +3325,7 @@ function ChantsPageContent() {
                     id={`chant-${chant.id}`}
                     className={`relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 ${isDocked ? '' : 'cursor-pointer hover:bg-surface/40 transition-colors'}`}
                     onClick={(e) => {
-                      const target = e.target as HTMLElement
-                      if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
-                      const sel = window.getSelection()
-                      if (sel && sel.toString().length > 0) return
+                      if (!isPlainCardClick(e)) return
                       if (currentInstance === chant.id || (isDocked && currentInstance === chant.id)) {
                         const rect = e.currentTarget.getBoundingClientRect()
                         const rx = Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width))
@@ -3478,7 +3484,13 @@ function ChantsPageContent() {
                           return (
                           <div>
                             {myIdeaText ? (
-                              <div className="bg-accent/10 border border-accent/30 rounded px-3 py-3">
+                              <div
+                                className={`bg-accent/10 border border-accent/30 rounded px-3 py-3 ${detail.myIdea?.id ? 'cursor-pointer' : ''}`}
+                                onClick={(e) => {
+                                  if (!detail.myIdea?.id || !isPlainCardClick(e)) return
+                                  enterSubspace(detail.myIdea.id); setDockedIdeaId(detail.myIdea.id)
+                                }}
+                              >
                                 <div className="flex items-start gap-2">
                                   <div className="flex-1 min-w-0">
                                     <div className="text-xs font-mono text-accent uppercase tracking-wider mb-1.5">Your idea</div>
@@ -3513,7 +3525,14 @@ function ChantsPageContent() {
                                 {detail.ideas
                                   .filter(idea => idea.id !== detail.myIdea?.id)
                                   .map(idea => (
-                                  <div key={idea.id} className="flex items-start gap-2 rounded border border-border/20 bg-surface/50 px-2.5 py-2">
+                                  <div
+                                    key={idea.id}
+                                    className="flex items-start gap-2 rounded border border-border/20 bg-surface/50 px-2.5 py-2 cursor-pointer hover:bg-surface/80 transition-colors"
+                                    onClick={(e) => {
+                                      if (!isPlainCardClick(e)) return
+                                      enterSubspace(idea.id); setDockedIdeaId(idea.id)
+                                    }}
+                                  >
                                     <div className="flex-1 min-w-0">
                                       <div className="text-sm font-serif text-foreground/80 leading-snug">{idea.text}</div>
                                       <div className="text-[10px] font-mono text-muted-light mt-0.5">{idea.author.name}</div>
@@ -3562,7 +3581,15 @@ function ChantsPageContent() {
                                   const xp = !canVote ? idea.totalXP : ((xpAllocations[chant.id] || {})[idea.id] || 0)
                                   const isIdeaDocked = dockedIdeaId === idea.id
                                   return (
-                                    <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                    <div
+                                      key={idea.id}
+                                      id={`idea-${idea.id}`}
+                                      className={`rounded border transition-colors cursor-pointer ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25 hover:bg-purple/10'}`}
+                                      onClick={(e) => {
+                                        if (!isPlainCardClick(e)) return
+                                        enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id)
+                                      }}
+                                    >
                                       <div className="px-2.5 py-2">
                                         <div className="flex items-start gap-2 mb-1.5">
                                           <div className="flex-1 min-w-0">
@@ -3676,7 +3703,15 @@ function ChantsPageContent() {
                                 {votingIdeas.map(idea => {
                                   const isIdeaDocked = dockedIdeaId === idea.id
                                   return (
-                                    <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                    <div
+                                      key={idea.id}
+                                      id={`idea-${idea.id}`}
+                                      className={`rounded border transition-colors cursor-pointer ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25 hover:bg-purple/10'}`}
+                                      onClick={(e) => {
+                                        if (!isPlainCardClick(e)) return
+                                        enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id)
+                                      }}
+                                    >
                                       <div className="px-2.5 py-2">
                                         <div className="flex items-start gap-2">
                                           <div className="flex-1 min-w-0">
@@ -3720,7 +3755,15 @@ function ChantsPageContent() {
                               const isChampion = idea.isChampion || i === 0
                               const isIdeaDocked = dockedIdeaId === idea.id
                               return (
-                                <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border mb-1 transition-colors ${isChampion ? (isIdeaDocked ? 'bg-gold/12 border-gold/50' : 'bg-gold/6 border-gold/30') : (isIdeaDocked ? 'bg-purple/12 border-purple/50' : 'bg-purple/6 border-purple/25')}`}>
+                                <div
+                                  key={idea.id}
+                                  id={`idea-${idea.id}`}
+                                  className={`rounded border mb-1 transition-colors cursor-pointer ${isChampion ? (isIdeaDocked ? 'bg-gold/12 border-gold/50' : 'bg-gold/6 border-gold/30 hover:bg-gold/12') : (isIdeaDocked ? 'bg-purple/12 border-purple/50' : 'bg-purple/6 border-purple/25 hover:bg-purple/12')}`}
+                                  onClick={(e) => {
+                                    if (!isPlainCardClick(e)) return
+                                    enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id)
+                                  }}
+                                >
                                   <div className="px-2.5 py-2">
                                     <div className="flex items-start gap-2">
                                       {!isChampion && <span className="text-purple/30 font-mono text-xs shrink-0 pt-0.5">{i + 1}.</span>}
