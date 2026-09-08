@@ -7,6 +7,7 @@ import { DropCircle, NavDropCircle, DockstarGlowContext } from './Dockstar'
 import IdeaSubspace from './IdeaSubspace'
 import TransitionOverlay from './TransitionOverlay'
 import ShareMenu from '@/components/ShareMenu'
+import { stripMarkdown, truncateAtWord } from '@/lib/strip-markdown'
 import { usePresence } from './usePresence'
 import { useUserspace } from './spatial/useUserspace'
 import { useChantsFeed } from './useChantsFeed'
@@ -95,7 +96,7 @@ function phaseBadge(phase: string, tier: number) {
   switch (phase) {
     case 'VOTING': return { label: 'Voting Phase', sublabel: tier > 0 ? `T${tier}` : '', color: 'bg-warning/15 text-warning border-warning/30' }
     case 'SUBMISSION': return { label: 'Submission Phase', sublabel: '', color: 'bg-accent/15 text-accent border-accent/30' }
-    case 'COMPLETED': return { label: 'Winner', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
+    case 'COMPLETED': return { label: '\u{1F3C6} Consensus reached', sublabel: '', color: 'bg-success/15 text-success border-success/30' }
     default: return { label: phase, sublabel: '', color: 'bg-surface text-muted border-border' }
   }
 }
@@ -103,6 +104,16 @@ function phaseBadge(phase: string, tier: number) {
 function fmt(n: number): string {
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k'
   return n.toString()
+}
+
+// True when a card-body click should count as "open this" — false for clicks
+// on nested controls or while the user is selecting text.
+function isPlainCardClick(e: React.MouseEvent): boolean {
+  const target = e.target as HTMLElement
+  if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return false
+  const sel = window.getSelection()
+  if (sel && sel.toString().length > 0) return false
+  return true
 }
 
 // ── CREATE DROP ZONE — orb-sized circle, drop target + tappable ──
@@ -1543,17 +1554,6 @@ function ChantsPageContent() {
                     <svg className="w-4 h-4" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
                   </button>
                   <ShareMenu url={`/?dock=podium:${dockedPodium.id}`} text={dockedPodium.title} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId || '__header__'}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="P"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#a78bfa"
-                  />
                 </div>
               </>
             ) : activeSubspaceId?.startsWith('groupchat:') && dockedGroup ? (
@@ -1579,17 +1579,6 @@ function ChantsPageContent() {
                     <svg className="w-4 h-4" style={{ color: '#fbbf24' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
                   </button>
                   <ShareMenu url={`/?dock=group:${dockedGroup.slug}`} text={dockedGroup.name} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId || '__header__'}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#fbbf24"
-                  />
                 </div>
               </>
             ) : activeSubspaceId ? (
@@ -1618,16 +1607,6 @@ function ChantsPageContent() {
                   {detail && (
                     <ShareMenu url={`/?dock=${detail.id}`} text={detail.question} variant="icon" />
                   )}
-                  <DropCircle
-                    id={dockedPostId || '__header__'}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                  />
                 </div>
               </>
             ) : isDockedToChant && (dockedChant || detail) ? (
@@ -1681,16 +1660,6 @@ function ChantsPageContent() {
                       )}
                     </button>
                   )}
-                  <DropCircle
-                    id={dockedChant?.id || dockedPostId || ''}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                  />
                 </div>
               </>
             ) : dockedPostId?.startsWith('podium:') && dockedPodium ? (
@@ -1737,17 +1706,6 @@ function ChantsPageContent() {
                     </button>
                   )}
                   <ShareMenu url={`/?dock=podium:${dockedPodium.id}`} text={dockedPodium.title} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="P"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#a78bfa"
-                  />
                 </div>
               </>
             ) : dockedPostId?.startsWith('group:') && dockedGroup ? (
@@ -1803,17 +1761,6 @@ function ChantsPageContent() {
                     </button>
                   )}
                   <ShareMenu url={`/?dock=group:${dockedGroup.slug}`} text={dockedGroup.name} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#fbbf24"
-                  />
                 </div>
               </>
             ) : (
@@ -2941,10 +2888,9 @@ function ChantsPageContent() {
                           return (
                             <div
                               key={d.id}
-                              className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-200"
+                              className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 transition-colors duration-200 cursor-pointer hover:bg-surface/40"
                               onClick={(e) => {
-                                const target = e.target as HTMLElement
-                                if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
+                                if (!isPlainCardClick(e)) return
                                 handleDock(d.id)
                               }}
                             >
@@ -3377,18 +3323,18 @@ function ChantsPageContent() {
                   {/* Card header */}
                   <div
                     id={`chant-${chant.id}`}
-                    className="relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5"
+                    className={`relative overflow-hidden flex items-start gap-2.5 px-3 py-2.5 ${isDocked ? '' : 'cursor-pointer hover:bg-surface/40 transition-colors'}`}
                     onClick={(e) => {
-                      const target = e.target as HTMLElement
-                      if (target.closest('[data-dockstar], [data-dockpoint], button, a, input, textarea, [data-interactive]')) return
-                      const sel = window.getSelection()
-                      if (sel && sel.toString().length > 0) return
+                      if (!isPlainCardClick(e)) return
                       if (currentInstance === chant.id || (isDocked && currentInstance === chant.id)) {
                         const rect = e.currentTarget.getBoundingClientRect()
                         const rx = Math.max(0.05, Math.min(0.95, (e.clientX - rect.left) / rect.width))
                         const ry = Math.max(0.1, Math.min(0.9, (e.clientY - rect.top) / rect.height))
                         setSelfRatio({ rx, ry })
                         moveToPosition(rx, ry)
+                      } else if (!isDocked) {
+                        // The whole card is the door: see question → click → enter the chant
+                        handleDock(chant.id)
                       }
                     }}
                   >
@@ -3423,11 +3369,17 @@ function ChantsPageContent() {
                         <span className="text-muted-light/40">&middot;</span>
                         <span className="text-muted">{fmt(chant.ideas)} ideas</span>
                       </div>
-                      {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (
-                        <div className="mt-1.5 px-2 py-1.5 bg-gold/6 border-l-2 border-gold/30 text-sm text-gold/80">
-                          {chant.champion.text}
-                        </div>
-                      )}
+                      {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (() => {
+                        const { text, truncated } = truncateAtWord(stripMarkdown(chant.champion.text), 200)
+                        return (
+                          <div className="mt-1.5 px-2 py-1.5 bg-gold/6 border-l-2 border-gold/30 text-sm text-gold/80">
+                            {text}
+                            {truncated && (
+                              <span className="ml-1.5 text-xs font-mono text-gold/60 whitespace-nowrap">Read consensus &rarr;</span>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                     {!isDocked && (() => {
                       const remotePlayers = getInstancePlayers(chant.id, true).filter(p => p.id !== presenceUserId)
@@ -3532,7 +3484,13 @@ function ChantsPageContent() {
                           return (
                           <div>
                             {myIdeaText ? (
-                              <div className="bg-accent/10 border border-accent/30 rounded px-3 py-3">
+                              <div
+                                className={`bg-accent/10 border border-accent/30 rounded px-3 py-3 ${detail.myIdea?.id ? 'cursor-pointer' : ''}`}
+                                onClick={(e) => {
+                                  if (!detail.myIdea?.id || !isPlainCardClick(e)) return
+                                  enterSubspace(detail.myIdea.id); setDockedIdeaId(detail.myIdea.id)
+                                }}
+                              >
                                 <div className="flex items-start gap-2">
                                   <div className="flex-1 min-w-0">
                                     <div className="text-xs font-mono text-accent uppercase tracking-wider mb-1.5">Your idea</div>
@@ -3567,7 +3525,14 @@ function ChantsPageContent() {
                                 {detail.ideas
                                   .filter(idea => idea.id !== detail.myIdea?.id)
                                   .map(idea => (
-                                  <div key={idea.id} className="flex items-start gap-2 rounded border border-border/20 bg-surface/50 px-2.5 py-2">
+                                  <div
+                                    key={idea.id}
+                                    className="flex items-start gap-2 rounded border border-border/20 bg-surface/50 px-2.5 py-2 cursor-pointer hover:bg-surface/80 transition-colors"
+                                    onClick={(e) => {
+                                      if (!isPlainCardClick(e)) return
+                                      enterSubspace(idea.id); setDockedIdeaId(idea.id)
+                                    }}
+                                  >
                                     <div className="flex-1 min-w-0">
                                       <div className="text-sm font-serif text-foreground/80 leading-snug">{idea.text}</div>
                                       <div className="text-[10px] font-mono text-muted-light mt-0.5">{idea.author.name}</div>
@@ -3616,7 +3581,15 @@ function ChantsPageContent() {
                                   const xp = !canVote ? idea.totalXP : ((xpAllocations[chant.id] || {})[idea.id] || 0)
                                   const isIdeaDocked = dockedIdeaId === idea.id
                                   return (
-                                    <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                    <div
+                                      key={idea.id}
+                                      id={`idea-${idea.id}`}
+                                      className={`rounded border transition-colors cursor-pointer ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25 hover:bg-purple/10'}`}
+                                      onClick={(e) => {
+                                        if (!isPlainCardClick(e)) return
+                                        enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id)
+                                      }}
+                                    >
                                       <div className="px-2.5 py-2">
                                         <div className="flex items-start gap-2 mb-1.5">
                                           <div className="flex-1 min-w-0">
@@ -3730,7 +3703,15 @@ function ChantsPageContent() {
                                 {votingIdeas.map(idea => {
                                   const isIdeaDocked = dockedIdeaId === idea.id
                                   return (
-                                    <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border transition-colors ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25'}`}>
+                                    <div
+                                      key={idea.id}
+                                      id={`idea-${idea.id}`}
+                                      className={`rounded border transition-colors cursor-pointer ${isIdeaDocked ? 'bg-purple/10 border-purple/50' : 'bg-purple/6 border-purple/25 hover:bg-purple/10'}`}
+                                      onClick={(e) => {
+                                        if (!isPlainCardClick(e)) return
+                                        enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id)
+                                      }}
+                                    >
                                       <div className="px-2.5 py-2">
                                         <div className="flex items-start gap-2">
                                           <div className="flex-1 min-w-0">
@@ -3774,7 +3755,15 @@ function ChantsPageContent() {
                               const isChampion = idea.isChampion || i === 0
                               const isIdeaDocked = dockedIdeaId === idea.id
                               return (
-                                <div key={idea.id} id={`idea-${idea.id}`} className={`rounded border mb-1 transition-colors ${isChampion ? (isIdeaDocked ? 'bg-gold/12 border-gold/50' : 'bg-gold/6 border-gold/30') : (isIdeaDocked ? 'bg-purple/12 border-purple/50' : 'bg-purple/6 border-purple/25')}`}>
+                                <div
+                                  key={idea.id}
+                                  id={`idea-${idea.id}`}
+                                  className={`rounded border mb-1 transition-colors cursor-pointer ${isChampion ? (isIdeaDocked ? 'bg-gold/12 border-gold/50' : 'bg-gold/6 border-gold/30 hover:bg-gold/12') : (isIdeaDocked ? 'bg-purple/12 border-purple/50' : 'bg-purple/6 border-purple/25 hover:bg-purple/12')}`}
+                                  onClick={(e) => {
+                                    if (!isPlainCardClick(e)) return
+                                    enterSubspace(idea.id); if (!isIdeaDocked) setDockedIdeaId(idea.id)
+                                  }}
+                                >
                                   <div className="px-2.5 py-2">
                                     <div className="flex items-start gap-2">
                                       {!isChampion && <span className="text-purple/30 font-mono text-xs shrink-0 pt-0.5">{i + 1}.</span>}
