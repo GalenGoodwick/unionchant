@@ -1544,17 +1544,6 @@ function ChantsPageContent() {
                     <svg className="w-4 h-4" style={{ color: '#a78bfa' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
                   </button>
                   <ShareMenu url={`/?dock=podium:${dockedPodium.id}`} text={dockedPodium.title} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId || '__header__'}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="P"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#a78bfa"
-                  />
                 </div>
               </>
             ) : activeSubspaceId?.startsWith('groupchat:') && dockedGroup ? (
@@ -1580,17 +1569,6 @@ function ChantsPageContent() {
                     <svg className="w-4 h-4" style={{ color: '#fbbf24' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 19.5L3.75 12l7.5-7.5" /><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 19.5L12 12l7.5-7.5" /></svg>
                   </button>
                   <ShareMenu url={`/?dock=group:${dockedGroup.slug}`} text={dockedGroup.name} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId || '__header__'}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#fbbf24"
-                  />
                 </div>
               </>
             ) : activeSubspaceId ? (
@@ -1619,16 +1597,6 @@ function ChantsPageContent() {
                   {detail && (
                     <ShareMenu url={`/?dock=${detail.id}`} text={detail.question} variant="icon" />
                   )}
-                  <DropCircle
-                    id={dockedPostId || '__header__'}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                  />
                 </div>
               </>
             ) : isDockedToChant && (dockedChant || detail) ? (
@@ -1682,16 +1650,6 @@ function ChantsPageContent() {
                       )}
                     </button>
                   )}
-                  <DropCircle
-                    id={dockedChant?.id || dockedPostId || ''}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                  />
                 </div>
               </>
             ) : dockedPostId?.startsWith('podium:') && dockedPodium ? (
@@ -1738,17 +1696,6 @@ function ChantsPageContent() {
                     </button>
                   )}
                   <ShareMenu url={`/?dock=podium:${dockedPodium.id}`} text={dockedPodium.title} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="P"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#a78bfa"
-                  />
                 </div>
               </>
             ) : dockedPostId?.startsWith('group:') && dockedGroup ? (
@@ -1804,17 +1751,6 @@ function ChantsPageContent() {
                     </button>
                   )}
                   <ShareMenu url={`/?dock=group:${dockedGroup.slug}`} text={dockedGroup.name} variant="icon" />
-                  <DropCircle
-                    id={dockedPostId}
-                    isActive={false}
-                    isDocked={true}
-                    userInitial="G"
-                    registerRef={registerDropZone}
-                    onClick={handleUndock}
-                    onDragUndock={handleDropCircleDrag}
-                    flashDocks={flashDocks}
-                    accentColor="#fbbf24"
-                  />
                 </div>
               </>
             ) : (
@@ -3454,8 +3390,7 @@ function ChantsPageContent() {
                             </button>
                           )}
                           <ShareMenu url={`/?dock=${chant.id}`} text={chant.question} variant="icon" />
-                          {/* Drop target + presence anchor only — the card itself is the click-to-enter surface. Kept mounted (registerDropZone) but hidden unless a drag is live or players are inside. */}
-                          <div className={`relative transition-opacity duration-200 ${isDraggingDockstar || remotePlayers.length > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                          <div className="relative">
                             <DropCircle
                               id={chant.id}
                               isActive={isNearDrop}
