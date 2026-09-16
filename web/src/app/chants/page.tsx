@@ -19,6 +19,7 @@ import AuthOverlay from '@/components/AuthOverlay'
 import WelcomeGuide from '@/components/WelcomeGuide'
 import SettingsPanel from '@/components/SettingsPanel'
 import ManagePanel from '@/components/ManagePanel'
+import QrCodeButton from '@/components/QrCodeButton'
 import MarkdownEditor from '@/components/MarkdownEditor'
 import ReactMarkdown from 'react-markdown'
 
@@ -35,6 +36,11 @@ const PRESENCE_COLORS = [
   '#e879f9', // fuchsia
   '#facc15', // yellow
 ]
+function groupInviteUrl(slug: string, code: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `${origin}/chants?dock=group:${slug}&invite=${code}`
+}
+
 function presenceColor(userId: string): string {
   let hash = 0
   for (let i = 0; i < userId.length; i++) hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0
@@ -2797,15 +2803,14 @@ function ChantsPageContent() {
                                 <div className="flex items-center gap-1.5">
                                   <input
                                     readOnly
-                                    value={`${typeof window !== 'undefined' ? window.location.origin : ''}/chants?dock=group:${dockedGroup.slug}&invite=${groupInviteCode}`}
+                                    value={groupInviteUrl(dockedGroup.slug, groupInviteCode)}
                                     className="flex-1 bg-background border border-border/50 rounded px-2 py-1.5 text-[10px] font-mono text-foreground/70 outline-none select-all"
                                     onClick={e => (e.target as HTMLInputElement).select()}
                                   />
                                   <button
                                     data-interactive
                                     onClick={() => {
-                                      const url = `${window.location.origin}/chants?dock=group:${dockedGroup.slug}&invite=${groupInviteCode}`
-                                      navigator.clipboard.writeText(url)
+                                      navigator.clipboard.writeText(groupInviteUrl(dockedGroup.slug, groupInviteCode))
                                       setGroupSettingsMsg({ type: 'success', text: 'Copied!' })
                                       setTimeout(() => setGroupSettingsMsg(null), 1500)
                                     }}
@@ -2815,6 +2820,10 @@ function ChantsPageContent() {
                                     Copy
                                   </button>
                                 </div>
+                                <QrCodeButton
+                                  url={groupInviteUrl(dockedGroup.slug, groupInviteCode)}
+                                  filename={`${dockedGroup.slug}-invite-qr.png`}
+                                />
                                 <button
                                   data-interactive
                                   onClick={async () => {
