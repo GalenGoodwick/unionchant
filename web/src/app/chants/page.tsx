@@ -1868,17 +1868,17 @@ function ChantsPageContent() {
                     Sign in
                   </button>
                 ) : (
-                  <a
-                    href={`/user/${session?.user?.id}`}
+                  <button
                     data-interactive
                     title="Your page"
+                    onClick={() => { setActiveTab('profile'); setProfileView('me') }}
                     className="shrink-0 flex items-center gap-1.5 pl-1 pr-1 sm:pr-2.5 py-1 rounded-full border border-border bg-surface/50 hover:border-foreground/30 transition-colors"
                   >
                     <span className="w-6 h-6 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[11px] font-bold text-accent">
                       {(session?.user?.name || 'U').charAt(0).toUpperCase()}
                     </span>
                     <span className="hidden sm:inline text-xs font-mono text-muted max-w-[90px] truncate">{session?.user?.name || 'You'}</span>
-                  </a>
+                  </button>
                 )}
               </>
             )}
