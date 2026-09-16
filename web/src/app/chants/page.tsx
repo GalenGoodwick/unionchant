@@ -871,7 +871,6 @@ function ChantsPageContent() {
       setPendingInput('')
       setPendingInputType(null)
       setViewMode('feed')
-      if (id === '__nav_profile__') { setActiveTab('profile'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
       const nav = NAV_ITEMS.find(n => n.id === id)
       if (nav) {
         if (nav.href === '/podiums') { setActiveTab('podiums'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
@@ -1787,13 +1786,13 @@ function ChantsPageContent() {
                 />
                 {activeTab === 'profile' ? (
                   <>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 overflow-x-auto">
                       {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }] as const).map(v => (
                         <button
                           key={v.key}
                           data-interactive
                           onClick={() => setProfileView(v.key)}
-                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${profileView === v.key ? 'bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/30' : 'text-[#4ade80]/60 hover:text-[#4ade80] border border-transparent'}`}
+                          className={`px-2 sm:px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider whitespace-nowrap shrink-0 transition-colors ${profileView === v.key ? 'bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/30' : 'text-[#4ade80]/60 hover:text-[#4ade80] border border-transparent'}`}
                         >
                           {v.label}
                         </button>
@@ -3995,36 +3994,6 @@ function ChantsPageContent() {
                         color="#f59e0b"
                       />
                     )}
-                    <NavDropCircle
-                      id="__nav_profile__"
-                      label={needsAuth ? 'Sign in' : 'Profile'}
-                      icon={
-                        needsAuth ? (
-                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                          </svg>
-                        )
-                      }
-                      isActive={false}
-                      registerRef={registerDropZone}
-                      onClick={() => {
-                        if (needsAuth) { setAuthOverlayOpen(true); return }
-                        setActiveTab('profile')
-                        setProfileView('me')
-                        setDockedPostId(null)
-                        setDockedIdeaId(null)
-                        setDockedPodium(null)
-                        setDockedGroup(null)
-                        setSearchQuery('')
-                        setSortBy('new')
-                        setSearchOpen(false)
-                      }}
-                      color={needsAuth ? '#0891b2' : '#4ade80'}
-                    />
                   </div>
                 ) : null}
               </div>
