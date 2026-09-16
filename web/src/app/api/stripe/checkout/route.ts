@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { getStripe, getOrCreateStripeCustomer } from '@/lib/stripe'
+import { getStripe, getOrCreateStripeCustomer, priceIdFromTier } from '@/lib/stripe'
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,9 +11,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { priceId } = await req.json()
+    const { tier } = await req.json()
+    const priceId = priceIdFromTier(tier)
     if (!priceId) {
-      return NextResponse.json({ error: 'Price ID required' }, { status: 400 })
+      return NextResponse.json({ error: 'Unknown plan' }, { status: 400 })
     }
 
     const user = await prisma.user.findUnique({

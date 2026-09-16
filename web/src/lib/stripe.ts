@@ -34,6 +34,17 @@ export function tierFromPriceId(priceId: string): PlanTier {
 }
 
 /**
+ * Map a paid tier to its Stripe Price ID (server-side only — price IDs
+ * never reach the client; checkout receives a tier name instead).
+ */
+export function priceIdFromTier(tier: string): string | null {
+  if (tier === 'pro') return process.env.STRIPE_PRICE_PRO || null
+  if (tier === 'business') return process.env.STRIPE_PRICE_BUSINESS || null
+  if (tier === 'scale') return process.env.STRIPE_PRICE_SCALE || null
+  return null
+}
+
+/**
  * Get or create a Stripe customer for a user.
  */
 export async function getOrCreateStripeCustomer(
