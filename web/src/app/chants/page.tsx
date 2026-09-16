@@ -17,6 +17,8 @@ import { useInactivityTimer } from './useInactivityTimer'
 import { useAdmin } from '@/hooks/useAdmin'
 import AuthOverlay from '@/components/AuthOverlay'
 import WelcomeGuide from '@/components/WelcomeGuide'
+import SettingsPanel from '@/components/SettingsPanel'
+import ManagePanel from '@/components/ManagePanel'
 import MarkdownEditor from '@/components/MarkdownEditor'
 import ReactMarkdown from 'react-markdown'
 
@@ -165,7 +167,13 @@ function ChantsPageContent() {
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'new' | 'hot' | 'top'>('new')
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>('chants')
+  const initialProfileView = ((): 'me' | 'friends' | 'manage' | 'settings' => {
+    const v = searchParams.get('view')
+    return v === 'manage' || v === 'settings' || v === 'friends' ? v : 'me'
+  })()
+  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>(
+    searchParams.get('view') ? 'profile' : 'chants'
+  )
   const [podiums, setPodiums] = useState<{ id: string; title: string; body: string; views: number; pinned?: boolean; createdAt: string; author: { id?: string; name: string | null }; deliberation: { id: string; question: string } | null }[]>([])
   const [podiumsLoading, setPodiumsLoading] = useState(false)
   const [groups, setGroups] = useState<{ id: string; name: string; slug: string; description: string | null; isPublic: boolean; _count: { members: number; deliberations: number }; creator: { name: string | null } }[]>([])
@@ -184,7 +192,7 @@ function ChantsPageContent() {
     recentIdeas: Array<{ id: string; text: string; status: string; deliberationId: string; question: string; createdAt: string }>
   } | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-  const [profileView, setProfileView] = useState<'me' | 'friends'>('me')
+  const [profileView, setProfileView] = useState<'me' | 'friends' | 'manage' | 'settings'>(initialProfileView)
   const [friendsList, setFriendsList] = useState<{ id: string; name: string; image: string | null; bio: string | null }[] | null>(null)
   const [friendsLoading, setFriendsLoading] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -475,6 +483,7 @@ function ChantsPageContent() {
       const url = new URL(window.location.href)
       if (dockedPostId) url.searchParams.set('dock', dockedPostId)
       else url.searchParams.delete('dock')
+      url.searchParams.delete('view') // one-shot param consumed into state at mount
       window.history.pushState(state, '', url.pathname + url.search)
     })
     return () => cancelAnimationFrame(historyRafRef.current)
@@ -1779,7 +1788,7 @@ function ChantsPageContent() {
                 {activeTab === 'profile' ? (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }] as const).map(v => (
+                      {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }] as const).map(v => (
                         <button
                           key={v.key}
                           data-interactive
@@ -3045,7 +3054,22 @@ function ChantsPageContent() {
         ) : activeTab === 'profile' ? (
           /* PROFILE TAB */
           <div className="max-w-2xl mx-auto px-3 py-4">
-            {profileView === 'friends' ? (
+            {profileView === 'settings' || profileView === 'manage' ? (
+              /* SETTINGS / MANAGE (in-panel) */
+              needsAuth ? (
+                <div className="py-8 text-center">
+                  <p className="text-xs text-muted mb-2">Sign in to {profileView === 'settings' ? 'change your settings' : 'manage your chants and groups'}</p>
+                  <button onClick={() => setAuthOverlayOpen(true)} className="text-xs text-accent hover:underline">Sign in</button>
+                </div>
+              ) : profileView === 'settings' ? (
+                <SettingsPanel />
+              ) : (
+                <ManagePanel
+                  onOpenChant={id => handleDock(id)}
+                  onOpenGroup={slug => handleDock(`group:${slug}`)}
+                />
+              )
+            ) : profileView === 'friends' ? (
               /* FRIENDS LIST */
               friendsLoading ? (
                 <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
@@ -3099,9 +3123,9 @@ function ChantsPageContent() {
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="text-sm font-bold text-foreground truncate">{profileData.name}</h2>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <button onClick={() => window.location.href = '/profile/manage'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Manage</button>
+                          <button onClick={() => setProfileView('manage')} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Manage</button>
                           <button onClick={() => window.location.href = '/billing'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Billing</button>
-                          <button onClick={() => window.location.href = '/settings'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Settings</button>
+                          <button onClick={() => setProfileView('settings')} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Settings</button>
                           <button onClick={() => signOut({ callbackUrl: '/' })} className="text-xs text-error hover:text-error-hover border border-error/30 rounded-lg px-2 py-1 transition-colors">Sign out</button>
                         </div>
                       </div>
