@@ -107,8 +107,26 @@ function PricingContent() {
     }).catch(() => {})
   }, [session, searchParams])
 
-  const handleCheckout = async (_priceEnv: string) => {
-    alert('Paid plans coming soon! Stay tuned.')
+  const handleCheckout = async (tierKey: string) => {
+    setLoading(tierKey)
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: tierKey }),
+      })
+      const data = await res.json()
+      if (data.error === 'ALREADY_SUBSCRIBED') {
+        await handlePortal()
+        return
+      }
+      if (!res.ok) throw new Error(data.error || 'Checkout failed')
+      if (data.url) window.location.href = data.url
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(null)
+    }
   }
 
   const handlePortal = async () => {
