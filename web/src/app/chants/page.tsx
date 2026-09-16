@@ -17,6 +17,8 @@ import { useInactivityTimer } from './useInactivityTimer'
 import { useAdmin } from '@/hooks/useAdmin'
 import AuthOverlay from '@/components/AuthOverlay'
 import WelcomeGuide from '@/components/WelcomeGuide'
+import SettingsPanel from '@/components/SettingsPanel'
+import ManagePanel from '@/components/ManagePanel'
 import MarkdownEditor from '@/components/MarkdownEditor'
 import ReactMarkdown from 'react-markdown'
 
@@ -165,7 +167,13 @@ function ChantsPageContent() {
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'new' | 'hot' | 'top'>('new')
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>('chants')
+  const initialProfileView = ((): 'me' | 'friends' | 'manage' | 'settings' => {
+    const v = searchParams.get('view')
+    return v === 'manage' || v === 'settings' || v === 'friends' ? v : 'me'
+  })()
+  const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>(
+    searchParams.get('view') ? 'profile' : 'chants'
+  )
   const [podiums, setPodiums] = useState<{ id: string; title: string; body: string; views: number; pinned?: boolean; createdAt: string; author: { id?: string; name: string | null }; deliberation: { id: string; question: string } | null }[]>([])
   const [podiumsLoading, setPodiumsLoading] = useState(false)
   const [groups, setGroups] = useState<{ id: string; name: string; slug: string; description: string | null; isPublic: boolean; _count: { members: number; deliberations: number }; creator: { name: string | null } }[]>([])
@@ -184,7 +192,7 @@ function ChantsPageContent() {
     recentIdeas: Array<{ id: string; text: string; status: string; deliberationId: string; question: string; createdAt: string }>
   } | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-  const [profileView, setProfileView] = useState<'me' | 'friends'>('me')
+  const [profileView, setProfileView] = useState<'me' | 'friends' | 'manage' | 'settings'>(initialProfileView)
   const [friendsList, setFriendsList] = useState<{ id: string; name: string; image: string | null; bio: string | null }[] | null>(null)
   const [friendsLoading, setFriendsLoading] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -475,6 +483,7 @@ function ChantsPageContent() {
       const url = new URL(window.location.href)
       if (dockedPostId) url.searchParams.set('dock', dockedPostId)
       else url.searchParams.delete('dock')
+      url.searchParams.delete('view') // one-shot param consumed into state at mount
       window.history.pushState(state, '', url.pathname + url.search)
     })
     return () => cancelAnimationFrame(historyRafRef.current)
@@ -862,7 +871,6 @@ function ChantsPageContent() {
       setPendingInput('')
       setPendingInputType(null)
       setViewMode('feed')
-      if (id === '__nav_profile__') { setActiveTab('profile'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
       const nav = NAV_ITEMS.find(n => n.id === id)
       if (nav) {
         if (nav.href === '/podiums') { setActiveTab('podiums'); setSearchQuery(''); setSortBy('new'); setSearchOpen(false); return }
@@ -1778,13 +1786,13 @@ function ChantsPageContent() {
                 />
                 {activeTab === 'profile' ? (
                   <>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }] as const).map(v => (
+                    <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 overflow-x-auto">
+                      {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }] as const).map(v => (
                         <button
                           key={v.key}
                           data-interactive
                           onClick={() => setProfileView(v.key)}
-                          className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${profileView === v.key ? 'bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/30' : 'text-[#4ade80]/60 hover:text-[#4ade80] border border-transparent'}`}
+                          className={`px-2 sm:px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider whitespace-nowrap shrink-0 transition-colors ${profileView === v.key ? 'bg-[#4ade80]/15 text-[#4ade80] border border-[#4ade80]/30' : 'text-[#4ade80]/60 hover:text-[#4ade80] border border-transparent'}`}
                         >
                           {v.label}
                         </button>
@@ -1859,17 +1867,17 @@ function ChantsPageContent() {
                     Sign in
                   </button>
                 ) : (
-                  <a
-                    href={`/user/${session?.user?.id}`}
+                  <button
                     data-interactive
                     title="Your page"
+                    onClick={() => { setActiveTab('profile'); setProfileView('me') }}
                     className="shrink-0 flex items-center gap-1.5 pl-1 pr-1 sm:pr-2.5 py-1 rounded-full border border-border bg-surface/50 hover:border-foreground/30 transition-colors"
                   >
                     <span className="w-6 h-6 rounded-full bg-accent/20 border border-accent/40 flex items-center justify-center text-[11px] font-bold text-accent">
                       {(session?.user?.name || 'U').charAt(0).toUpperCase()}
                     </span>
                     <span className="hidden sm:inline text-xs font-mono text-muted max-w-[90px] truncate">{session?.user?.name || 'You'}</span>
-                  </a>
+                  </button>
                 )}
               </>
             )}
@@ -3045,7 +3053,22 @@ function ChantsPageContent() {
         ) : activeTab === 'profile' ? (
           /* PROFILE TAB */
           <div className="max-w-2xl mx-auto px-3 py-4">
-            {profileView === 'friends' ? (
+            {profileView === 'settings' || profileView === 'manage' ? (
+              /* SETTINGS / MANAGE (in-panel) */
+              needsAuth ? (
+                <div className="py-8 text-center">
+                  <p className="text-xs text-muted mb-2">Sign in to {profileView === 'settings' ? 'change your settings' : 'manage your chants and groups'}</p>
+                  <button onClick={() => setAuthOverlayOpen(true)} className="text-xs text-accent hover:underline">Sign in</button>
+                </div>
+              ) : profileView === 'settings' ? (
+                <SettingsPanel />
+              ) : (
+                <ManagePanel
+                  onOpenChant={id => handleDock(id)}
+                  onOpenGroup={slug => handleDock(`group:${slug}`)}
+                />
+              )
+            ) : profileView === 'friends' ? (
               /* FRIENDS LIST */
               friendsLoading ? (
                 <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
@@ -3099,9 +3122,9 @@ function ChantsPageContent() {
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="text-sm font-bold text-foreground truncate">{profileData.name}</h2>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          <button onClick={() => window.location.href = '/profile/manage'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Manage</button>
+                          <button onClick={() => setProfileView('manage')} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Manage</button>
                           <button onClick={() => window.location.href = '/billing'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Billing</button>
-                          <button onClick={() => window.location.href = '/settings'} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Settings</button>
+                          <button onClick={() => setProfileView('settings')} className="text-xs text-muted hover:text-foreground border border-border rounded-lg px-2 py-1 transition-colors">Settings</button>
                           <button onClick={() => signOut({ callbackUrl: '/' })} className="text-xs text-error hover:text-error-hover border border-error/30 rounded-lg px-2 py-1 transition-colors">Sign out</button>
                         </div>
                       </div>
@@ -3971,36 +3994,6 @@ function ChantsPageContent() {
                         color="#f59e0b"
                       />
                     )}
-                    <NavDropCircle
-                      id="__nav_profile__"
-                      label={needsAuth ? 'Sign in' : 'Profile'}
-                      icon={
-                        needsAuth ? (
-                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-                          </svg>
-                        ) : (
-                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                          </svg>
-                        )
-                      }
-                      isActive={false}
-                      registerRef={registerDropZone}
-                      onClick={() => {
-                        if (needsAuth) { setAuthOverlayOpen(true); return }
-                        setActiveTab('profile')
-                        setProfileView('me')
-                        setDockedPostId(null)
-                        setDockedIdeaId(null)
-                        setDockedPodium(null)
-                        setDockedGroup(null)
-                        setSearchQuery('')
-                        setSortBy('new')
-                        setSearchOpen(false)
-                      }}
-                      color={needsAuth ? '#0891b2' : '#4ade80'}
-                    />
                   </div>
                 ) : null}
               </div>
