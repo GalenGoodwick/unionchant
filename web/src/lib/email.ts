@@ -59,7 +59,7 @@ export async function sendEmailToDeliberation(
       question: true,
       members: {
         include: {
-          user: { select: { email: true, emailVoting: true, emailResults: true } },
+          user: { select: { email: true, emailVoting: true, emailResults: true, isAI: true } },
         },
       },
     },
@@ -67,11 +67,13 @@ export async function sendEmailToDeliberation(
 
   if (!deliberation) return
 
-  // Filter by email preference
-  const prefKey = type === 'cell_ready' ? 'emailVoting' : 'emailResults'
+  // Humans with a real inbox only: no AI personas, no device-account
+  // synthetic addresses (@*.unitychant.com), and respect per-user prefs.
+  // Vote calls gate on emailVoting; results gate on emailResults.
+  const prefKey = type === 'champion_declared' ? 'emailResults' : 'emailVoting'
   const emails = deliberation.members
-    .filter(m => m.user[prefKey])
-    .map(m => m.user.email)
+    .filter(m => !m.user.isAI && m.user.email && !m.user.email.endsWith('.unitychant.com') && m.user[prefKey])
+    .map(m => m.user.email as string)
 
   let template: { subject: string; html: string }
 

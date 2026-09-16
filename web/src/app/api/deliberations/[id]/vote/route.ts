@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { processCellResults } from '@/lib/voting'
 import { invalidate } from '@/lib/cache'
 import { checkAutoComplete } from '@/lib/dynamic-cells'
+import { trackEvent } from '@/lib/funnel'
 
 const FCFS_CELL_SIZE = 5
 
@@ -290,6 +291,8 @@ export async function POST(
         invalidate(`status:${id}`)
       }
     })
+
+    trackEvent('vote_cast', { userId, deliberationId: id, tier: targetTier })
 
     return NextResponse.json({
       success: true,

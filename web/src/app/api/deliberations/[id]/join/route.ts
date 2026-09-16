@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { startVotingPhase, addLateJoinerToCell } from '@/lib/voting'
+import { trackEvent } from '@/lib/funnel'
 
 // POST /api/deliberations/[id]/join - Join a deliberation
 export async function POST(
@@ -131,6 +132,8 @@ export async function POST(
         // Don't fail the join - they're still a member, just not in a cell yet
       }
     }
+
+    trackEvent('join', { userId: user.id, deliberationId: id })
 
     return NextResponse.json({ ...membership, roundFull }, { status: 201 })
   } catch (error) {
