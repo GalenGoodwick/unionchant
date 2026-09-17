@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { getDisplayName } from '@/lib/user'
 import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 import FrameLayout from '@/components/FrameLayout'
+import AnalyticsTab from './AnalyticsTab'
 
 function UserAvatar({ image, name }: { image: string | null; name: string | null }) {
   const [imgError, setImgError] = useState(false)
@@ -31,7 +32,8 @@ function UserAvatar({ image, name }: { image: string | null; name: string | null
 }
 
 type UserStatus = 'ACTIVE' | 'BANNED' | 'DELETED'
-type AdminTab = 'deliberations' | 'users' | 'moderation' | 'podiums' | 'groups'
+
+type AdminTab = 'analytics' | 'deliberations' | 'users' | 'moderation' | 'podiums' | 'groups'
 
 interface ChallengeStats {
   totalLogs: number
@@ -122,7 +124,7 @@ export default function AdminPage() {
   const [ideaGoal, setIdeaGoal] = useState(20)
   const [votingMinutes, setVotingMinutes] = useState(5)
   // Tab state
-  const [activeTab, setActiveTab] = useState<AdminTab>('deliberations')
+  const [activeTab, setActiveTab] = useState<AdminTab>('analytics')
 
   // User management state
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -697,6 +699,14 @@ export default function AdminPage() {
 
         {/* Tab Switcher */}
         <div className="flex gap-1 mb-6 bg-background rounded-lg border border-border p-1 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
+              activeTab === 'analytics' ? 'bg-header text-white' : 'text-muted hover:text-foreground'
+            }`}
+          >
+            Analytics
+          </button>
           <button
             onClick={() => setActiveTab('deliberations')}
             className={`px-4 py-2 rounded text-sm font-medium transition-colors shrink-0 ${
@@ -1318,6 +1328,8 @@ export default function AdminPage() {
         )}
 
         {/* Deliberations Tab */}
+        {activeTab === 'analytics' && <AnalyticsTab />}
+
         {activeTab === 'deliberations' && (<>
 
         {/* Stats */}

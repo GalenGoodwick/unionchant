@@ -82,7 +82,7 @@ export function cellReadyEmail(params: {
   deliberationId: string
   tier: number
 }) {
-  const voteUrl = `${baseUrl}/chants/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/chants?dock=${params.deliberationId}&src=email`
 
   return {
     subject: `Time to vote: ${params.question}`,
@@ -105,7 +105,7 @@ export function votingEndingSoonEmail(params: {
   question: string
   deliberationId: string
 }) {
-  const voteUrl = `${baseUrl}/chants/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/chants?dock=${params.deliberationId}&src=email`
 
   return {
     subject: `Voting ending soon: ${params.question}`,
@@ -129,7 +129,7 @@ export function championDeclaredEmail(params: {
   championText: string
   deliberationId: string
 }) {
-  const resultsUrl = `${baseUrl}/chants/${params.deliberationId}`
+  const resultsUrl = `${baseUrl}/chants?dock=${params.deliberationId}&src=email`
 
   return {
     subject: `Champion declared: ${params.question}`,
@@ -235,7 +235,7 @@ export function followedNewDelibEmail(params: {
   question: string
   deliberationId: string
 }) {
-  const delibUrl = `${baseUrl}/chants/${params.deliberationId}`
+  const delibUrl = `${baseUrl}/chants?dock=${params.deliberationId}&src=email`
 
   return {
     subject: `"${params.userName}" started a new deliberation`,
@@ -260,7 +260,7 @@ export function podiumNewsEmail(params: {
   authorName: string
   podiumId: string
 }) {
-  const podiumUrl = `${baseUrl}/podium/${params.podiumId}`
+  const podiumUrl = `${baseUrl}/chants?dock=podium:${params.podiumId}&src=email`
   // Truncate body for email preview
   const preview = params.body.length > 500 ? params.body.slice(0, 500) + '...' : params.body
 
@@ -288,7 +288,7 @@ export function newTierEmail(params: {
   deliberationId: string
   tier: number
 }) {
-  const voteUrl = `${baseUrl}/chants/${params.deliberationId}`
+  const voteUrl = `${baseUrl}/chants?dock=${params.deliberationId}&src=email`
 
   return {
     subject: `New voting tier: ${params.question}`,

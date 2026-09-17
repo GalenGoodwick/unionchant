@@ -19,6 +19,7 @@ import AuthOverlay from '@/components/AuthOverlay'
 import WelcomeGuide from '@/components/WelcomeGuide'
 import SettingsPanel from '@/components/SettingsPanel'
 import ManagePanel from '@/components/ManagePanel'
+import QrCodeButton from '@/components/QrCodeButton'
 import MarkdownEditor from '@/components/MarkdownEditor'
 import ReactMarkdown from 'react-markdown'
 
@@ -35,6 +36,11 @@ const PRESENCE_COLORS = [
   '#e879f9', // fuchsia
   '#facc15', // yellow
 ]
+function groupInviteUrl(slug: string, code: string): string {
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  return `${origin}/chants?dock=group:${slug}&invite=${code}`
+}
+
 function presenceColor(userId: string): string {
   let hash = 0
   for (let i = 0; i < userId.length; i++) hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0
@@ -167,9 +173,9 @@ function ChantsPageContent() {
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'new' | 'hot' | 'top'>('new')
   const [searchQuery, setSearchQuery] = useState('')
-  const initialProfileView = ((): 'me' | 'friends' | 'manage' | 'settings' => {
+  const initialProfileView = ((): 'me' | 'manage' | 'settings' => {
     const v = searchParams.get('view')
-    return v === 'manage' || v === 'settings' || v === 'friends' ? v : 'me'
+    return v === 'manage' || v === 'settings' ? v : 'me'
   })()
   const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>(
     searchParams.get('view') ? 'profile' : 'chants'
@@ -192,9 +198,7 @@ function ChantsPageContent() {
     recentIdeas: Array<{ id: string; text: string; status: string; deliberationId: string; question: string; createdAt: string }>
   } | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-  const [profileView, setProfileView] = useState<'me' | 'friends' | 'manage' | 'settings'>(initialProfileView)
-  const [friendsList, setFriendsList] = useState<{ id: string; name: string; image: string | null; bio: string | null }[] | null>(null)
-  const [friendsLoading, setFriendsLoading] = useState(false)
+  const [profileView, setProfileView] = useState<'me' | 'manage' | 'settings'>(initialProfileView)
   const [searchOpen, setSearchOpen] = useState(false)
   const [xpAllocations, setXpAllocations] = useState<Record<string, Record<string, number>>>({})
   const [nearestDrop, setNearestDrop] = useState<string | null>(null)
@@ -403,6 +407,19 @@ function ChantsPageContent() {
 
   const activeDockTarget = dockedPostId === '__create_chant__' ? '__create_chant__' : dockedIdeaId ? `idea:${dockedIdeaId}` : dockedPostId
 
+  // Email attribution: a ?src=email landing logs one funnel event; the param
+  // is stripped from the URL by the history-sync effect
+  useEffect(() => {
+    const src = searchParams.get('src')
+    if (!src) return
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'email_click', deliberationId: searchParams.get('dock'), source: src }),
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Handle initial dock from URL param (podium:/group: prefixes)
   useEffect(() => {
     const initial = searchParams.get('dock')
@@ -483,7 +500,8 @@ function ChantsPageContent() {
       const url = new URL(window.location.href)
       if (dockedPostId) url.searchParams.set('dock', dockedPostId)
       else url.searchParams.delete('dock')
-      url.searchParams.delete('view') // one-shot param consumed into state at mount
+      url.searchParams.delete('view') // one-shot params consumed at mount
+      url.searchParams.delete('src')
       window.history.pushState(state, '', url.pathname + url.search)
     })
     return () => cancelAnimationFrame(historyRafRef.current)
@@ -604,17 +622,6 @@ function ChantsPageContent() {
       .catch(() => {})
       .finally(() => setProfileLoading(false))
   }, [activeTab, profileData, needsAuth])
-
-  // Fetch friends list when switching to friends view
-  useEffect(() => {
-    if (activeTab !== 'profile' || profileView !== 'friends' || friendsList || needsAuth) return
-    setFriendsLoading(true)
-    fetch('/api/user/me/following')
-      .then(r => r.json())
-      .then(data => setFriendsList(data.users || []))
-      .catch(() => setFriendsList([]))
-      .finally(() => setFriendsLoading(false))
-  }, [activeTab, profileView, friendsList, needsAuth])
 
   // Track scroll
   useEffect(() => {
@@ -1787,7 +1794,7 @@ function ChantsPageContent() {
                 {activeTab === 'profile' ? (
                   <>
                     <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 overflow-x-auto">
-                      {([{ key: 'me', label: 'Me' }, { key: 'friends', label: 'Friends' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }] as const).map(v => (
+                      {([{ key: 'me', label: 'Me' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }] as const).map(v => (
                         <button
                           key={v.key}
                           data-interactive
@@ -2797,15 +2804,14 @@ function ChantsPageContent() {
                                 <div className="flex items-center gap-1.5">
                                   <input
                                     readOnly
-                                    value={`${typeof window !== 'undefined' ? window.location.origin : ''}/chants?dock=group:${dockedGroup.slug}&invite=${groupInviteCode}`}
+                                    value={groupInviteUrl(dockedGroup.slug, groupInviteCode)}
                                     className="flex-1 bg-background border border-border/50 rounded px-2 py-1.5 text-[10px] font-mono text-foreground/70 outline-none select-all"
                                     onClick={e => (e.target as HTMLInputElement).select()}
                                   />
                                   <button
                                     data-interactive
                                     onClick={() => {
-                                      const url = `${window.location.origin}/chants?dock=group:${dockedGroup.slug}&invite=${groupInviteCode}`
-                                      navigator.clipboard.writeText(url)
+                                      navigator.clipboard.writeText(groupInviteUrl(dockedGroup.slug, groupInviteCode))
                                       setGroupSettingsMsg({ type: 'success', text: 'Copied!' })
                                       setTimeout(() => setGroupSettingsMsg(null), 1500)
                                     }}
@@ -2815,6 +2821,10 @@ function ChantsPageContent() {
                                     Copy
                                   </button>
                                 </div>
+                                <QrCodeButton
+                                  url={groupInviteUrl(dockedGroup.slug, groupInviteCode)}
+                                  filename={`${dockedGroup.slug}-invite-qr.png`}
+                                />
                                 <button
                                   data-interactive
                                   onClick={async () => {
@@ -3067,42 +3077,6 @@ function ChantsPageContent() {
                   onOpenChant={id => handleDock(id)}
                   onOpenGroup={slug => handleDock(`group:${slug}`)}
                 />
-              )
-            ) : profileView === 'friends' ? (
-              /* FRIENDS LIST */
-              friendsLoading ? (
-                <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>
-              ) : needsAuth ? (
-                <div className="py-8 text-center">
-                  <p className="text-xs text-muted mb-2">Sign in to see your friends</p>
-                  <button onClick={() => setAuthOverlayOpen(true)} className="text-xs text-accent hover:underline">Sign in</button>
-                </div>
-              ) : friendsList && friendsList.length > 0 ? (
-                <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg divide-y divide-border">
-                  {friendsList.map(friend => (
-                    <button
-                      key={friend.id}
-                      onClick={() => window.location.href = `/user/${friend.id}`}
-                      className="flex items-center gap-3 p-3 w-full text-left hover:bg-surface transition-colors"
-                    >
-                      {friend.image ? (
-                        <img src={friend.image} alt="" className="w-9 h-9 rounded-full" />
-                      ) : (
-                        <div className="w-9 h-9 rounded-full bg-[#4ade80]/20 flex items-center justify-center">
-                          <span className="text-sm text-[#4ade80] font-semibold">{(friend.name || '?').charAt(0).toUpperCase()}</span>
-                        </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-foreground truncate">{friend.name || 'Member'}</div>
-                        {friend.bio && <div className="text-xs text-muted truncate">{friend.bio}</div>}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="py-8 text-center text-muted">
-                  <p className="text-xs">Not following anyone yet</p>
-                </div>
               )
             ) : profileLoading ? (
               <div className="py-8 text-center text-muted-light text-sm font-mono animate-pulse">Loading...</div>

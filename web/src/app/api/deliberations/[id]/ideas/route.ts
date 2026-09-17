@@ -7,6 +7,7 @@ import { moderateContent } from '@/lib/moderation'
 import { checkDeliberationAccess } from '@/lib/privacy'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { isTempUser } from '@/lib/auth'
+import { trackEvent } from '@/lib/funnel'
 
 // POST /api/deliberations/[id]/ideas - Submit a new idea
 export async function POST(
@@ -197,6 +198,8 @@ export async function POST(
         console.error('Failed to create continuous flow cell:', err)
       }
     }
+
+    trackEvent('idea_submit', { userId: user.id, deliberationId: id })
 
     return NextResponse.json(idea, { status: 201 })
   } catch (error) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useAdmin } from '@/hooks/useAdmin'
 
 interface Chant {
   id: string
@@ -30,6 +31,7 @@ export default function ManagePanel({ onOpenChant, onOpenGroup }: {
   onOpenGroup?: (slug: string) => void
 } = {}) {
   const { status } = useSession()
+  const { isAdmin } = useAdmin()
   const router = useRouter()
   const [chants, setChants] = useState<Chant[]>([])
   const [groups, setGroups] = useState<Group[]>([])
@@ -329,6 +331,16 @@ export default function ManagePanel({ onOpenChant, onOpenGroup }: {
           Private chants and groups require a Pro subscription.{' '}
           <Link href="/pricing" className="underline font-medium">Upgrade</Link>
         </div>
+      )}
+
+      {isAdmin && (
+        <a
+          href="/admin"
+          className="mt-4 flex items-center justify-between bg-surface/90 backdrop-blur-sm border border-warning/30 rounded-lg px-3 py-2.5 hover:border-warning/60 transition-colors"
+        >
+          <span className="text-xs font-semibold text-warning">Admin Console</span>
+          <span className="text-[10px] text-muted">users · chants · analytics →</span>
+        </a>
       )}
     </div>
   )

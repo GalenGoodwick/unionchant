@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { sendPushToDeliberation, notifications } from './push'
+import { sendEmailToDeliberation } from './email'
 // Email notifications removed - using push notifications only for humans
 import { updateAgreementScores } from './agreement'
 import { fireWebhookEvent } from './webhooks'
@@ -453,6 +454,14 @@ export async function startVotingPhase(deliberationId: string) {
 
   console.log(`✓ Tier 1 ${isResume ? 'resumed' : 'started'}: created ${cells.length} cells, ${shuffledMembers.length} members, ${shuffledIdeas.length} ideas`)
 
+  // Call everyone back: voting is open and their cell is waiting
+  sendPushToDeliberation(
+    deliberationId,
+    notifications.votingStarted(deliberation.question, deliberationId)
+  ).catch(err => console.error('Failed to send push notifications:', err))
+  sendEmailToDeliberation(deliberationId, 'cell_ready', { tier: 1 })
+    .catch(err => console.error('Failed to send voting-started emails:', err))
+
   return {
     success: true,
     reason: isResume ? 'VOTING_RESUMED' : 'VOTING_STARTED',
@@ -537,6 +546,14 @@ async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
       currentTierStartedAt: new Date(),
     },
   })
+
+  // Call everyone back: voting is open, cells are waiting for voters
+  sendPushToDeliberation(
+    deliberationId,
+    notifications.votingStarted(deliberation.question, deliberationId)
+  ).catch(err => console.error('Failed to send push notifications:', err))
+  sendEmailToDeliberation(deliberationId, 'cell_ready', { tier: 1 })
+    .catch(err => console.error('Failed to send voting-started emails:', err))
 
   return {
     success: true,
@@ -822,7 +839,8 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         cell.deliberationId,
         notifications.championDeclared(cell.deliberation.question, cell.deliberationId)
       ).catch(err => console.error('Failed to send push notifications:', err))
-      // Email removed - push notifications only for humans
+      sendEmailToDeliberation(cell.deliberationId, 'champion_declared', { championText: winnerIdea?.text })
+        .catch(err => console.error('Failed to send champion emails:', err))
       fireWebhookEvent('winner_declared', {
         deliberationId: cell.deliberationId,
         winnerId: fastWinnerId,
@@ -1249,7 +1267,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
             deliberationId,
             notifications.championDeclared(completedDeliberation.question, deliberationId)
           ).catch(err => console.error('Failed to send push notifications:', err))
-          // Email removed - push notifications only for humans
+          sendEmailToDeliberation(deliberationId, 'champion_declared', { championText: completedDeliberation.ideas[0]?.text })
+            .catch(err => console.error('Failed to send champion emails:', err))
         }
       }
     }
@@ -1304,7 +1323,9 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
           deliberationId,
           notifications.championDeclared(deliberation.question, deliberationId)
         ).catch(err => console.error('Failed to send push notifications:', err))
-        // Email removed - push notifications only for humans
+        prisma.idea.findUnique({ where: { id: winnerId }, select: { text: true } })
+          .then(win => sendEmailToDeliberation(deliberationId, 'champion_declared', { championText: win?.text }))
+          .catch(err => console.error('Failed to send champion emails:', err))
       }
     }
 
@@ -1398,7 +1419,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
         deliberationId,
         notifications.newTier(nextTier, deliberation.question, deliberationId)
       ).catch(err => console.error('Failed to send push notifications:', err))
-      // Email removed - push notifications only for humans
+      sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
+        .catch(err => console.error('Failed to send new-tier emails:', err))
 
       return // FCFS: cells created on-demand when voters enter
     }
@@ -1540,7 +1562,8 @@ export async function checkTierCompletion(deliberationId: string, tier: number) 
       deliberationId,
       notifications.newTier(nextTier, deliberation.question, deliberationId)
     ).catch(err => console.error('Failed to send push notifications:', err))
-    // Email removed - push notifications only for humans
+    sendEmailToDeliberation(deliberationId, 'new_tier', { tier: nextTier })
+      .catch(err => console.error('Failed to send new-tier emails:', err))
   }
 }
 

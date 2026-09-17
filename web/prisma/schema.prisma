@@ -1447,3 +1447,18 @@ model PlaygroundNode {
   @@index([order])
   @@index([projectId])
 }
+
+// ── Retention analytics: one row per funnel action, written server-side ──
+model FunnelEvent {
+  id             String   @id @default(cuid())
+  type           String   // join | idea_submit | vote_cast | email_click
+  userId         String?
+  deliberationId String?
+  tier           Int?
+  source         String?  // email | direct | null
+  createdAt      DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+  @@index([deliberationId])
+}
