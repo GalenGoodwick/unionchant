@@ -363,8 +363,8 @@ npx prisma studio      # Open database browser
 
 1. Edit `web/prisma/schema.prisma`
 2. Run `npx prisma generate` locally to update the client
-3. Commit and push to main
-4. Vercel automatically runs `prisma db push` during build (syncs schema to production DB)
+3. Run `npx prisma db push` manually to sync the production DB — the Vercel build only runs `prisma generate`, it does NOT push schema (corrected Sep 2026; orphan tables from believing otherwise were backed up + dropped Sep 16 2026, see ~/Desktop/unionchant-orphan-tables-backup-20260916.json)
+4. Commit and push to main
 
 **NEVER run these commands:**
 - `prisma db pull` - Overwrites your schema with database state (destructive!)
