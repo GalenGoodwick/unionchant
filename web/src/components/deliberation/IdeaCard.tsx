@@ -3,6 +3,7 @@
 import { getDisplayName } from '@/lib/user'
 import CopyButton from './CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
+import LinkifiedText from '@/components/LinkifiedText'
 import type { Idea } from './types'
 
 export default function IdeaCard({
@@ -35,7 +36,7 @@ export default function IdeaCard({
         </div>
       </div>
       <div className="p-3">
-        <p className="text-foreground text-sm leading-snug select-text">{idea.text}</p>
+        <p className="text-foreground text-sm leading-snug select-text"><LinkifiedText text={idea.text} /></p>
         <div className="flex justify-end mt-1.5">
           <CopyButton text={idea.text} />
         </div>

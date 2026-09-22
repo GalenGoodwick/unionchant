@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import ShareMenu from '@/components/ShareMenu'
+import LinkifiedText from '@/components/LinkifiedText'
 import { FullPageSpinner } from '@/components/Spinner'
 import CountdownTimer from '@/components/CountdownTimer'
 import FollowButton from '@/components/FollowButton'
@@ -791,7 +792,7 @@ function DiscussBody({ d }: { d: ReturnType<typeof useDeliberation> }) {
                 >
                   <div className="flex justify-between items-start gap-2">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground">{idea.text}</p>
+                      <p className="text-sm font-medium text-foreground"><LinkifiedText text={idea.text} /></p>
                       <p className="text-xs text-muted mt-0.5">{getDisplayName(idea.author)}</p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">

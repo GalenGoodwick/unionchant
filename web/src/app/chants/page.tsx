@@ -21,6 +21,7 @@ import SettingsPanel from '@/components/SettingsPanel'
 import ManagePanel from '@/components/ManagePanel'
 import QrCodeButton from '@/components/QrCodeButton'
 import MarkdownEditor from '@/components/MarkdownEditor'
+import LinkifiedText from '@/components/LinkifiedText'
 import ReactMarkdown from 'react-markdown'
 
 // ── PRESENCE COLORS (deterministic from user ID) ──
@@ -3531,7 +3532,7 @@ function ChantsPageContent() {
                                     }}
                                   >
                                     <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-serif text-foreground/80 leading-snug">{idea.text}</div>
+                                      <div className="text-sm font-serif text-foreground/80 leading-snug"><LinkifiedText text={idea.text} /></div>
                                       <div className="text-[10px] font-mono text-muted-light mt-0.5">{idea.author.name}</div>
                                     </div>
                                     <DropCircle
@@ -3590,7 +3591,7 @@ function ChantsPageContent() {
                                       <div className="px-2.5 py-2">
                                         <div className="flex items-start gap-2 mb-1.5">
                                           <div className="flex-1 min-w-0">
-                                            <div className={`text-sm font-serif leading-snug ${isIdeaDocked ? 'text-purple' : 'text-purple'}`}>{idea.text}</div>
+                                            <div className={`text-sm font-serif leading-snug ${isIdeaDocked ? 'text-purple' : 'text-purple'}`}><LinkifiedText text={idea.text} /></div>
                                             <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Member'}</div>
                                           </div>
                                           <span className={`text-2xl font-mono font-bold ${xp > 0 ? 'text-accent' : 'text-muted-light/20'}`}>{xp}</span>
@@ -3712,7 +3713,7 @@ function ChantsPageContent() {
                                       <div className="px-2.5 py-2">
                                         <div className="flex items-start gap-2">
                                           <div className="flex-1 min-w-0">
-                                            <div className="text-sm font-serif text-purple leading-snug">{idea.text}</div>
+                                            <div className="text-sm font-serif text-purple leading-snug"><LinkifiedText text={idea.text} /></div>
                                             <div className="text-xs text-purple/70 mt-0.5">{idea.author?.name || 'Member'}</div>
                                           </div>
                                           <div className="flex items-center gap-2 shrink-0">
@@ -3767,7 +3768,7 @@ function ChantsPageContent() {
                                       {isChampion && <span className="text-gold/50 font-mono text-xs shrink-0 pt-0.5">&#9733;</span>}
                                       <div className="flex-1 min-w-0">
                                         {isChampion && <div className="text-[9px] font-mono text-gold/50 uppercase tracking-wider mb-0.5">Winner</div>}
-                                        <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple')}`}>{idea.text}</div>
+                                        <div className={`text-sm font-serif leading-snug ${isChampion ? (isIdeaDocked ? 'text-gold' : 'text-gold/80') : (isIdeaDocked ? 'text-purple' : 'text-purple')}`}><LinkifiedText text={idea.text} /></div>
                                         <div className={`text-xs mt-0.5 ${isChampion ? 'text-gold/40' : 'text-purple/70'}`}>{idea.author?.name || 'Member'} &middot; {idea.totalXP}xp</div>
                                       </div>
                                       <div className="flex flex-col items-center gap-0.5 shrink-0 relative">

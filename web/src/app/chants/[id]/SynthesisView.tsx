@@ -7,6 +7,7 @@ import Link from 'next/link'
 import type { ChantStatus } from '@/types/chant-simulator'
 import SynthesisCell from './SynthesisCell'
 import ShareMenu from '@/components/ShareMenu'
+import LinkifiedText from '@/components/LinkifiedText'
 
 interface AuditMessage {
   id: string
@@ -354,7 +355,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
                     <div className="flex items-start gap-1.5">
                       <span className="text-[10px] font-mono text-muted shrink-0">#{i + 1}</span>
                       <div className="min-w-0 flex-1">
-                        <p className="text-foreground leading-snug">{idea.text}</p>
+                        <p className="text-foreground leading-snug"><LinkifiedText text={idea.text} /></p>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-[9px] text-muted">{idea.author.name}</span>
                           {idea.totalXP > 0 && (

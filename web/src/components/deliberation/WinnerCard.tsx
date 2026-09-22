@@ -2,6 +2,7 @@
 
 import { getDisplayName } from '@/lib/user'
 import CopyButton from './CopyButton'
+import LinkifiedText from '@/components/LinkifiedText'
 import type { Idea } from './types'
 
 export default function WinnerCard({
@@ -24,7 +25,7 @@ export default function WinnerCard({
         {voteStats && <span className="text-xs text-success/70">{voteStats}</span>}
       </div>
       <div className="p-3">
-        <p className="text-foreground font-medium text-base leading-snug select-text">{winner.text}</p>
+        <p className="text-foreground font-medium text-base leading-snug select-text"><LinkifiedText text={winner.text} /></p>
         <div className="flex justify-end mt-1.5">
           <CopyButton text={winner.text} />
         </div>

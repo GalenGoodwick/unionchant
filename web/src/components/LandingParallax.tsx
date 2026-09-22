@@ -450,7 +450,7 @@ export default function LandingParallax() {
       {/* ── FOOTER ── */}
       <footer className="relative z-[2] bg-header text-white/25 py-6">
         <div className="max-w-[800px] mx-auto px-6 text-center text-sm">
-          &copy; 2026 Unity Chant LLC. Licensed under the <a href="https://github.com/GalenGoodwick/unionchant/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">Unity Chant License v1.0</a>.
+          &copy; 2026 Unity Chant LLC. Open source, released as a governance contribution to humanity under the <a href="https://github.com/GalenGoodwick/unionchant/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-accent hover:text-accent-hover underline">MIT License</a>.
         </div>
       </footer>
     </>
