@@ -24,6 +24,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!text?.trim()) {
       return NextResponse.json({ error: 'text is required' }, { status: 400 })
     }
+    if (text.trim().length > 500) {
+      return NextResponse.json({ error: 'Idea too long (max 500 characters)' }, { status: 400 })
+    }
 
     // Content moderation
     const mod = moderateContent(text)
