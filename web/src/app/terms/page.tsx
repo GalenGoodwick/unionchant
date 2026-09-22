@@ -56,9 +56,24 @@ export default function TermsPage() {
           </section>
 
           <section className="mb-8">
-            <h2 className="text-xl font-semibold text-foreground mb-3">5. Open Source Content</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-3">5. Open Source</h2>
             <p className="text-subtle mb-4">
-              <strong className="text-foreground">All content submitted to public deliberations is open source.</strong>{' '}
+              <strong className="text-foreground">Unity Chant is fully open source, released as a governance contribution to humanity.</strong>{' '}
+              The software that powers this Service — the voting engine, the deliberation logic, and the platform
+              itself — is licensed under the{' '}
+              <a href="https://opensource.org/license/mit" className="text-accent hover:text-accent-hover" target="_blank" rel="noopener noreferrer">
+                MIT License
+              </a>{' '}
+              and is free for anyone to use, study, modify, deploy, and build on, including commercially, with no
+              fee and no strings attached. The mechanisms of collective decision-making should belong to everyone.
+              Our business is in implementations — hosted platforms, API access, organization-specific deployments,
+              and custom integrations — never the engine itself.{' '}
+              <a href="https://github.com/GalenGoodwick/unionchant" className="text-accent hover:text-accent-hover" target="_blank" rel="noopener noreferrer">
+                View the source on GitHub
+              </a>.
+            </p>
+            <p className="text-subtle mb-4">
+              <strong className="text-foreground">All content submitted to public deliberations is also open.</strong>{' '}
               By submitting ideas, votes, or comments to a public deliberation, you agree that this content
               becomes a public contribution to collective decision-making and is freely available for anyone
               to view, reference, build upon, and redistribute.

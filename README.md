@@ -8,6 +8,29 @@ Built for cities, cooperatives, platforms, and organizations needing legitimate 
 
 ---
 
+## Open Source — A Governance Contribution to Humanity
+
+**Unity Chant is fully open source, licensed under the [MIT License](LICENSE).**
+
+The mechanisms of collective decision-making should belong to everyone. The
+voting engine, the deliberation logic, and the whole platform are free to use,
+study, modify, deploy, and build on — **including commercially, with no fee and
+no strings attached.** We offer it as a governance contribution to humanity.
+
+Our business is in the *implementations*, not the engine: hosted platforms, API
+access, organization-specific databases, custom web functionality, and
+integrations. The code itself is, and remains, free.
+
+**An invitation (not a requirement):** operators are warmly invited to join the
+**Global Unity Events** — periodic worldwide deliberations in which Unity Chant
+deployments merge into one global conversation. It is an invitation, never a
+condition of the license.
+
+*(Note: content submitted to public deliberations on the hosted platform is
+dedicated to the public domain under CC0 — see the [Terms of Service](https://unionchant.vercel.app/terms).)*
+
+---
+
 ## For New Sessions - Start Here
 
 **If you're a new Claude session picking up this project, read:**

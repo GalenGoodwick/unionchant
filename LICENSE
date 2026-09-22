@@ -1,66 +1,39 @@
-Unity Chant License
-Version 1.0, February 2026
+Unity Chant is released as a governance contribution to humanity.
 
-Copyright (c) 2026 Unity Chant LLC. All rights reserved.
+The mechanisms of collective decision-making should belong to everyone.
+This software — the voting engine, the deliberation logic, the whole
+platform — is free for anyone to use, study, modify, deploy, and build
+on, including commercially, with no fee and no strings attached. Our
+work is in the implementations: hosted platforms, API access,
+organization-specific deployments, and custom integrations.
 
-TERMS AND CONDITIONS
+You are warmly invited — never required — to join the Global Unity
+Events: periodic worldwide deliberations in which Unity Chant
+deployments merge into one global conversation. It is an invitation,
+not a condition of this license.
 
-1. GRANT OF USE
+Licensed under the MIT License.
 
-   Permission is hereby granted to use, deploy, and run this software
-   ("Unity Chant") subject to the conditions below. No permission is
-   granted to copy, modify, merge, publish, distribute, sublicense,
-   or sell copies of this software without prior written consent from
-   Unity Chant LLC.
+-------------------------------------------------------------------------------
 
-2. UNITY CLAUSE
+MIT License
 
-   Any organization, entity, or individual that deploys this software
-   for use by others ("Operator") must participate in TWO worldwide
-   temporary platform mergers per calendar year ("Global Unity Events").
+Copyright (c) 2026 Unity Chant LLC
 
-   Global Unity Events are coordinated deliberations in which ALL users
-   across ALL deployments of Unity Chant worldwide are invited to
-   participate together as a single unified platform.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-   Each Global Unity Event:
-   (a) Temporarily merges all Unity Chant deployments into one global deliberation;
-   (b) Is open to every registered user across all participating platforms;
-   (c) Uses the deliberation and voting mechanisms provided by this software;
-   (d) Addresses a question or decision relevant to the global community.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-   The two events should be spaced approximately six months apart.
-   Operators must integrate with the global federation protocol and
-   enable their users to participate in these cross-platform events.
-
-   Failure to participate in Global Unity Events constitutes a breach of
-   this license and terminates the Operator's right to use the software.
-
-3. RESTRICTIONS
-
-   You may not:
-   (a) Remove or alter this license or any copyright notices;
-   (b) Use this software to build a competing product or service;
-   (c) Reverse engineer, decompile, or disassemble the software;
-   (d) Claim authorship or ownership of this software.
-
-4. CONTRIBUTIONS
-
-   Any contributions submitted to this project are assigned to
-   Unity Chant LLC and become subject to this license.
-
-5. DISCLAIMER OF WARRANTY
-
-   THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
-   IN NO EVENT SHALL UNION CHANT LLC BE LIABLE FOR ANY CLAIM, DAMAGES,
-   OR OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
-
-6. TERMINATION
-
-   This license terminates automatically if you fail to comply with
-   any of its terms. Upon termination, you must cease all use of the
-   software and destroy all copies in your possession.
-
-For licensing inquiries: contact@unitychant.com
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
