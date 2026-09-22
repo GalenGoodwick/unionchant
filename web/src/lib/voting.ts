@@ -702,7 +702,13 @@ export async function processCellResults(cellId: string, isTimeout = false) {
     const maxXP = Math.max(...Object.values(xpTotals), 0)
 
     if (maxXP === 0) {
-      winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
+      // Empty cell — no usable vote signal. Pick ONE winner at random so the
+      // funnel stays monotone (N→1) instead of advancing every idea (which
+      // cascades into phantom tiers). Rare: only when a cell is force-completed
+      // with zero scoring votes.
+      const ideaIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
+      winnerIds = [ideaIds[Math.floor(Math.random() * ideaIds.length)]]
+      console.log(`Cell ${cellId}: no vote signal, random winner ${winnerIds[0]} of ${ideaIds.length} ideas`)
     } else {
       const qualifiedIdeas = Object.entries(xpTotals).filter(([, total]) => total >= minXPToAdvance)
 
@@ -710,16 +716,17 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
         console.log(`Cell ${cellId}: No ideas met ${minXPToAdvance} XP threshold with ${numVoters} voter(s), all advance`)
       } else {
-        // Sort by XP descending, break ties deterministically by idea ID
-        const sorted = qualifiedIdeas.sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
-        // Winner is the single top idea (deterministic on ties)
-        winnerIds = [sorted[0][0]]
+        // Winner(s) = all ideas tied at the top XP. Usually one; a true tie
+        // advances all tied (harmless — the next tier re-batches from the live
+        // ADVANCING pool, so an extra idea just widens a batch).
+        const topXP = Math.max(...qualifiedIdeas.map(([, total]) => total))
+        winnerIds = qualifiedIdeas.filter(([, total]) => total === topXP).map(([id]) => id)
       }
-
-      loserIds = cell.ideas
-        .map((ci: { ideaId: string }) => ci.ideaId)
-        .filter((id: string) => !winnerIds.includes(id))
     }
+
+    loserIds = cell.ideas
+      .map((ci: { ideaId: string }) => ci.ideaId)
+      .filter((id: string) => !winnerIds.includes(id))
 
     await prisma.idea.updateMany({
       where: { id: { in: winnerIds } },
@@ -769,14 +776,20 @@ export async function processCellResults(cellId: string, isTimeout = false) {
           tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
         }
 
-        const sorted = Object.entries(tally).sort(([idA, a], [idB, b]) => b - a || idA.localeCompare(idB))
-        const batchWinnerId = sorted.length > 0
-          ? sorted[0][0]
-          : batchIdeaIds.sort()[0]  // deterministic fallback
+        // Winner(s) = all ideas tied at the top of the cross-cell XP tally.
+        // Usually one; a true tie advances all tied (the next tier re-batches
+        // from the live ADVANCING pool, so an extra idea is harmless).
+        const tallied = Object.entries(tally)
+        if (tallied.length === 0) {
+          // No votes across the whole batch — random single winner (empty rule).
+          winnerIds = [batchIdeaIds[Math.floor(Math.random() * batchIdeaIds.length)]]
+        } else {
+          const topXP = Math.max(...tallied.map(([, total]) => total))
+          winnerIds = tallied.filter(([, total]) => total === topXP).map(([id]) => id)
+        }
 
-        if (batchWinnerId) {
-          winnerIds = [batchWinnerId]
-          loserIds = batchIdeaIds.filter((id: string) => id !== batchWinnerId)
+        if (winnerIds.length > 0) {
+          loserIds = batchIdeaIds.filter((id: string) => !winnerIds.includes(id))
 
           await prisma.idea.updateMany({
             where: { id: { in: winnerIds } },
@@ -804,7 +817,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
           }
 
           const batchLabel = cell.batchId ? `batchId: ${cell.batchId}` : `batch: ${cell.batch ?? 0}`
-          console.log(`processCellResults: ${batchLabel} cross-cell tally — winner: ${batchWinnerId} (${tally[batchWinnerId] || 0} XP), ${batchCells.length} cells`)
+          console.log(`processCellResults: ${batchLabel} cross-cell tally — winner(s): ${winnerIds.join(',')}, ${batchCells.length} cells`)
         }
       }
     }

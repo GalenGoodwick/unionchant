@@ -47,7 +47,7 @@ describe('processCellResults', () => {
     }
   })
 
-  it('no votes (timeout) → all ideas advance', async () => {
+  it('no votes (timeout) → one random winner advances, rest eliminated', async () => {
     const users = await createTestUsers(10, 'pcr2')
     const { deliberation } = await createTestDeliberation({
       prefix: 'pcr2',
@@ -60,13 +60,16 @@ describe('processCellResults', () => {
     const cells = await getCellsAtTier(deliberation.id, 1)
     const cell = cells[0]
 
-    // Process without any votes (simulating timeout)
-    const result = await processCellResults(cell.id, true)
+    // First timeout on an empty cell extends the deadline once (grace) and returns null.
+    const first = await processCellResults(cell.id, true)
+    expect(first).toBeNull()
 
+    // Second timeout force-completes: empty cell → exactly one random winner,
+    // the rest eliminated, so the funnel stays monotone (N→1).
+    const result = await processCellResults(cell.id, true)
     expect(result).not.toBeNull()
-    // All ideas should advance when no votes
-    expect(result!.winnerIds.length).toBe(cell.ideas.length)
-    expect(result!.loserIds.length).toBe(0)
+    expect(result!.winnerIds.length).toBe(1)
+    expect(result!.loserIds.length).toBe(cell.ideas.length - 1)
   })
 
   it('tied votes → multiple winners', async () => {

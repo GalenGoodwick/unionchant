@@ -18,6 +18,19 @@ if (!looksLikeTestDb) {
 
 import { vi } from 'vitest'
 
+// Mock email — NEVER hit Resend during tests. Tier/champion paths call
+// sendEmailToDeliberation, which would fire real Resend sends to the fake
+// @vitest.local test addresses (hard bounces that ding sender reputation).
+vi.mock('@/lib/email', () => ({
+  sendEmail: vi.fn().mockResolvedValue(false),
+  sendEmailToDeliberation: vi.fn().mockResolvedValue(0),
+}))
+
+// Mock outbound webhooks — don't POST to any endpoint during tests.
+vi.mock('@/lib/webhooks', () => ({
+  fireWebhookEvent: vi.fn().mockResolvedValue(undefined),
+}))
+
 // Mock push notifications — don't send real notifications during tests
 vi.mock('@/lib/push', () => ({
   sendPushToDeliberation: vi.fn().mockResolvedValue([]),
