@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { startVotingPhase, tryCreateContinuousFlowCell } from '@/lib/voting'
 import { moderateContent } from '@/lib/moderation'
+import { MAX_IDEA_LENGTH } from '@/lib/limits'
 import { checkDeliberationAccess } from '@/lib/privacy'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { isTempUser } from '@/lib/auth'
@@ -139,8 +140,8 @@ export async function POST(
     if (!text?.trim()) {
       return NextResponse.json({ error: 'Idea text is required' }, { status: 400 })
     }
-    if (text.trim().length > 500) {
-      return NextResponse.json({ error: 'Idea too long (max 500 characters)' }, { status: 400 })
+    if (text.trim().length > MAX_IDEA_LENGTH) {
+      return NextResponse.json({ error: `Idea too long (max ${MAX_IDEA_LENGTH} characters)` }, { status: 400 })
     }
 
     // Content moderation

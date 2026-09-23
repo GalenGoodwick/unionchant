@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { MAX_IDEA_LENGTH } from '@/lib/limits'
 import type { ChantStatus } from '@/types/chant-simulator'
 import SynthesisCell from './SynthesisCell'
 import ShareMenu from '@/components/ShareMenu'
@@ -234,7 +235,7 @@ export default function SynthesisView({ id, status, fetchStatus }: SynthesisView
                 value={ideaText}
                 onChange={e => setIdeaText(e.target.value)}
                 placeholder="Your idea for synthesis..."
-                maxLength={500}
+                maxLength={MAX_IDEA_LENGTH}
                 rows={2}
                 className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors resize-none"
               />

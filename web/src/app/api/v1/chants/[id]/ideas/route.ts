@@ -3,6 +3,7 @@ import { verifyApiKey, requireScope } from '../../../auth'
 import { v1RateLimit } from '../../../rate-limit'
 import { prisma } from '@/lib/prisma'
 import { moderateContent } from '@/lib/moderation'
+import { MAX_IDEA_LENGTH } from '@/lib/limits'
 import { tryCreateContinuousFlowCell } from '@/lib/voting'
 import { startVotingPhase } from '@/lib/voting'
 import { fireWebhookEvent } from '@/lib/webhooks'
@@ -24,8 +25,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!text?.trim()) {
       return NextResponse.json({ error: 'text is required' }, { status: 400 })
     }
-    if (text.trim().length > 500) {
-      return NextResponse.json({ error: 'Idea too long (max 500 characters)' }, { status: 400 })
+    if (text.trim().length > MAX_IDEA_LENGTH) {
+      return NextResponse.json({ error: `Idea too long (max ${MAX_IDEA_LENGTH} characters)` }, { status: 400 })
     }
 
     // Content moderation

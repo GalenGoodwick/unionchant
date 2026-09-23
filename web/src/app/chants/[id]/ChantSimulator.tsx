@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation'
 import CopyButton from '@/components/deliberation/CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
 import LinkifiedText from '@/components/LinkifiedText'
+import { MAX_IDEA_LENGTH } from '@/lib/limits'
 import FrameLayout from '@/components/FrameLayout'
 import ShareMenu from '@/components/ShareMenu'
 import FirstVisitTooltip from '@/components/FirstVisitTooltip'
@@ -1342,7 +1343,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                       value={ideaText}
                       onChange={(e) => setIdeaText(e.target.value)}
                       disabled={submitting}
-                      maxLength={500}
+                      maxLength={MAX_IDEA_LENGTH}
                       className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground placeholder-muted/50 focus:outline-none focus:border-accent transition-colors disabled:opacity-50"
                     />
                     <button
@@ -1352,6 +1353,9 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                     >
                       Submit
                     </button>
+                  </div>
+                  <div className={`mt-1 text-right text-[11px] ${ideaText.length >= MAX_IDEA_LENGTH ? 'text-warning' : 'text-muted'}`}>
+                    {ideaText.length}/{MAX_IDEA_LENGTH}
                   </div>
                   {submitError && <p className="text-error text-xs mt-2">{submitError}</p>}
                   {submitSuccess && <p className="text-success text-xs mt-2">Idea submitted!</p>}
