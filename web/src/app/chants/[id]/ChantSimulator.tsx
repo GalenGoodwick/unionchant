@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import CopyButton from '@/components/deliberation/CopyButton'
 import FlaggedBadge from '@/components/FlaggedBadge'
+import LinkifiedText from '@/components/LinkifiedText'
 import FrameLayout from '@/components/FrameLayout'
 import ShareMenu from '@/components/ShareMenu'
 import FirstVisitTooltip from '@/components/FirstVisitTooltip'
@@ -745,7 +746,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
           return (
             <div className="mb-3 p-3 bg-success/8 border border-success/20 rounded-lg">
               <p className="text-[11px] text-success font-bold mb-0.5 uppercase tracking-wide">Winner Declared</p>
-              <p className="text-foreground font-medium text-sm select-text">{status.champion.text}</p>
+              <p className="text-foreground font-medium text-sm select-text"><LinkifiedText text={status.champion.text} /></p>
               <div className="flex items-center justify-between mt-0.5">
                 <p className="text-xs text-muted">by {status.champion.author.name} &middot; {status.champion.totalXP} XP</p>
                 <CopyButton text={status.champion.text} />
@@ -1166,7 +1167,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                   {votingIdeas.map((idea) => (
                     <div key={idea.id}>
                       <div className="flex justify-between items-start mb-1">
-                        <p className="text-sm text-foreground flex-1 mr-2">{idea.text}</p>
+                        <p className="text-sm text-foreground flex-1 mr-2"><LinkifiedText text={idea.text} /></p>
                         <span className="text-sm font-mono font-bold text-accent min-w-[2ch] text-right">
                           {allocations[idea.id] || 0}
                         </span>
@@ -1372,7 +1373,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                           className="w-full p-2.5 text-left flex items-start justify-between gap-2 hover:bg-surface/80 transition-colors"
                         >
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm text-foreground">{idea.text}</p>
+                            <p className="text-sm text-foreground"><LinkifiedText text={idea.text} /></p>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {idea.totalXP > 0 && (
@@ -1553,7 +1554,7 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
 
                         {/* Body: selectable text + copy button */}
                         <div className="p-3">
-                          <p className="text-sm text-foreground leading-snug select-text">{idea.text}</p>
+                          <p className="text-sm text-foreground leading-snug select-text"><LinkifiedText text={idea.text} /></p>
                           <div className="flex justify-end mt-1.5">
                             <CopyButton text={idea.text} />
                           </div>
