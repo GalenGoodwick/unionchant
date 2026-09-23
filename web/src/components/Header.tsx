@@ -74,7 +74,7 @@ export default function Header() {
           </div>
 
           {/* Center nav */}
-          <nav className="flex-1 flex justify-center items-center gap-1 sm:gap-2">
+          <nav className="hidden sm:flex flex-1 justify-center items-center gap-1 sm:gap-2">
             {[
               { href: '/stream', label: 'Stream' },
               { href: '/sdk', label: 'SDK' },
@@ -113,7 +113,7 @@ export default function Header() {
           </nav>
 
           {/* Right: sign in + toggle */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto">
             {!session && (
               <Link
                 href="/auth/signin"

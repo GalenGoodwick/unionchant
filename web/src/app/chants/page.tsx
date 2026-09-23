@@ -1811,7 +1811,7 @@ function ChantsPageContent() {
                 ) : activeTab === 'chants' ? (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {(['new', 'hot', 'top'] as const).map(s => (
+                      {(['new', 'hot'] as const).map(s => (
                         <button key={s} data-interactive onClick={() => setSortBy(s)}
                           className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-purple/15 text-purple border border-purple/30' : 'text-purple/60 hover:text-purple border border-transparent'}`}
                         >{s}</button>
@@ -1830,7 +1830,7 @@ function ChantsPageContent() {
                 ) : activeTab === 'podiums' ? (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {(['new', 'hot', 'top'] as const).map(s => (
+                      {(['new', 'hot'] as const).map(s => (
                         <button key={s} data-interactive onClick={() => setSortBy(s)}
                           className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-[#a78bfa]/15 text-[#a78bfa] border border-[#a78bfa]/30' : 'text-[#a78bfa]/60 hover:text-[#a78bfa] border border-transparent'}`}
                         >{s}</button>
@@ -1849,7 +1849,7 @@ function ChantsPageContent() {
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {(['new', 'hot', 'top'] as const).map(s => (
+                      {(['new', 'hot'] as const).map(s => (
                         <button key={s} data-interactive onClick={() => setSortBy(s)}
                           className={`px-2.5 py-1 rounded text-xs font-mono uppercase tracking-wider transition-colors ${sortBy === s ? 'bg-[#fbbf24]/15 text-[#fbbf24] border border-[#fbbf24]/30' : 'text-[#fbbf24]/60 hover:text-[#fbbf24] border border-transparent'}`}
                         >{s}</button>
