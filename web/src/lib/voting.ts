@@ -567,6 +567,21 @@ async function startVotingPhaseFCFS(deliberationId: string, deliberation: any) {
 /**
  * Process cell results and handle tier completion
  */
+/**
+ * Resolve the winners of a top-tie.
+ * - 1 or 2 ideas tied at the top: all advance (harmless — a 2-way tie just
+ *   re-batches into the next tier and sorts itself out).
+ * - 3 or more tied: collapse to ONE random winner, so a wide tie can't balloon
+ *   the funnel and stall the tournament. Random keeps it impartial across the
+ *   tied ideas (they scored identically, so there is no signal to prefer one).
+ */
+export function resolveTiedWinners(tiedIds: string[]): string[] {
+  if (tiedIds.length >= 3) {
+    return [tiedIds[Math.floor(Math.random() * tiedIds.length)]]
+  }
+  return tiedIds
+}
+
 export async function processCellResults(cellId: string, isTimeout = false) {
   // If timeout with zero votes, extend once then force-complete
   if (isTimeout) {
@@ -716,11 +731,11 @@ export async function processCellResults(cellId: string, isTimeout = false) {
         winnerIds = cell.ideas.map((ci: { ideaId: string }) => ci.ideaId)
         console.log(`Cell ${cellId}: No ideas met ${minXPToAdvance} XP threshold with ${numVoters} voter(s), all advance`)
       } else {
-        // Winner(s) = all ideas tied at the top XP. Usually one; a true tie
-        // advances all tied (harmless — the next tier re-batches from the live
-        // ADVANCING pool, so an extra idea just widens a batch).
+        // Winner(s) = ideas tied at the top XP. 1 or 2 advance as-is; a tie of
+        // 3+ collapses to one random winner (see resolveTiedWinners).
         const topXP = Math.max(...qualifiedIdeas.map(([, total]) => total))
-        winnerIds = qualifiedIdeas.filter(([, total]) => total === topXP).map(([id]) => id)
+        const topIds = qualifiedIdeas.filter(([, total]) => total === topXP).map(([id]) => id)
+        winnerIds = resolveTiedWinners(topIds)
       }
     }
 
@@ -776,16 +791,16 @@ export async function processCellResults(cellId: string, isTimeout = false) {
           tally[vote.ideaId] = (tally[vote.ideaId] || 0) + vote.xpPoints
         }
 
-        // Winner(s) = all ideas tied at the top of the cross-cell XP tally.
-        // Usually one; a true tie advances all tied (the next tier re-batches
-        // from the live ADVANCING pool, so an extra idea is harmless).
+        // Winner(s) = ideas tied at the top of the cross-cell XP tally. 1 or 2
+        // advance as-is; a tie of 3+ collapses to one random (resolveTiedWinners).
         const tallied = Object.entries(tally)
         if (tallied.length === 0) {
           // No votes across the whole batch — random single winner (empty rule).
           winnerIds = [batchIdeaIds[Math.floor(Math.random() * batchIdeaIds.length)]]
         } else {
           const topXP = Math.max(...tallied.map(([, total]) => total))
-          winnerIds = tallied.filter(([, total]) => total === topXP).map(([id]) => id)
+          const topIds = tallied.filter(([, total]) => total === topXP).map(([id]) => id)
+          winnerIds = resolveTiedWinners(topIds)
         }
 
         if (winnerIds.length > 0) {
