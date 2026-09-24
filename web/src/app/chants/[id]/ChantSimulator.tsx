@@ -1932,12 +1932,12 @@ export default function ChantSimulator({ id, authToken }: { id: string; authToke
                 <div className="border-t border-border pt-3 mt-3">
                   <ManageAction
                     label="⚠️ Force Next Tier (Emergency)"
-                    description="Use only if cells are stuck. Warning: Cells with zero votes will pass ALL ideas forward, bypassing elimination. Only force if you accept this consequence."
+                    description="Resolves every still-voting cell right now from the votes already in. A cell with zero votes advances one idea at random. Use if a tier is stuck waiting on stragglers."
                     color="bg-error hover:bg-error-hover"
                     disabled={actionLoading === 'force-tier'}
                     loading={actionLoading === 'force-tier'}
                     onClick={() => {
-                      if (!confirm('Force advance to next tier?\n\nWARNING: Cells with zero votes will advance ALL ideas (no elimination). This bypasses adversarial consensus.\n\nOnly proceed if cells are stuck and you accept this consequence.')) return
+                      if (!confirm('Force advance to next tier?\n\nEvery still-voting cell is resolved now from the votes already cast. A cell with zero votes advances one idea at random.\n\nUse only if a tier is stuck waiting on people who won’t vote.')) return
                       setActionLoading('force-tier')
                       setActionError('')
                       setActionSuccess('')
