@@ -87,6 +87,13 @@ export async function POST(
       return NextResponse.json({ error: 'Submissions are closed' }, { status: 400 })
     }
 
+    // Non-continuous chants: once voting starts, no new ideas. submissionsClosed
+    // isn't set until tier 2, so guard the phase directly (fixes ideas landing
+    // during tier-1 voting). Continuous-flow chants accept ideas during voting.
+    if (deliberation.phase !== 'SUBMISSION' && !deliberation.continuousFlow) {
+      return NextResponse.json({ error: 'Voting has started — submissions are closed' }, { status: 400 })
+    }
+
     // Idea goal hard cap: reject new submissions once the goal is reached (non-continuous only)
     if (deliberation.ideaGoal && !deliberation.continuousFlow && deliberation.phase === 'SUBMISSION') {
       const currentCount = await prisma.idea.count({
