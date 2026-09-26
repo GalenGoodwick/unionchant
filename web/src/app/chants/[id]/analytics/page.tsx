@@ -565,7 +565,15 @@ export default function AnalyticsPage() {
                       <div className="flex items-center gap-3 flex-wrap">
                         <span className="font-mono text-sm font-bold text-accent">{cell.id.slice(0, 8)}</span>
                         <span className="text-xs text-muted bg-background px-2 py-0.5 rounded">Tier {cell.tier}</span>
-                        <span className="text-xs text-muted">{cell.participants.length} participants</span>
+                        {(() => {
+                          const voted = cell.participants.filter(p => p.status === 'VOTED').length
+                          const allIn = voted === cell.participants.length && voted > 0
+                          return (
+                            <span className={`text-xs font-mono font-bold ${allIn ? 'text-success' : 'text-warning'}`}>
+                              {voted}/{cell.participants.length} voted
+                            </span>
+                          )
+                        })()}
                         <span className="text-xs text-muted">{cell.commentCount} comments</span>
                         {cell.duration && <span className="text-xs text-muted font-mono">{cell.duration}m</span>}
                       </div>
@@ -574,13 +582,19 @@ export default function AnalyticsPage() {
                     {isExpanded && (
                       <div className="border-t border-border">
                         <div className="p-4 border-b border-border">
-                          <p className="text-xs text-muted uppercase tracking-wider mb-2">Participants</p>
+                          <p className="text-xs text-muted uppercase tracking-wider mb-2">Participants — <span className="text-success">voted</span> vs <span className="text-warning">waiting</span></p>
                           <div className="flex flex-wrap gap-2">
-                            {cell.participants.map((p, i) => (
-                              <span key={i} className="text-sm text-foreground bg-background px-2 py-1 rounded">
-                                {p.name} {p.zip && <span className="text-muted-light text-xs">({p.zip})</span>}
-                              </span>
-                            ))}
+                            {cell.participants.map((p, i) => {
+                              const voted = p.status === 'VOTED'
+                              const dropped = p.status === 'DROPPED' || p.status === 'REPLACED'
+                              return (
+                                <span key={i} className={`text-sm px-2 py-1 rounded inline-flex items-center gap-1.5 ${voted ? 'bg-success-bg text-success' : dropped ? 'bg-background text-muted-light line-through' : 'bg-background text-foreground'}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${voted ? 'bg-success' : dropped ? 'bg-muted-light' : 'bg-warning'}`} />
+                                  {p.name} {p.zip && <span className="text-muted-light text-xs">({p.zip})</span>}
+                                  <span className="text-[10px] uppercase tracking-wide opacity-70">{voted ? 'voted' : dropped ? 'left' : 'waiting'}</span>
+                                </span>
+                              )
+                            })}
                           </div>
                         </div>
                         <div className="p-4 border-b border-border">
