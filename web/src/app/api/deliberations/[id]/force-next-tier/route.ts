@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { processCellResults, checkTierCompletion } from '@/lib/voting'
+import { processCellResults, checkTierCompletion, forcePartialBatchResolution } from '@/lib/voting'
 import { tryAdvanceContinuousFlowTier } from '@/lib/continuous-flow'
 
 // POST /api/deliberations/[id]/force-next-tier
@@ -90,6 +90,14 @@ export async function POST(
           data: { currentTier: nextTier, currentTierStartedAt: new Date() },
         })
       }
+    }
+
+    // Resolve multi-cell batches from the votes now in — this is what
+    // eliminates losers via cross-cell tally. Without it, batch cells never
+    // resolve and checkTierCompletion advances the whole un-reduced pool
+    // (the "nothing eliminated, N cells created" bug). Matches advance-partial.
+    if (!deliberation.continuousFlow) {
+      await forcePartialBatchResolution(id, deliberation.currentTier)
     }
 
     // Check tier completion (creates next tier cells or declares winner)
