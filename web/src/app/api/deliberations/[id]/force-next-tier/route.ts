@@ -56,10 +56,12 @@ export async function POST(
       return NextResponse.json({ error: 'No active voting cells' }, { status: 400 })
     }
 
-    // Process all active cells with timeout=true to force completion
+    // Process all active cells with timeout=true to force completion.
+    // forceComplete=true: explicit facilitator force skips the zero-vote
+    // "extend deadline once" grace — otherwise the first press is a no-op.
     let cellsProcessed = 0
     for (const cell of deliberation.cells) {
-      await processCellResults(cell.id, true)
+      await processCellResults(cell.id, true, true)
       cellsProcessed++
     }
 

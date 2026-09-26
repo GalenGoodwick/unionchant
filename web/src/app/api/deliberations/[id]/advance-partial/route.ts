@@ -77,7 +77,7 @@ export async function POST(
     console.log(`Partial advancement: processing ${incompleteCells.length} incomplete cells`)
 
     for (const cell of incompleteCells) {
-      await processCellResults(cell.id, true)
+      await processCellResults(cell.id, true, true) // explicit force: skip zero-vote extension grace
     }
 
     // STEP 2: Force batch resolution for batches with at least 1 completed cell

@@ -582,8 +582,11 @@ export function resolveTiedWinners(tiedIds: string[]): string[] {
   return tiedIds
 }
 
-export async function processCellResults(cellId: string, isTimeout = false) {
-  // If timeout with zero votes, extend once then force-complete
+export async function processCellResults(cellId: string, isTimeout = false, forceComplete = false) {
+  // If timeout with zero votes, extend once then force-complete.
+  // forceComplete = an EXPLICIT facilitator force (Force Next Tier /
+  // advance-partial): skip the extension grace and resolve now — otherwise
+  // the facilitator's first press silently extends deadlines and does nothing.
   if (isTimeout) {
     const voteCount = await prisma.vote.count({ where: { cellId } })
     if (voteCount === 0) {
@@ -611,7 +614,7 @@ export async function processCellResults(cellId: string, isTimeout = false) {
 
       // If cell hasn't been extended yet, give it one more timeout period
       // completedByTimeout is repurposed here as "already extended once" flag
-      if (!cell?.completedByTimeout) {
+      if (!cell?.completedByTimeout && !forceComplete) {
         const timeoutMs = cell?.deliberation?.votingTimeoutMs
         const newDeadline = timeoutMs && timeoutMs > 0 ? new Date(Date.now() + timeoutMs) : null
         await prisma.cell.update({
