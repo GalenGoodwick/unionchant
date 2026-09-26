@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
+import QRCode from 'qrcode'
 
 type ShareMenuProps = {
   url: string
@@ -64,6 +65,37 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     }).catch(() => {})
+  }
+
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [qrBusy, setQrBusy] = useState(false)
+
+  const handleShowQr = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setQrBusy(true)
+    try {
+      // High error-correction + quiet zone so it scans off a phone screen or a print.
+      const dataUrl = await QRCode.toDataURL(fullUrl, {
+        width: 1024,
+        margin: 4,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#000000', light: '#ffffff' },
+      })
+      setQrDataUrl(dataUrl)
+      setOpen(false)
+    } catch { /* silent */ }
+    setQrBusy(false)
+  }
+
+  const handleDownloadQr = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!qrDataUrl) return
+    const a = document.createElement('a')
+    a.href = qrDataUrl
+    a.download = 'unity-chant-qr.png'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
   }
 
   const shareOptions = [
@@ -146,6 +178,17 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
         </span>
         {copied ? 'Copied!' : 'Copy Link'}
       </button>
+      <button
+        className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-surface transition-colors w-full text-left"
+        onClick={handleShowQr}
+      >
+        <span className="text-muted">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h3m0 0h3m-3 0v3m0-3v-3" />
+          </svg>
+        </span>
+        {qrBusy ? 'Generating…' : 'Show QR code'}
+      </button>
       <div className="border-t border-border/50 my-1" />
       {shareOptions.map((option) => (
           <a
@@ -160,6 +203,36 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
             {option.label}
           </a>
       ))}
+    </div>,
+    document.body
+  ) : null
+
+  const qrModal = qrDataUrl && typeof document !== 'undefined' ? createPortal(
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4"
+      onClick={() => setQrDataUrl(null)}
+    >
+      <div
+        className="bg-background border border-border rounded-xl p-5 max-w-xs w-full flex flex-col items-center gap-3"
+        onClick={e => e.stopPropagation()}
+      >
+        <img src={qrDataUrl} alt={`QR code for ${fullUrl}`} className="w-56 h-56 rounded-lg bg-white p-2" />
+        <p className="text-xs text-muted text-center break-all leading-relaxed">{fullUrl}</p>
+        <div className="flex gap-2 w-full">
+          <button
+            onClick={handleDownloadQr}
+            className="flex-1 px-3 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:bg-accent-hover transition-colors"
+          >
+            Download PNG
+          </button>
+          <button
+            onClick={() => setQrDataUrl(null)}
+            className="flex-1 px-3 py-2 rounded-lg text-sm border border-border text-foreground hover:bg-surface transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>,
     document.body
   ) : null
@@ -189,6 +262,7 @@ export default function ShareMenu({ url, text, variant = 'button', dropUp = fals
       )}
 
       {dropdown}
+      {qrModal}
     </div>
   )
 }
