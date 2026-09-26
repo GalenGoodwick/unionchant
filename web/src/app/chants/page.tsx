@@ -19,6 +19,7 @@ import AuthOverlay from '@/components/AuthOverlay'
 import WelcomeGuide from '@/components/WelcomeGuide'
 import SettingsPanel from '@/components/SettingsPanel'
 import ManagePanel from '@/components/ManagePanel'
+import AdminPanel from '@/components/AdminPanel'
 import QrCodeButton from '@/components/QrCodeButton'
 import MarkdownEditor from '@/components/MarkdownEditor'
 import LinkifiedText from '@/components/LinkifiedText'
@@ -174,9 +175,9 @@ function ChantsPageContent() {
   const [dockedIdeaId, setDockedIdeaId] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<'new' | 'hot' | 'top'>('new')
   const [searchQuery, setSearchQuery] = useState('')
-  const initialProfileView = ((): 'me' | 'manage' | 'settings' => {
+  const initialProfileView = ((): 'me' | 'manage' | 'settings' | 'admin' => {
     const v = searchParams.get('view')
-    return v === 'manage' || v === 'settings' ? v : 'me'
+    return v === 'manage' || v === 'settings' || v === 'admin' ? v : 'me'
   })()
   const [activeTab, setActiveTab] = useState<'chants' | 'podiums' | 'groups' | 'profile'>(
     searchParams.get('view') ? 'profile' : 'chants'
@@ -199,7 +200,7 @@ function ChantsPageContent() {
     recentIdeas: Array<{ id: string; text: string; status: string; deliberationId: string; question: string; createdAt: string }>
   } | null>(null)
   const [profileLoading, setProfileLoading] = useState(false)
-  const [profileView, setProfileView] = useState<'me' | 'manage' | 'settings'>(initialProfileView)
+  const [profileView, setProfileView] = useState<'me' | 'manage' | 'settings' | 'admin'>(initialProfileView)
   const [searchOpen, setSearchOpen] = useState(false)
   const [xpAllocations, setXpAllocations] = useState<Record<string, Record<string, number>>>({})
   const [nearestDrop, setNearestDrop] = useState<string | null>(null)
@@ -1880,7 +1881,7 @@ function ChantsPageContent() {
                 {activeTab === 'profile' ? (
                   <>
                     <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 overflow-x-auto">
-                      {([{ key: 'me', label: 'Me' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }] as const).map(v => (
+                      {([{ key: 'me', label: 'Me' }, { key: 'manage', label: 'Manage' }, { key: 'settings', label: 'Settings' }, ...(isAdmin ? [{ key: 'admin', label: 'Admin' }] as const : [])] as readonly { key: 'me' | 'manage' | 'settings' | 'admin'; label: string }[]).map(v => (
                         <button
                           key={v.key}
                           data-interactive
@@ -3149,7 +3150,10 @@ function ChantsPageContent() {
         ) : activeTab === 'profile' ? (
           /* PROFILE TAB */
           <div className="max-w-2xl mx-auto px-3 py-4">
-            {profileView === 'settings' || profileView === 'manage' ? (
+            {profileView === 'admin' ? (
+              /* ADMIN CONSOLE (in-panel) */
+              <AdminPanel />
+            ) : profileView === 'settings' || profileView === 'manage' ? (
               /* SETTINGS / MANAGE (in-panel) */
               needsAuth ? (
                 <div className="py-8 text-center">

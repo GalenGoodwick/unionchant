@@ -335,7 +335,7 @@ export default function ManagePanel({ onOpenChant, onOpenGroup }: {
 
       {isAdmin && (
         <a
-          href="/admin"
+          href="/?view=admin"
           className="mt-4 flex items-center justify-between bg-surface/90 backdrop-blur-sm border border-warning/30 rounded-lg px-3 py-2.5 hover:border-warning/60 transition-colors"
         >
           <span className="text-xs font-semibold text-warning">Admin Console</span>
