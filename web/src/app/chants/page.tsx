@@ -1490,6 +1490,16 @@ function ChantsPageContent() {
 
   const handleIdeaSubmit = useCallback(async () => {
     if (needsAuth) {
+      // Google sign-in is a FULL PAGE REDIRECT — React state (pendingInput,
+      // the requireAuth callback) is wiped. Stash the draft in sessionStorage
+      // so it survives the round-trip and auto-submits when they return.
+      const text = pendingInputRef.current.trim()
+      const docked = dockedPostIdRef.current
+      if (text && docked) {
+        try {
+          sessionStorage.setItem('uc_pending_idea', JSON.stringify({ text, chantId: docked }))
+        } catch { /* private mode / quota — fall back to in-page path */ }
+      }
       // Store a callback that submits directly (skips auth check on retry)
       requireAuth(async () => {
         const text = pendingInputRef.current.trim()
@@ -1499,6 +1509,7 @@ function ChantsPageContent() {
         try {
           await submitIdea(text)
           setSubmittedIdeas(prev => ({ ...prev, [docked]: text }))
+          try { sessionStorage.removeItem('uc_pending_idea') } catch {}
           setPendingInput('')
           setPendingInputType(null)
           setPendingInputTargetId(null)
@@ -1529,6 +1540,35 @@ function ChantsPageContent() {
       setSubmittingIdea(false)
     }
   }, [needsAuth, dockedPostId, pendingInput, submitIdea, submittingIdea, requireAuth])
+
+  // Restore an idea draft stashed before a full-page auth redirect (Google
+  // sign-in). Once signed in AND docked on the same chant, drop the text back
+  // into the input (and re-dock if the redirect landed us on the bare feed).
+  const restoredIdeaRef = useRef(false)
+  useEffect(() => {
+    if (restoredIdeaRef.current || needsAuth) return
+    let stash: { text: string; chantId: string } | null = null
+    try {
+      const raw = sessionStorage.getItem('uc_pending_idea')
+      if (raw) stash = JSON.parse(raw)
+    } catch { /* ignore */ }
+    if (!stash?.text || !stash.chantId) return
+
+    // If we're not docked on the chant yet, dock it and wait for the next pass.
+    if (dockedPostId !== stash.chantId) {
+      handleDock(stash.chantId)
+      return
+    }
+    // Docked on the right chant and signed in — restore the draft for review,
+    // so they just tap Submit (no surprise auto-post of stale text).
+    restoredIdeaRef.current = true
+    try { sessionStorage.removeItem('uc_pending_idea') } catch {}
+    // Drop the text back into the input for review — their words reappearing is
+    // the feedback. They tap Submit to post (no surprise auto-post of stale text).
+    setPendingInput(stash.text)
+    setPendingInputType('idea')
+    setPendingInputTargetId(stash.chantId)
+  }, [needsAuth, dockedPostId, handleDock])
 
   // ── JOIN ──
   const [joining, setJoining] = useState(false)
