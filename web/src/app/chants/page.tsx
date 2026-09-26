@@ -287,7 +287,27 @@ function ChantsPageContent() {
   }, [])
 
   // Auth overlay state
-  const [authOverlayOpen, setAuthOverlayOpen] = useState(false)
+  // /auth/signin + /auth/signup now redirect here (?signin=1) — open the
+  // overlay with any forwarded NextAuth error / verified banner / mode.
+  const authParams = (() => {
+    const err = searchParams.get('error')
+    return {
+      open: searchParams.get('signin') === '1',
+      mode: (searchParams.get('mode') === 'signup' ? 'emailSignup' : 'main') as 'main' | 'emailSignup',
+      callbackUrl: searchParams.get('callbackUrl') || undefined,
+      notice: searchParams.get('verified') ? 'Email verified! You can now sign in.' : undefined,
+      error: err
+        ? err === 'OAuthAccountNotLinked'
+          ? 'This email is already registered with a different sign-in method. Try email/password instead.'
+          : err === 'AccessDenied'
+            ? 'Access denied. Your account may be suspended.'
+            : err === 'expired-token'
+              ? 'Verification link expired. Please sign up again.'
+              : `Sign-in failed (${err}). Please try again.`
+        : undefined,
+    }
+  })()
+  const [authOverlayOpen, setAuthOverlayOpen] = useState(authParams.open)
   const [authCallbackAction, setAuthCallbackAction] = useState<(() => void) | null>(null)
 
   const requireAuth = useCallback((action: () => void) => {
@@ -4154,8 +4174,11 @@ function ChantsPageContent() {
         open={authOverlayOpen}
         onClose={() => { setAuthOverlayOpen(false); setAuthCallbackAction(null) }}
         onAuthSuccess={handleAuthSuccess}
-        callbackUrl={authCallbackUrl}
+        callbackUrl={authParams.callbackUrl || authCallbackUrl}
         tempUserId={session?.user?.isTemp ? session.user.id : undefined}
+        initialError={authParams.error}
+        initialNotice={authParams.notice}
+        initialMode={authParams.mode}
       />
 
       <style jsx global>{`

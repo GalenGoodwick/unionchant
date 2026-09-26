@@ -11,12 +11,25 @@ interface AuthOverlayProps {
   onAuthSuccess: () => void
   callbackUrl?: string
   tempUserId?: string  // Current temp account to merge after real sign-in
+  /** Pre-set error banner (e.g. forwarded NextAuth ?error= from /auth/signin) */
+  initialError?: string
+  /** Pre-set success banner (e.g. "Email verified! You can now sign in.") */
+  initialNotice?: string
+  /** Open directly in email sign-up mode (forwarded from /auth/signup) */
+  initialMode?: 'main' | 'emailSignup'
 }
 
-export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl, tempUserId }: AuthOverlayProps) {
-  const [error, setError] = useState('')
+export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl, tempUserId, initialError, initialNotice, initialMode }: AuthOverlayProps) {
+  const [error, setError] = useState(initialError || '')
+  const [notice] = useState(initialNotice || '')
   const [passkeyLoading, setPasskeyLoading] = useState(false)
   const [passkeySignupLoading, setPasskeySignupLoading] = useState(false)
+  // Sub-modes ported from the old /auth pages: forgot-password + email sign-up
+  const [mode, setMode] = useState<'main' | 'forgot' | 'emailSignup'>(initialMode === 'emailSignup' ? 'emailSignup' : 'main')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [emailLoading, setEmailLoading] = useState(false)
+  const [emailSent, setEmailSent] = useState<'' | 'reset' | 'verify'>('')
   // Name step — shown after successful in-page auth if user has no name
   const [nameStep, setNameStep] = useState(false)
   const [name, setName] = useState('')
@@ -156,6 +169,54 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
     signIn('google', { callbackUrl: callbackUrl || '/chants' })
   }
 
+  // Ported from the old /auth/signin page
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setEmailLoading(true)
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (res.ok) setEmailSent('reset')
+      else {
+        const data = await res.json().catch(() => ({}))
+        setError(data.error || 'Failed to send reset email')
+      }
+    } catch {
+      setError('Something went wrong')
+    } finally {
+      setEmailLoading(false)
+    }
+  }
+
+  // Ported from the old /auth/signup page (email + password path)
+  const handleEmailSignup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setEmailLoading(true)
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: null, email, password }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.error || 'Failed to create account')
+        return
+      }
+      // Signup always requires email verification (same as the old page)
+      setEmailSent('verify')
+    } catch {
+      setError('Something went wrong')
+    } finally {
+      setEmailLoading(false)
+    }
+  }
+
   if (!open) return null
 
   const anyLoading = passkeyLoading || passkeySignupLoading
@@ -198,11 +259,65 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
               {nameLoading ? 'Saving...' : 'Continue'}
             </button>
           </>
+        ) : mode === 'forgot' ? (
+          <>
+            <h2 className="text-lg font-bold text-foreground text-center">Reset password</h2>
+            {error && (
+              <div className="text-xs text-error text-center p-2 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>{error}</div>
+            )}
+            {emailSent === 'reset' ? (
+              <>
+                <p className="text-xs text-muted text-center">If an account exists for <strong className="text-foreground">{email}</strong>, we sent a password reset link.</p>
+                <button onClick={() => { setMode('main'); setEmailSent('') }} className="w-full text-xs text-accent hover:underline py-1">Back to sign in</button>
+              </>
+            ) : (
+              <form onSubmit={handleForgotPassword} className="space-y-2.5">
+                <p className="text-xs text-muted text-center">Enter your email to receive a reset link</p>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com"
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground text-sm focus:outline-none focus:border-accent" />
+                <button type="submit" disabled={emailLoading}
+                  className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50" style={{ backgroundColor: '#0891b2' }}>
+                  {emailLoading ? 'Sending...' : 'Send Reset Link'}
+                </button>
+                <button type="button" onClick={() => setMode('main')} className="w-full text-xs text-muted hover:text-foreground py-1">Back to sign in</button>
+              </form>
+            )}
+          </>
+        ) : mode === 'emailSignup' ? (
+          <>
+            <h2 className="text-lg font-bold text-foreground text-center">Sign up with email</h2>
+            {error && (
+              <div className="text-xs text-error text-center p-2 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>{error}</div>
+            )}
+            {emailSent === 'verify' ? (
+              <>
+                <p className="text-xs text-muted text-center">Check your email — we sent a verification link to <strong className="text-foreground">{email}</strong>.</p>
+                <button onClick={() => { setMode('main'); setEmailSent('') }} className="w-full text-xs text-accent hover:underline py-1">Back to sign in</button>
+              </>
+            ) : (
+              <form onSubmit={handleEmailSignup} className="space-y-2.5">
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com"
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground text-sm focus:outline-none focus:border-accent" />
+                <input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8} placeholder="Password (8+ characters)"
+                  className="w-full bg-surface border border-border rounded-lg px-4 py-2.5 text-foreground text-sm focus:outline-none focus:border-accent" />
+                <button type="submit" disabled={emailLoading}
+                  className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-colors disabled:opacity-50" style={{ backgroundColor: '#0891b2' }}>
+                  {emailLoading ? 'Creating...' : 'Create Account'}
+                </button>
+                <button type="button" onClick={() => setMode('main')} className="w-full text-xs text-muted hover:text-foreground py-1">Back to sign in</button>
+              </form>
+            )}
+          </>
         ) : (
           <>
             <h2 className="text-lg font-bold text-foreground text-center">Sign in to continue</h2>
             <p className="text-xs text-muted text-center">Your place is saved, you won&apos;t lose your spot</p>
 
+            {notice && (
+              <div className="text-xs text-success text-center p-2 rounded" style={{ backgroundColor: 'rgba(34, 197, 94, 0.1)' }}>
+                {notice}
+              </div>
+            )}
             {error && (
               <div className="text-xs text-error text-center p-2 rounded" style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}>
                 {error}
@@ -249,6 +364,18 @@ export default function AuthOverlay({ open, onClose, onAuthSuccess, callbackUrl,
                   Continue with Google
                 </button>
               )}
+            </div>
+
+            <div className="flex items-center justify-center gap-4">
+              <button onClick={() => { setMode('emailSignup'); setError('') }} disabled={anyLoading}
+                className="text-xs text-muted hover:text-foreground transition-colors py-1">
+                Sign up with email
+              </button>
+              <span className="text-border text-xs">·</span>
+              <button onClick={() => { setMode('forgot'); setError('') }} disabled={anyLoading}
+                className="text-xs text-muted hover:text-foreground transition-colors py-1">
+                Forgot password?
+              </button>
             </div>
 
             <button
