@@ -193,7 +193,7 @@ export default function AnalyticsPage() {
       {/* ── HEADER ── */}
       <header className="border-b border-border">
         <div className="max-w-[960px] mx-auto px-4 md:px-8 py-6">
-          <Link href={`/chants/${id}`} className="text-muted text-sm hover:text-accent transition-colors mb-4 inline-block">&larr; Back to Chant</Link>
+          <Link href={`/?dock=${id}`} className="text-muted text-sm hover:text-accent transition-colors mb-4 inline-block">&larr; Back to Chant</Link>
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div>
               <p className="text-muted text-xs uppercase tracking-[0.2em] mb-2 font-mono">Deliberation Audit Report</p>

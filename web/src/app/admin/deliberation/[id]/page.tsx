@@ -327,7 +327,7 @@ export default function AdminDeliberationPage() {
             </span>
           </div>
           <Link
-            href={`/chants/${deliberation.id}`}
+            href={`/?dock=${deliberation.id}`}
             className="text-accent hover:underline text-xs mt-1 inline-block"
           >
             View Public Page &rarr;

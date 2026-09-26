@@ -166,7 +166,7 @@ export default function PodiumPageClient() {
         {/* Linked deliberation */}
         {podium.deliberation && (
           <Link
-            href={`/chants/${podium.deliberation.id}`}
+            href={`/?dock=${podium.deliberation.id}`}
             className="block bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-3 mb-4 hover:bg-accent/15 transition-colors"
           >
             <div className="text-xs font-semibold text-accent uppercase tracking-wider mb-1">
@@ -221,7 +221,7 @@ export default function PodiumPageClient() {
               Linked Chant
             </div>
             <Link
-              href={`/chants/${podium.deliberation.id}`}
+              href={`/?dock=${podium.deliberation.id}`}
               className="block p-4 hover:bg-surface/50 transition-colors"
             >
               <div className="text-foreground font-medium mb-1">

@@ -599,7 +599,7 @@ export default function AdminTestPage() {
             <p className="text-success text-xs font-medium mb-1.5">Test Deliberation Created</p>
             <div className="flex gap-3">
               <Link
-                href={`/chants/${createdDeliberation.id}`}
+                href={`/?dock=${createdDeliberation.id}`}
                 className="text-accent hover:text-accent-hover underline text-xs"
               >
                 View Deliberation
