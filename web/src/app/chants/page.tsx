@@ -20,6 +20,7 @@ import WelcomeGuide from '@/components/WelcomeGuide'
 import SettingsPanel from '@/components/SettingsPanel'
 import ManagePanel from '@/components/ManagePanel'
 import AdminPanel from '@/components/AdminPanel'
+import { useToast } from '@/components/Toast'
 import QrCodeButton from '@/components/QrCodeButton'
 import MarkdownEditor from '@/components/MarkdownEditor'
 import LinkifiedText from '@/components/LinkifiedText'
@@ -276,6 +277,8 @@ function ChantsPageContent() {
   const [submittingVote, setSubmittingVote] = useState(false)
   const [submittingIdea, setSubmittingIdea] = useState(false)
   const [submittedIdeas, setSubmittedIdeas] = useState<Record<string, string>>({})
+  const [justSubmittedChantId, setJustSubmittedChantId] = useState<string | null>(null)
+  const { showToast } = useToast()
   const [kickedMessage, setKickedMessage] = useState(false)
 
   // Welcome guide state
@@ -1488,6 +1491,19 @@ function ChantsPageContent() {
   const dockedPostIdRef = useRef(dockedPostId)
   dockedPostIdRef.current = dockedPostId
 
+  // Shared success beat for a landed idea: gold flash + celebratory toast.
+  const onIdeaSubmitted = useCallback((chantId: string, text: string) => {
+    setSubmittedIdeas(prev => ({ ...prev, [chantId]: text }))
+    try { sessionStorage.removeItem('uc_pending_idea') } catch {}
+    setPendingInput('')
+    setPendingInputType(null)
+    setPendingInputTargetId(null)
+    setPendingDockContext(null)
+    setJustSubmittedChantId(chantId)
+    setTimeout(() => setJustSubmittedChantId(cur => (cur === chantId ? null : cur)), 1800)
+    showToast('Your idea is in!', 'celebration', 'The next round begins when the facilitator starts voting.')
+  }, [showToast])
+
   const handleIdeaSubmit = useCallback(async () => {
     if (needsAuth) {
       // Google sign-in is a FULL PAGE REDIRECT — React state (pendingInput,
@@ -1508,12 +1524,7 @@ function ChantsPageContent() {
         setSubmittingIdea(true)
         try {
           await submitIdea(text)
-          setSubmittedIdeas(prev => ({ ...prev, [docked]: text }))
-          try { sessionStorage.removeItem('uc_pending_idea') } catch {}
-          setPendingInput('')
-          setPendingInputType(null)
-          setPendingInputTargetId(null)
-          setPendingDockContext(null)
+          onIdeaSubmitted(docked, text)
         } catch (err) {
           console.error('Idea submit failed:', err)
         } finally {
@@ -1529,17 +1540,13 @@ function ChantsPageContent() {
     setSubmittingIdea(true)
     try {
       await submitIdea(text)
-      setSubmittedIdeas(prev => ({ ...prev, [dockedPostId]: text }))
-      setPendingInput('')
-      setPendingInputType(null)
-      setPendingInputTargetId(null)
-      setPendingDockContext(null)
+      onIdeaSubmitted(dockedPostId, text)
     } catch (err) {
       console.error('Idea submit failed:', err)
     } finally {
       setSubmittingIdea(false)
     }
-  }, [needsAuth, dockedPostId, pendingInput, submitIdea, submittingIdea, requireAuth])
+  }, [needsAuth, dockedPostId, pendingInput, submitIdea, submittingIdea, requireAuth, onIdeaSubmitted])
 
   // Restore an idea draft stashed before a full-page auth redirect (Google
   // sign-in). Once signed in AND docked on the same chant, drop the text back
@@ -3632,7 +3639,7 @@ function ChantsPageContent() {
                           <div>
                             {myIdeaText ? (
                               <div
-                                className={`bg-accent/10 border border-accent/30 rounded px-3 py-3 ${detail.myIdea?.id ? 'cursor-pointer' : ''}`}
+                                className={`bg-accent/10 border border-accent/30 rounded px-3 py-3 ${detail.myIdea?.id ? 'cursor-pointer' : ''} ${justSubmittedChantId === chant.id ? 'animate-idea-flash-gold' : ''}`}
                                 onClick={(e) => {
                                   if (!detail.myIdea?.id || !isPlainCardClick(e)) return
                                   enterSubspace(detail.myIdea.id); setDockedIdeaId(detail.myIdea.id)
