@@ -10,12 +10,14 @@ interface WelcomeGuideProps {
 
 const PANELS = [
   {
-    title: 'Welcome to Unity Chant',
+    title: 'What is Unity Chant?',
     body: (
       <>
+        <p className="text-[#94a3b8] text-sm leading-relaxed mb-3">
+          Unity Chant is a <span className="text-[#e2e8f0] font-semibold">mass-consensus funnel for human governance</span> — it can get a million people to agree in a day. <span className="text-[#e2e8f0] font-semibold">It isn&apos;t AI.</span>
+        </p>
         <p className="text-[#94a3b8] text-sm leading-relaxed mb-4">
-          A platform for collective decisions. Groups pose questions, everyone submits ideas,
-          small cells vote, and the strongest answer emerges.
+          It&apos;s for leaders who want to host cultural movements at scale, or groups that need to make collective decisions.
         </p>
         {/* UC logo / icon */}
         <div className="flex justify-center my-4">
@@ -31,7 +33,7 @@ const PANELS = [
     ),
   },
   {
-    title: 'Chants',
+    title: 'What is a Chant?',
     body: (
       <>
         <p className="text-[#94a3b8] text-sm leading-relaxed mb-3">
@@ -195,7 +197,7 @@ export default function WelcomeGuide({ open, onClose }: WelcomeGuideProps) {
         </h2>
 
         {/* Body */}
-        <div className="mb-6">{PANELS[step].body}</div>
+        <div className="mb-6 text-left">{PANELS[step].body}</div>
 
         {/* Progress dots */}
         <div className="flex justify-center gap-1.5 mb-5">
