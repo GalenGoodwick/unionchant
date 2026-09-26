@@ -1,5 +1,11 @@
-import DeliberationPageClient from '../DeliberationPageClientNew'
+import { redirect } from 'next/navigation'
 
-export default function V2Page() {
-  return <DeliberationPageClient />
+// Old UI (DeliberationPageClientNew) — redirect into the current docked feed.
+export default async function DeliberationV2Page({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  redirect(`/?dock=${id}`)
 }
