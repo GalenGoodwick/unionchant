@@ -1088,18 +1088,20 @@ function ChantsPageContent() {
     return []
   }, [activeTab, chants, podiums, groups])
 
-  const handleCreateSubmit = useCallback(async () => {
-    const q = createQuestion.trim()
-    if (!q || q.length < 2) { setCreateError('Question must be at least 2 characters'); return }
+  // Core create — no auth check here, so the post-sign-in retry can't loop on
+  // stale needsAuth. Gated by handleCreateSubmit below.
+  const doCreateChant = useCallback(async (q: string, desc: string) => {
     setCreating(true)
     setCreateError('')
     try {
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, description: createDescription.trim() || undefined, ...(createCommunityId ? { communityId: createCommunityId } : {}), ...(createPodiumContextId ? { podiumContextId: createPodiumContextId } : {}) }),
+        body: JSON.stringify({ question: q, description: desc || undefined, ...(createCommunityId ? { communityId: createCommunityId } : {}), ...(createPodiumContextId ? { podiumContextId: createPodiumContextId } : {}) }),
       })
       if (!res.ok) {
+        // Session expired / not signed in — prompt sign-in and retry, don't leak "Unauthorized".
+        if (res.status === 401) { requireAuth(() => { void doCreateChant(q, desc) }); return }
         const data = await res.json().catch(() => ({}))
         setCreateError(data.error || 'Failed to create chant')
         return
@@ -1141,7 +1143,16 @@ function ChantsPageContent() {
     } finally {
       setCreating(false)
     }
-  }, [createQuestion, createDescription, createCommunityId, createPodiumContextId, prependChant])
+  }, [createCommunityId, createPodiumContextId, prependChant, requireAuth])
+
+  const handleCreateSubmit = useCallback(() => {
+    const q = createQuestion.trim()
+    if (!q || q.length < 2) { setCreateError('Question must be at least 2 characters'); return }
+    const desc = createDescription.trim()
+    // Not signed in: open the sign-in overlay and create once they're in — never leak "Unauthorized".
+    if (needsAuth) { requireAuth(() => { void doCreateChant(q, desc) }); return }
+    void doCreateChant(q, desc)
+  }, [createQuestion, createDescription, needsAuth, requireAuth, doCreateChant])
 
   const handlePodiumCreateSubmit = useCallback(async () => {
     const title = createPodiumTitle.trim()
@@ -1230,19 +1241,19 @@ function ChantsPageContent() {
     }
   }, [createGroupName, createGroupDescription, createGroupPublic])
 
-  const handleGroupChantCreate = useCallback(async () => {
+  // Core group-chant create — no auth check (see doCreateChant note). Gated below.
+  const doCreateGroupChant = useCallback(async (q: string, desc: string) => {
     if (!dockedGroup) return
-    const q = groupCreateQuestion.trim()
-    if (!q || q.length < 2) { setGroupCreateError('Question must be at least 2 characters'); return }
     setGroupCreating(true)
     setGroupCreateError('')
     try {
       const res = await fetch('/api/deliberations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: q, description: groupCreateDescription.trim() || undefined, communityId: dockedGroup.id, ...(groupCreatePodiumContextId ? { podiumContextId: groupCreatePodiumContextId } : {}) }),
+        body: JSON.stringify({ question: q, description: desc || undefined, communityId: dockedGroup.id, ...(groupCreatePodiumContextId ? { podiumContextId: groupCreatePodiumContextId } : {}) }),
       })
       if (!res.ok) {
+        if (res.status === 401) { requireAuth(() => { void doCreateGroupChant(q, desc) }); return }
         const data = await res.json().catch(() => ({}))
         setGroupCreateError(data.error || 'Failed to create chant')
         return
@@ -1263,7 +1274,16 @@ function ChantsPageContent() {
     } finally {
       setGroupCreating(false)
     }
-  }, [dockedGroup, groupCreateQuestion, groupCreateDescription, groupCreatePodiumContextId, prependChant])
+  }, [dockedGroup, groupCreatePodiumContextId, prependChant, requireAuth])
+
+  const handleGroupChantCreate = useCallback(() => {
+    if (!dockedGroup) return
+    const q = groupCreateQuestion.trim()
+    if (!q || q.length < 2) { setGroupCreateError('Question must be at least 2 characters'); return }
+    const desc = groupCreateDescription.trim()
+    if (needsAuth) { requireAuth(() => { void doCreateGroupChant(q, desc) }); return }
+    void doCreateGroupChant(q, desc)
+  }, [dockedGroup, groupCreateQuestion, groupCreateDescription, needsAuth, requireAuth, doCreateGroupChant])
 
   // Dock to a chant and directly open manage mode
   const handleDockToSettings = useCallback((id: string, fromGroup?: { question: string; phase: string; community: string; _count?: { members: number; ideas: number } }) => {
