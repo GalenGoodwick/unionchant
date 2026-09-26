@@ -1689,6 +1689,25 @@ function ChantsPageContent() {
       () => paused ? 'Chant resumed' : 'Chant paused')
   }, [runManageAction, dockedPostId])
 
+  // Auto-enter a voting cell. The feed relies on balanced pre-assignment, so a
+  // member who lands on a VOTING chant without an assigned cell (joined late, or
+  // arrived via the /chants/[id] → /?dock redirect) would otherwise be stuck on
+  // "Waiting for cell assignment…" with the dockstar browse view and never get
+  // the vote slider. Enter them into a cell, once per chant+tier.
+  const enterAttemptRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!dockedPostId || dockedPostId.startsWith('podium:') || dockedPostId.startsWith('group:') || dockedPostId === '__create_chant__') return
+    if (!detail || detail.phase !== 'VOTING' || !detail.isMember || needsAuth || detail.hasVoted) return
+    const hasVotingCell = detail.cells.some(c => detail.myCellIds.includes(c.id) && c.status === 'VOTING')
+    if (hasVotingCell) return
+    const key = `${dockedPostId}:${detail.currentTier}`
+    if (enterAttemptRef.current === key) return
+    enterAttemptRef.current = key
+    fetch(`/api/deliberations/${dockedPostId}/enter`, { method: 'POST' })
+      .then(res => { if (res.ok) refreshDetail() })
+      .catch(() => {})
+  }, [dockedPostId, detail, needsAuth, refreshDetail])
+
   return (
     <DockstarGlowContext.Provider value={{ nearestDrop, isDragging: isDraggingDockstar }}>
       <div
