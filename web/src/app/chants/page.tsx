@@ -209,6 +209,7 @@ function ChantsPageContent() {
   const [manageMode, setManageMode] = useState(false)
   const [manageMsg, setManageMsg] = useState<{ type: 'error' | 'success'; text: string } | null>(null)
   const [startingVoting, setStartingVoting] = useState(false)
+  const [manageAction, setManageAction] = useState<string | null>(null)
   const [dockedPostVisible, setDockedPostVisible] = useState(true)
   const [flashDocks, setFlashDocks] = useState(false)
   const flashTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1555,6 +1556,70 @@ function ChantsPageContent() {
       setStartingVoting(false)
     }
   }, [dockedPostId, startingVoting, refreshDetail, refreshFeed])
+
+  // ── FACILITATOR CONTROLS (ported from the old UI's manage tab) ──
+  const runManageAction = useCallback(async (
+    name: string,
+    request: () => Promise<Response>,
+    successText: (data: Record<string, unknown>) => string,
+  ) => {
+    if (!dockedPostId || manageAction) return
+    setManageMsg(null)
+    setManageAction(name)
+    try {
+      const res = await request()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setManageMsg({ type: 'error', text: (data as { error?: string }).error || `Failed to ${name}` })
+        return
+      }
+      setManageMsg({ type: 'success', text: successText(data) })
+      refreshDetail()
+      refreshFeed()
+    } catch {
+      setManageMsg({ type: 'error', text: 'Network error' })
+    } finally {
+      setManageAction(null)
+    }
+  }, [dockedPostId, manageAction, refreshDetail, refreshFeed])
+
+  const handleOpenVoting = useCallback(() => {
+    runManageAction('open voting',
+      () => fetch(`/api/deliberations/${dockedPostId}/advance-discussion`, { method: 'POST' }),
+      d => `Voting opened for ${d.cellsAdvanced || 0} cells`)
+  }, [runManageAction, dockedPostId])
+
+  const handleForceNextTier = useCallback(() => {
+    if (!confirm('Force advance to next tier?\n\nEvery still-voting cell is resolved now from the votes already cast. A cell with zero votes advances one idea at random.\n\nUse only if a tier is stuck waiting on people who won’t vote.')) return
+    runManageAction('force next tier',
+      () => fetch(`/api/deliberations/${dockedPostId}/force-next-tier`, { method: 'POST' }),
+      d => `Forced ${d.cellsProcessed || 0} cells. Now at tier ${d.currentTier ?? '?'}`)
+  }, [runManageAction, dockedPostId])
+
+  const handleDeclareWinner = useCallback(() => {
+    if (!confirm('Declare the current top idea as the winner? This ends the chant.')) return
+    runManageAction('declare winner',
+      () => fetch(`/api/deliberations/${dockedPostId}/facilitate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'declare' }),
+      }),
+      () => 'Winner declared')
+  }, [runManageAction, dockedPostId])
+
+  const handleCloseSubmissions = useCallback(() => {
+    runManageAction('close submissions',
+      () => fetch(`/api/deliberations/${dockedPostId}/facilitate`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'close-subs' }),
+      }),
+      () => 'Submissions closed — voting continues')
+  }, [runManageAction, dockedPostId])
+
+  const handlePauseToggle = useCallback((paused: boolean) => {
+    runManageAction(paused ? 'resume' : 'pause',
+      () => fetch(`/api/deliberations/${dockedPostId}/manage`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phase: paused ? 'RESUME' : 'PAUSED' }),
+      }),
+      () => paused ? 'Chant resumed' : 'Chant paused')
+  }, [runManageAction, dockedPostId])
 
   return (
     <DockstarGlowContext.Provider value={{ nearestDrop, isDragging: isDraggingDockstar }}>
@@ -3844,35 +3909,91 @@ function ChantsPageContent() {
                               <svg className="w-3.5 h-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                               <span className="text-xs font-mono text-accent uppercase tracking-wider">Manage</span>
                             </div>
-                            <div className="flex items-center gap-3 mb-3 text-xs font-mono text-muted-light">
-                              <span>{fmt(detail.memberCount)} joined</span>
-                              <span>{fmt(detail.ideaCount)} ideas</span>
-                              <span>{detail.cells.length} cells</span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              {detail.phase === 'SUBMISSION' && (
-                                <button
-                                  data-interactive
-                                  onClick={handleStartVoting}
-                                  disabled={startingVoting}
-                                  className="px-2.5 py-2.5 rounded border border-warning/30 bg-warning/8 text-warning text-xs font-mono hover:bg-warning/15 transition-colors text-left disabled:opacity-50"
-                                >
-                                  {startingVoting ? 'Starting...' : detail.ideaCount < 2 ? `Start Voting (${detail.ideaCount} idea${detail.ideaCount === 1 ? '' : 's'})` : 'Start Voting'}
-                                </button>
-                              )}
-                              {detail.phase === 'VOTING' && (
-                                <button data-interactive className="px-2.5 py-2.5 rounded border border-success/30 bg-success/8 text-success text-xs font-mono hover:bg-success/15 transition-colors text-left">
-                                  Advance Tier
-                                </button>
-                              )}
-                              <ShareMenu url={`/?dock=${chant.id}`} text={chant.question} />
-                              <button data-interactive onClick={() => window.location.href = `/chants/${chant.id}/analytics`} className="px-2.5 py-2.5 rounded border border-border/40 bg-surface/50 text-muted-light text-xs font-mono hover:text-foreground hover:bg-surface transition-colors text-left">
-                                Analytics
-                              </button>
-                              <button data-interactive className="px-2.5 py-2.5 rounded border border-error/30 bg-error/8 text-error/70 text-xs font-mono hover:bg-error/15 hover:text-error transition-colors text-left">
-                                Close Chant
-                              </button>
-                            </div>
+                            {(() => {
+                              const currentTier = detail.cells.length > 0 ? Math.max(...detail.cells.map(c => c.tier)) : 0
+                              const tierCells = detail.cells.filter(c => c.tier === currentTier)
+                              const doneCells = tierCells.filter(c => c.status === 'COMPLETED').length
+                              const discussingCells = detail.cells.filter(c => c.status === 'DELIBERATING').length
+                              const isPaused = (detail.phase as string) === 'PAUSED'
+                              return (
+                                <>
+                                  <div className="flex items-center gap-3 mb-3 text-xs font-mono text-muted-light">
+                                    <span>{fmt(detail.memberCount)} joined</span>
+                                    <span>{fmt(detail.ideaCount)} ideas</span>
+                                    <span>{detail.cells.length} cells</span>
+                                    {detail.phase === 'VOTING' && currentTier > 0 && (
+                                      <span className="text-warning">T{currentTier} · {doneCells}/{tierCells.length} done</span>
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    {detail.phase === 'SUBMISSION' && (
+                                      <button
+                                        data-interactive
+                                        onClick={handleStartVoting}
+                                        disabled={startingVoting}
+                                        className="px-2.5 py-2.5 rounded border border-warning/30 bg-warning/8 text-warning text-xs font-mono hover:bg-warning/15 transition-colors text-left disabled:opacity-50"
+                                      >
+                                        {startingVoting ? 'Starting...' : detail.ideaCount < 2 ? `Start Voting (${detail.ideaCount} idea${detail.ideaCount === 1 ? '' : 's'})` : 'Start Voting'}
+                                      </button>
+                                    )}
+                                    {detail.phase === 'VOTING' && discussingCells > 0 && (
+                                      <button
+                                        data-interactive
+                                        onClick={handleOpenVoting}
+                                        disabled={!!manageAction}
+                                        className="px-2.5 py-2.5 rounded border border-blue/30 bg-blue/8 text-blue text-xs font-mono hover:bg-blue/15 transition-colors text-left disabled:opacity-50"
+                                      >
+                                        {manageAction === 'open voting' ? 'Opening...' : `Open Voting (${discussingCells} discussing)`}
+                                      </button>
+                                    )}
+                                    {detail.phase === 'VOTING' && detail.continuousFlow && (
+                                      <button
+                                        data-interactive
+                                        onClick={handleDeclareWinner}
+                                        disabled={!!manageAction}
+                                        className="px-2.5 py-2.5 rounded border border-success/30 bg-success/8 text-success text-xs font-mono hover:bg-success/15 transition-colors text-left disabled:opacity-50"
+                                      >
+                                        {manageAction === 'declare winner' ? 'Declaring...' : 'Declare Winner'}
+                                      </button>
+                                    )}
+                                    {detail.phase === 'VOTING' && detail.continuousFlow && (
+                                      <button
+                                        data-interactive
+                                        onClick={handleCloseSubmissions}
+                                        disabled={!!manageAction}
+                                        className="px-2.5 py-2.5 rounded border border-accent/30 bg-accent/8 text-accent text-xs font-mono hover:bg-accent/15 transition-colors text-left disabled:opacity-50"
+                                      >
+                                        {manageAction === 'close submissions' ? 'Closing...' : 'Close Submissions'}
+                                      </button>
+                                    )}
+                                    <ShareMenu url={`/?dock=${chant.id}`} text={chant.question} />
+                                    <button data-interactive onClick={() => window.location.href = `/chants/${chant.id}/analytics`} className="px-2.5 py-2.5 rounded border border-border/40 bg-surface/50 text-muted-light text-xs font-mono hover:text-foreground hover:bg-surface transition-colors text-left">
+                                      Analytics
+                                    </button>
+                                    {(detail.phase === 'VOTING' || detail.phase === 'SUBMISSION' || isPaused) && (
+                                      <button
+                                        data-interactive
+                                        onClick={() => handlePauseToggle(isPaused)}
+                                        disabled={!!manageAction}
+                                        className="px-2.5 py-2.5 rounded border border-warning/30 bg-warning/8 text-warning/80 text-xs font-mono hover:bg-warning/15 hover:text-warning transition-colors text-left disabled:opacity-50"
+                                      >
+                                        {manageAction === 'pause' || manageAction === 'resume' ? '...' : isPaused ? 'Resume Chant' : 'Pause Chant'}
+                                      </button>
+                                    )}
+                                    {detail.phase === 'VOTING' && (
+                                      <button
+                                        data-interactive
+                                        onClick={handleForceNextTier}
+                                        disabled={!!manageAction}
+                                        className="px-2.5 py-2.5 rounded border border-error/30 bg-error/8 text-error text-xs font-mono hover:bg-error/15 transition-colors text-left disabled:opacity-50"
+                                      >
+                                        {manageAction === 'force next tier' ? 'Forcing...' : '⚠ Force Next Tier'}
+                                      </button>
+                                    )}
+                                  </div>
+                                </>
+                              )
+                            })()}
                             {manageMsg && (
                               <div className={`mt-2 px-2.5 py-2 rounded text-xs font-mono ${manageMsg.type === 'error' ? 'bg-error/10 text-error border border-error/20' : 'bg-success/10 text-success border border-success/20'}`}>
                                 {manageMsg.text}
