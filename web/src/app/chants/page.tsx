@@ -3519,8 +3519,6 @@ function ChantsPageContent() {
                         {!chant.hasVoted && chant.hasSubmittedIdea && (
                           <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded border bg-purple/10 text-purple border-purple/30">SUBMITTED</span>
                         )}
-                        <span className="text-muted">{fmt(chant.participants)}</span>
-                        <span className="text-muted-light/40">&middot;</span>
                         <span className="text-muted">{fmt(chant.ideas)} ideas</span>
                       </div>
                       {chant.phase === 'COMPLETED' && chant.champion && !isDocked && (() => {
