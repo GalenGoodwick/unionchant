@@ -86,14 +86,18 @@ function CelebrationToast({ toast, onRemove }: { toast: Toast; onRemove: (id: st
       <div
         role="alert"
         className="pointer-events-auto bg-background border-2 border-warning rounded-2xl shadow-2xl shadow-warning/20 px-8 py-6 max-w-md w-full text-center animate-in zoom-in-95 fade-in duration-300"
-        onClick={() => onRemove(toast.id)}
       >
         <p className="text-3xl mb-2">&#9733;</p>
         <p className="text-lg font-bold text-warning">{toast.message}</p>
         {toast.subtitle && (
           <p className="text-sm text-foreground mt-2 leading-relaxed">{toast.subtitle}</p>
         )}
-        <p className="text-xs text-muted mt-3">Tap to dismiss</p>
+        <button
+          onClick={() => onRemove(toast.id)}
+          className="mt-4 px-6 py-2 rounded-lg bg-warning text-white text-sm font-semibold hover:bg-warning-hover transition-colors"
+        >
+          OK
+        </button>
       </div>
     </div>
   )

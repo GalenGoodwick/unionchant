@@ -3673,12 +3673,14 @@ function ChantsPageContent() {
                             )}
                             <div className="mt-2 text-center text-xs font-mono text-muted-light/50">{fmt(detail.ideaCount)} ideas submitted</div>
 
-                            {/* Other submitted ideas */}
-                            {detail.ideas.length > 0 && (
+                            {/* Other submitted ideas — only AFTER the user has submitted their own, capped at 3 */}
+                            {myIdeaText && (() => {
+                              const others = detail.ideas.filter(idea => idea.id !== detail.myIdea?.id).slice(0, 3)
+                              if (others.length === 0) return null
+                              return (
                               <div className="mt-3 space-y-1">
-                                {detail.ideas
-                                  .filter(idea => idea.id !== detail.myIdea?.id)
-                                  .map(idea => (
+                                <div className="text-xs font-mono text-muted-light uppercase tracking-wider mb-1.5">Here are some other ideas</div>
+                                {others.map(idea => (
                                   <div
                                     key={idea.id}
                                     className="flex items-start gap-2 rounded border border-border/20 bg-surface/50 px-2.5 py-2 cursor-pointer hover:bg-surface/80 transition-colors"
@@ -3706,7 +3708,8 @@ function ChantsPageContent() {
                                   </div>
                                 ))}
                               </div>
-                            )}
+                              )
+                            })()}
                           </div>
                           )
                         })()}
