@@ -7,10 +7,6 @@
     {
       "path": "/api/cron/process-timers",
       "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/swarm-tick",
-      "schedule": "* * * * *"
     }
   ],
   "headers": [
